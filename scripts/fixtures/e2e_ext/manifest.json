@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "E2E Test Extension",
+  "version": "1.0.0",
+  "description": "Minimal extension for browser-automation-cli e2e",
+  "background": { "service_worker": "sw.js" },
+  "action": { "default_title": "E2E Ext" },
+  "permissions": ["storage"]
+}

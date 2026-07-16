@@ -1,0 +1,28 @@
+/target/
+**/*.rs.bk
+.env
+.env.local
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*.log
+
+# Local agent / knowledge / PRD (not part of crate publish tree)
+.github/
+base_conhecimento_chrome-devtools-mcp-main/
+docs_prd/
+docs_rules/
+AGENTS.md
+CLAUDE.md
+
+# GraphRAG / enrich queue artifacts
+.enrich-queue.sqlite
+.enrich-queue.sqlite-*
+graphrag.sqlite
+graphrag.sqlite-*
+graphrag*

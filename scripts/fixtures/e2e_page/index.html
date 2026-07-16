@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<title>E2E 52 Tools Fixture</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 24px; }
+  #drag-src { width: 80px; height: 80px; background: #4a90d9; color: #fff; display:flex; align-items:center; justify-content:center; cursor: grab; }
+  #drop-zone { width: 160px; height: 100px; border: 2px dashed #333; margin-top: 12px; display:flex; align-items:center; justify-content:center; }
+  #hover-box { padding: 12px; background: #eee; display:inline-block; }
+  #status { margin-top: 16px; min-height: 1.2em; }
+</style>
+</head>
+<body>
+  <h1 id="title">E2E Fixture Page</h1>
+  <p id="hello">hello-e2e-page</p>
+
+  <form id="main-form">
+    <label>Name <input id="name" name="name" type="text" value=""/></label>
+    <label>Email <input id="email" name="email" type="email" value=""/></label>
+    <label>Color
+      <select id="color" name="color">
+        <option value="red">red</option>
+        <option value="green">green</option>
+        <option value="blue">blue</option>
+      </select>
+    </label>
+    <label><input id="agree" name="agree" type="checkbox"/> Agree</label>
+    <label><input id="plan-a" name="plan" type="radio" value="a"/> Plan A</label>
+    <label><input id="plan-b" name="plan" type="radio" value="b"/> Plan B</label>
+    <label>File <input id="file" name="file" type="file"/></label>
+    <button type="button" id="btn-click">Click Me</button>
+    <button type="button" id="btn-alert">Show Alert</button>
+    <button type="button" id="btn-confirm">Show Confirm</button>
+  </form>
+
+  <div id="hover-box">Hover target</div>
+  <div id="drag-src" draggable="true">DRAG</div>
+  <div id="drop-zone">DROP</div>
+  <div id="status"></div>
+
+  <!-- WebMCP form tool -->
+  <form toolname="echo_tool" tooldescription="Echo input via form">
+    <input name="msg" type="text" value="from-form"/>
+  </form>
+
+  <script>
+    console.log("e2e-console-info");
+    console.warn("e2e-console-warn");
+    document.getElementById("btn-click").addEventListener("click", () => {
+      document.getElementById("status").textContent = "clicked";
+    });
+    document.getElementById("btn-alert").addEventListener("click", () => {
+      alert("e2e-alert");
+      document.getElementById("status").textContent = "alerted";
+    });
+    document.getElementById("btn-confirm").addEventListener("click", () => {
+      const ok = confirm("e2e-confirm");
+      document.getElementById("status").textContent = ok ? "confirmed" : "dismissed";
+    });
+    const src = document.getElementById("drag-src");
+    const zone = document.getElementById("drop-zone");
+    src.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/plain", "drag-payload");
+    });
+    zone.addEventListener("dragover", (e) => e.preventDefault());
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.textContent = "DROPPED:" + e.dataTransfer.getData("text/plain");
+    });
+    document.getElementById("hover-box").addEventListener("mouseenter", () => {
+      document.getElementById("hover-box").dataset.hovered = "1";
+    });
+
+    // window.__webmcpTools
+    window.__webmcpTools = [
+      {
+        name: "sum_tool",
+        description: "Sum a+b",
+        execute: async (input) => {
+          const a = Number(input.a || 0);
+          const b = Number(input.b || 0);
+          return { sum: a + b };
+        }
+      }
+    ];
+
+    // Third-party developer tools discovery
+    window.addEventListener("devtoolstooldiscovery", (event) => {
+      if (typeof event.respondWith !== "function") return;
+      event.respondWith({
+        name: "e2e-3p-group",
+        description: "E2E third-party tools",
+        tools: [
+          {
+            name: "ping_3p",
+            description: "Return pong",
+            inputSchema: { type: "object", properties: { msg: { type: "string" } } },
+            execute: async (args) => ({ pong: true, msg: (args && args.msg) || "ok" })
+          }
+        ]
+      });
+    });
+  </script>
+</body>
+</html>
