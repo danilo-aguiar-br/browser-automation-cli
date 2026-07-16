@@ -1,0 +1,22 @@
+[English](llms.txt) | [Português Brasileiro](llms.pt-BR.txt)
+
+# browser-automation-cli
+
+> CLI one-shot de automação Chrome CDP para agentes de IA, sem daemon e sem telemetria.
+
+browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou Chromium do sistema via CDP, executa ações de browser do agente e depois finaliza e sai.
+
+## Documentação Primária
+- [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.pt-BR.md): landing do produto, install, comandos, env vars
+- [HOW_TO_USE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/HOW_TO_USE.pt-BR.md): primeiro comando em 60 segundos
+- [AGENTS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/AGENTS.pt-BR.md): contrato de integração para agentes
+- [COOKBOOK](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/COOKBOOK.pt-BR.md): receitas práticas
+- [INTEGRATIONS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/INTEGRATIONS.pt-BR.md): cobertura de orquestradores
+- [CROSS_PLATFORM](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CROSS_PLATFORM.pt-BR.md): matriz de plataformas
+- [MIGRATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/MIGRATION.pt-BR.md): migração de versão
+- [TESTING](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/TESTING.pt-BR.md): categorias de teste
+- [schemas](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/schemas/README.md): índice de JSON schemas
+- [SKILL pt](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skill/browser-automation-cli-pt/SKILL.md): skill imperativa
+- [CHANGELOG](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CHANGELOG.pt-BR.md): histórico de releases
+- [SECURITY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/SECURITY.pt-BR.md): reporte de vulnerabilidades
+- [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): mapa expandido de descoberta

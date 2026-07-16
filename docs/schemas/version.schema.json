@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/version.schema.json",
+  "title": "version command data",
+  "type": "object",
+  "required": ["name", "version"],
+  "properties": {
+    "name": { "const": "browser-automation-cli" },
+    "version": { "type": "string" }
+  },
+  "additionalProperties": true
+}

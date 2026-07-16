@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/run-script-step.schema.json",
+  "title": "run script NDJSON step",
+  "type": "object",
+  "required": ["cmd"],
+  "properties": {
+    "cmd": {
+      "type": "string",
+      "description": "Subcommand name such as goto, view, press, write, wait, grab"
+    },
+    "url": { "type": "string" },
+    "target": { "type": "string" },
+    "value": {},
+    "ms": { "type": "integer", "minimum": 0 },
+    "path": { "type": "string" }
+  },
+  "additionalProperties": true
+}

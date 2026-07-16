@@ -17,8 +17,8 @@ Thumbs.db
 base_conhecimento_chrome-devtools-mcp-main/
 docs_prd/
 docs_rules/
-AGENTS.md
-CLAUDE.md
+/AGENTS.md
+/CLAUDE.md
 
 # GraphRAG / enrich queue artifacts
 .enrich-queue.sqlite

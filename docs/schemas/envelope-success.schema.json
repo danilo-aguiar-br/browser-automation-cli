@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/envelope-success.schema.json",
+  "title": "browser-automation-cli success envelope",
+  "type": "object",
+  "required": ["schema_version", "ok", "data"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "ok": { "const": true },
+    "data": {}
+  },
+  "additionalProperties": true
+}

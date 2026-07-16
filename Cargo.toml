@@ -2,13 +2,17 @@
 name = "browser-automation-cli"
 version = "0.1.0"
 edition = "2021"
-description = "One-shot browser automation CLI for AI agents (Chrome CDP)"
-license = "Apache-2.0"
+rust-version = "1.88.0"
+authors = ["Danilo Aguiar <daniloaguiarbr@proton.me>"]
+license = "MIT OR Apache-2.0"
+description = "One-shot browser automation CLI for AI agents via Chrome CDP. NASCE EXECUTA FINALIZE MORRE. No daemon, no npm, no telemetry."
 readme = "README.md"
 keywords = ["browser", "automation", "ai", "cdp", "chrome"]
 categories = ["command-line-utilities", "web-programming"]
+repository = "https://github.com/danilo-aguiar-br/browser-automation-cli"
+homepage = "https://github.com/danilo-aguiar-br/browser-automation-cli"
+documentation = "https://docs.rs/browser-automation-cli"
 publish = false
-# cargo package / docs packaging exclusions (mirrors project-local ignore)
 exclude = [
     ".github/",
     "base_conhecimento_chrome-devtools-mcp-main/",
@@ -16,11 +20,18 @@ exclude = [
     "docs_rules/",
     ".enrich-queue.sqlite",
     ".enrich-queue.sqlite-*",
-    "AGENTS.md",
-    "CLAUDE.md",
+    "/AGENTS.md",
+    "/CLAUDE.md",
+    "/MEMORY.md",
     "graphrag.sqlite",
     "graphrag.sqlite-*",
     "graphrag*",
+    ".serena/",
+    ".claude/",
+    ".vscode/",
+    "logs/",
+    "memory/",
+    "skills/",
 ]
 
 [package.metadata.docs.rs]

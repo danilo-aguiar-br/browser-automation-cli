@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/envelope-error.schema.json",
+  "title": "browser-automation-cli error envelope",
+  "type": "object",
+  "required": ["schema_version", "ok", "error"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "ok": { "const": false },
+    "error": {
+      "type": "object",
+      "required": ["message"],
+      "properties": {
+        "message": { "type": "string" },
+        "kind": { "type": "string" },
+        "suggestion": { "type": "string" },
+        "exit_code": { "type": "integer" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

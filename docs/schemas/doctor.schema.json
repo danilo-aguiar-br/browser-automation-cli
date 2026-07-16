@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/doctor.schema.json",
+  "title": "doctor command data",
+  "type": "object",
+  "required": ["ok", "schema_version", "checks"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "schema_version": { "type": "integer" },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "message"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "ffmpeg_present": { "type": "boolean" },
+    "lighthouse_present": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

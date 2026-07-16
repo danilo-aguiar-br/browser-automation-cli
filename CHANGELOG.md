@@ -1,39 +1,52 @@
-# browser-automation-cli
+[English](CHANGELOG.md) | [Português Brasileiro](CHANGELOG.pt-BR.md)
 
-Notas de release do produto crates-only one-shot
-Binário: `browser-automation-cli`
-Sem daemon npm e sem BrowserFetcher embutido no MVP
+# Changelog
 
-## 0.1.0
+All notable changes to this project are documented in this file.
 
-### One-shot Chrome
-- Lançamento via `chromiumoxide::Browser::launch` com Chrome/Chromium de sistema
-- Flags de launch (`proxy`, `webgpu`, `extensions`, sandbox) aplicadas no path oxide
-- FINALIZE: close + wait + kill fallback
-- Sem attach CDP externo no path default
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### CLI
-- Comandos PRD: doctor, open/goto, extract, scrape, run, grab, view, click, fill, robots
-- Captura opcional de console e network
-- Política robots com dual-flag
+## [Unreleased]
 
-### Limpeza residual P1/P2/P3
-- `src/install.rs` slim (descoberta local apenas)
-- Removido monólito de spawn dual `launch_chrome` / `ChromeProcess`
-- Stack CDP Chrome 100% chromiumoxide
-- Zero telemetria
+### Added
+- Public bilingual documentation framework for crates packaging
+- `docs/` guides, `docs/schemas/` index, and dual-language skill packages
+- Dual license files `LICENSE-MIT` and `LICENSE-APACHE`
 
-### Paridade DevTools §5C (wave v7)
-- Flags tool-ref: include-snapshot em hover/drag/keys/upload/fill-form
-- net/console list com page-idx, page-size, filtros e include-preserved
-- eval com --args, --dialog-action, --file-path
-- perf start --auto-stop; perf insight --insight-set-id; stop emite available_insight_sets
-- screencast stop --path (.webm/.mp4 via ffmpeg)
-- heap details/class-nodes/dup-strings/edges/retainers com paginação; paths max-nodes/max-siblings
-- page new --background/--isolated-context; page select --bring-to-front
-- wait --text repetível (OR); type --focus-only
-- Gate tests/parity_toolref_schema.rs
+### Changed
+- `Cargo.toml` metadata now includes authors, repository, homepage, documentation, and MSRV
+- License declared as `MIT OR Apache-2.0`
 
-### Fora deste release (explícito)
-- PRD §5D Firecrawl (crawl/map/search), §5E MITM, §5H workflow SQLite
-- Superfície DevTools §5C inventário 52 tools está no binário one-shot
+## [0.1.0] - 2025-07-16
+
+### Added
+- One-shot Chrome launch via `chromiumoxide::Browser::launch`
+- Launch flags for proxy, webgpu, extensions, and sandbox on the oxide path
+- FINALIZE path with close, wait, and kill fallback
+- Core commands: `doctor`, `open`/`goto`, `extract`, `scrape`, `run`, `grab`, `view`, `click`/`press`, `fill`/`write`, `robots`
+- Optional console and network capture
+- Robots policy with dual-flag acceptance
+- DevTools parity surface for navigation, input, snapshot, screenshot, eval, pages, wait, perf, lighthouse, screencast, heap, extensions
+- Tool-ref flags such as `--include-snapshot` on hover, drag, keys, upload, and fill-form
+- `net` and `console` list filters with pagination
+- `eval` with `--args`, `--dialog-action`, and `--file-path`
+- `perf start --auto-stop` and `perf insight`
+- `screencast stop --path` with ffmpeg-backed webm or mp4 export
+- Heap deep analysis gated by `--category-memory`
+- Page management with `--background` and `--isolated-context`
+- Schema discovery via `schema --cmd` and inventory gate tests
+
+### Changed
+- `src/install.rs` slimmed to local discovery only
+- CDP stack is 100 percent chromiumoxide Chrome
+
+### Removed
+- Dual-spawn monólito `launch_chrome` / `ChromeProcess`
+- Residual branding and non-product dump artifacts from the public tree
+
+### Fixed
+- Clean public git history recreated without legacy branding commits
+
+### Notes
+- Explicitly out of this release: PRD Firecrawl crawl/map/search, MITM, and workflow SQLite journal

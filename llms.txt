@@ -1,0 +1,22 @@
+[English](llms.txt) | [Português Brasileiro](llms.pt-BR.txt)
+
+# browser-automation-cli
+
+> One-shot Chrome CDP automation CLI for AI agents with no daemon and no telemetry.
+
+browser-automation-cli is a single-process Rust CLI that launches system Chrome or Chromium through CDP, executes agent browser actions, then finalizes and exits.
+
+## Primary Documentation
+- [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.md): product landing, install, commands, env vars
+- [HOW_TO_USE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/HOW_TO_USE.md): first command in 60 seconds
+- [AGENTS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/AGENTS.md): agent integration contract
+- [COOKBOOK](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/COOKBOOK.md): practical recipes
+- [INTEGRATIONS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/INTEGRATIONS.md): orchestrator coverage
+- [CROSS_PLATFORM](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CROSS_PLATFORM.md): platform matrix
+- [MIGRATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/MIGRATION.md): version migration
+- [TESTING](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/TESTING.md): test categories
+- [schemas](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/schemas/README.md): JSON schema index
+- [SKILL en](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skill/browser-automation-cli-en/SKILL.md): imperative skill
+- [CHANGELOG](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CHANGELOG.md): release history
+- [SECURITY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/SECURITY.md): vulnerability reporting
+- [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): expanded discovery map
