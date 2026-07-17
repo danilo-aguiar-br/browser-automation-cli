@@ -3,12 +3,23 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/extract.schema.json",
   "title": "extract command input",
   "type": "object",
-  "description": "Extract text or attribute from target",
+  "description": "Extract text or attribute from target, or LLM extract with --llm",
   "properties": {
     "attr": {
       "type": "string"
     },
+    "llm": {
+      "type": "boolean"
+    },
+    "question": {
+      "type": "string"
+    },
+    "schema_json": {
+      "description": "Path to JSON schema file",
+      "type": "string"
+    },
     "target": {
+      "description": "CSS/@eN, http(s) URL, or file path for --llm",
       "type": "string"
     }
   },

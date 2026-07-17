@@ -417,7 +417,7 @@ impl OneShotSession {
         Ok(self.with_capture_fields(data))
     }
 
-    /// Minimal scrape: navigate, return source_url + body text + robots_policy.
+    /// Navigate and capture body text + outerHTML for multi-format reformat.
     pub async fn scrape(
         &mut self,
         url: &str,
@@ -438,16 +438,27 @@ impl OneShotSession {
             Some(other) => other.to_string(),
             None => String::new(),
         };
-        let text_s = if text_s.is_empty() {
-            String::new()
-        } else {
-            text_s
+        let html_val = self
+            .eval(
+                "String(document.documentElement ? document.documentElement.outerHTML : '')",
+                None,
+                Some("accept"),
+                None,
+            )
+            .await
+            .unwrap_or_else(|_| json!({"result": ""}));
+        let html_s = match html_val.get("result") {
+            Some(Value::String(s)) => s.clone(),
+            Some(other) => other.to_string(),
+            None => String::new(),
         };
         Ok(json!({
             "source_url": nav.get("url").cloned().unwrap_or(Value::String(url.to_string())),
             "title": nav.get("title").cloned().unwrap_or(Value::String(String::new())),
             "robots_policy": robots.as_str(),
             "text": text_s,
+            "html": html_s,
+            "engine": "browser",
         }))
     }
 
@@ -869,6 +880,75 @@ impl OneShotSession {
             }
         }
         Ok(json!({ "waited_ms": ms }))
+    }
+
+    /// Print the current page to PDF via CDP `Page.printToPDF` (one-shot artifact).
+    pub async fn print_pdf(&mut self, path: Option<&Path>) -> Result<Value, CliError> {
+        use base64::Engine as _;
+        self.drain_events();
+        let session_id = self
+            .manager
+            .active_session_id()
+            .map_err(|e| CliError::new(ErrorKind::Browser, e))?
+            .to_string();
+        let result: Value = self
+            .manager
+            .client
+            .send_command(
+                "Page.printToPDF",
+                Some(json!({
+                    "printBackground": true,
+                    "preferCSSPageSize": true,
+                })),
+                Some(&session_id),
+            )
+            .await
+            .map_err(|e| {
+                CliError::with_suggestion(
+                    ErrorKind::Browser,
+                    format!("print-pdf failed: {e}"),
+                    "Ensure the page is loaded; use goto first in the same run",
+                )
+            })?;
+        let b64 = result
+            .get("data")
+            .or_else(|| result.pointer("/result/data"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                CliError::new(
+                    ErrorKind::Browser,
+                    "print-pdf: missing base64 data in CDP result",
+                )
+            })?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| CliError::new(ErrorKind::Data, format!("print-pdf base64: {e}")))?;
+        if bytes.len() < 5 || &bytes[0..4] != b"%PDF" {
+            return Err(CliError::new(
+                ErrorKind::Data,
+                "print-pdf: result is not a valid PDF",
+            ));
+        }
+        let out = path.map(|p| p.to_path_buf()).unwrap_or_else(|| {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            std::path::PathBuf::from(format!("print-{stamp}.pdf"))
+        });
+        if let Some(parent) = out.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+        std::fs::write(&out, &bytes).map_err(|e| {
+            CliError::new(ErrorKind::Io, format!("write pdf {}: {e}", out.display()))
+        })?;
+        Ok(json!({
+            "path": out.display().to_string(),
+            "bytes": bytes.len(),
+            "format": "pdf",
+        }))
     }
 
     pub async fn grab(

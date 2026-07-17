@@ -51,11 +51,26 @@ pub struct CapturedExchange {
 /// Stable map type alias for headers.
 pub type BTreeMapString = std::collections::BTreeMap<String, String>;
 
+/// One captured WebSocket frame (agent-facing, truncated).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapturedWsFrame {
+    /// Direction: client|server|unknown.
+    pub direction: String,
+    /// Frame kind hint.
+    pub kind: String,
+    /// Truncated payload preview.
+    pub preview: String,
+    /// Wall-clock unix millis.
+    pub ts_ms: u64,
+}
+
 /// In-memory + disk-backed capture for one process.
 #[derive(Debug, Default)]
 pub struct MitmCapture {
     /// Captured exchanges.
     pub items: Vec<CapturedExchange>,
+    /// Captured WebSocket frames in this process.
+    pub ws_frames: Vec<CapturedWsFrame>,
     /// Next id.
     next_id: u64,
     /// Optional path for persistence.
@@ -69,9 +84,17 @@ impl MitmCapture {
     pub fn new(path: Option<PathBuf>, redact: bool) -> Self {
         Self {
             items: Vec::new(),
+            ws_frames: Vec::new(),
             next_id: 0,
             path,
             redact,
+        }
+    }
+
+    /// Record a WebSocket frame (capped).
+    pub fn push_ws(&mut self, frame: CapturedWsFrame) {
+        if self.ws_frames.len() < 500 {
+            self.ws_frames.push(frame);
         }
     }
 
@@ -88,16 +111,19 @@ impl MitmCapture {
 
     /// Persist JSON snapshot.
     pub fn save(&self) -> Result<PathBuf, CliError> {
-        let path = self.path.clone().ok_or_else(|| {
-            CliError::new(ErrorKind::Config, "mitm capture path not set")
-        })?;
+        let path = self
+            .path
+            .clone()
+            .ok_or_else(|| CliError::new(ErrorKind::Config, "mitm capture path not set"))?;
         if let Some(parent) = path.parent() {
             xdg::ensure_dir(parent)?;
         }
         let body = serde_json::to_vec_pretty(&json!({
             "schema_version": 1,
             "count": self.items.len(),
+            "ws_count": self.ws_frames.len(),
             "items": self.items,
+            "ws_frames": self.ws_frames,
         }))
         .map_err(|e| CliError::new(ErrorKind::Data, format!("serialize mitm capture: {e}")))?;
         atomic_write(&path, &body)?;
@@ -109,19 +135,20 @@ impl MitmCapture {
         if !path.exists() {
             return Ok(Self::new(Some(path.to_path_buf()), redact));
         }
-        let raw = fs::read_to_string(path).map_err(|e| {
-            CliError::new(ErrorKind::Io, format!("read mitm capture: {e}"))
-        })?;
-        let v: Value = serde_json::from_str(&raw).map_err(|e| {
-            CliError::new(ErrorKind::Data, format!("parse mitm capture: {e}"))
-        })?;
-        let items: Vec<CapturedExchange> = serde_json::from_value(
-            v.get("items").cloned().unwrap_or_else(|| json!([])),
-        )
-        .map_err(|e| CliError::new(ErrorKind::Data, format!("mitm items: {e}")))?;
+        let raw = fs::read_to_string(path)
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("read mitm capture: {e}")))?;
+        let v: Value = serde_json::from_str(&raw)
+            .map_err(|e| CliError::new(ErrorKind::Data, format!("parse mitm capture: {e}")))?;
+        let items: Vec<CapturedExchange> =
+            serde_json::from_value(v.get("items").cloned().unwrap_or_else(|| json!([])))
+                .map_err(|e| CliError::new(ErrorKind::Data, format!("mitm items: {e}")))?;
+        let ws_frames: Vec<CapturedWsFrame> =
+            serde_json::from_value(v.get("ws_frames").cloned().unwrap_or_else(|| json!([])))
+                .unwrap_or_default();
         let next_id = items.iter().map(|i| i.id).max().map(|m| m + 1).unwrap_or(0);
         Ok(Self {
             items,
+            ws_frames,
             next_id,
             path: Some(path.to_path_buf()),
             redact,
@@ -178,9 +205,9 @@ pub fn ensure_ca() -> Result<Value, CliError> {
         params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
         let key_pair = KeyPair::generate()
             .map_err(|e| CliError::new(ErrorKind::Software, format!("rcgen key: {e}")))?;
-        let cert = params.self_signed(&key_pair).map_err(|e| {
-            CliError::new(ErrorKind::Software, format!("rcgen self-signed: {e}"))
-        })?;
+        let cert = params
+            .self_signed(&key_pair)
+            .map_err(|e| CliError::new(ErrorKind::Software, format!("rcgen self-signed: {e}")))?;
         atomic_write(&cert_path, cert.pem().as_bytes())?;
         atomic_write(&key_path, key_pair.serialize_pem().as_bytes())?;
         #[cfg(unix)]
@@ -214,9 +241,11 @@ pub fn status() -> Result<Value, CliError> {
         "ca": ca,
         "capture_path": path.display().to_string(),
         "count": cap.items.len(),
+        "ws_count": cap.ws_frames.len(),
+        "websocket": true,
         "bind_policy": "127.0.0.1 only",
         "proxy_running": false,
-        "note": "one-shot: use `mitm start --seconds N` (hudsucker on 127.0.0.1 only)",
+        "note": "one-shot: use `mitm start --seconds N` (hudsucker on 127.0.0.1 only; WS frames recorded)",
     }))
 }
 
@@ -224,7 +253,7 @@ pub fn status() -> Result<Value, CliError> {
 pub fn list(host_filter: Option<&str>, limit: usize) -> Result<Value, CliError> {
     let path = default_capture_path()?;
     let cap = MitmCapture::load(&path, true)?;
-    let limit = limit.max(1).min(10_000);
+    let limit = limit.clamp(1, 10_000);
     let items: Vec<Value> = cap
         .items
         .iter()
@@ -261,8 +290,7 @@ pub fn get(id: u64) -> Result<Value, CliError> {
         .iter()
         .find(|e| e.id == id)
         .ok_or_else(|| CliError::new(ErrorKind::NoInput, format!("mitm id not found: {id}")))?;
-    Ok(serde_json::to_value(item)
-        .map_err(|e| CliError::new(ErrorKind::Data, format!("mitm get: {e}")))?)
+    serde_json::to_value(item).map_err(|e| CliError::new(ErrorKind::Data, format!("mitm get: {e}")))
 }
 
 /// Export HAR 1.2 JSON (hand-built; no Python).
@@ -495,14 +523,15 @@ pub fn shared_capture() -> Result<SharedCapture, CliError> {
 /// Runs until `seconds` elapse, then shuts down and persists the capture.
 /// Never binds `0.0.0.0`.
 pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
+    use hudsucker::rcgen::{Issuer, KeyPair};
     use hudsucker::{
         certificate_authority::RcgenAuthority,
         hyper::{Request, Response},
         rustls::crypto::aws_lc_rs,
         tokio_tungstenite::tungstenite::Message,
-        Body, HttpContext, HttpHandler, Proxy, RequestOrResponse, WebSocketContext, WebSocketHandler,
+        Body, HttpContext, HttpHandler, Proxy, RequestOrResponse, WebSocketContext,
+        WebSocketHandler,
     };
-    use hudsucker::rcgen::{Issuer, KeyPair};
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicU16, Ordering};
 
@@ -587,6 +616,30 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
             _ctx: &WebSocketContext,
             msg: Message,
         ) -> Option<Message> {
+            let (kind, preview) = match &msg {
+                Message::Text(t) => {
+                    let s = t.to_string();
+                    let prev: String = s.chars().take(256).collect();
+                    ("text".into(), prev)
+                }
+                Message::Binary(b) => ("binary".into(), format!("<{} bytes>", b.len())),
+                Message::Ping(_) => ("ping".into(), String::new()),
+                Message::Pong(_) => ("pong".into(), String::new()),
+                Message::Close(_) => ("close".into(), String::new()),
+                _ => ("other".into(), String::new()),
+            };
+            let ts_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            if let Ok(mut g) = self.cap.lock() {
+                g.push_ws(CapturedWsFrame {
+                    direction: "unknown".into(),
+                    kind,
+                    preview,
+                    ts_ms,
+                });
+            }
             Some(msg)
         }
     }
@@ -605,7 +658,7 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
     drop(listener);
     bound_port_w.store(port, Ordering::SeqCst);
 
-    let seconds = seconds.max(1).min(600);
+    let seconds = seconds.clamp(1, 600);
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     let proxy = Proxy::builder()
         .with_addr(SocketAddr::from(([127, 0, 0, 1], port)))
@@ -656,6 +709,9 @@ mod tests {
         let mut h = BTreeMapString::new();
         h.insert("Authorization".into(), "Bearer secret".into());
         redact_headers(&mut h);
-        assert_eq!(h.get("Authorization").map(|s| s.as_str()), Some("[REDACTED]"));
+        assert_eq!(
+            h.get("Authorization").map(|s| s.as_str()),
+            Some("[REDACTED]")
+        );
     }
 }

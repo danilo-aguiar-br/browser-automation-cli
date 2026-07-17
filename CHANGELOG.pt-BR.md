@@ -9,13 +9,50 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-17
+
+### Corrigido
+- Documentação pública bilíngue e skills sincronizadas com a superfície completa v0.1.2 (print-pdf, monitor, qr, find-paths, parse PDF/DOCX/xlsx/ods, extract LLM, 13 chaves XDG, formatos scrape browser, fail-fast data.steps, scrape webhook-url)
+- Documentação pública ensina settings de produto só via flags e XDG `config path|init|show|set|get` (sem catálogos de env de produto)
+- `schema --cmd` ao vivo e `docs/schemas/` estáticos regenerados para print-pdf/monitor/qr/find-paths e fragmentos scrape/config expandidos (incluindo scrape `webhook_url`)
+- Scrape com engine browser aplica `--format` (markdown/html/links/metadata/raw-html/screenshot/summary/product/branding) via outerHTML em vez de texto silencioso (GAP-001)
+- `run` scroll aceita aliases `dy`/`dx` para `delta_y`/`delta_x` (GAP-002)
+- `schema --cmd` expandido para flags tool-ref de goto/eval/type/scroll/assert (GAP-003)
+- Sugestões humanas em `pt-BR` via `--lang` e `config set lang` (GAP-004)
+- Runtime de produto sem `RUST_LOG`/`CI`/`PUPPETEER_*`/`PLAYWRIGHT_*`; logging via flags + XDG `log_level`; Chrome via XDG `chrome_path` (GAP-005)
+- `run` fail-fast devolve `data.steps` parciais no envelope de erro (GAP-006/016)
+- Lighthouse resolve XDG `lighthouse_path` e sugestão localizada de install (GAP-007)
+- `search` limpa wrappers de redirect SERP (`uddg=`) para URLs de destino (GAP-008)
+- Scrape aceita aliases `raw-html` / `rawHtml` e token de format `screenshot` (GAP-009/021)
+- Help do `exec` descreve a superfície completa de steps (GAP-011)
+- `assert` aceita aliases `url_contains`/`text_contains` (GAP-012)
+- Ajustes clippy `manual_clamp` no MITM (GAP-013)
+- `attr` faz fallback para properties DOM quando atributos HTML são null (GAP-018)
+- Exemplos de docs usam `/tmp/browser-automation-cli-artifacts` em vez do prefixo `bac-` (GAP-019)
+- Fixture tool-ref sincronizado com 52 tools oficiais da base de conhecimento (GAP-017/020)
+
+### Adicionado
+- Comando one-shot `print-pdf` (CDP `Page.printToPDF`)
+- `monitor check` one-shot com comparação de baseline hash e `--write-baseline` opcional
+- Chaves XDG: `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model` (conjunto completo também inclui lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color)
+- Envelopes de erro podem incluir `data` parcial para recuperação fail-fast multi-passo
+- `parse` PDF (lopdf), DOCX, xlsx/ods (calamine), `--redact-pii`
+- `extract --llm` / `--question` / `--schema-json` (somente chave XDG; fail-closed sem chave)
+- `qr encode|decode` e `find-paths` (sem Chrome)
+- Formatos de scrape `summary`/`product`/`branding`; MITM `ws_count`
+- Inventário de comandos documenta 56 nomes de topo (`commands --json`), incluindo `print-pdf`, `monitor`, `qr`, `find-paths` além das 52 tools de paridade DevTools
+
+### Alterado
+- Feature set do clap remove `env` não usado (settings de produto ficam XDG + argv)
+- Versão elevada para `0.1.2`
+
 ## [0.1.1] - 2026-07-17
 
 ### Adicionado
 - Superfície de config XDG: `config path`, `config init`, `config show`, `config set` e `config get` para paths resolvidos e chaves de `config.toml` (lang, timeout, artifacts_dir, ignore_robots, namespace)
 - Superfície MITM local com hudsucker: `mitm start` (bind em `127.0.0.1` com porta efêmera, one-shot), `list`, `get`, `har`, `export`, `domains`, `apis` e `init-ca`
 - Journal de workflow em DAG (petgraph + SQLite): `workflow run`, `workflow resume` e `workflow status`; o resume pula passos já marcados como ok
-- Comandos HTTP locais de paridade Firecrawl: `batch-scrape`, `crawl`, `map`, `search` e `parse`
+- Comandos HTTP locais scrape/crawl/map/search/parse: `batch-scrape`, `crawl`, `map`, `search` e `parse`
 - Formatos de `scrape` `text|markdown|html|links|metadata`, engines `http|browser` e `--only-main-content`
 - `wait` multi `--text` com semântica OR (qualquer texto listado resolve a espera)
 - Check do doctor para `browsers_dir` XDG
@@ -89,4 +126,4 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Histórico git público recriado sem commits de branding legado
 
 ### Notas
-- Explicitamente fora **apenas de 0.1.0**: PRD Firecrawl crawl/map/search, MITM e journal SQLite de workflow (esses itens entraram em 0.1.1)
+- Explicitamente fora **apenas de 0.1.0**: PRD superfície local scrape crawl/map/search, MITM e journal SQLite de workflow (esses itens entraram em 0.1.1)

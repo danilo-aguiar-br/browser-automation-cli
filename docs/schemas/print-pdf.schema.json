@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/print-pdf.schema.json",
+  "title": "print-pdf command input",
+  "type": "object",
+  "description": "Print current page to PDF via CDP Page.printToPDF (one-shot)",
+  "properties": {
+    "path": {
+      "description": "Output PDF path",
+      "type": "string"
+    },
+    "url": {
+      "description": "Optional URL to navigate before print",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

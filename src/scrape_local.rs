@@ -1,4 +1,4 @@
-//! Local Firecrawl-parity scrape/crawl/map/search/parse (one-shot, no SaaS).
+//! Local scrape/crawl/map/search/parse (one-shot HTTP and file extract; no SaaS).
 //!
 //! Engines:
 //! - `http` — reqwest + scraper HTML (no Chrome)
@@ -34,6 +34,14 @@ pub enum ScrapeFormat {
     Links,
     /// Title / description / status metadata.
     Metadata,
+    /// Screenshot path placeholder (browser engine fills via CDP grab).
+    Screenshot,
+    /// LLM-oriented short summary (requires --llm path or offline stub from title/text).
+    Summary,
+    /// Product fields from JSON-LD Product schema when present.
+    Product,
+    /// Branding colors/fonts heuristics from HTML.
+    Branding,
 }
 
 impl ScrapeFormat {
@@ -42,13 +50,17 @@ impl ScrapeFormat {
         match s.trim().to_ascii_lowercase().as_str() {
             "text" | "body" => Ok(Self::Text),
             "markdown" | "md" => Ok(Self::Markdown),
-            "html" => Ok(Self::Html),
+            "html" | "raw-html" | "rawhtml" | "raw_html" | "rawHtml" => Ok(Self::Html),
             "links" => Ok(Self::Links),
             "metadata" | "meta" => Ok(Self::Metadata),
+            "screenshot" | "shot" | "image" => Ok(Self::Screenshot),
+            "summary" => Ok(Self::Summary),
+            "product" => Ok(Self::Product),
+            "branding" => Ok(Self::Branding),
             other => Err(CliError::with_suggestion(
                 ErrorKind::Usage,
                 format!("unknown scrape format: {other}"),
-                "Use text|markdown|html|links|metadata",
+                "Use text|markdown|html|raw-html|links|metadata|screenshot|summary|product|branding",
             )),
         }
     }
@@ -79,7 +91,11 @@ impl Default for ScrapeOpts {
 }
 
 /// HTTP static scrape (no Chrome).
-pub async fn scrape_http(url: &str, robots: RobotsPolicy, opts: &ScrapeOpts) -> Result<Value, CliError> {
+pub async fn scrape_http(
+    url: &str,
+    robots: RobotsPolicy,
+    opts: &ScrapeOpts,
+) -> Result<Value, CliError> {
     crate::robots::enforce_robots(url, robots, HTTP_USER_AGENT).await?;
     let client = reqwest::Client::builder()
         .user_agent(HTTP_USER_AGENT)
@@ -110,7 +126,9 @@ pub async fn scrape_http(url: &str, robots: RobotsPolicy, opts: &ScrapeOpts) -> 
         ));
     }
     let html = String::from_utf8_lossy(&bytes).into_owned();
-    Ok(build_scrape_payload(&final_url, status, &html, opts, robots))
+    Ok(build_scrape_payload(
+        &final_url, status, &html, opts, robots,
+    ))
 }
 
 /// Build agent envelope data from HTML.
@@ -168,8 +186,112 @@ pub fn build_scrape_payload(
                 "link_count": links.len(),
             });
         }
+        ScrapeFormat::Screenshot => {
+            // Browser path attaches path after grab; HTTP engine notes unsupported.
+            data["text"] = json!(text);
+            data["screenshot"] = json!({
+                "note": "screenshot format requires --engine browser; use grab for explicit capture",
+                "path": null,
+            });
+        }
+        ScrapeFormat::Summary => {
+            let summary = if text.len() > 400 {
+                format!("{}…", text.chars().take(400).collect::<String>())
+            } else {
+                text.clone()
+            };
+            data["summary"] = json!(summary);
+            data["text"] = json!(text);
+            data["llm_required_for_full"] = json!(true);
+        }
+        ScrapeFormat::Product => {
+            data["product"] = extract_json_ld_product(html);
+            data["text"] = json!(text);
+        }
+        ScrapeFormat::Branding => {
+            data["branding"] = extract_branding_hints(html, &title);
+            data["text"] = json!(text);
+        }
     }
     data
+}
+
+fn extract_json_ld_product(html: &str) -> Value {
+    let doc = Html::parse_document(html);
+    let Ok(sel) = Selector::parse("script[type=\"application/ld+json\"]") else {
+        return json!({ "found": false });
+    };
+    for el in doc.select(&sel) {
+        let raw = el.text().collect::<String>();
+        if let Ok(v) = serde_json::from_str::<Value>(&raw) {
+            if is_product_ld(&v) {
+                return json!({ "found": true, "json_ld": v });
+            }
+            if let Some(arr) = v.as_array() {
+                for item in arr {
+                    if is_product_ld(item) {
+                        return json!({ "found": true, "json_ld": item });
+                    }
+                }
+            }
+            if let Some(graph) = v.get("@graph").and_then(|g| g.as_array()) {
+                for item in graph {
+                    if is_product_ld(item) {
+                        return json!({ "found": true, "json_ld": item });
+                    }
+                }
+            }
+        }
+    }
+    json!({ "found": false, "json_ld": null })
+}
+
+fn is_product_ld(v: &Value) -> bool {
+    match v.get("@type") {
+        Some(Value::String(s)) => s.eq_ignore_ascii_case("Product"),
+        Some(Value::Array(a)) => a.iter().any(|x| {
+            x.as_str()
+                .map(|s| s.eq_ignore_ascii_case("Product"))
+                .unwrap_or(false)
+        }),
+        _ => false,
+    }
+}
+
+fn extract_branding_hints(html: &str, title: &str) -> Value {
+    let mut colors = BTreeSet::new();
+    let re = regex::Regex::new(r"#[0-9A-Fa-f]{3,8}\b").ok();
+    if let Some(re) = re {
+        for m in re.find_iter(html).take(32) {
+            colors.insert(m.as_str().to_string());
+        }
+    }
+    json!({
+        "title": title,
+        "color_samples": colors.into_iter().collect::<Vec<_>>(),
+        "note": "heuristic branding; not a full brand kit",
+    })
+}
+
+/// Redact common PII patterns in text (email, phone, card-like digits).
+pub fn redact_pii(text: &str) -> String {
+    let email = regex::Regex::new(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}").ok();
+    let phone = regex::Regex::new(
+        r"\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{4}\b",
+    )
+    .ok();
+    let card = regex::Regex::new(r"\b(?:\d[ -]*?){13,19}\b").ok();
+    let mut out = text.to_string();
+    if let Some(re) = email {
+        out = re.replace_all(&out, "[REDACTED_EMAIL]").into_owned();
+    }
+    if let Some(re) = phone {
+        out = re.replace_all(&out, "[REDACTED_PHONE]").into_owned();
+    }
+    if let Some(re) = card {
+        out = re.replace_all(&out, "[REDACTED_CARD]").into_owned();
+    }
+    out
 }
 
 fn text_of_first(doc: &Html, sel: &str) -> String {
@@ -183,9 +305,8 @@ fn text_of_first(doc: &Html, sel: &str) -> String {
 }
 
 fn meta_content(doc: &Html, name: &str) -> Option<String> {
-    let sel = format!(
-        "meta[name=\"{name}\"], meta[property=\"{name}\"], meta[property=\"og:{name}\"]"
-    );
+    let sel =
+        format!("meta[name=\"{name}\"], meta[property=\"{name}\"], meta[property=\"og:{name}\"]");
     let Ok(selector) = Selector::parse(&sel) else {
         return None;
     };
@@ -275,7 +396,10 @@ fn extract_links(base: &str, doc: &Html) -> Vec<Value> {
             (_, Ok(u)) if u.scheme() == "http" || u.scheme() == "https" || u.scheme() == "file" => {
                 u.to_string()
             }
-            (Some(b), _) => b.join(href).map(|u| u.to_string()).unwrap_or_else(|_| href.to_string()),
+            (Some(b), _) => b
+                .join(href)
+                .map(|u| u.to_string())
+                .unwrap_or_else(|_| href.to_string()),
             _ => href.to_string(),
         };
         if seen.insert(abs.clone()) {
@@ -294,7 +418,7 @@ pub async fn batch_scrape_http(
     opts: &ScrapeOpts,
     concurrency: usize,
 ) -> Result<Value, CliError> {
-    let concurrency = concurrency.max(1).min(16);
+    let concurrency = concurrency.clamp(1, 16);
     let mut results = Vec::new();
     let mut errors = Vec::new();
     // Bounded concurrency via JoinSet (shutdown-friendly).
@@ -306,7 +430,6 @@ pub async fn batch_scrape_http(
         while in_flight < concurrency && idx < urls.len() {
             let u = urls[idx].clone();
             idx += 1;
-            let robots = robots;
             let opts = opts.clone();
             set.spawn(async move { scrape_http(&u, robots, &opts).await });
             in_flight += 1;
@@ -340,7 +463,7 @@ pub async fn crawl_http(
     max_depth: usize,
     same_host: bool,
 ) -> Result<Value, CliError> {
-    let limit = limit.max(1).min(500);
+    let limit = limit.clamp(1, 500);
     let max_depth = max_depth.min(10);
     let seed_url = Url::parse(seed)
         .map_err(|e| CliError::new(ErrorKind::Usage, format!("invalid seed URL: {e}")))?;
@@ -469,8 +592,12 @@ pub async fn map_http(
 
 /// Local search: fetch a public HTML search page or treat query as URL list seed.
 /// MVP: if query looks like URL, map it; else use DuckDuckGo HTML (optional network).
-pub async fn search_http(query: &str, robots: RobotsPolicy, limit: usize) -> Result<Value, CliError> {
-    let limit = limit.max(1).min(50);
+pub async fn search_http(
+    query: &str,
+    robots: RobotsPolicy,
+    limit: usize,
+) -> Result<Value, CliError> {
+    let limit = limit.clamp(1, 50);
     let q = query.trim();
     if q.starts_with("http://") || q.starts_with("https://") {
         return map_http(q, robots, limit, 1).await;
@@ -487,8 +614,29 @@ pub async fn search_http(query: &str, robots: RobotsPolicy, limit: usize) -> Res
     let page = scrape_http(&search_url, robots, &opts).await?;
     let mut results = Vec::new();
     if let Some(links) = page.get("links").and_then(|v| v.as_array()) {
-        for l in links.iter().take(limit) {
-            results.push(l.clone());
+        for l in links {
+            let raw = l
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let text = l
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let clean = clean_serp_url(&raw);
+            // Drop same-host SERP chrome and empty destinations.
+            if clean.is_empty() {
+                continue;
+            }
+            if clean.contains("duckduckgo.com/html") || clean.ends_with("duckduckgo.com/") {
+                continue;
+            }
+            results.push(json!({ "text": text, "url": clean }));
+            if results.len() >= limit {
+                break;
+            }
         }
     }
     Ok(json!({
@@ -502,18 +650,58 @@ pub async fn search_http(query: &str, robots: RobotsPolicy, limit: usize) -> Res
     }))
 }
 
-/// Parse local file (text/html/markdown/pdf bytes as text extraction best-effort).
+/// Unwrap SERP redirect wrappers (e.g. uddg=) into destination URLs.
+fn clean_serp_url(raw: &str) -> String {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    if let Ok(u) = Url::parse(raw) {
+        // duckduckgo /l/?uddg=https%3A%2F%2F...
+        for (k, v) in u.query_pairs() {
+            if k == "uddg" || k == "u" || k == "url" {
+                let decoded = urlencoding::decode(&v).unwrap_or_else(|_| v.clone());
+                let s = decoded.into_owned();
+                if s.starts_with("http://") || s.starts_with("https://") {
+                    return s;
+                }
+            }
+        }
+        // already clean
+        if u.host_str()
+            .map(|h| !h.contains("duckduckgo.com"))
+            .unwrap_or(true)
+        {
+            return raw.to_string();
+        }
+    }
+    raw.to_string()
+}
+
+/// Parse local file (html/md/txt/csv/json/xml/pdf/docx/xlsx) one-shot, no Chrome.
 pub fn parse_file(path: &Path) -> Result<Value, CliError> {
-    let meta = fs::metadata(path).map_err(|e| {
-        CliError::new(
-            ErrorKind::Io,
-            format!("parse open {}: {e}", path.display()),
-        )
-    })?;
+    parse_file_opts(path, false)
+}
+
+/// Parse local file with optional PII redaction.
+pub fn parse_file_opts(path: &Path, redact: bool) -> Result<Value, CliError> {
+    const MAX_PARSE_BYTES: usize = 50_000_000;
+    let meta = fs::metadata(path)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("parse open {}: {e}", path.display())))?;
     if !meta.is_file() {
         return Err(CliError::new(
             ErrorKind::Usage,
             format!("not a file: {}", path.display()),
+        ));
+    }
+    if meta.len() as usize > MAX_PARSE_BYTES {
+        return Err(CliError::new(
+            ErrorKind::Data,
+            format!(
+                "file {} exceeds max parse size {}",
+                path.display(),
+                MAX_PARSE_BYTES
+            ),
         ));
     }
     let bytes = fs::read(path)
@@ -523,52 +711,160 @@ pub fn parse_file(path: &Path) -> Result<Value, CliError> {
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let (kind, text) = match ext.as_str() {
+    let mut extra = json!({});
+    let (kind, mut text, engine) = match ext.as_str() {
         "html" | "htm" => {
             let s = String::from_utf8_lossy(&bytes);
             let doc = Html::parse_document(&s);
-            ("html", visible_text(&doc))
+            ("html", visible_text(&doc), "local")
         }
-        "md" | "markdown" | "txt" | "csv" | "json" | "xml" => {
-            ("text", String::from_utf8_lossy(&bytes).into_owned())
+        "md" | "markdown" | "txt" | "json" | "xml" => (
+            "text",
+            String::from_utf8_lossy(&bytes).into_owned(),
+            "local",
+        ),
+        "csv" => {
+            let s = String::from_utf8_lossy(&bytes).into_owned();
+            extra["rows"] = json!(s.lines().count());
+            ("csv", s, "local")
         }
         "pdf" => {
-            // Best-effort: extract printable ASCII runs (no full PDF engine in MVP path).
-            let mut out = String::new();
-            let mut run = String::new();
-            for &b in &bytes {
-                if (32..127).contains(&b) || b == b'\n' || b == b'\t' {
-                    run.push(b as char);
-                } else if run.len() >= 4 {
-                    out.push_str(&run);
-                    out.push('\n');
-                    run.clear();
-                } else {
-                    run.clear();
-                }
-            }
-            if run.len() >= 4 {
-                out.push_str(&run);
-            }
-            ("pdf-text-extract", out)
+            let (kind, text, engine, pages, ocr_needed) = parse_pdf_bytes(&bytes)?;
+            extra["pages"] = json!(pages);
+            extra["ocr_needed"] = json!(ocr_needed);
+            (kind, text, engine)
         }
+        "docx" => parse_docx_bytes(&bytes)?,
+        "xlsx" | "xlsm" | "xls" | "ods" => parse_spreadsheet(path)?,
         other => {
             return Err(CliError::with_suggestion(
                 ErrorKind::Usage,
                 format!("unsupported parse extension: {other}"),
-                "Supported: html htm md markdown txt csv json xml pdf",
+                "Supported: html htm md markdown txt csv json xml pdf docx xlsx xls ods",
             ));
         }
     };
-    // Optional cache note under XDG.
+    let mut redacted = false;
+    if redact {
+        text = redact_pii(&text);
+        redacted = true;
+    }
     let _ = xdg::cache_dir().map(|d| d.join("parse"));
-    Ok(json!({
+    let mut out = json!({
         "path": path.display().to_string(),
         "kind": kind,
         "bytes": bytes.len(),
         "text": text,
-        "engine": "local",
-    }))
+        "chars": text.chars().count(),
+        "engine": engine,
+        "redacted": redacted,
+    });
+    if let Some(obj) = out.as_object_mut() {
+        if let Some(extra_obj) = extra.as_object() {
+            for (k, v) in extra_obj {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn parse_pdf_bytes(
+    bytes: &[u8],
+) -> Result<(&'static str, String, &'static str, usize, bool), CliError> {
+    if bytes.len() < 5 || &bytes[0..5] != b"%PDF-" {
+        return Err(CliError::with_suggestion(
+            ErrorKind::Data,
+            "invalid PDF magic: expected %PDF- header",
+            "Provide a real PDF file; generate with print-pdf if needed",
+        ));
+    }
+    let doc = lopdf::Document::load_mem(bytes)
+        .map_err(|e| CliError::new(ErrorKind::Data, format!("pdf load failed: {e}")))?;
+    let pages = doc.get_pages();
+    let page_numbers: Vec<u32> = pages.keys().copied().collect();
+    let page_count = page_numbers.len();
+    let text = doc
+        .extract_text(&page_numbers)
+        .map_err(|e| CliError::new(ErrorKind::Data, format!("pdf extract_text: {e}")))?;
+    let ocr_needed = text.trim().is_empty();
+    Ok(("pdf", text, "lopdf", page_count, ocr_needed))
+}
+
+fn parse_docx_bytes(bytes: &[u8]) -> Result<(&'static str, String, &'static str), CliError> {
+    use std::io::Read;
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| CliError::new(ErrorKind::Data, format!("docx zip open: {e}")))?;
+    let mut file = archive.by_name("word/document.xml").map_err(|e| {
+        CliError::new(
+            ErrorKind::Data,
+            format!("docx missing word/document.xml: {e}"),
+        )
+    })?;
+    let mut xml = String::new();
+    file.read_to_string(&mut xml)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("docx read xml: {e}")))?;
+    // Strip tags; insert space between tags for word boundaries.
+    let mut text = String::with_capacity(xml.len() / 4);
+    let mut in_tag = false;
+    let mut last_space = true;
+    for ch in xml.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                if !last_space {
+                    text.push(' ');
+                    last_space = true;
+                }
+            }
+            _ if !in_tag => {
+                if ch.is_whitespace() {
+                    if !last_space {
+                        text.push(' ');
+                        last_space = true;
+                    }
+                } else {
+                    text.push(ch);
+                    last_space = false;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(("docx", text.trim().to_string(), "local-docx"))
+}
+
+fn parse_spreadsheet(path: &Path) -> Result<(&'static str, String, &'static str), CliError> {
+    use calamine::{open_workbook_auto, Data, Reader};
+    let mut workbook = open_workbook_auto(path)
+        .map_err(|e| CliError::new(ErrorKind::Data, format!("spreadsheet open: {e}")))?;
+    let mut lines = Vec::new();
+    let sheets = workbook.sheet_names().to_vec();
+    for name in sheets {
+        if let Ok(range) = workbook.worksheet_range(&name) {
+            lines.push(format!("# sheet: {name}"));
+            for row in range.rows() {
+                let cells: Vec<String> = row
+                    .iter()
+                    .map(|c| match c {
+                        Data::Empty => String::new(),
+                        Data::String(s) => s.clone(),
+                        Data::Float(f) => f.to_string(),
+                        Data::Int(i) => i.to_string(),
+                        Data::Bool(b) => b.to_string(),
+                        Data::DateTime(dt) => format!("{dt:?}"),
+                        Data::DateTimeIso(s) => s.clone(),
+                        Data::DurationIso(s) => s.clone(),
+                        Data::Error(e) => format!("{e:?}"),
+                    })
+                    .collect();
+                lines.push(cells.join("\t"));
+            }
+        }
+    }
+    Ok(("spreadsheet", lines.join("\n"), "calamine"))
 }
 
 /// Read URLs file (one URL per line, # comments).
@@ -588,10 +884,7 @@ pub fn read_urls_file(path: &Path) -> Result<Vec<String>, CliError> {
         urls.push(line.to_string());
     }
     if urls.is_empty() {
-        return Err(CliError::new(
-            ErrorKind::Usage,
-            "urls file has no URLs",
-        ));
+        return Err(CliError::new(ErrorKind::Usage, "urls file has no URLs"));
     }
     Ok(urls)
 }
@@ -610,7 +903,10 @@ mod tests {
 
     #[test]
     fn format_parse() {
-        assert!(matches!(ScrapeFormat::parse("md").unwrap(), ScrapeFormat::Markdown));
+        assert!(matches!(
+            ScrapeFormat::parse("md").unwrap(),
+            ScrapeFormat::Markdown
+        ));
     }
 
     #[test]
@@ -629,6 +925,6 @@ mod tests {
             RobotsPolicy::Ignore,
         );
         assert_eq!(v["title"], "T");
-        assert!(v["links"].as_array().unwrap().len() >= 1);
+        assert!(!v["links"].as_array().unwrap().is_empty());
     }
 }

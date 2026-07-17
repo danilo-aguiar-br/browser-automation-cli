@@ -5,6 +5,9 @@
   "type": "object",
   "description": "Assertion helpers (url/text/console)",
   "properties": {
+    "contains": {
+      "type": "boolean"
+    },
     "kind": {
       "enum": [
         "url",
@@ -12,10 +15,32 @@
         "console"
       ],
       "type": "string"
+    },
+    "level": {
+      "type": "string"
+    },
+    "max": {
+      "type": "integer"
+    },
+    "target": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "text_contains": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "url_contains": {
+      "type": "string"
+    },
+    "value": {
+      "type": "string"
     }
   },
-  "required": [
-    "kind"
-  ],
+  "required": [],
   "additionalProperties": false
 }

@@ -167,6 +167,24 @@ pub struct ProductConfig {
     /// Enable ANSI colors on human stderr paths when true.
     #[serde(default)]
     pub color: Option<bool>,
+    /// Tracing filter level when flags are quiet/default (`error`/`info`/`debug`).
+    #[serde(default)]
+    pub log_level: Option<String>,
+    /// Absolute path to Chrome/Chromium binary (XDG only; never product env).
+    #[serde(default)]
+    pub chrome_path: Option<String>,
+    /// Absolute path to lighthouse CLI (optional).
+    #[serde(default)]
+    pub lighthouse_path: Option<String>,
+    /// Optional LLM provider API key for extract --llm (stored in XDG config mode 0600).
+    #[serde(default)]
+    pub openrouter_api_key: Option<String>,
+    /// OpenAI-compatible API base URL (no trailing slash).
+    #[serde(default)]
+    pub llm_base_url: Option<String>,
+    /// Default model id for extract --llm.
+    #[serde(default)]
+    pub llm_model: Option<String>,
 }
 
 /// Load config from XDG path; missing file yields defaults.
@@ -184,9 +202,8 @@ pub fn load_config() -> Result<ProductConfig, CliError> {
     // Minimal TOML subset via serde if we add toml; otherwise JSON fallback.
     // Prefer JSON if file ends with .json — primary is TOML via line parse for keys we need.
     if path.extension().and_then(|e| e.to_str()) == Some("json") {
-        return serde_json::from_str(&raw).map_err(|e| {
-            CliError::new(ErrorKind::Data, format!("invalid config JSON: {e}"))
-        });
+        return serde_json::from_str(&raw)
+            .map_err(|e| CliError::new(ErrorKind::Data, format!("invalid config JSON: {e}")));
     }
     parse_simple_toml(&raw)
 }
@@ -211,6 +228,12 @@ fn parse_simple_toml(raw: &str) -> Result<ProductConfig, CliError> {
             "namespace" => cfg.namespace = Some(v.to_string()),
             "encryption_key" => cfg.encryption_key = Some(v.to_string()),
             "color" => cfg.color = Some(v == "true" || v == "1"),
+            "log_level" => cfg.log_level = Some(v.to_string()),
+            "chrome_path" => cfg.chrome_path = Some(v.to_string()),
+            "lighthouse_path" => cfg.lighthouse_path = Some(v.to_string()),
+            "openrouter_api_key" => cfg.openrouter_api_key = Some(v.to_string()),
+            "llm_base_url" => cfg.llm_base_url = Some(v.to_string()),
+            "llm_model" => cfg.llm_model = Some(v.to_string()),
             _ => {}
         }
     }
@@ -231,7 +254,13 @@ pub fn write_config(cfg: &ProductConfig) -> Result<PathBuf, CliError> {
          ignore_robots = {ignore}\n\
          namespace = \"{ns}\"\n\
          encryption_key = \"{enc}\"\n\
-         color = {color}\n",
+         color = {color}\n\
+         log_level = \"{log_level}\"\n\
+         chrome_path = \"{chrome_path}\"\n\
+         lighthouse_path = \"{lighthouse_path}\"\n\
+         openrouter_api_key = \"{openrouter_api_key}\"\n\
+         llm_base_url = \"{llm_base_url}\"\n\
+         llm_model = \"{llm_model}\"\n",
         lang = cfg.lang.as_deref().unwrap_or(""),
         timeout = cfg.timeout.unwrap_or(0),
         artifacts = cfg.artifacts_dir.as_deref().unwrap_or(""),
@@ -239,23 +268,24 @@ pub fn write_config(cfg: &ProductConfig) -> Result<PathBuf, CliError> {
         ns = cfg.namespace.as_deref().unwrap_or(""),
         enc = cfg.encryption_key.as_deref().unwrap_or(""),
         color = cfg.color.unwrap_or(false),
+        log_level = cfg.log_level.as_deref().unwrap_or(""),
+        chrome_path = cfg.chrome_path.as_deref().unwrap_or(""),
+        lighthouse_path = cfg.lighthouse_path.as_deref().unwrap_or(""),
+        openrouter_api_key = cfg.openrouter_api_key.as_deref().unwrap_or(""),
+        llm_base_url = cfg.llm_base_url.as_deref().unwrap_or(""),
+        llm_model = cfg.llm_model.as_deref().unwrap_or(""),
     );
     let tmp = path.with_extension("toml.tmp");
     {
-        let mut f = fs::File::create(&tmp).map_err(|e| {
-            CliError::new(ErrorKind::Io, format!("create temp config: {e}"))
-        })?;
+        let mut f = fs::File::create(&tmp)
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("create temp config: {e}")))?;
         f.write_all(body.as_bytes())
             .map_err(|e| CliError::new(ErrorKind::Io, format!("write temp config: {e}")))?;
         f.sync_all()
             .map_err(|e| CliError::new(ErrorKind::Io, format!("fsync temp config: {e}")))?;
     }
-    fs::rename(&tmp, &path).map_err(|e| {
-        CliError::new(
-            ErrorKind::Io,
-            format!("rename config into place: {e}"),
-        )
-    })?;
+    fs::rename(&tmp, &path)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("rename config into place: {e}")))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -283,11 +313,17 @@ pub fn config_set(key: &str, value: &str) -> Result<Value, CliError> {
         "color" => {
             cfg.color = Some(matches!(value, "true" | "1" | "yes"));
         }
+        "log_level" => cfg.log_level = Some(value.to_string()),
+        "chrome_path" => cfg.chrome_path = Some(value.to_string()),
+        "lighthouse_path" => cfg.lighthouse_path = Some(value.to_string()),
+        "openrouter_api_key" => cfg.openrouter_api_key = Some(value.to_string()),
+        "llm_base_url" => cfg.llm_base_url = Some(value.to_string()),
+        "llm_model" => cfg.llm_model = Some(value.to_string()),
         other => {
             return Err(CliError::with_suggestion(
                 ErrorKind::Usage,
                 format!("unknown config key: {other}"),
-                "Supported keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color",
+                "Supported keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model",
             ));
         }
     }
@@ -316,6 +352,21 @@ pub fn config_get(key: Option<&str>) -> Result<Value, CliError> {
         Some("artifacts_dir") => Ok(json!({ "key": "artifacts_dir", "value": cfg.artifacts_dir })),
         Some("ignore_robots") => Ok(json!({ "key": "ignore_robots", "value": cfg.ignore_robots })),
         Some("namespace") => Ok(json!({ "key": "namespace", "value": cfg.namespace })),
+        Some("log_level") => Ok(json!({ "key": "log_level", "value": cfg.log_level })),
+        Some("chrome_path") => Ok(json!({ "key": "chrome_path", "value": cfg.chrome_path })),
+        Some("lighthouse_path") => {
+            Ok(json!({ "key": "lighthouse_path", "value": cfg.lighthouse_path }))
+        }
+        Some("openrouter_api_key") => Ok(json!({
+            "key": "openrouter_api_key",
+            "value": if cfg.openrouter_api_key.as_ref().map(|s| !s.is_empty()).unwrap_or(false) {
+                "[set]"
+            } else {
+                ""
+            }
+        })),
+        Some("llm_base_url") => Ok(json!({ "key": "llm_base_url", "value": cfg.llm_base_url })),
+        Some("llm_model") => Ok(json!({ "key": "llm_model", "value": cfg.llm_model })),
         Some(other) => Err(CliError::new(
             ErrorKind::Usage,
             format!("unknown config key: {other}"),
@@ -328,6 +379,46 @@ pub fn encryption_key() -> Option<String> {
     load_config()
         .ok()
         .and_then(|c| c.encryption_key)
+        .filter(|s| !s.is_empty())
+}
+
+/// Chrome/Chromium binary from XDG config only.
+pub fn chrome_path_from_config() -> Option<String> {
+    load_config()
+        .ok()
+        .and_then(|c| c.chrome_path)
+        .filter(|s| !s.is_empty())
+}
+
+/// Lighthouse binary path from XDG config only.
+pub fn lighthouse_path_from_config() -> Option<String> {
+    load_config()
+        .ok()
+        .and_then(|c| c.lighthouse_path)
+        .filter(|s| !s.is_empty())
+}
+
+/// Optional LLM API key from XDG config only (never product env vars).
+pub fn openrouter_api_key() -> Option<String> {
+    load_config()
+        .ok()
+        .and_then(|c| c.openrouter_api_key)
+        .filter(|s| !s.is_empty())
+}
+
+/// Optional LLM base URL from XDG config only.
+pub fn llm_base_url() -> Option<String> {
+    load_config()
+        .ok()
+        .and_then(|c| c.llm_base_url)
+        .filter(|s| !s.is_empty())
+}
+
+/// Optional LLM model id from XDG config only.
+pub fn llm_model() -> Option<String> {
+    load_config()
+        .ok()
+        .and_then(|c| c.llm_model)
         .filter(|s| !s.is_empty())
 }
 

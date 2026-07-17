@@ -224,8 +224,16 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
     })
 }
 
-/// Locate system Chrome/Chromium (product cache → PATH → Playwright/Puppeteer caches).
+/// Locate system Chrome/Chromium (XDG chrome_path → product cache → PATH → known install paths).
+///
+/// Product settings never read third-party env vars (Puppeteer/Playwright/CI).
 pub fn find_chrome() -> Option<PathBuf> {
+    if let Some(p) = crate::xdg::chrome_path_from_config() {
+        let path = PathBuf::from(p);
+        if path.exists() {
+            return Some(path);
+        }
+    }
     if let Some(p) = crate::install::find_installed_chrome() {
         return Some(p);
     }
@@ -317,9 +325,7 @@ fn should_disable_sandbox(existing_args: &[String]) -> bool {
     if existing_args.iter().any(|a| a == "--no-sandbox") {
         return false;
     }
-    if std::env::var("CI").is_ok() {
-        return true;
-    }
+    // Container/root detection only (no product CI env var).
     #[cfg(unix)]
     {
         if unsafe { libc::geteuid() } == 0 {
@@ -344,9 +350,6 @@ fn should_disable_dev_shm(existing_args: &[String]) -> bool {
     if existing_args.iter().any(|a| a == "--disable-dev-shm-usage") {
         return false;
     }
-    if std::env::var("CI").is_ok() {
-        return true;
-    }
     #[cfg(unix)]
     {
         if unsafe { libc::geteuid() } == 0 {
@@ -364,13 +367,16 @@ fn should_disable_dev_shm(existing_args: &[String]) -> bool {
     false
 }
 
+/// Scan product XDG browsers cache and known home cache dirs (no third-party env vars).
 fn find_puppeteer_chrome() -> Option<PathBuf> {
     let mut search_dirs = Vec::new();
-    if let Ok(custom) = std::env::var("PUPPETEER_CACHE_DIR") {
-        search_dirs.push(PathBuf::from(custom).join("chrome"));
+    if let Ok(bd) = crate::xdg::browsers_dir() {
+        search_dirs.push(bd);
     }
     if let Some(home) = dirs::home_dir() {
+        // Optional local caches under home (not env-driven).
         search_dirs.push(home.join(".cache/puppeteer/chrome"));
+        search_dirs.push(home.join(".cache/ms-playwright"));
     }
     for dir in &search_dirs {
         if !dir.is_dir() {
@@ -381,7 +387,19 @@ fn find_puppeteer_chrome() -> Option<PathBuf> {
                 .filter_map(|e| e.ok())
                 .filter(|e| e.path().is_dir())
                 .filter_map(|e| {
-                    let candidate = build_puppeteer_binary_path(&e.path());
+                    let path = e.path();
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if name.starts_with("chromium-") {
+                        let linux = path.join("chrome-linux64/chrome");
+                        if linux.exists() {
+                            return Some(linux);
+                        }
+                        let win = path.join("chrome-win64/chrome.exe");
+                        if win.exists() {
+                            return Some(win);
+                        }
+                    }
+                    let candidate = build_puppeteer_binary_path(&path);
                     if candidate.exists() {
                         Some(candidate)
                     } else {
@@ -428,12 +446,13 @@ fn build_puppeteer_binary_path(version_dir: &Path) -> PathBuf {
 }
 
 fn find_playwright_chromium() -> Option<PathBuf> {
+    // Home-local caches only (no PLAYWRIGHT_BROWSERS_PATH product env).
     let mut search_dirs = Vec::new();
-    if let Ok(custom) = std::env::var("PLAYWRIGHT_BROWSERS_PATH") {
-        search_dirs.push(PathBuf::from(custom));
-    }
     if let Some(home) = dirs::home_dir() {
         search_dirs.push(home.join(".cache/ms-playwright"));
+    }
+    if let Ok(bd) = crate::xdg::browsers_dir() {
+        search_dirs.push(bd);
     }
     for dir in &search_dirs {
         if !dir.is_dir() {

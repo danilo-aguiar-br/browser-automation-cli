@@ -18,14 +18,14 @@
 - Sem daemon, sem empacotamento npm e sem telemetria remota
 - O ciclo de vida é sempre BORN, EXECUTE, FINALIZE, DIE
 - Envelopes JSON no stdout para agentes programáticos
-- Config e caminhos XDG sem variáveis de ambiente de produto
+- Config e caminhos XDG só via comandos `config`
 
 ## A Dor
 - Fluxos de agente precisam de browser multi-passo sem daemon sticky
 - Stacks Node e npm adicionam peso de runtime e superfície de supply-chain
 - Ferramentas baseadas em sessão deixam Chrome órfão e ownership obscuro
 - Contratos JSON costumam divergir de flags e exit codes reais
-- Settings de produto espalhados em env vars tornam prompts de agente frágeis
+- Settings de produto fora do `config` XDG tornam prompts de agente frágeis
 
 ## Por que browser-automation-cli
 - Um processo é dono de um ciclo completo de Chrome do launch ao kill fallback
@@ -33,23 +33,30 @@
 - Refs de acessibilidade `@eN` só valem dentro daquele processo
 - Envelopes `--json` estáveis para agentes programáticos
 - Caminho de install é Rust puro via cargo
-- v0.1.1 entrega config, mitm, workflow, batch-scrape, crawl, map, search e parse
+- v0.1.2 entrega config, mitm, workflow, superfície local scrape/crawl/map/search/parse, print-pdf, monitor, qr, find-paths, extract LLM e schema expandido
 
 ## Superpoderes
 - Navegação e ciclo de página: `goto`, `back`, `forward`, `reload`, `page`
 - Input: `press`, `write`, `type`, `keys`, `hover`, `drag`, `fill-form`, `upload`
 - Observação: `view`, `grab`, `extract`, `text`, `attr`, `scroll`, `assert`
 - Wait: múltiplos `--text` resolvem como OR (qualquer texto desbloqueia)
-- Scrape: `scrape` com `--format text|markdown|html|links|metadata` e `--engine http|browser`
-- Superfície local Firecrawl-parity: `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- Scrape: `scrape` com `--format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding` e `--engine http|browser` (engine browser aplica formatos via outerHTML)
+- Superfície local scrape/crawl/map/search/parse: `batch-scrape`, `crawl`, `map`, `search` (limpa redirects SERP `uddg=`), `parse` (PDF/DOCX/xlsx/ods + `--redact-pii`)
+- Extract LLM: `extract --llm --question --schema-json` (XDG `openrouter_api_key`, `llm_base_url`, `llm_model`)
 - Captura: `console` e `net` com flags globais opcionais
-- Profundidade DevTools: `eval`, `emulate`, `resize`, `perf`, `lighthouse`, `heap`
+- Profundidade DevTools: `eval`, `emulate`, `resize`, `perf`, `lighthouse` (XDG `lighthouse_path`), `heap`
+- Impressão PDF: `print-pdf` one-shot CDP `Page.printToPDF`
+- Monitor: `monitor check --url --baseline [--write-baseline]`
+- Utilitários (sem Chrome): `qr encode|decode`, `find-paths`
+- Aliases de assert: `url_contains` / `text_contains`; `attr` faz fallback para properties DOM
+- Aliases de scroll em `run`: `dy`/`dx` para `delta_y`/`delta_x`
 - Categorias opcionais: memory, extensions, third-party, webmcp
 - Experimental: vision `click-at`, screencast com export via ffmpeg
 - MITM one-shot: `mitm start` escuta só em `127.0.0.1` (hudsucker)
 - Workflow DAG: `workflow run|resume|status` com journal SQLite (resume pula ok)
 - Config XDG: `config path|init|show|set|get` para config.toml
-- Descoberta: `doctor` (inclui XDG browsers_dir), `commands`, `schema`, `completions`
+- Descoberta: `doctor` (inclui XDG browsers_dir), `commands` (56 nomes), `schema --cmd` (goto/eval/type/scroll/assert expandidos), `completions`
+- Fail-fast multi-passo: `run` devolve `data.steps` parciais em envelopes de erro
 
 ## Início Rápido
 ```bash
@@ -71,9 +78,9 @@ cargo install --path . --locked
 ```bash
 cargo install browser-automation-cli --locked
 ```
-- Runtime exige Chrome ou Chromium no PATH
+- Runtime exige Chrome ou Chromium no path do shell (ou `config set chrome_path`)
 - Opcional: `ffmpeg` para export de screencast
-- Opcional: binário `lighthouse` para auditorias lighthouse
+- Opcional: binário `lighthouse` para auditorias lighthouse (ou `config set lighthouse_path`)
 
 ## Uso
 - Passe sempre `--json` em pipelines de agente
@@ -81,15 +88,29 @@ cargo install browser-automation-cli --locked
 - Use `--timeout` para orçamento wall-clock do processo em segundos
 - Use `run --script` para sessões multi-passo que compartilham refs `@eN`
 - Prefira flags de CLI em chamadas one-off; use `config` para defaults XDG duráveis
+- Detalhe de logging: `--verbose` / `--debug` / `-q`, ou `config set log_level`
+- Localize sugestões humanas com `--lang pt-BR` ou `config set lang pt-BR`
+- Opcional: scrape `--webhook-url` faz POST único do resultado para URL do operador (não é telemetria de produto)
 
 ```bash
+browser-automation-cli config set openrouter_api_key sk-or-...
 browser-automation-cli --json goto https://example.com
 browser-automation-cli --json wait --text Hello --text Welcome --ms 5000
 browser-automation-cli --json scrape https://example.com --format markdown --engine http
+browser-automation-cli --json scrape https://example.com --format markdown --engine browser
+browser-automation-cli --json scrape https://example.com --format markdown --engine http --webhook-url https://example.com/hook
+browser-automation-cli --json extract --llm --question "What is the title?" https://example.com
 browser-automation-cli --capture-network --json net list --resource-types Document,XHR
 browser-automation-cli --category-memory heap summary --path snap.heapsnapshot --json
 browser-automation-cli --json mitm start --seconds 30
 browser-automation-cli --json workflow resume --manifest workflow.toml
+browser-automation-cli --json print-pdf --url https://example.com --path /tmp/browser-automation-cli-artifacts/page.pdf
+browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/browser-automation-cli-artifacts/base.txt --write-baseline
+browser-automation-cli --json parse ./doc.pdf --redact-pii
+browser-automation-cli --json parse ./doc.ods
+browser-automation-cli --json qr encode --text "hello" --path /tmp/browser-automation-cli-artifacts/qr.png
+browser-automation-cli --json qr decode --path /tmp/browser-automation-cli-artifacts/qr.png
+browser-automation-cli --json find-paths /path/to/tree
 ```
 
 ## Comandos
@@ -99,6 +120,8 @@ browser-automation-cli --json workflow resume --manifest workflow.toml
 - Snapshot e input: `view`, `press`, `write`, `type`, `keys`, `wait`, `hover`, `drag`, `fill-form`, `upload`
 - Conteúdo: `extract`, `text`, `scroll`, `attr`, `assert`, `grab`
 - Scrape e discovery: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- PDF e monitor: `print-pdf`, `monitor`
+- Utilitários: `qr`, `find-paths`
 - Abas e diálogos: `page`, `dialog`, `cookie`
 - Captura: `console`, `net`
 - MITM: `mitm status|list|get|har|export|domains|apis|init-ca|start`
@@ -106,18 +129,23 @@ browser-automation-cli --json workflow resume --manifest workflow.toml
 - Avançado: `eval`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`
 - Categorias: `extension`, `devtools3p`, `webmcp`
 - Multi-passo: `run`, `exec`
+- Inventário: 56 nomes de comando de topo (`commands --json`), incluindo tools de paridade DevTools mais `print-pdf`, `monitor`, `qr`, `find-paths`, superfície de scrape, MITM, workflow e config
 
 ## Configuração
 - Prefira flags de CLI para chamadas one-off de agente
 - Use `config path|init|show|set|get` para o config.toml XDG
-- Settings de produto NÃO são lidos de variáveis de ambiente `BROWSER_AUTOMATION_CLI_*`
-- Apenas nível de SO: `RUST_LOG` (tracing), `NO_COLOR` / cor via config, `PATH` para Chrome/ffmpeg/lighthouse
+- Settings de produto só via flags e `config set` (XDG)
+- Logging: `--verbose` / `--debug` / `-q`, ou XDG `config set log_level`
+- Cor: `config set color true|false`
+- Binário Chrome: path do shell ou XDG `config set chrome_path`
+- Binário Lighthouse: path do shell ou XDG `config set lighthouse_path`
+- Chaves de config: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
 - `config init` cria o layout XDG e o config.toml padrão
 - `config path` imprime paths resolvidos de config, data, cache, state e browsers_dir
 - Flags de CLI sobrescrevem valores gravados no config.toml
 - Doctor reporta XDG browsers_dir entre as checagens de readiness
 
-## Features
+## Recursos
 - Este crate não tem feature flags de Cargo
 - Categorias opcionais são flags de processo, não features de compile-time
 - `--category-memory` habilita ferramentas profundas de heap
@@ -127,7 +155,7 @@ browser-automation-cli --json workflow resume --manifest workflow.toml
 - `--experimental-vision` habilita `click-at`
 - `--experimental-screencast` habilita export de screencast com ffmpeg
 
-## Targets
+## Alvos
 - Documentado para `x86_64-unknown-linux-gnu`
 - Documentado para `x86_64-apple-darwin`
 - Documentado para `aarch64-apple-darwin`
@@ -136,17 +164,16 @@ browser-automation-cli --json workflow resume --manifest workflow.toml
 - Sem suporte em `wasm32-unknown-unknown` (CDP exige browser desktop)
 - Metadados docs.rs declaram esses targets após a mudança multi-target de 2026-05-01
 
-## MSRV
+## MSRV (Rust mínimo)
 - Minimum Supported Rust Version é 1.88.0
 - Política: subir MSRV só em release minor ou major com nota no CHANGELOG
 - Docs locais: `timeout 180 cargo doc --no-deps`
-- Nightly com cfg docsrs: `RUSTDOCFLAGS="--cfg docsrs" timeout 180 cargo +nightly doc --no-deps`
 
 ## Padrões de Integração
 - Claude Code, Codex, Cursor e agentes de shell disparam um processo por ação
 - Planos multi-passo devem usar `run --script` em vez de encadear processos
 - Parseie stdout com `jaq` e ignore stderr salvo em diagnóstico
-- Persista defaults duráveis com `config set` sob XDG, não com env vars de produto
+- Persista defaults duráveis com `config set` sob XDG
 - Veja [INTEGRATIONS.pt-BR.md](INTEGRATIONS.pt-BR.md) e [docs/AGENTS.pt-BR.md](docs/AGENTS.pt-BR.md)
 
 ## Performance
@@ -163,17 +190,30 @@ browser-automation-cli --json workflow resume --manifest workflow.toml
 - Journals de workflow e capturas MITM ficam sob paths XDG de state/data
 
 ## FAQ de Troubleshooting
-- Chrome não encontrado: instale Chromium ou Google Chrome, garanta PATH, e rode `doctor`
+- Chrome não encontrado: instale Chromium ou Google Chrome, garanta o path do shell, ou `config set chrome_path`, e rode `doctor`
 - Config / XDG: rode `config init` e depois `config path` para inspecionar o layout; use `config set|get` para valores
+- Settings de produto só via flags e `config set` (XDG)
 - Exit 69 unavailable: binário do browser ausente, bloqueado ou não lançável
 - Exit 124 timeout: eleve `--timeout` ou encurte o script
 - Exit 2 usage: confira flags com `browser-automation-cli help <cmd>`
 - Refs `@eN` inválidas entre comandos: mantenha passos dentro de um `run`; refs não atravessam processos
 - Network vazio: passe `--capture-network` no mesmo processo que navega
-- Env de produto não suportada: não use `BROWSER_AUTOMATION_CLI_*` para settings; use flags ou `config`
 - Wait multi-text: repita `--text` para semântica OR (qualquer texto listado desbloqueia)
 - Bind MITM: `mitm start` escuta só em `127.0.0.1` com porta efêmera
 - Workflow resume: `workflow resume` pula passos já `ok` no journal
+- Formatos scrape browser: `--engine browser` aplica `--format` (markdown/html/links/metadata/raw-html/screenshot/summary/product/branding) via outerHTML
+- Aliases de scroll: em scripts `run` use `dy`/`dx` como aliases de `delta_y`/`delta_x`
+- Descoberta de schema: `schema --cmd goto|eval|type|scroll|assert` expõe flags tool-ref expandidas
+- Lang: `--lang pt-BR` ou `config set lang pt-BR` localiza sugestões humanas
+- Fail-fast com steps parciais: envelopes de erro de `run` podem incluir `data.steps` parciais
+- Path do Lighthouse: `config set lighthouse_path /path/to/lighthouse` quando não estiver no path do shell
+- Redirects de search: `search` limpa wrappers `uddg=` para URLs de destino
+- Parse de documentos: `parse` suporta PDF/DOCX/xlsx/ods e `--redact-pii`
+- Extract LLM: exige XDG `openrouter_api_key` (opcionais `llm_base_url`, `llm_model`)
+- Print PDF: `print-pdf --url <url> --path <file>` one-shot CDP
+- Baseline de monitor: `monitor check --url <url> --baseline <file> [--write-baseline]`
+- Aliases de assert: `url_contains` / `text_contains`; `attr` usa fallback de property DOM quando o atributo HTML é null
+- Tamanho do inventário: `commands --json` lista 56 nomes de topo (não só as 52 tools de paridade DevTools)
 
 ## Códigos de Saída
 - `0` sucesso

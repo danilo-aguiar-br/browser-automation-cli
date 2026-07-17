@@ -2,24 +2,25 @@
 
 # Cookbook — browser-automation-cli
 
-> Receitas práticas com comandos prontos para trabalho one-shot de browser. Ciclo de vida: BORN EXECUTE FINALIZE DIE.
+> Receitas práticas com comandos prontos para copiar em trabalho browser one-shot. Ciclo de vida: BORN EXECUTE FINALIZE DIE.
 
 
 ## Nota de Latência
 - O launch do Chrome domina o cold start em comandos com engine browser
-- Prefira um script `run` a vários launches separados quando os passos compartilham estado
-- HTTP scrape, crawl, map, search e parse evitam Chrome quando só precisa de conteúdo
+- Prefira um script `run` a muitos launches separados quando os passos compartilham estado
+- Scrape HTTP, crawl, map, search, parse, qr e find-paths evitam Chrome quando só precisa de conteúdo ou IO local
 - Cada processo é BORN, EXECUTE, FINALIZE, DIE sem browser compartilhado entre invocações
 
 
-## Referência de Defaults
-- Timeout global default é `0` e significa sem orçamento wall-clock até ser setado por flag ou config XDG
-- Step timeout default é `0` e herda o timeout global
-- Headless é o default salvo `--headed`
-- JSON fica off até `--json`
-- Settings de produto vêm de flags e `config` (XDG), não de env vars de produto
-- Não existem settings de produto `BROWSER_AUTOMATION_CLI_*`
-- Env de SO apenas: `RUST_LOG`, `NO_COLOR`
+## Referência de Valores Default
+- Timeout global default é `0` (sem wall budget de processo salvo flag ou config XDG)
+- Step timeout default é `0` (herda o timeout global)
+- Headless é default salvo `--headed`
+- JSON fica off salvo `--json`
+- Settings de produto vêm só de flags e `config` (CLI XDG)
+- Logging: `--verbose` / `--debug` / `-q` ou XDG `log_level`
+- Cor: `config set color`; path do Chrome: `config set chrome_path`
+- Resolva paths com `config path --json`
 
 
 ## Como Inicializar Config XDG
@@ -30,26 +31,40 @@ browser-automation-cli --json config show
 browser-automation-cli --json config set timeout 60
 browser-automation-cli --json config set lang en
 browser-automation-cli --json config set namespace demo
-browser-automation-cli --json config set artifacts_dir /tmp/bac-artifacts
+browser-automation-cli --json config set artifacts_dir /tmp/browser-automation-cli-artifacts
 browser-automation-cli --json config set ignore_robots false
 browser-automation-cli --json config set encryption_key "replace-me-with-a-secret"
 browser-automation-cli --json config set color true
+browser-automation-cli --json config set log_level info
+browser-automation-cli --json config set chrome_path /usr/bin/chromium
+browser-automation-cli --json config set lighthouse_path ./scripts/mock-lighthouse.sh
 browser-automation-cli --json config get timeout
 browser-automation-cli --json config get encryption_key
 browser-automation-cli --json config get color
 ```
 - `config init` cria dirs XDG e o `config.toml` default
-- Chaves suportadas incluem `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`
+- Chaves suportadas (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
 - Flags sempre sobrescrevem o arquivo de config naquela invocação
-- Settings de produto não usam env vars de produto
+- Settings de produto usam só flags e `config path|init|show|set|get`
 
 
-## Como Diagnosticar Saúde do Install
+## Como Configurar Chaves LLM no XDG
+```bash
+browser-automation-cli --json config set openrouter_api_key YOUR_KEY
+browser-automation-cli --json config set llm_base_url https://openrouter.ai/api/v1
+browser-automation-cli --json config set llm_model openai/gpt-4o-mini
+browser-automation-cli --json config get openrouter_api_key
+```
+- Chaves ficam só no `config.toml` XDG
+- `extract --llm` falha fechado quando `openrouter_api_key` está ausente
+
+
+## Como Diagnosticar Saúde da Instalação
 ```bash
 browser-automation-cli doctor --offline --quick --json
 ```
-- Modo offline quick checa descoberta local do Chrome sem probes de rede
-- Use doctor completo sem `--quick` para checagens de readiness mais profundas
+- Modo offline quick checa descoberta local do Chrome sem sondas de rede
+- Use doctor completo sem `--quick` quando precisar de checks mais profundos
 
 
 ## Como Abrir uma Página e Fazer Snapshot
@@ -62,9 +77,9 @@ cat > /tmp/goto-view.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/goto-view.browser-automation.jsonl
 ```
-- `goto` isolado navega e encerra o processo
-- Use `run` para o `view` ver a mesma página em um ciclo de vida
-- Snapshot de acessibilidade emite refs `@eN` para press e write posteriores
+- `goto` standalone navega e encerra o processo
+- Use `run` para o `view` ver a mesma página em um lifecycle
+- Snapshot de acessibilidade emite refs `@eN` para passos posteriores de press e write
 
 
 ## Como Clicar e Preencher em Um Processo
@@ -77,8 +92,23 @@ cat > /tmp/form.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 90 --json run --script /tmp/form.browser-automation.jsonl
 ```
-- Mantenha clique e preenchimento no mesmo processo para selectors e refs `@eN` válidos
+- Mantenha click e fill no mesmo processo para seletores e refs `@eN` permanecerem válidos
 - Launches separados não compartilham refs de acessibilidade
+
+
+## Como Scrollar e Assertar em um Script Run
+```bash
+cat > /tmp/scroll-assert.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"scroll","dy":1500}
+{"cmd":"assert","url_contains":"example.com"}
+{"cmd":"assert","text_contains":"Example Domain"}
+JSONL
+browser-automation-cli --timeout 60 --json run --script /tmp/scroll-assert.browser-automation.jsonl
+```
+- `dy` / `dx` são aliases de `delta_y` / `delta_x`
+- `url_contains` / `text_contains` são aliases de assert
+- Em fail-fast, o envelope de erro pode incluir `data.steps` parcial
 
 
 ## Como Capturar Screenshot Full-page
@@ -89,11 +119,28 @@ cat > /tmp/grab.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/grab.browser-automation.jsonl
 
-# Mesmas flags no subcomando grab após um passo anterior no mesmo processo:
+# Same flags on the grab subcommand after a prior step in the same process:
 # browser-automation-cli --timeout 60 --json grab --path /tmp/page.png --full-page
 ```
-- Path é a flag `--path`, não um argumento posicional
+- Path é a flag `--path`, não argumento posicional
 - `full_page` no NDJSON mapeia para `--full-page` na CLI
+
+
+## Como Imprimir uma Página em PDF
+```bash
+browser-automation-cli --json print-pdf --url https://example.com --path /tmp/page.pdf
+```
+- Usa CDP `Page.printToPDF` em processo one-shot
+- Passe `--url` para navegar antes do print, ou imprima a página atual dentro de um script `run` após `goto`
+
+
+## Como Monitorar Mudança de Página Contra Baseline
+```bash
+browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/mon.base --write-baseline
+browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/mon.base
+```
+- Primeira chamada com `--write-baseline` grava o hash/texto baseline
+- Chamadas posteriores comparam com o arquivo baseline sem gravar salvo nova solicitação
 
 
 ## Como Esperar Multi-texto (OR)
@@ -104,14 +151,14 @@ cat > /tmp/wait-or.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/wait-or.browser-automation.jsonl
 
-# Forma CLI com --text repetível (semântica OR):
+# CLI form with repeatable --text (OR semantics):
 # browser-automation-cli --timeout 60 --json wait --text "Example Domain" --text "Example" --ms 5000
 ```
 - `--text` repetível resolve quando qualquer valor listado aparece
-- Combine com `ms` ou `selector` ou `state` da página conforme precisar
+- Combine com `ms` ou `selector` ou `state` da página conforme necessário
 
 
-## Como Listar Requisições de Rede
+## Como Listar Requests de Network
 ```bash
 cat > /tmp/nav.jsonl <<'JSONL'
 {"cmd":"goto","url":"https://example.com"}
@@ -122,7 +169,7 @@ browser-automation-cli --capture-network --timeout 60 --json run --script /tmp/n
 ```
 - Crie o arquivo de script na receita antes do `run`
 - Capture deve estar habilitado no mesmo processo que navega
-- `net list` em processo separado não vê capture anterior
+- `net list` após processo separado não vê captura anterior
 
 
 ## Como Avaliar JavaScript
@@ -133,11 +180,11 @@ cat > /tmp/eval.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/eval.browser-automation.jsonl
 
-# Eval isolado roda em about:blank a menos que já tenha navegado no mesmo processo
+# Standalone eval runs against about:blank unless you already navigated in the same process
 # browser-automation-cli --json eval 'document.title'
 ```
 - Prefira `run` quando a expressão depende do conteúdo da página
-- Expressão pode ser valor simples ou declaração de função `() => ...`
+- A expressão pode ser valor simples ou declaração de função `() => ...`
 
 
 ## Como Emular Viewport Mobile e Rede
@@ -150,13 +197,13 @@ cat > /tmp/emulate.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 90 --json run --script /tmp/emulate.browser-automation.jsonl
 
-# Compose isolado (sem flag preset --device):
+# Standalone compose (no --device preset flag):
 # browser-automation-cli --json emulate \
 #   --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)" \
 #   --viewport "390x844x3,mobile,touch" \
 #   --network-conditions "Slow 3G"
 ```
-- Não existe flag preset `--device`
+- Não existe flag de preset `--device`
 - Compose user agent, viewport e condições de rede você mesmo
 - Presets de rede incluem Offline, No throttling, Slow 3G, Fast 3G, Slow 4G, Fast 4G
 
@@ -165,28 +212,39 @@ browser-automation-cli --timeout 90 --json run --script /tmp/emulate.browser-aut
 ```bash
 browser-automation-cli --json scrape https://example.com --format markdown --engine http
 ```
-- Formatos: `text`, `markdown`, `html`, `links`, `metadata`
-- Engine `http` usa reqwest e não lança Chrome
+- Formatos: `text`, `markdown`, `html`, `links`, `metadata`, `summary`, `product`, `branding`, `raw-html`, `screenshot`
+- Engine `http` usa reqwest e pula o Chrome
 
 
-## Como Fazer Scrape com Engine Browser
+## Como Fazer Scrape com Engine Browser e Formatos
 ```bash
-browser-automation-cli --timeout 60 --json scrape https://example.com --format text --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format markdown --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format links --engine browser
 ```
 - Engine `browser` usa CDP via Chrome
-- Use browser quando o conteúdo exige renderização JS
+- A engine browser captura `outerHTML` e aplica `--format` (markdown/html/links/metadata/…)
+- Use browser quando o conteúdo precisa de renderização JS
+
+
+## Como Enviar Resultado de Scrape a um Webhook do Operador
+```bash
+browser-automation-cli --json scrape https://example.com --format markdown --engine http \
+  --webhook-url https://127.0.0.1:9000/hook
+```
+- `--webhook-url` é um POST one-shot do operador com os dados do resultado do scrape
+- Não é telemetria de produto; o destino fica sob controle do operador
 
 
 ## Como Fazer Batch-scrape a Partir de Arquivo de URLs
 ```bash
-cat > /tmp/urls.txt <<'EOF'
+cat > /tmp/urls.txt <<'URLS'
 # one URL per line
 https://example.com
 https://example.org
-EOF
+URLS
 browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 2
 ```
-- Batch-scrape usa apenas engine HTTP
+- Só engine HTTP para batch-scrape
 - Crie o arquivo de URLs antes de invocar o comando
 
 
@@ -196,26 +254,26 @@ browser-automation-cli --json crawl https://example.com --limit 20 --max-depth 2
 ```
 - `--same-host` é flag booleana sem valor
 - Não escreva `--same-host true`
-- Crawl HTTP BFS permanece no host da seed quando a flag está setada
+- Crawl HTTP BFS permanece no host da semente quando a flag está setada
 
 
 ## Como Mapear um Site
 ```bash
 browser-automation-cli --json map https://example.com --limit 50 --max-depth 2
 ```
-- Map descobre URLs a partir de uma seed sem extração completa de página
-- Path HTTP; sem launch de Chrome
+- Map descobre URLs a partir de uma semente sem extração completa de página
+- Caminho HTTP; sem launch de Chrome
 
 
-## Como Buscar
+## Como Fazer Search
 ```bash
 browser-automation-cli --json search "example domain" --limit 10
 ```
-- Search local retorna links estilo SERP HTTP ou resultados de URL map
+- Search local retorna links estilo SERP HTTP ou resultados de mapa de URLs
 - Limit limita a contagem de resultados
 
 
-## Como Fazer Parse de HTML Local
+## Como Parsear Arquivos Locais (HTML, PDF, DOCX, XLSX, ODS)
 ```bash
 cat > /tmp/page.html <<'HTML'
 <!doctype html>
@@ -223,12 +281,54 @@ cat > /tmp/page.html <<'HTML'
 <body><h1>Hello parse</h1><p>Local file text.</p></body></html>
 HTML
 browser-automation-cli --json parse /tmp/page.html
+browser-automation-cli --json parse tests/fixtures/hello.pdf
+browser-automation-cli --json parse tests/fixtures/hello.docx --redact-pii
+# browser-automation-cli --json parse /tmp/sheet.xlsx
+# browser-automation-cli --json parse /tmp/sheet.ods --redact-pii
 ```
-- Parse extrai texto de html, md, txt ou pdf locais
-- Crie o arquivo de exemplo antes do comando
+- Parse extrai texto de html, md, txt, pdf, docx, xlsx ou ods local
+- `--redact-pii` redige padrões comuns de PII no texto extraído
+- Crie o HTML de exemplo antes do primeiro comando; use fixtures do repo para PDF/DOCX
 
 
-## Como Fazer Captura MITM
+## Como Extrair com LLM
+```bash
+browser-automation-cli --json config set openrouter_api_key YOUR_KEY
+browser-automation-cli --json config set llm_base_url https://openrouter.ai/api/v1
+browser-automation-cli --json config set llm_model openai/gpt-4o-mini
+browser-automation-cli --json extract https://example.com --llm --question 'What is the title?'
+```
+- Sem a chave XDG, o comando falha fechado com envelope de usage
+- `--schema-json` opcional para extração estruturada com schema local
+
+
+## Como Codificar e Decodificar QR Codes
+```bash
+browser-automation-cli --json qr encode --text 'hello' --format png --path /tmp/qr.png
+browser-automation-cli --json qr decode --path /tmp/qr.png
+```
+- Não exige Chrome
+- Formatos de encode incluem `png`, `svg` e `terminal`
+
+
+## Como Encontrar Paths no Disco
+```bash
+browser-automation-cli --json find-paths 'Cargo.*' .
+```
+- Descoberta de paths estilo fd sob o nome do binário `browser-automation-cli`
+- Sem launch de Chrome
+
+
+## Como Localizar Sugestões (pt-BR)
+```bash
+browser-automation-cli --lang pt-BR --json click-at --x 1 --y 1
+browser-automation-cli --json config set lang pt-BR
+```
+- Sugestões humanas localizam para `pt-BR` via `--lang` ou XDG `lang`
+- Cliques por coordenada com sucesso ainda exigem `--experimental-vision`
+
+
+## Como Capturar com MITM
 ```bash
 browser-automation-cli --json mitm init-ca
 browser-automation-cli --json mitm start --seconds 30
@@ -236,13 +336,13 @@ browser-automation-cli --json mitm status
 browser-automation-cli --json mitm list --limit 100
 browser-automation-cli --json mitm har --out /tmp/capture.har
 ```
-- Faz bind apenas em 127.0.0.1 com porta efêmera
+- Bind apenas em 127.0.0.1 com porta efêmera
 - Material de CA fica sob XDG data (`mitm/ca`)
-- `start` mantém o proxy one-shot vivo por `--seconds` e depois sai
+- `start` mantém o proxy one-shot vivo por `--seconds` e então sai
 - Exporte HAR com `--out` obrigatório
 
 
-## Como Rodar, Retomar e Ver Status de Workflow
+## Como Rodar, Resumir e Ver Status de Workflow
 ```bash
 cat > /tmp/wf.json <<'JSON'
 {
@@ -262,21 +362,21 @@ browser-automation-cli --json workflow run --manifest /tmp/wf.json
 browser-automation-cli --json workflow resume --manifest /tmp/wf.json
 browser-automation-cli --json workflow status --name demo
 ```
-- Resume pula steps já `ok` no journal SQLite
-- Apenas steps offline; multi-step com refs `@eN` de browser permanece em `run --script`
+- Resume pula passos já `ok` no journal SQLite
+- Só passos offline; multi-passo browser com `@eN` permanece em `run --script`
 - Comandos offline suportados incluem noop, echo, parse, scrape (http), batch-scrape
 
 
 ## Como Rodar Auditoria Lighthouse
 ```bash
-# Requer binário lighthouse real no PATH
+# Requires a real lighthouse binary on PATH
 browser-automation-cli --timeout 180 --json lighthouse https://example.com
 
-# Binário mock para smoke local sem instalar lighthouse real
+# Mock binary for local smoke without a real lighthouse install
 browser-automation-cli --timeout 60 --json lighthouse https://example.com \
   --lighthouse-path ./scripts/mock-lighthouse.sh
 ```
-- Passe `--lighthouse-path` para binário externo ou script mock
+- Passe `--lighthouse-path` ou XDG `lighthouse_path` para binário externo ou script mock
 - Lighthouse em si não está embutido na CLI
 
 
@@ -290,7 +390,7 @@ browser-automation-cli --category-memory --timeout 120 --json run --script /tmp/
 browser-automation-cli --category-memory --json heap summary --path /tmp/snap.heapsnapshot
 ```
 - Análise profunda de heap exige `--category-memory`
-- Summary lê um snapshot existente via `--path`
+- Summary lê path de snapshot existente via `--path`
 
 
 ## Como Gerar Completions de Shell
@@ -299,26 +399,30 @@ browser-automation-cli completions bash
 browser-automation-cli completions zsh
 browser-automation-cli completions fish
 ```
-- Path de completions é leve e não lança Chrome
-- Redirecione stdout para o diretório de completion do seu shell conforme necessário
+- Caminho de completions é leve e não lança Chrome
+- Redirecione stdout para o diretório de completions do shell conforme necessário
 
 
-## Como Descobrir Schemas de Comandos
+## Como Descobrir Schemas de Comando
 ```bash
 browser-automation-cli commands --json
 browser-automation-cli schema --cmd goto --json
 browser-automation-cli schema --cmd scrape --json
+browser-automation-cli schema --cmd print-pdf --json
+browser-automation-cli schema --cmd monitor --json
+browser-automation-cli schema --cmd qr --json
+browser-automation-cli schema --cmd find-paths --json
 browser-automation-cli schema --cmd batch-scrape --json
 browser-automation-cli schema --cmd config --json
 browser-automation-cli schema --cmd mitm --json
 browser-automation-cli schema --cmd workflow --json
 ```
-- `commands` lista a superfície voltada a agentes
+- `commands` lista a superfície voltada a agentes (56 comandos)
 - `schema --cmd` imprime um fragmento JSON Schema de um comando
 - Útil para registro de tools em frameworks de agentes
 
 
-## Como Encadear JSON com jaq
+## Como Pipear JSON com jaq
 ```bash
 browser-automation-cli doctor --offline --quick --json | jaq -e '.ok == true'
 browser-automation-cli --json scrape https://example.com --format metadata --engine http \
@@ -326,21 +430,21 @@ browser-automation-cli --json scrape https://example.com --format metadata --eng
 browser-automation-cli commands --json | jaq '.data.commands // .commands // .'
 ```
 - Prefira `--json` para stdout legível por máquina
-- Filtros `jaq` mantêm o glue de agentes pequeno e determinístico
+- Filtros `jaq` mantêm a cola de agentes pequena e determinística
 
 
 ## Como Contornar robots.txt com Dual Flags
 ```bash
-# Honra robots por default (sem flags de bypass)
+# Honor robots by default (no bypass flags)
 browser-automation-cli --json scrape https://example.com --format text --engine http
 
-# Bypass só quando as duas flags estão presentes juntas
+# Bypass only when both flags are present together
 browser-automation-cli --ignore-robots --i-accept-robots-risk --json \
   scrape https://example.com --format text --engine http
 ```
 - Política default honra robots.txt
 - `--ignore-robots` sozinho falha; `--i-accept-robots-risk` sozinho falha
-- Ambas as flags são obrigatórias quando você aceita o risco do bypass
+- Ambas as flags são exigidas quando você aceita o risco de bypass
 
 
 ## Como Listar Cookies
@@ -374,9 +478,11 @@ cat > /tmp/assert.browser-automation.jsonl <<'JSONL'
 {"cmd":"goto","url":"https://example.com"}
 {"cmd":"assert","kind":"url","value":"example.com","contains":true}
 {"cmd":"assert","kind":"text","value":"Example Domain"}
+{"cmd":"assert","url_contains":"example.com"}
+{"cmd":"assert","text_contains":"Example Domain"}
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-automation.jsonl
 ```
 - Assert falha o processo quando a condição não é atendida
-- Assert de URL suporta match exato ou semântica contains
-- Assert de texto pode mirar um seletor via `target` ou `ref` no step
+- Assert de URL suporta match exato ou semântica contains (`contains` ou `url_contains`)
+- Assert de texto pode mirar seletor via `target` ou usar `text_contains`

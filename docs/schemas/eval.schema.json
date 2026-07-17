@@ -3,9 +3,21 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/eval.schema.json",
   "title": "eval command input",
   "type": "object",
-  "description": "Evaluate JavaScript expression",
+  "description": "Evaluate JavaScript expression or function declaration",
   "properties": {
+    "args": {
+      "description": "JSON array of function args",
+      "type": "string"
+    },
+    "dialog_action": {
+      "description": "accept|dismiss during evaluate",
+      "type": "string"
+    },
     "expression": {
+      "type": "string"
+    },
+    "file_path": {
+      "description": "Optional path to write result",
       "type": "string"
     }
   },

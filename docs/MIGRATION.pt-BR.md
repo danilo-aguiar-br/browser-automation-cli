@@ -21,17 +21,16 @@
 - Política dual-flag de robots para bypass explícito
 - Gates de categoria como `--category-memory` e `--category-extensions`
 - Gates experimentais como `--experimental-vision` e `--experimental-screencast`
-- Explicitamente fora só de 0.1.0: MITM local, journal de workflow e superfície Firecrawl crawl/map/search
+- Explicitamente fora só de 0.1.0: MITM local, journal de workflow e superfície local de crawl/map/search
 
 
 ## 0.1.0 → 0.1.1
 ### Configuração e XDG
-- Contrato de variáveis de ambiente de produto foi removido
-- Não use `BROWSER_AUTOMATION_CLI_*` para settings
-- Configure com flags da CLI e XDG via `config init|set|get|path|show`
+- Settings de produto usam só flags da CLI e XDG via `config init|set|get|path|show`
 - `config path --json` reporta `config_dir`, `data_dir`, `state_dir`, `mitm_ca_dir`, `mitm_capture_dir`, `workflow_dir` e paths relacionados
-- Chave de cifragem vai para `config set encryption_key`, não env
-- Env de SO permanece só para convenções do host: `RUST_LOG`, `NO_COLOR`
+- Chave de cifragem é definida com `config set encryption_key`
+- Logging de produto é flags + XDG (`--verbose` / `--debug` / `-q` ou `config set log_level`)
+- Cor é `config set color`; path do Chrome é `config set chrome_path`
 - Doctor ganha check XDG de `browsers_dir`
 
 ### MITM
@@ -46,7 +45,7 @@
 - Journals ficam sob XDG state
 - `workflow resume` pula passos já marcados `ok`
 
-### Superfície firecrawl-local
+### Superfície local de scrape
 - Novos comandos: `batch-scrape`, `crawl`, `map`, `search`, `parse`
 - `scrape` ganha `--format` (`text|markdown|html|links|metadata`)
 - `scrape` ganha `--engine` (`http|browser`) e `--only-main-content`
@@ -61,24 +60,89 @@
 ### Empacotamento e docs
 - Documentação e skills bilíngues públicas para o pacote crates.io
 - Dual license `MIT OR Apache-2.0`
-- Workflows hospedados do GitHub Actions removidos; a validação é local
+- Validação local com cargo e scripts e2e
+
+
+## 0.1.1 → 0.1.2
+Correções de GAP e crescimento de superfície em alto nível no `0.1.2`:
+
+### Scrape browser e formatos
+- Scrape com engine browser captura `outerHTML` e aplica `--format` (markdown/html/links/metadata/…) em vez de text silencioso
+- Tokens extras de format: `summary`, `product`, `branding`, além de aliases `raw-html` / `rawHtml` e token `screenshot`
+- `--webhook-url` opcional no scrape: POST one-shot do operador com os dados do resultado (não telemetria de produto)
+
+### Ergonomia do script run
+- Scroll NDJSON aceita aliases `dy` / `dx` para `delta_y` / `delta_x`
+- Assert aceita aliases `url_contains` / `text_contains`
+- Erros fail-fast de `run` devolvem `data.steps` parcial no envelope de erro para recuperação
+- `schema --cmd` expandido para flags tool-ref de goto/eval/type/scroll/assert
+- Help de `exec` descreve a superfície completa de steps
+
+### Logging, Chrome e paths de Lighthouse
+- Settings de produto ficam só em flags + XDG
+- Logging usa `--verbose` / `--debug` / `-q` e XDG `log_level`
+- Path do Chrome via XDG `chrome_path`; Lighthouse via XDG `lighthouse_path` (mais flag)
+- Cor via XDG `color`
+
+### i18n
+- Sugestões humanas localizam para `pt-BR` via `--lang` e XDG `config set lang`
+
+### Search e attr
+- Search limpa wrappers de redirect SERP (`uddg=`) para URLs de destino
+- `attr` faz fallback para propriedades DOM quando atributos HTML são null
+
+### Novos comandos e parse/LLM
+- `print-pdf` — artefato one-shot CDP `Page.printToPDF`
+- `monitor check` — comparação de hash/texto com baseline e `--write-baseline` opcional
+- `qr encode|decode` — sem Chrome
+- `find-paths` — descoberta de paths estilo fd (sem Chrome)
+- `parse` — PDF (lopdf), DOCX, xlsx/ods (calamine), mais `--redact-pii`
+- `extract --llm` / `--question` / `--schema-json` com chaves só XDG: `openrouter_api_key`, `llm_base_url`, `llm_model` (fail-closed sem chave)
+- MITM reporta `ws_count`
+
+### Chaves de config (lista completa em 0.1.2)
+- `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`
+- Mais: `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+
+### Inventário
+- Inventário vivo é **56 comandos** (`commands --json`)
+- Suite e2e de tool-ref DevTools permanece **52 tools** (`scripts/e2e_all_52_tools.sh`)
+- Schemas estáticos regeneram via `bash scripts/generate_command_schemas.sh`
 
 
 ## Migração Passo a Passo
-- Instale ou rebuild o binário para `0.1.1`
+### De qualquer tree antiga para 0.1.1
+- Instale ou rebuild o binário para pelo menos `0.1.1`
 - Substitua chamadas de session-daemon por invocações one-shot
 - Reescreva planos multi-passo de agente em scripts NDJSON para `run`
 - Mude consumidores de output para envelopes `--json`
-- Remova scripts que exportam settings de produto `BROWSER_AUTOMATION_CLI_*`
 - Mova defaults duráveis para `config set` ou mantenha-os como flags explícitas
 - Mova material de cifragem para `config set encryption_key <secret>`
 - Mapeie nomes antigos de tools via `commands --json` e o tool map DevTools
 - Atualize callers de screenshot para `grab --path <file>`
 - Atualize waits que precisam de textos alternativos para `--text` repetível (OR)
 - Atualize callers de scrape para passar `--format` e `--engine` de forma explícita quando necessário
-- Descubra superfícies novas de v0.1.1 com `schema --cmd <name> --json`
-- Confirme saúde de paths XDG do doctor com `doctor --json`
-- Reexecute validação local: `cargo test --lib`, script e2e e smokes dos pilares que importam
+
+### De 0.1.1 para 0.1.2
+- Rebuild/instale `0.1.2`
+- Use `--verbose`, `--debug`, `-q` ou `config set log_level` para logging de produto
+- Prefira XDG `chrome_path` / `lighthouse_path` quando a descoberta por PATH for frágil
+- Prefira `config set color` para defaults de cor ANSI
+- Espere que formatos de scrape browser funcionem (`--engine browser --format markdown|links|…`)
+- Prefira aliases de scroll `dy`/`dx` e de assert `url_contains`/`text_contains` no NDJSON
+- Em falhas de `run`, parseie `data.steps` parcial quando presente
+- Descubra novos comandos: `print-pdf`, `monitor`, `qr`, `find-paths`
+- Para webhooks de scrape do operador, passe `--webhook-url` em `scrape`
+- Para extract LLM, defina só chaves XDG via `config set`:
+```bash
+browser-automation-cli --json config set openrouter_api_key YOUR_KEY
+browser-automation-cli --json config set llm_base_url https://openrouter.ai/api/v1
+browser-automation-cli --json config set llm_model openai/gpt-4o-mini
+browser-automation-cli --json extract https://example.com --llm --question 'What is the title?'
+```
+- Use `--lang pt-BR` ou `config set lang pt-BR` para sugestões humanas localizadas
+- Confirme inventário com `commands --json` (56) e regenere schemas se empacotar docs
+- Reexecute validação local com cargo e scripts e2e: `cargo test --lib`, script e2e de 52 tools, smokes residuais que importam
 
 
 ## Mudanças de JSON Schema
@@ -92,9 +156,11 @@
 {"schema_version":1,"ok":false,"error":{"message":"..."}}
 ```
 - Envelopes de erro também carregam `kind` e `exit_code` para ramificação programática
+- Erros multi-passo fail-fast podem incluir `data` parcial (por exemplo `data.steps`)
 - Fragments vivos de input por comando vêm de `schema --cmd`
 - Snapshots estáticos em `docs/schemas/` são um índice de conveniência e podem atrasar o binário
 - Adições estáticas de v0.1.1 incluem `config`, `mitm`, `workflow`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse` e `wait`
+- Adições estáticas de v0.1.2 incluem `print-pdf`, `monitor`, `qr`, `find-paths` (regenere com o gerador)
 - Prefira `schema --cmd` ao vivo após upgrades para confirmar o binário instalado
 
 
@@ -102,7 +168,8 @@
 - Não existe linha estável prévia no crates.io para este repositório antes de `0.1.0`
 - Limpeza de branding e histórico recriou um root commit público limpo
 - O primeiro publish no crates.io ainda exige aprovação explícita do mantenedor
-- Agentes que hardcoded env vars de produto devem migrar para flags + `config`
+- Agentes que hardcoded settings fora de flags/`config` devem migrar para flags + `config set`
+- Agentes que controlavam verbosity de produto fora de flags/`log_level` devem migrar para `--verbose` / `--debug` / `config set log_level`
 - Integração por subprocesso permanece o único path de agente suportado
 - Exit codes permanecem no estilo sysexits: `0`, `2`, `65`, `66`, `69`, `70`, `74`, `78`, `124`, `130`, `141`
 
@@ -110,10 +177,12 @@
 ## Rollback
 - Fixe o commit local anterior ou o path do binário instalado
 - Mantenha scripts compatíveis com os campos `ok` e `schema_version` do envelope
+- Se reverter de `0.1.2` para `0.1.1`, remova o uso de `print-pdf`, `monitor`, `qr`, `find-paths`, `parse --redact-pii`, `extract --llm` e as novas chaves de config
+- Se reverter de `0.1.2`, também remova premissas de que formatos de scrape browser, scroll `dy`/`dx`, aliases contains de assert, `data.steps` fail-fast, scrape `--webhook-url` ou logging via flags/XDG sempre se aplicam
 - Se reverter de `0.1.1` para `0.1.0`, remova o uso de config, mitm, workflow, batch-scrape, crawl, map, search, parse
 - Se reverter, também remova premissas de scrape `--format`/`--engine` que dependem de `0.1.1`
 - Se reverter, restaure wrappers de wait ou grab que assumiam argv antigo só se o seu fork os tinha
-- Não reintroduza env vars de produto; mesmo em trees antigas, prefira flags quando possível
+- Mantenha settings em flags e `config` mesmo ao mirar trees antigas
 
 
 ## Veja Também

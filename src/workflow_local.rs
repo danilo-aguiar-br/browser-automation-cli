@@ -49,14 +49,23 @@ pub fn journal_path(name: Option<&str>) -> Result<PathBuf, CliError> {
     let file = name.unwrap_or("default");
     let safe: String = file
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     Ok(dir.join(format!("{safe}.sqlite")))
 }
 
 fn open_db(path: &Path) -> Result<Connection, CliError> {
     let conn = Connection::open(path).map_err(|e| {
-        CliError::new(ErrorKind::Io, format!("open workflow journal {}: {e}", path.display()))
+        CliError::new(
+            ErrorKind::Io,
+            format!("open workflow journal {}: {e}", path.display()),
+        )
     })?;
     conn.execute_batch(
         r#"
@@ -100,9 +109,8 @@ pub fn load_manifest(path: &Path) -> Result<WorkflowManifest, CliError> {
             format!("read workflow manifest {}: {e}", path.display()),
         )
     })?;
-    serde_json::from_str(&raw).map_err(|e| {
-        CliError::new(ErrorKind::Data, format!("invalid workflow manifest: {e}"))
-    })
+    serde_json::from_str(&raw)
+        .map_err(|e| CliError::new(ErrorKind::Data, format!("invalid workflow manifest: {e}")))
 }
 
 /// Validate DAG with petgraph; return topological order of step ids.
@@ -138,9 +146,8 @@ pub fn validate_dag(steps: &[WorkflowStep]) -> Result<Vec<String>, CliError> {
             "Remove circular depends_on edges",
         ));
     }
-    let order = toposort(&g, None).map_err(|_| {
-        CliError::new(ErrorKind::Data, "workflow toposort failed (cycle?)")
-    })?;
+    let order = toposort(&g, None)
+        .map_err(|_| CliError::new(ErrorKind::Data, "workflow toposort failed (cycle?)"))?;
     Ok(order.into_iter().map(|i| g[i].clone()).collect())
 }
 
@@ -270,10 +277,13 @@ pub fn workflow_resume(manifest_path: &Path, journal: Option<&Path>) -> Result<V
             .prepare("SELECT step_id, status FROM steps")
             .map_err(|e| CliError::new(ErrorKind::Software, format!("resume prepare: {e}")))?;
         let rows = stmt
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(|e| CliError::new(ErrorKind::Software, format!("resume query: {e}")))?;
         for r in rows {
-            let (id, st) = r.map_err(|e| CliError::new(ErrorKind::Software, format!("row: {e}")))?;
+            let (id, st) =
+                r.map_err(|e| CliError::new(ErrorKind::Software, format!("row: {e}")))?;
             done.insert(id, st);
         }
     }

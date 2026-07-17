@@ -33,6 +33,7 @@ impl RobotsPolicy {
             (true, true) => Ok(Self::Ignore),
             (true, false) => Err(CliError::with_suggestion(
                 ErrorKind::Usage,
+                // message stays EN (stable); suggestion localized at emit via catalog map
                 "--ignore-robots requires --i-accept-robots-risk",
                 "Pass both flags together when you intentionally skip robots.txt",
             )),

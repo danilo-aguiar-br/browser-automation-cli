@@ -3,10 +3,13 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/parse.schema.json",
   "title": "parse command input",
   "type": "object",
-  "description": "Parse a local file (html/md/txt/pdf text extract)",
+  "description": "Parse a local file (html/md/txt/pdf/docx/xlsx)",
   "properties": {
     "path": {
       "type": "string"
+    },
+    "redact_pii": {
+      "type": "boolean"
     }
   },
   "required": [

@@ -40,6 +40,11 @@ pub fn print_success_json(data: Value) -> Result<(), CliError> {
 
 /// Print an error envelope derived from [`CliError`].
 pub fn print_error_json(err: &CliError) -> Result<(), CliError> {
+    print_error_json_with_data(err, err.data().cloned())
+}
+
+/// Print an error envelope with optional partial `data` (e.g. fail-fast `run` steps).
+pub fn print_error_json_with_data(err: &CliError, data: Option<Value>) -> Result<(), CliError> {
     let mut env = json!({
         "schema_version": 1,
         "ok": false,
@@ -51,6 +56,9 @@ pub fn print_error_json(err: &CliError) -> Result<(), CliError> {
     });
     if let Some(s) = err.suggestion() {
         env["error"]["suggestion"] = json!(s);
+    }
+    if let Some(d) = data {
+        env["data"] = d;
     }
     println!(
         "{}",

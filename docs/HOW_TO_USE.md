@@ -7,9 +7,9 @@
 
 ## Prerequisites
 - Rust 1.88.0 or newer when building from source
-- Chrome or Chromium available on PATH for browser-engine commands
+- Chrome or Chromium available on PATH (or set XDG `chrome_path`) for browser-engine commands
 - Optional ffmpeg for experimental screencast file export
-- Optional Lighthouse binary for audits, or pass `--lighthouse-path` to a mock
+- Optional Lighthouse binary for audits, or pass `--lighthouse-path` / XDG `lighthouse_path` to a mock
 - A shell that can pipe stdout and inspect exit codes
 
 
@@ -33,8 +33,13 @@ browser-automation-cli --json view
 - Fill inputs with `write` and multi-field forms with `fill-form`
 - Wait with `wait --ms`, repeatable `--text` (OR), `--selector`, and optional `--state`
 - Capture a screenshot with `grab --path /tmp/page.png` (flag, not a positional path)
-- Scrape page content with `scrape` when you need text, markdown, html, links, or metadata
-- List the live inventory with `commands --json`
+- Print the page to PDF with `print-pdf --url <url> --path /tmp/page.pdf`
+- Scrape page content with `scrape` when you need text, markdown, html, links, metadata, or related formats
+- Parse local files with `parse` (html/md/txt/pdf/docx/xlsx/ods; optional `--redact-pii`)
+- Encode or decode QR codes with `qr encode|decode` (no Chrome)
+- Discover filesystem paths with `find-paths` (no Chrome)
+- Check page change against a baseline with `monitor check`
+- List the live inventory (56 commands) with `commands --json`
 - Discover argv shapes with `schema --cmd <name> --json`
 - Print the product version with `version`
 
@@ -43,7 +48,8 @@ browser-automation-cli --timeout 60 --json goto https://example.com
 browser-automation-cli --json view
 browser-automation-cli --json wait --text "Example Domain" --ms 3000
 browser-automation-cli --json grab --path /tmp/page.png --full-page
-browser-automation-cli --json scrape https://example.com --format text --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format markdown --engine browser
+browser-automation-cli --json print-pdf --url https://example.com --path /tmp/page.pdf
 ```
 
 
@@ -52,17 +58,23 @@ browser-automation-cli --json scrape https://example.com --format text --engine 
 - Separate process launches never share refs or the Chrome session
 - One process is one lifecycle: BORN EXECUTE FINALIZE DIE
 - There is no product daemon mode
+- On fail-fast error, the error envelope may include partial `data.steps` for recovery
 
 ```bash
 cat > /tmp/demo.browser-automation.jsonl <<'JSONL'
 {"cmd":"goto","url":"https://example.com"}
 {"cmd":"wait","ms":500,"text":"Example Domain"}
+{"cmd":"scroll","dy":1500}
+{"cmd":"assert","url_contains":"example.com"}
+{"cmd":"assert","text_contains":"Example Domain"}
 {"cmd":"view"}
 {"cmd":"grab","path":"/tmp/example.png"}
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automation.jsonl
 ```
 - NDJSON lines use a `cmd` field matching a real subcommand name
+- Scroll accepts `dy`/`dx` as aliases for `delta_y`/`delta_x`
+- Assert accepts `url_contains` / `text_contains` aliases
 - Global flags such as `--timeout` and `--step-timeout` apply to the whole script
 - Prefer HTTP scrape paths when you only need content and not live refs
 
@@ -75,26 +87,32 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automa
   - `emulate --viewport 390x844x3,mobile,touch`
   - `emulate --network-conditions "Slow 3G"`
 - Wait for any of several texts (OR semantics): `wait --text A --text B --ms 5000`
-- Scrape formats: `--format text|markdown|html|links|metadata`
-- Scrape engines: `--engine http` (reqwest + scraper) or `--engine browser` (CDP)
+- Scrape formats: `--format text|markdown|html|links|metadata|summary|product|branding|raw-html|screenshot`
+- Scrape engines: `--engine http` (reqwest + scraper) or `--engine browser` (CDP; formats apply to captured HTML)
+- Optional operator webhook POST of scrape result data: `scrape ... --webhook-url https://127.0.0.1:9000/hook` (one-shot operator destination, not product telemetry)
 - Prefer main content heuristics: `scrape ... --only-main-content`
 - Batch scrape from a URL list: `batch-scrape --urls-file urls.txt --format text --concurrency 2`
 - Discover sites with `crawl`, `map`, `search`, and local files with `parse`
+- LLM extract (fail-closed without keys): set XDG `openrouter_api_key`, optional `llm_base_url` / `llm_model`, then `extract <url> --llm --question '...'`
 - MITM one-shot proxy: `mitm start --seconds 30` (binds `127.0.0.1`)
 - Workflow DAG journal: `workflow run|resume|status` (SQLite under XDG state)
 - Deep heap tools require `--category-memory`
 - Extension tools require `--category-extensions`
 - Coordinate clicks require `--experimental-vision`
-- Lighthouse with a mock path for CI: `lighthouse https://example.com --lighthouse-path mock --json`
+- Lighthouse with a mock path: `lighthouse https://example.com --lighthouse-path mock --json`
+- Localize human suggestions: `--lang pt-BR` or `config set lang pt-BR`
+- Verbosity: `--verbose` (info), `--debug` (max), `-q`/`--quiet`, or `config set log_level debug`
+- Color: `config set color true|false` (truthy values: `true`, `1`, `yes`)
+- Chrome path: `config set chrome_path /path/to/chrome` when PATH discovery is not enough
 
 
 ## Configuration (XDG)
 - Prefer flags for one-off agent calls
 - Prefer XDG config via the `config` command for durable defaults
-- There are no product `BROWSER_AUTOMATION_CLI_*` environment variables
-- OS conventions only: `RUST_LOG` for tracing detail, `NO_COLOR` to disable ANSI color
-- Layout commands: `config init`, `config path`, `config show`, `config set`, `config get`
-- Supported keys: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`
+- Product settings are flags and XDG CLI only: `config init`, `config path`, `config show`, `config set`, `config get`
+- Resolve live config/data/state paths with `config path --json`
+- Product logging is controlled by `--verbose` / `--debug` / `-q` and XDG `log_level`
+- Supported keys (full list of 13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
 - Color truthy values: `true`, `1`, `yes`
 - Color falsy or other values resolve to off unless set truthy
 
@@ -104,21 +122,34 @@ browser-automation-cli --json config path
 browser-automation-cli --json config show
 browser-automation-cli --json config set lang en
 browser-automation-cli --json config set timeout 60
-browser-automation-cli --json config set artifacts_dir /tmp/bac-artifacts
+browser-automation-cli --json config set artifacts_dir /tmp/browser-automation-cli-artifacts
+browser-automation-cli --json config set ignore_robots false
+browser-automation-cli --json config set namespace demo
 browser-automation-cli --json config set color true
+browser-automation-cli --json config set log_level info
+browser-automation-cli --json config set chrome_path /usr/bin/chromium
+browser-automation-cli --json config set lighthouse_path ./scripts/mock-lighthouse.sh
+browser-automation-cli --json config set openrouter_api_key YOUR_KEY
+browser-automation-cli --json config set llm_base_url https://openrouter.ai/api/v1
+browser-automation-cli --json config set llm_model openai/gpt-4o-mini
 browser-automation-cli --json config get lang
 ```
 - Keep robots dual-flag policy explicit when bypassing: `--ignore-robots` plus `--i-accept-robots-risk`
 - Config `ignore_robots` alone does not replace the dual-flag requirement on the command line
 
 
-## Scrape, Crawl, Map, Search, Parse
+## Scrape, Crawl, Map, Search, Parse, PDF, QR, Paths
 ```bash
 # Single page as markdown over HTTP (no Chrome)
 browser-automation-cli --json scrape https://example.com --format markdown --engine http --only-main-content
 
-# Browser engine when JS rendering is required
-browser-automation-cli --timeout 60 --json scrape https://example.com --format text --engine browser
+# Browser engine formats apply to captured outerHTML (markdown, links, …)
+browser-automation-cli --timeout 60 --json scrape https://example.com --format markdown --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format links --engine browser
+
+# Optional one-shot operator webhook POST of scrape result data (not product telemetry)
+browser-automation-cli --json scrape https://example.com --format markdown --engine http \
+  --webhook-url https://127.0.0.1:9000/hook
 
 # Many URLs (HTTP engine, one-shot)
 printf '%s\n' 'https://example.com' 'https://example.org' > /tmp/urls.txt
@@ -128,13 +159,49 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 browser-automation-cli --json crawl https://example.com --same-host --limit 20 --max-depth 2 --format text
 browser-automation-cli --json map https://example.com --limit 50 --max-depth 2
 browser-automation-cli --json search "example domain" --limit 10
-browser-automation-cli --json parse /tmp/page.html
+browser-automation-cli --json parse tests/fixtures/hello.pdf
+browser-automation-cli --json parse tests/fixtures/hello.docx --redact-pii
+# xlsx/ods spreadsheets are also supported:
+# browser-automation-cli --json parse /tmp/sheet.xlsx
+# browser-automation-cli --json parse /tmp/sheet.ods --redact-pii
+
+# PDF print, monitor baseline, QR, path discovery
+browser-automation-cli --json print-pdf --url https://example.com --path /tmp/page.pdf
+browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/mon.base --write-baseline
+browser-automation-cli --json qr encode --text 'hello' --format png --path /tmp/qr.png
+browser-automation-cli --json qr decode --path /tmp/qr.png
+browser-automation-cli --json find-paths 'Cargo.*' .
 ```
 - `scrape` defaults: `--format text`, `--engine browser`
+- Browser engine respects `--format` (not silent text-only)
 - `batch-scrape` always uses the HTTP engine
 - `crawl` stays on the seed host when you pass `--same-host`
-- `parse` extracts text from local `html`, `md`, `txt`, and PDF paths
+- `parse` extracts text from local `html`, `md`, `txt`, `pdf`, `docx`, `xlsx`, and `ods` paths
+- `--redact-pii` redacts common PII patterns in parse output
+- `--webhook-url` on `scrape` POSTs the result data once to an operator URL (not product telemetry)
 - Honor robots by default; dual-flag bypass when you intentionally skip policy
+
+
+## LLM Extract (XDG keys)
+```bash
+browser-automation-cli --json config set openrouter_api_key YOUR_KEY
+browser-automation-cli --json config set llm_base_url https://openrouter.ai/api/v1
+browser-automation-cli --json config set llm_model openai/gpt-4o-mini
+browser-automation-cli --json extract https://example.com --llm --question 'What is the title?'
+```
+- Keys are stored only under XDG via `config set`
+- Without `openrouter_api_key`, `extract --llm` fails closed with a usage envelope
+- Optional `--schema-json` points at a local JSON Schema file for structured answers
+
+
+## i18n
+```bash
+browser-automation-cli --lang pt-BR --json click-at --x 1 --y 1
+# usage error shows localized suggestion when lang is pt-BR (needs --experimental-vision for success)
+browser-automation-cli --json config set lang pt-BR
+```
+- Human messages and suggestions honor `--lang` and XDG `lang`
+- Machine envelopes keep English-stable `kind` / `exit_code` fields
 
 
 ## MITM and Workflow
@@ -169,8 +236,8 @@ browser-automation-cli --json workflow status --name demo
 ## Common Errors
 ### Chrome missing
 - Symptom: exit `69`, envelope kind `unavailable`, message about chrome not found
-- Cause: Chrome or Chromium is not installed or not on PATH
-- Fix: install Chromium or Google Chrome, ensure PATH, re-run `doctor --offline --quick --json`
+- Cause: Chrome or Chromium is not installed or not on PATH / `chrome_path`
+- Fix: install Chromium or Google Chrome, set `config set chrome_path`, re-run `doctor --offline --quick --json`
 
 ### Timeout
 - Symptom: exit `124`, envelope kind `timeout`
@@ -190,7 +257,12 @@ browser-automation-cli --json workflow status --name demo
 ### Unknown config key
 - Symptom: exit `2`, message `unknown config key: ...`
 - Cause: `config set` received a key outside the supported set
-- Fix: use only `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`
+- Fix: use only `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+
+### LLM keys missing
+- Symptom: exit `2`, message `LLM extract requires XDG openrouter_api_key`
+- Cause: `extract --llm` without XDG key
+- Fix: `config set openrouter_api_key YOUR_KEY` (and optional `llm_base_url` / `llm_model`)
 
 ### Wrong schema or command name
 - Symptom: exit `2`, message `unknown command for schema: ...` or clap `unrecognized subcommand`
@@ -208,6 +280,7 @@ browser-automation-cli --json workflow status --name demo
 - Inspect `$?` (or `$LASTEXITCODE`) before trusting the payload
 - Pipe stdout into `jaq` / `jq` for field extraction
 - Keep diagnostics on stderr with `--quiet` when you only want envelopes
+- On `run` errors, inspect partial `data.steps` when present
 
 ```bash
 browser-automation-cli --timeout 60 --json goto https://example.com \
@@ -229,13 +302,14 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 - Pass `--json` on every programmatic call
 - Parse only stdout envelopes; treat stderr as diagnostics
 - Branch on envelope field `ok` and process exit code
-- Discover inventory with `commands --json`
+- Discover inventory with `commands --json` (56 commands)
 - Discover argv with `schema --cmd <name> --json`
 - Collapse multi-step browser work into one `run --script` process when refs matter
 - Prefer flags for one-off control; use `config` for durable XDG defaults
 - Do not invent a daemon between agent turns
-- Do not invent product env vars such as `BROWSER_AUTOMATION_CLI_*`
-- OS env only when needed: `RUST_LOG`, `NO_COLOR`
+- Configure product settings only with flags and `config set` / `config get` / `config path`
+- Product logging uses `--verbose` / `--debug` / `-q` or `config set log_level`
+- Color uses `config set color`; Chrome path uses `config set chrome_path`
 - Compatible editors and runners include Claude Code, Codex, Cursor, Continue, and Cline via shell or subprocess
 - Full agent contract: [docs/AGENTS.md](AGENTS.md) and [INTEGRATIONS.md](../INTEGRATIONS.md)
 

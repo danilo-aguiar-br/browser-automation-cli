@@ -76,26 +76,25 @@ impl LaunchLogBuffer {
     }
 
     fn snapshot_stdout(&self) -> Vec<String> {
-        self.stdout
-            .lock()
-            .expect("stdout log buffer poisoned")
-            .iter()
-            .cloned()
-            .collect()
+        match self.stdout.lock() {
+            Ok(g) => g.iter().cloned().collect(),
+            Err(p) => p.into_inner().iter().cloned().collect(),
+        }
     }
 
     fn snapshot_stderr(&self) -> Vec<String> {
-        self.stderr
-            .lock()
-            .expect("stderr log buffer poisoned")
-            .iter()
-            .cloned()
-            .collect()
+        match self.stderr.lock() {
+            Ok(g) => g.iter().cloned().collect(),
+            Err(p) => p.into_inner().iter().cloned().collect(),
+        }
     }
 }
 
 fn push_bounded(buffer: &Mutex<VecDeque<String>>, line: String) {
-    let mut guard = buffer.lock().expect("log buffer poisoned");
+    let mut guard = match buffer.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     if guard.len() >= MAX_LOG_LINES {
         guard.pop_front();
     }

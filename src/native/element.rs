@@ -162,14 +162,21 @@ static ACTIVE_FRAME: std::sync::OnceLock<std::sync::Mutex<Option<String>>> =
     std::sync::OnceLock::new();
 
 pub fn set_active_frame(frame_id: Option<&str>) {
-    *ACTIVE_FRAME
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap() = frame_id.map(String::from);
+    let mutex = ACTIVE_FRAME.get_or_init(|| std::sync::Mutex::new(None));
+    match mutex.lock() {
+        Ok(mut guard) => *guard = frame_id.map(String::from),
+        Err(poisoned) => {
+            let mut guard = poisoned.into_inner();
+            *guard = frame_id.map(String::from);
+        }
+    }
 }
 
 fn active_frame() -> Option<String> {
-    ACTIVE_FRAME.get().and_then(|m| m.lock().unwrap().clone())
+    ACTIVE_FRAME.get().and_then(|m| match m.lock() {
+        Ok(g) => g.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    })
 }
 
 /// Object handle for the <iframe> element that owns a frame, resolved on the
@@ -930,13 +937,20 @@ pub async fn get_element_attribute(
     )
     .await?;
 
+    let attr_name = serde_json::to_string(attribute).unwrap_or_else(|_| "\"\"".into());
+    // Prefer HTML attribute; fall back to DOM property (innerText, value, checked, …).
     let result: EvaluateResult = client
         .send_command_typed(
             "Runtime.callFunctionOn",
             &CallFunctionOnParams {
                 function_declaration: format!(
-                    "function() {{ return this.getAttribute({}); }}",
-                    serde_json::to_string(attribute).unwrap_or_default()
+                    "function() {{ \
+                       var n = {attr_name}; \
+                       var a = this.getAttribute ? this.getAttribute(n) : null; \
+                       if (a !== null && a !== undefined) return a; \
+                       try {{ var p = this[n]; if (p !== undefined && p !== null) return p; }} catch (e) {{}} \
+                       return null; \
+                     }}"
                 ),
                 object_id: Some(object_id),
                 arguments: None,

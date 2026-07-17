@@ -17,6 +17,11 @@
         "exit_code": { "type": "integer" }
       },
       "additionalProperties": true
+    },
+    "data": {
+      "description": "Optional partial payload on multi-step fail-fast (e.g. run data.steps)",
+      "type": "object",
+      "additionalProperties": true
     }
   },
   "additionalProperties": true

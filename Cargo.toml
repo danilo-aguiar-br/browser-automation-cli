@@ -1,6 +1,6 @@
 [package]
 name = "browser-automation-cli"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.88.0"
 authors = ["Danilo Aguiar <daniloaguiarbr@proton.me>"]
@@ -17,6 +17,7 @@ exclude = [
     "base_conhecimento_chrome-devtools-mcp-main/",
     "docs_prd/",
     "docs_rules/",
+    "/gaps.md",
     ".enrich-queue.sqlite",
     ".enrich-queue.sqlite-*",
     "/AGENTS.md",
@@ -61,20 +62,18 @@ futures = "0.3"
 futures-util = "0.3"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-image = "0.25"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots", "stream", "blocking"] }
 sha2 = "0.10"
 aes-gcm = "0.10"
 async-trait = "0.1"
 socket2 = "0.6"
 similar = "2"
-zip = { version = "8.2.0", default-features = false, features = ["deflate"] }
 time = { version = "0.3", features = ["formatting"] }
 hmac = "0.12"
 hex = "0.4"
 chrono = "0.4"
 urlencoding = "2"
-clap = { version = "4", features = ["derive", "env", "wrap_help", "string", "cargo", "color", "suggestions"] }
+clap = { version = "4", features = ["derive", "wrap_help", "string", "cargo", "color", "suggestions"] }
 clap_complete = "4"
 thiserror = "2"
 indexmap = { version = "2", features = ["serde"] }
@@ -88,6 +87,14 @@ petgraph = "0.7"
 rusqlite = { version = "0.32", features = ["bundled"] }
 rcgen = "0.14.8"
 hudsucker = "0.25.0"
+lopdf = "0.34"
+zip = { version = "8.2.0", default-features = false, features = ["deflate"] }
+calamine = "0.26"
+ignore = "0.4"
+regex = "1"
+qrcode = "0.14"
+rqrr = "0.9"
+image = "0.25"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

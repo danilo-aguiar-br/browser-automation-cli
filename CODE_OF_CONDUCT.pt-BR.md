@@ -20,22 +20,22 @@
 - Comportamento inaceitável inclui publicar informações privadas sem permissão
 - Comportamento inaceitável inclui outras condutas inadequadas em ambiente profissional
 
-## Responsabilidades de Enforcement
-- Maintainers esclarecem e aplicam padrões de comportamento aceitável
-- Maintainers tomam ação corretiva apropriada e justa diante de comportamento inadequado
-- Maintainers podem remover, editar ou rejeitar comentários, commits, código, issues e outras contribuições
-- Maintainers comunicam razões de moderação quando apropriado
+## Responsabilidades dos Mantenedores
+- Mantenedores esclarecem e aplicam padrões de comportamento aceitável
+- Mantenedores tomam ação corretiva apropriada e justa diante de comportamento inadequado
+- Mantenedores podem remover, editar ou rejeitar comentários, commits, código, issues e outras contribuições
+- Mantenedores comunicam razões de moderação quando apropriado
 
 ## Escopo
 - Este Código de Conduta se aplica em todos os espaços da comunidade
 - Também se aplica quando alguém representa a comunidade oficialmente em espaços públicos
 
-## Enforcement
+## Aplicação
 - Reporte incidentes para daniloaguiarbr@proton.me
 - Todas as reclamações serão revisadas e investigadas com prontidão e justiça
 - A equipe do projeto deve respeitar a privacidade e a segurança do reporter
 
-## Diretrizes de Enforcement
+## Diretrizes de Aplicação
 - Correção: aviso escrito privado com clareza sobre a violação
 - Aviso: restrições de interação por período definido
 - Banimento temporário: banimento temporário de interação comunitária

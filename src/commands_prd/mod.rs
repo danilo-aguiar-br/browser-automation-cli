@@ -12,8 +12,8 @@ use crate::browser::{
 };
 use crate::cli::{
     AssertKind, Cli, Commands, CompletionShell, ConfigAction, ConsoleAction, CookieAction,
-    Devtools3pAction, DialogAction, ExtensionAction, GrabFormat, HeapAction, MitmAction,
-    NetAction, PageAction, PerfAction, ScreencastAction, WebmcpAction, WorkflowAction,
+    Devtools3pAction, DialogAction, ExtensionAction, GrabFormat, HeapAction, MitmAction, NetAction,
+    PageAction, PerfAction, ScreencastAction, WebmcpAction, WorkflowAction,
 };
 use crate::envelope::{print_error_json, print_success_json};
 use crate::error::{CliError, ErrorKind};
@@ -128,7 +128,7 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
                 let e = CliError::with_suggestion(
                     ErrorKind::Usage,
                     "click-at requires --experimental-vision",
-                    "Pass --experimental-vision on the same invocation",
+                    crate::i18n::suggestion_key("vision_required", None),
                 );
                 emit_err(&e, json)
             } else {
@@ -342,6 +342,24 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             Ok(()) => 0,
             Err(e) => emit_err(&e, json),
         },
+        Commands::PrintPdf { path, url } => {
+            match handle_print_pdf(
+                life,
+                path.as_deref(),
+                url.as_deref(),
+                robots,
+                capture,
+                timeout_secs,
+                json,
+            ) {
+                Ok(()) => 0,
+                Err(e) => emit_err(&e, json),
+            }
+        }
+        Commands::Monitor { action } => match handle_monitor(action, robots, timeout_secs, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
         Commands::Run { script } => {
             let flags = run::RunFlags::from_globals(
                 experimental_vision,
@@ -374,8 +392,24 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
                 Err(e) => emit_err(&e, json),
             }
         }
-        Commands::Extract { target, attr } => {
-            match handle_extract(life, &target, attr.as_deref(), capture, timeout_secs, json) {
+        Commands::Extract {
+            target,
+            attr,
+            llm,
+            question,
+            schema_json,
+        } => {
+            match handle_extract(
+                life,
+                &target,
+                attr.as_deref(),
+                llm,
+                question.as_deref(),
+                schema_json.as_deref(),
+                capture,
+                timeout_secs,
+                json,
+            ) {
                 Ok(()) => 0,
                 Err(e) => emit_err(&e, json),
             }
@@ -443,6 +477,7 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             format,
             engine,
             only_main_content,
+            webhook_url,
         } => {
             match handle_scrape(
                 life,
@@ -454,6 +489,7 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
                 &format,
                 &engine,
                 only_main_content,
+                webhook_url.as_deref(),
             ) {
                 Ok(()) => 0,
                 Err(e) => emit_err(&e, json),
@@ -489,7 +525,34 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             Ok(()) => 0,
             Err(e) => emit_err(&e, json),
         },
-        Commands::Parse { path } => match handle_parse(&path, json) {
+        Commands::Parse { path, redact_pii } => match handle_parse(&path, redact_pii, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::Qr { action } => match handle_qr(action, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::FindPaths {
+            pattern,
+            paths,
+            extension,
+            hidden,
+            no_ignore,
+            max_depth,
+            entry_type,
+            limit,
+        } => match handle_find_paths(
+            pattern.as_deref(),
+            &paths,
+            extension.as_deref(),
+            hidden,
+            no_ignore,
+            max_depth,
+            entry_type.as_deref(),
+            limit,
+            json,
+        ) {
             Ok(()) => 0,
             Err(e) => emit_err(&e, json),
         },
@@ -703,15 +766,16 @@ where
 }
 
 fn emit_err(err: &CliError, json: bool) -> i32 {
+    let localized = crate::i18n::localize_error_suggestion(err);
     if json {
-        let _ = print_error_json(err);
+        let _ = print_error_json(&localized);
     } else {
-        eprintln!("error: {err}");
-        if let Some(s) = err.suggestion() {
+        eprintln!("error: {localized}");
+        if let Some(s) = localized.suggestion() {
             eprintln!("suggestion: {s}");
         }
     }
-    err.exit_code() as i32
+    localized.exit_code() as i32
 }
 
 /// Peel known global flags mistakenly captured by `exec` trailing_var_arg.
@@ -1346,6 +1410,126 @@ fn handle_grab(
     })
 }
 
+fn handle_print_pdf(
+    life: &Lifecycle,
+    path: Option<&Path>,
+    url: Option<&str>,
+    robots: RobotsPolicy,
+    capture: CaptureOpts,
+    timeout_secs: u64,
+    json: bool,
+) -> Result<(), CliError> {
+    let path = path.map(|p| p.to_path_buf());
+    let url = url.map(|s| s.to_string());
+    let data = block_on_browser_timeout(
+        async {
+            let mut session =
+                crate::browser::OneShotSession::launch_headless_with_capture(capture).await?;
+            if let Ok(mut ledger) = life.ledger.lock() {
+                ledger.chrome_launched = true;
+                ledger.chrome_pid = session.chrome_pid();
+            }
+            if let Some(u) = url.as_deref() {
+                let _ = session.goto(u, robots).await?;
+            }
+            let out = session.print_pdf(path.as_deref()).await;
+            let _ = session.shutdown().await;
+            if let Ok(mut ledger) = life.ledger.lock() {
+                ledger.chrome_launched = false;
+                ledger.chrome_pid = None;
+            }
+            out
+        },
+        timeout_secs,
+    )?;
+    emit_ok(data, json, |d| {
+        let p = d.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        println!("ok print-pdf path={p}");
+    })
+}
+
+fn handle_monitor(
+    action: crate::cli::MonitorAction,
+    robots: RobotsPolicy,
+    timeout_secs: u64,
+    json: bool,
+) -> Result<(), CliError> {
+    use sha2::{Digest, Sha256};
+    match action {
+        crate::cli::MonitorAction::Check {
+            url,
+            baseline,
+            write_baseline,
+            engine,
+        } => {
+            let engine_l = engine.to_ascii_lowercase();
+            let text = if engine_l == "browser" {
+                return Err(CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    "monitor check --engine browser is reserved; use http for baseline hash",
+                    "Pass --engine http (default) for one-shot baseline compare",
+                ));
+            } else {
+                let opts = crate::scrape_local::ScrapeOpts {
+                    format: crate::scrape_local::ScrapeFormat::Text,
+                    engine: "http".into(),
+                    ..Default::default()
+                };
+                let page = block_on_browser_timeout(
+                    crate::scrape_local::scrape_http(&url, robots, &opts),
+                    timeout_secs,
+                )?;
+                page.get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
+            let mut hasher = Sha256::new();
+            hasher.update(text.as_bytes());
+            let hash = hex::encode(hasher.finalize());
+            let baseline_exists = baseline.exists();
+            let (changed, previous_hash) = if baseline_exists {
+                let prev = std::fs::read_to_string(&baseline).map_err(|e| {
+                    CliError::new(
+                        ErrorKind::Io,
+                        format!("read baseline {}: {e}", baseline.display()),
+                    )
+                })?;
+                let prev = prev.trim().to_string();
+                (prev != hash, Some(prev))
+            } else {
+                (true, None)
+            };
+            if write_baseline || !baseline_exists {
+                if let Some(parent) = baseline.parent() {
+                    if !parent.as_os_str().is_empty() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                }
+                std::fs::write(&baseline, format!("{hash}\n")).map_err(|e| {
+                    CliError::new(
+                        ErrorKind::Io,
+                        format!("write baseline {}: {e}", baseline.display()),
+                    )
+                })?;
+            }
+            let data = serde_json::json!({
+                "url": url,
+                "baseline": baseline.display().to_string(),
+                "hash": hash,
+                "previous_hash": previous_hash,
+                "changed": changed,
+                "baseline_written": write_baseline || !baseline_exists,
+                "engine": "http",
+            });
+            emit_ok(data, json, |d| {
+                let ch = d.get("changed").and_then(|v| v.as_bool()).unwrap_or(false);
+                println!("ok monitor check changed={ch}");
+            })
+        }
+    }
+}
+
 fn handle_run(
     life: &Lifecycle,
     script: &Path,
@@ -1360,6 +1544,38 @@ fn handle_run(
         run::run_script_with_flags(life, &script, robots, capture, flags),
         timeout_secs,
     )?;
+    // Fail-fast payload: ok:false with partial steps (still non-zero exit).
+    if data.get("ok") == Some(&serde_json::json!(false)) {
+        let kind = data
+            .pointer("/error/kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("data");
+        let message = data
+            .pointer("/error/message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("run fail-fast")
+            .to_string();
+        let suggestion = data
+            .pointer("/error/suggestion")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| crate::i18n::suggestion_key("run_fail_fast", None))
+            .to_string();
+        let err_kind = match kind {
+            "usage" => ErrorKind::Usage,
+            "unavailable" => ErrorKind::Unavailable,
+            "browser" => ErrorKind::Browser,
+            "timeout" => ErrorKind::Timeout,
+            "data" => ErrorKind::Data,
+            _ => ErrorKind::Software,
+        };
+        let partial = serde_json::json!({
+            "total": data.get("total"),
+            "failed_index": data.get("failed_index"),
+            "failed_cmd": data.get("failed_cmd"),
+            "steps": data.get("steps"),
+        });
+        return Err(CliError::with_suggestion(err_kind, message, suggestion).with_data(partial));
+    }
     emit_ok(data, json, |d| {
         let total = d.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
         println!("ok run steps={total}");
@@ -1424,14 +1640,21 @@ fn handle_exec(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_extract(
     life: &Lifecycle,
     target: &str,
     attr: Option<&str>,
+    llm: bool,
+    question: Option<&str>,
+    schema_json: Option<&std::path::Path>,
     capture: CaptureOpts,
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
+    if llm {
+        return handle_extract_llm(target, question, schema_json, json);
+    }
     let target = target.to_string();
     let attr = attr.map(|s| s.to_string());
     let data = block_on_browser_timeout(
@@ -1458,6 +1681,65 @@ fn handle_extract(
     emit_ok(data, json, |d| println!("ok extract {d}"))
 }
 
+fn handle_extract_llm(
+    target: &str,
+    question: Option<&str>,
+    schema_json: Option<&std::path::Path>,
+    json: bool,
+) -> Result<(), CliError> {
+    let schema_body = match schema_json {
+        Some(p) => Some(std::fs::read_to_string(p).map_err(|e| {
+            CliError::new(
+                ErrorKind::Io,
+                format!("read schema-json {}: {e}", p.display()),
+            )
+        })?),
+        None => None,
+    };
+    let source_text = if target.starts_with("http://") || target.starts_with("https://") {
+        let opts = crate::scrape_local::ScrapeOpts {
+            format: crate::scrape_local::ScrapeFormat::Text,
+            only_main_content: true,
+            engine: "http".into(),
+            max_body_bytes: 2_000_000,
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| CliError::new(ErrorKind::Software, format!("runtime: {e}")))?;
+        let data = rt.block_on(crate::scrape_local::scrape_http(
+            target,
+            crate::robots::RobotsPolicy::Honor,
+            &opts,
+        ))?;
+        data.get("text")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string()
+    } else if Path::new(target).is_file() {
+        let parsed = crate::scrape_local::parse_file(Path::new(target))?;
+        parsed
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        return Err(CliError::with_suggestion(
+            ErrorKind::Usage,
+            "extract --llm target must be http(s) URL or local file path",
+            "Example: browser-automation-cli --json extract --llm --question 'sum' https://example.com",
+        ));
+    };
+    if source_text.trim().is_empty() {
+        return Err(CliError::new(
+            ErrorKind::Data,
+            "extract --llm: empty source text",
+        ));
+    }
+    let data = crate::llm_local::extract_with_llm(&source_text, question, schema_body.as_deref())?;
+    emit_ok(data, json, |d| println!("ok extract-llm {d}"))
+}
+
 fn handle_attr(
     life: &Lifecycle,
     target: &str,
@@ -1466,7 +1748,17 @@ fn handle_attr(
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
-    handle_extract(life, target, Some(name), capture, timeout_secs, json)
+    handle_extract(
+        life,
+        target,
+        Some(name),
+        false,
+        None,
+        None,
+        capture,
+        timeout_secs,
+        json,
+    )
 }
 
 fn handle_assert(
@@ -1660,7 +1952,17 @@ fn handle_text(
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
-    handle_extract(life, target, None, capture, timeout_secs, json)
+    handle_extract(
+        life,
+        target,
+        None,
+        false,
+        None,
+        None,
+        capture,
+        timeout_secs,
+        json,
+    )
 }
 
 fn handle_scroll(
@@ -1735,6 +2037,33 @@ fn handle_dialog(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn post_webhook(webhook_url: &str, data: &serde_json::Value) -> Result<(), CliError> {
+    // One-shot operator webhook; no product telemetry.
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| CliError::new(ErrorKind::Software, format!("webhook client: {e}")))?;
+    let mut last_err = String::new();
+    for attempt in 0..3u32 {
+        match client.post(webhook_url).json(data).send() {
+            Ok(resp) if resp.status().is_success() => return Ok(()),
+            Ok(resp) => {
+                last_err = format!("webhook HTTP {}", resp.status());
+            }
+            Err(e) => last_err = format!("webhook: {e}"),
+        }
+        if attempt < 2 {
+            std::thread::sleep(std::time::Duration::from_millis(50 * (1 << attempt)));
+        }
+    }
+    Err(CliError::with_suggestion(
+        ErrorKind::Unavailable,
+        last_err,
+        "Check --webhook-url reachability; operator destination only",
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn handle_scrape(
     life: &Lifecycle,
     url: &str,
@@ -1745,6 +2074,7 @@ fn handle_scrape(
     format: &str,
     engine: &str,
     only_main_content: bool,
+    webhook_url: Option<&str>,
 ) -> Result<(), CliError> {
     let fmt = crate::scrape_local::ScrapeFormat::parse(format)?;
     let engine_l = engine.to_ascii_lowercase();
@@ -1759,38 +2089,49 @@ fn handle_scrape(
             crate::scrape_local::scrape_http(url, robots, &opts),
             timeout_secs,
         )?;
+        if let Some(wh) = webhook_url {
+            post_webhook(wh, &data)?;
+        }
         return emit_ok(data, json, |d| {
             let u = d.get("source_url").and_then(|v| v.as_str()).unwrap_or(url);
             println!("ok scrape engine=http source_url={u}");
         });
     }
-    // browser engine: CDP scrape then reformat when needed
+    // browser engine: CDP scrape always includes outerHTML for multi-format payload.
     let data = block_on_browser_timeout(run_scrape(life, url, robots, capture), timeout_secs)?;
-    let data = if matches!(
-        fmt,
-        crate::scrape_local::ScrapeFormat::Text
-    ) && !only_main_content
-    {
-        data
-    } else {
-        // When non-text formats requested, also fetch HTML via page content if present.
-        let html = data
-            .get("html")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if html.is_empty() {
-            data
-        } else {
-            let opts = crate::scrape_local::ScrapeOpts {
-                format: fmt,
-                only_main_content,
-                engine: "browser".into(),
-                ..Default::default()
-            };
-            crate::scrape_local::build_scrape_payload(url, 200, &html, &opts, robots)
+    let html = data
+        .get("html")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let source = data
+        .get("source_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or(url)
+        .to_string();
+    let data = if html.is_empty() {
+        // Fallback: still surface text-only with format marker so agents see format intent.
+        let mut d = data;
+        if let Some(obj) = d.as_object_mut() {
+            obj.insert(
+                "format".into(),
+                serde_json::json!(format!("{:?}", fmt).to_ascii_lowercase()),
+            );
+            obj.insert("engine".into(), serde_json::json!("browser"));
         }
+        d
+    } else {
+        let opts = crate::scrape_local::ScrapeOpts {
+            format: fmt,
+            only_main_content,
+            engine: "browser".into(),
+            ..Default::default()
+        };
+        crate::scrape_local::build_scrape_payload(&source, 200, &html, &opts, robots)
     };
+    if let Some(wh) = webhook_url {
+        post_webhook(wh, &data)?;
+    }
     emit_ok(data, json, |d| {
         let policy = d
             .get("robots_policy")
@@ -1877,8 +2218,7 @@ fn handle_search(
     limit: usize,
     json: bool,
 ) -> Result<(), CliError> {
-    let data =
-        block_on_browser_timeout(crate::scrape_local::search_http(query, robots, limit), 0)?;
+    let data = block_on_browser_timeout(crate::scrape_local::search_http(query, robots, limit), 0)?;
     emit_ok(data, json, |d| {
         println!(
             "ok search count={}",
@@ -1887,12 +2227,53 @@ fn handle_search(
     })
 }
 
-fn handle_parse(path: &Path, json: bool) -> Result<(), CliError> {
-    let data = crate::scrape_local::parse_file(path)?;
+fn handle_parse(path: &Path, redact_pii: bool, json: bool) -> Result<(), CliError> {
+    let data = crate::scrape_local::parse_file_opts(path, redact_pii)?;
     emit_ok(data, json, |d| {
         println!(
             "ok parse path={}",
             d.get("path").and_then(|v| v.as_str()).unwrap_or("")
+        );
+    })
+}
+
+fn handle_qr(action: crate::cli::QrAction, json: bool) -> Result<(), CliError> {
+    let data = match action {
+        crate::cli::QrAction::Encode { text, format, path } => {
+            crate::qr_local::encode(&text, &format, path.as_deref())?
+        }
+        crate::cli::QrAction::Decode { path } => crate::qr_local::decode(&path)?,
+    };
+    emit_ok(data, json, |d| println!("ok qr {d}"))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_find_paths(
+    pattern: Option<&str>,
+    paths: &[String],
+    extension: Option<&str>,
+    hidden: bool,
+    no_ignore: bool,
+    max_depth: Option<usize>,
+    entry_type: Option<&str>,
+    limit: usize,
+    json: bool,
+) -> Result<(), CliError> {
+    let opts = crate::find_paths::FindPathsOpts {
+        pattern: pattern.unwrap_or("").to_string(),
+        roots: crate::find_paths::roots_from(paths),
+        extension: extension.map(|s| s.to_string()),
+        hidden,
+        no_ignore,
+        max_depth,
+        entry_type: entry_type.map(|s| s.to_string()),
+        limit,
+    };
+    let data = crate::find_paths::find_paths(&opts)?;
+    emit_ok(data, json, |d| {
+        println!(
+            "ok find-paths count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
         );
     })
 }
@@ -2071,6 +2452,7 @@ pub(crate) fn lighthouse_to_value(
 ) -> Result<serde_json::Value, CliError> {
     let bin = lighthouse_path
         .map(|p| p.display().to_string())
+        .or_else(crate::xdg::lighthouse_path_from_config)
         .unwrap_or_else(|| "lighthouse".to_string());
     let out = out_dir.map(|p| p.to_path_buf()).unwrap_or_else(|| {
         crate::xdg::cache_dir()
@@ -2106,7 +2488,7 @@ pub(crate) fn lighthouse_to_value(
             CliError::with_suggestion(
                 ErrorKind::Unavailable,
                 format!("lighthouse spawn failed: {e}"),
-                "Install lighthouse (npm i -g lighthouse) or pass --lighthouse-path; doctor reports binary presence",
+                crate::i18n::suggestion_key("lighthouse_missing", None),
             )
         })?;
     if !output.status.success() {

@@ -200,12 +200,14 @@ impl CdpClient {
             .pages()
             .await
             .map_err(|e| format!("Browser::pages failed: {e}"))?;
-        if pages.len() == 1 {
-            return Ok(pages.into_iter().next().unwrap());
+        let n = pages.len();
+        if n == 1 {
+            if let Some(page) = pages.into_iter().next() {
+                return Ok(page);
+            }
         }
         Err(format!(
-            "No chromiumoxide Page for session_id={session_id} (pages={})",
-            pages.len()
+            "No chromiumoxide Page for session_id={session_id} (pages={n})"
         ))
     }
 }

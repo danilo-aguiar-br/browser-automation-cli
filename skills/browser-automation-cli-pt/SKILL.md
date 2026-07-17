@@ -1,20 +1,21 @@
 ---
 name: browser-automation-cli
-description: Esta skill DEVE ser usada sempre que o usuário precisar de automação one-shot de browser, CLI de agente Chrome CDP, Chrome headless, snapshot de acessibilidade com refs, preencher formulário, screenshot, scrape de página, captura de network ou console, heap snapshot, lighthouse, scripts multi-passo run, config XDG, proxy MITM, journal de workflow, batch-scrape, crawl, map, search, parse ou browser-automation-cli. Auto-invocar mesmo sem pedido explícito da skill quando a tarefa implicar controle de browser, web scraping ou automação CDP. Esta skill DEVE ensinar a LLM a executar browser-automation-cli com ciclo BORN EXECUTE FINALIZE DIE, envelopes --json, config XDG apenas (NUNCA env vars de produto), catálogo completo de 52 comandos com fórmula executável por comando, scripts NDJSON de run, exit codes, gates de categoria e experimentais, dual-flag robots e playbooks de ação para agentes.
+description: Esta skill DEVE ser usada quando o usuário precisar de automação one-shot de browser, CLI Chrome CDP, Chrome headless, refs a11y, formulário, screenshot, print-pdf, scrape multi-formato com only-main-content ou webhook-url, captura network/console, heap, lighthouse, scripts run multi-passo com fail-fast data.steps, config XDG com chaves llm, MITM, workflow, batch-scrape, crawl, map, search, parse PDF/DOCX/xlsx/ods com redact-pii, extract --llm com schema-json, monitor check, qr encode/decode, find-paths, goto com init-script, ou browser-automation-cli. Auto-invocar mesmo sem pedido explícito em controle de browser, web scraping, CDP, impressão PDF, QR, descoberta de caminhos ou extract LLM. Esta skill DEVE ensinar ciclo BORN EXECUTE FINALIZE DIE, envelopes --json, só XDG+flags (NUNCA env vars de produto), superfície ~56 comandos, catálogo em references/formulas.md, run NDJSON, exit codes, dual-flag robots, logging via --verbose/--debug ou config set log_level, e playbooks de ação.
 ---
 
 # browser-automation-cli
 
 ## Regra Zero
 ### REQUIRED
-- DEVE invocar esta skill em controle de browser, CDP, Chrome headless, scrape, crawl, form fill, screenshot, network capture, MITM, workflow ou `browser-automation-cli`
-- DEVE SEMPRE executar somente o binário `browser-automation-cli` (NUNCA invente MCP, daemon, sticky session ou alias `bac`)
+- DEVE invocar esta skill em controle de browser, CDP, Chrome headless, scrape, crawl, formulário, screenshot, print-pdf, QR, find-paths, monitor, captura de network, MITM, workflow, parse PDF/DOCX, extract --llm ou `browser-automation-cli`
+- DEVE SEMPRE executar somente o binário `browser-automation-cli` (NUNCA invente wrappers de servidor de protocolo, daemons, sticky sessions ou alias `bac`)
 - DEVE SEMPRE tratar um processo como um ciclo BORN EXECUTE FINALIZE DIE
 - DEVE SEMPRE passar `--json` para consumidores máquina e validar envelope `ok` antes de `data`
 - DEVE SEMPRE manter trabalho multi-passo com `@eN` dentro de um único `run --script`
 - DEVE SEMPRE rodar `schema --cmd <name> --json` antes de inventar argv desconhecido
+- DEVE SEMPRE copiar fórmulas de `references/formulas.md` as-is salvo quando schema forçar mudança
 ### FORBIDDEN
-- NUNCA invente env vars de produto `BROWSER_AUTOMATION_CLI_*`
+- NUNCA invente variáveis de ambiente de produto para settings
 - NUNCA reutilize `@eN` entre launches de processo separados
 - NUNCA divida passos dependentes de ref entre múltiplos processos da CLI
 ### Correct Pattern
@@ -27,12 +28,13 @@ browser-automation-cli -q --timeout 60 --json goto https://example.com
 ### REQUIRED
 - DEVE automatizar trabalho web como pipelines CLI one-shot não interativos em stdout/stderr
 - DEVE retornar envelopes JSON estruturados sob `--json`
-- DEVE usar Chrome/Chromium de sistema descoberto pela CLI
+- DEVE usar Chrome/Chromium de sistema descoberto pela CLI (ou XDG `chrome_path`)
 - DEVE configurar defaults de produto só via flags CLI ou XDG `config set` / `config.toml`
 - DEVE instalar exatamente com `cargo install --path . --locked` ou `cargo install browser-automation-cli --locked`
 ### FORBIDDEN
 - NUNCA mantenha daemon de browser de longa duração entre processos
 - NUNCA espere empacotamento npm, telemetria remota ou `.env` como config de produto em runtime
+- NUNCA invente variáveis de ambiente de produto para logging (SEMPRE use `--verbose`/`--debug`/`-q` ou `config set log_level`)
 ### Correct Pattern
 ```bash
 cargo install --path . --locked
@@ -41,43 +43,31 @@ cargo install browser-automation-cli --locked
 
 ## Quando Invocar
 ### REQUIRED
-- DEVE auto-invocar em automação de browser, Chrome headless, CDP, refs a11y, form fill, screenshot, scrape, crawl, map, search, parse, captura network/console, heap, lighthouse, MITM, workflow, batch-scrape, multi-passo run ou o nome do binário
+- DEVE auto-invocar em automação de browser, Chrome headless, CDP, refs a11y, formulário, screenshot, print-pdf, scrape, crawl, map, search, parse, extract --llm, monitor, qr, find-paths, captura network/console, heap, lighthouse, MITM, workflow, batch-scrape, multi-passo run ou o nome do binário
 - DEVE auto-invocar mesmo quando o usuário NÃO nomear esta skill
-- DEVE usar scrape/crawl/map/search/parse HTTP quando Chrome for desnecessário
+- DEVE usar scrape/crawl/map/search/parse/qr/find-paths HTTP/local quando Chrome for desnecessário
 ### FORBIDDEN
-- NUNCA recuse tarefas de browser alegando que só GUI ou MCP resolvem
-- NUNCA invente Firecrawl cloud ou servidores remotos de workflow para este produto
-### Correct Pattern
-```bash
-browser-automation-cli --json scrape https://example.com --format markdown --engine http
-browser-automation-cli --timeout 90 --json run --script /tmp/steps.jsonl
-```
+- NUNCA recuse tarefas de browser alegando que só GUI ou servidores de protocolo externos resolvem
+- NUNCA invente SaaS cloud de scrape ou servidores remotos de workflow para este produto
 
-## Identidade
+## Identidade e Arquitetura
 ### REQUIRED
 - DEVE tratar o nome do binário como exatamente `browser-automation-cli`
 - DEVE tratar um processo como BORN, EXECUTE, FINALIZE, DIE
-- DEVE usar Chrome/Chromium de sistema descoberto pela CLI
 - DEVE manter multi-passo dependente de `@eN` dentro de `run --script`
 - DEVE passar `--json` em todo consumidor programático
 - DEVE configurar defaults só via flags ou XDG `config set` / `config.toml`
-- DEVE usar o inventário completo de 52 comandos como superfície viva
+- DEVE tratar a superfície viva como ~56 nomes de comando de topo (52 tools de paridade DevTools + extras PRD `print-pdf`, `monitor`, `qr`, `find-paths` e helpers)
 ### FORBIDDEN
-- NUNCA invente alias `bac`, sticky sessions, npm packaging ou env vars `BROWSER_AUTOMATION_CLI_*`
+- NUNCA invente alias `bac`, sticky sessions, npm packaging ou variáveis de ambiente de produto para settings
 - NUNCA reutilize refs `@eN` entre launches de processo
-### Correct Pattern
-```bash
-browser-automation-cli doctor --offline --quick --json
-browser-automation-cli -q --timeout 60 --json goto https://example.com
-```
-Inventário 52 (OBRIGATÓRIO):
-
-doctor commands schema version goto view press click-at write keys type wait hover drag fill-form upload back forward reload eval grab run exec extract text scroll cookie attr assert console net page dialog scrape batch-scrape crawl map search parse mitm workflow config emulate resize perf lighthouse screencast heap extension devtools3p webmcp completions
+- NUNCA assuma que só as 52 tools de paridade existem (DEVE incluir extras PRD no inventário)
 
 ## Flags Globais
 ### REQUIRED
 - DEVE passar `--json` para envelopes legíveis por máquina
 - DEVE passar `-q`/`--quiet` quando prosa de stderr NÃO DEVE poluir transcripts
+- DEVE passar `--verbose` ou `--debug` para detalhe de logging de produto (ou definir XDG `log_level`)
 - DEVE passar `--timeout <seconds>` para orçamento wall-clock do processo
 - DEVE passar `--step-timeout <seconds>` para orçamento por passo em todo `run` multi-passo
 - DEVE passar `--headed` só para debug interativo
@@ -85,210 +75,121 @@ doctor commands schema version goto view press click-at write keys type wait hov
 - DEVE passar `--capture-network` antes de qualquer `net` no mesmo processo
 - DEVE passar gates de categoria antes das tools gated: `--category-memory`, `--category-extensions`, `--category-third-party`, `--category-webmcp`
 - DEVE passar gates experimentais: `--experimental-vision` para `click-at`, `--experimental-screencast` para `screencast`
-- DEVE usar só vars de SO fora da config de produto: `RUST_LOG`, `NO_COLOR`
 ### FORBIDDEN
 - NUNCA assuma que flags de captura persistem entre launches
 - NUNCA habilite categorias/experimentais em silêncio nos defaults do agente
-- NUNCA invente env vars `BROWSER_AUTOMATION_CLI_*`
+- NUNCA invente variáveis de ambiente de produto para settings ou logging
 ### Correct Pattern
 ```bash
 browser-automation-cli --json --timeout 90 --capture-network run --script steps.jsonl
 browser-automation-cli --category-memory heap summary --path snap.heapsnapshot --json
 browser-automation-cli --experimental-vision click-at --x 10 --y 20 --json
-RUST_LOG=debug browser-automation-cli --debug --json doctor --offline --quick
+browser-automation-cli --debug --json doctor --offline --quick
+browser-automation-cli --verbose --json version
 ```
 
 ## Config XDG
 ### REQUIRED
 - DEVE tratar settings de produto como flags mais config XDG apenas
 - DEVE usar `config init|path|show|get|set`
-- DEVE usar somente as 7 chaves: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`
+- DEVE usar somente estas 13 chaves: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
 - DEVE definir encryption com `config set encryption_key <secret>`
-- DEVE esperar layout Linux sob `$XDG_CONFIG_HOME/browser-automation-cli` (e data/cache/state correspondentes)
+- DEVE definir credenciais de extract LLM com `config set openrouter_api_key <key>` (e `llm_base_url`, `llm_model` quando a tarefa exigir)
+- DEVE definir default de log com `config set log_level <error|warn|info|debug|trace>`
+- DEVE definir cor com `config set color true|false` e path do Chrome com `config set chrome_path <path>`
+- DEVE resolver paths de config/data/cache/state via `config path --json`
 ### FORBIDDEN
-- NUNCA invente env vars de produto para settings/encryption
+- NUNCA invente env vars de produto para settings/encryption/chaves LLM/logging
 - NUNCA use `.env` como config de produto em runtime
-- NUNCA logue valores de `encryption_key`
-- NUNCA invente chaves fora das sete suportadas
+- NUNCA logue valores de `encryption_key` ou `openrouter_api_key`
+- NUNCA invente chaves fora das 13 suportadas
 ### Correct Pattern
 ```bash
 browser-automation-cli config init --json
 browser-automation-cli config path --json
-browser-automation-cli config show --json
-browser-automation-cli config get timeout --json
 browser-automation-cli config set timeout 90 --json
+browser-automation-cli config set log_level info --json
+browser-automation-cli config set chrome_path /usr/bin/google-chrome --json
+browser-automation-cli config set lighthouse_path /usr/bin/lighthouse --json
 browser-automation-cli config set encryption_key "replace-me" --json
+browser-automation-cli config set openrouter_api_key "replace-me" --json
+browser-automation-cli config set llm_base_url "https://openrouter.ai/api/v1" --json
+browser-automation-cli config set llm_model "openai/gpt-4o-mini" --json
+browser-automation-cli config show --json
 ```
 
-## Catálogo Completo de Comandos (52)
+## Regras de Contrato
 ### REQUIRED
-- DEVE executar as fórmulas abaixo como superfície canônica viva
-- DEVE copiar argv exatamente; só substitua placeholders de path/URL/texto
-- DEVE chamar `schema --cmd <name> --json` antes de inventar flags extras
-- DEVE manter `grab` SEMPRE com `--path`; `emulate` NUNCA com `--device`
-- DEVE tratar multi `--text` em `wait` como OR; `type` com TEXT + `--target` OU `--focus-only`
-- DEVE passar `fill-form` com `--json` array de comando + `--json` global de envelope
-- DEVE tratar `exec` como single-step; MITM só em `127.0.0.1`; workflow só manifest JSON
-### FORBIDDEN
-- NUNCA invente alias `bac`, path posicional em `grab`, `emulate --device` ou manifest workflow não-JSON
-- NUNCA omita gates de categoria/experimental exigidos pela fórmula
-### Correct Pattern
-```bash
-# meta / descoberta
-browser-automation-cli doctor --offline --quick --json
-browser-automation-cli commands --json
-browser-automation-cli schema --cmd goto --json
-browser-automation-cli version --json
-browser-automation-cli completions bash
-
-# navegação e páginas
-browser-automation-cli --json goto https://example.com
-browser-automation-cli --json back
-browser-automation-cli --json forward
-browser-automation-cli --json reload --ignore-cache
-browser-automation-cli --json page info
-browser-automation-cli --json page list
-browser-automation-cli --json page new --url https://example.com
-browser-automation-cli --json page select 0 --bring-to-front
-browser-automation-cli --json page close --index 0
-browser-automation-cli --json wait --ms 500
-browser-automation-cli --json wait --text Example --text Demo --ms 1000
-browser-automation-cli --json wait --selector "h1" --state load
-
-# snapshot e input
-browser-automation-cli --json view
-browser-automation-cli --json press @e1 --include-snapshot
-browser-automation-cli --experimental-vision --json click-at --x 10 --y 20
-browser-automation-cli --json write @e2 "hello"
-browser-automation-cli --json keys Enter
-browser-automation-cli --json type "hello" --target @e2 --clear --submit Enter
-browser-automation-cli --json type "world" --focus-only
-browser-automation-cli --json hover @e1
-browser-automation-cli --json drag --from @e1 --to @e2
-browser-automation-cli --json fill-form --json '[{"target":"@e3","value":"x"}]'
-browser-automation-cli --json upload @e4 /tmp/file.txt
-
-# observação e artefatos
-browser-automation-cli --json grab --path /tmp/page.png --full-page
-browser-automation-cli --json extract @e1
-browser-automation-cli --json extract @e1 --attr href
-browser-automation-cli --json text @e2
-browser-automation-cli --json scroll --delta-y 400
-browser-automation-cli --json attr @e1 href
-browser-automation-cli --json assert url https://example.com --contains
-browser-automation-cli --json assert text "Example"
-browser-automation-cli --capture-console --json assert console --level error
-browser-automation-cli --json cookie list
-browser-automation-cli --json cookie set --json '[{"name":"a","value":"b","url":"https://example.com"}]'
-browser-automation-cli --json cookie clear
-browser-automation-cli --json dialog accept
-browser-automation-cli --json dialog dismiss
-browser-automation-cli --json eval 'document.title'
-
-# captura console/net (mesmo processo)
-browser-automation-cli --capture-console --json console list
-browser-automation-cli --capture-console --json console get 0
-browser-automation-cli --capture-console --json console clear
-browser-automation-cli --capture-console --json console dump --path /tmp/console.json
-browser-automation-cli --capture-network --json net list
-browser-automation-cli --capture-network --json net get 0
-
-# scrape local
-browser-automation-cli --json scrape https://example.com --format markdown --engine http
-browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 2
-browser-automation-cli --json crawl https://example.com --limit 20 --max-depth 2 --format text
-browser-automation-cli --json map https://example.com --limit 50 --max-depth 2
-browser-automation-cli --json search "example domain" --limit 10
-browser-automation-cli --json parse /tmp/page.html
-
-# emulate / resize / perf / lighthouse / screencast / heap / extension / third-party / webmcp
-browser-automation-cli --json emulate --user-agent "Mozilla/5.0" --viewport "390x844x3,mobile,touch" --network-conditions "Slow 3G"
-browser-automation-cli --json resize --width 1280 --height 720
-browser-automation-cli --json perf start
-browser-automation-cli --json perf stop --path /tmp/trace.json
-browser-automation-cli --json perf insight --name DocumentLatency
-browser-automation-cli --json lighthouse https://example.com
-browser-automation-cli --experimental-screencast --json screencast start --path /tmp/cast
-browser-automation-cli --experimental-screencast --json screencast stop
-browser-automation-cli --category-memory --json heap take --path /tmp/snap.heapsnapshot
-browser-automation-cli --category-memory --json heap summary --path /tmp/snap.heapsnapshot
-browser-automation-cli --category-memory --json heap compare --base /tmp/a.heapsnapshot --current /tmp/b.heapsnapshot
-browser-automation-cli --category-extensions --json extension list
-browser-automation-cli --category-extensions --json extension install --path /tmp/ext
-browser-automation-cli --category-third-party --json devtools3p list
-browser-automation-cli --category-third-party --json devtools3p exec SomeTool --params '{}'
-browser-automation-cli --category-webmcp --json webmcp list
-browser-automation-cli --category-webmcp --json webmcp exec SomeTool --input '{}'
-
-# MITM 127.0.0.1
-browser-automation-cli --json mitm init-ca
-browser-automation-cli --json mitm start --seconds 30
-browser-automation-cli --json mitm status
-browser-automation-cli --json mitm list --limit 50
-browser-automation-cli --json mitm get 0
-browser-automation-cli --json mitm har --out /tmp/capture.har
-browser-automation-cli --json mitm export --out /tmp/capture.json
-browser-automation-cli --json mitm domains
-browser-automation-cli --json mitm apis
-
-# workflow JSON + run multi-passo + exec single-step
-browser-automation-cli --json workflow run --manifest /tmp/wf.json
-browser-automation-cli --json workflow resume --manifest /tmp/wf.json
-browser-automation-cli --json workflow status --name demo
-browser-automation-cli --timeout 60 --json run --script /tmp/steps.jsonl
-browser-automation-cli --json exec goto https://example.com
-```
-
-## Scripts Multi-passo
-### REQUIRED
-- DEVE usar `run --script <path>` para passos NDJSON em um processo
-- DEVE colocar um objeto JSON por linha com campo `cmd`
-- DEVE manter estado de página e refs `@eN` dentro desse único processo
-- DEVE definir `--timeout` grande o bastante para o script inteiro
-- DEVE serializar grab como `{"cmd":"grab","path":"/tmp/example.png"}` no NDJSON
+- DEVE usar `doctor` para saúde Chrome/XDG; `commands --json` para inventário; `schema --cmd` antes de inventar argv; `version --json` para fixar identidade
+- DEVE usar `wait` multi `--text` como OR (qualquer match resolve); NUNCA como AND
+- DEVE usar `grab --path <file>` (NUNCA path posicional bare); `type` com TEXT posicional mais `--target` OU `--focus-only`
+- DEVE passar fill-form como `--json '[{"target":"@eN","value":"x"}]'` de comando + `--json` global; upload exige target+path
+- DEVE usar `click-at` só com `--experimental-vision`; `screencast` só com `--experimental-screencast`
+- DEVE usar `console` só após `--capture-console` no mesmo processo; `net` só após `--capture-network` no mesmo processo
+- DEVE compor `emulate` com `--user-agent`/`--viewport`/`--network-conditions` (NUNCA `--device`)
+- DEVE gatear `heap` com `--category-memory`; `extension` com `--category-extensions`; `devtools3p` com `--category-third-party`; `webmcp` com `--category-webmcp`
+- DEVE bindar MITM em `127.0.0.1` apenas; tratar CA/capturas como material sensível do host
+- DEVE usar workflow só com manifests JSON; resume pula steps ok no journal sob XDG state
 - DEVE tratar `exec` como single-step inline apenas (NÃO engine multi-passo)
-- DEVE usar workflow só com manifest JSON path (ex. `/tmp/wf.json`)
+- DEVE usar formatos de scrape `text|markdown|html|raw-html|links|metadata|screenshot|summary|product|branding` e engines `http|browser`; engine HTTP NÃO DEVE lançar Chrome
+- DEVE tratar scrape `--webhook-url` como POST one-shot do operador (NÃO telemetria de produto)
+- DEVE usar scrape `--only-main-content` quando o conteúdo principal for OBRIGATÓRIO
+- DEVE usar `goto` com `--init-script`, `--handle-before-unload` e `--navigation-timeout-ms` quando a tarefa exigir
+- DEVE usar `print-pdf --path` para artefatos PDF; DEVE passar `--url` quando navegação no mesmo one-shot for OBRIGATÓRIA
+- DEVE usar `monitor check` com `--url` e `--baseline` (engine HTTP default)
+- DEVE usar `qr encode --text` / `qr decode --path`; `find-paths` é só filesystem (sem Chrome)
+- DEVE usar `find-paths` com `--extension`, `--type`, `--limit`, `--max-depth`, `--hidden`, `--no-ignore` conforme a tarefa
+- DEVE usar `parse` para html/md/txt/pdf/docx/xlsx/ods; passar `--redact-pii` quando mascarar PII for OBRIGATÓRIO
+- DEVE setar XDG `openrouter_api_key` antes de `extract --llm`; DEVE usar `--question`; DEVE passar `--schema-json` quando schema estruturado for OBRIGATÓRIO
+- DEVE esperar que `attr` faça fallback para propriedades DOM quando o atributo HTML for null
+- DEVE usar `scroll --delta-y` (NDJSON DEVE usar `dy` ou `delta_y`); `assert url … --contains` (NDJSON DEVE usar `url_contains` quando contains for OBRIGATÓRIO)
+- DEVE em erros fail-fast de `run` inspecionar `data.steps` parcial no envelope de erro quando presente
 ### FORBIDDEN
-- NUNCA divida passos dependentes de ref entre processos
-- NUNCA trate `exec` como engine multi-passo
-- NUNCA espere `@eN` sobreviver ao DIE do processo
-- NUNCA use manifest workflow não-JSON
-### Correct Pattern
-```bash
-cat > /tmp/demo.browser-automation.jsonl <<'JSONL'
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"wait","ms":500}
-{"cmd":"view"}
-{"cmd":"grab","path":"/tmp/example.png"}
-JSONL
-browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automation.jsonl
+- NUNCA invente aliases `snapshot`, `click`, `fill`, `screenshot` ou `bac`
+- NUNCA espere estado de página ou `@eN` sobreviver FINALIZE DIE em novo processo
+- NUNCA invente SaaS cloud de scrape ou servidores remotos sticky de workflow
+- NUNCA substitua multi-passo browser `run --script` com `@eN` por workflow
 
-cat > /tmp/wf.json <<'JSON'
-{"name":"demo","steps":[{"id":"ping","cmd":"echo","args":{"message":"start"}}]}
-JSON
-browser-automation-cli --json workflow run --manifest /tmp/wf.json
-browser-automation-cli --json workflow resume --manifest /tmp/wf.json
-browser-automation-cli --json workflow status --name demo
-```
+## Inventário
+### REQUIRED
+- DEVE tratar os ~56 nomes abaixo como superfície OBRIGATÓRIA
+- DEVE copiar fórmulas executáveis completas de `references/formulas.md`
+- DEVE cobrir cada nome do inventário com ao menos uma linha executável no catálogo
+### FORBIDDEN
+- NUNCA invente argv fora do catálogo sem `schema --cmd`
+- NUNCA invente alias `bac` ou env vars de produto
 
-## Playbooks
+Inventário completo (OBRIGATÓRIO, ~56 nomes):
+
+doctor commands schema version goto view press click-at write keys type wait hover drag fill-form upload back forward reload eval grab print-pdf monitor run exec extract text scroll cookie attr assert console net page dialog scrape batch-scrape crawl map search parse qr find-paths mitm workflow config emulate resize perf lighthouse screencast heap extension devtools3p webmcp completions
+
+## Playbooks de Ação
 ### REQUIRED
 - DEVE executar estas fórmulas as-is salvo quando `schema --cmd` forçar mudança de flag
 - DEVE manter multi-passo `@eN` dentro de um único `run --script`
 - DEVE validar envelope `ok` após cada invocação
+- DEVE consultar `references/formulas.md` para o catálogo completo de ~56 comandos
 ### FORBIDDEN
 - NUNCA invente `bac`, env vars de produto, path bare em `grab`, `emulate --device` ou manifest workflow não-JSON
-### Correct Pattern
+
 #### A. Doctor e version
 ```bash
 browser-automation-cli doctor --offline --quick --json
 browser-automation-cli version --json
 ```
-#### B. HTTP scrape markdown (sem Chrome com --engine http)
+
+#### B. goto avançado
 ```bash
-browser-automation-cli --json scrape https://example.com --format markdown --engine http
+browser-automation-cli --timeout 60 --json goto https://example.com --init-script 'window.__ready=true' --handle-before-unload --navigation-timeout-ms 15000
 ```
-#### C. Form fill browser via run NDJSON
+
+#### C. HTTP scrape markdown + only-main-content
+```bash
+browser-automation-cli --json scrape https://example.com --format markdown --engine http --only-main-content
+browser-automation-cli --json scrape https://example.com --format text --engine http --webhook-url https://127.0.0.1:9000/hook
+```
+
+#### D. Form fill via run NDJSON
 ```bash
 cat > /tmp/form.browser-automation.jsonl <<'JSONL'
 {"cmd":"goto","url":"https://example.com"}
@@ -300,11 +201,13 @@ cat > /tmp/form.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 90 --json run --script /tmp/form.browser-automation.jsonl
 ```
-#### D. Wait OR multi-text
+
+#### E. Wait OR multi-text
 ```bash
 browser-automation-cli --timeout 60 --json wait --text "Example Domain" --text "Example" --ms 5000
 ```
-#### E. Network capture list
+
+#### F. Network capture list
 ```bash
 cat > /tmp/net.browser-automation.jsonl <<'JSONL'
 {"cmd":"goto","url":"https://example.com"}
@@ -313,19 +216,22 @@ cat > /tmp/net.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --capture-network --timeout 60 --json run --script /tmp/net.browser-automation.jsonl
 ```
-#### F. MITM init-ca + start
+
+#### G. MITM init-ca + start
 ```bash
 browser-automation-cli --json mitm init-ca
 browser-automation-cli --json mitm start --seconds 30
 ```
-#### G. Workflow run manifest JSON offline
+
+#### H. Workflow JSON
 ```bash
 cat > /tmp/wf.json <<'JSON'
 {"name":"demo","steps":[{"id":"ping","cmd":"echo","args":{"message":"start"}}]}
 JSON
 browser-automation-cli --json workflow run --manifest /tmp/wf.json
 ```
-#### H. batch-scrape / crawl / map / search / parse
+
+#### I. batch-scrape / crawl / map / search / parse
 ```bash
 printf '%s\n' https://example.com https://example.org > /tmp/urls.txt
 browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 2
@@ -333,20 +239,162 @@ browser-automation-cli --json crawl https://example.com --limit 20 --max-depth 2
 browser-automation-cli --json map https://example.com --limit 50 --max-depth 2
 browser-automation-cli --json search "example domain" --limit 10
 browser-automation-cli --json parse /tmp/page.html
+browser-automation-cli --json parse /tmp/doc.pdf
+browser-automation-cli --json parse /tmp/doc.docx --redact-pii
+browser-automation-cli --json parse /tmp/sheet.xlsx
+browser-automation-cli --json parse /tmp/sheet.ods --redact-pii
 ```
-#### I. Config XDG set timeout encryption_key
+
+#### J. Config XDG (13 chaves)
 ```bash
 browser-automation-cli config init --json
+browser-automation-cli config path --json
+browser-automation-cli config set lang pt-BR --json
 browser-automation-cli config set timeout 90 --json
+browser-automation-cli config set artifacts_dir /tmp/browser-automation-cli-artifacts --json
+browser-automation-cli config set ignore_robots false --json
+browser-automation-cli config set namespace demo --json
 browser-automation-cli config set encryption_key "replace-me" --json
+browser-automation-cli config set color true --json
+browser-automation-cli config set log_level info --json
+browser-automation-cli config set chrome_path /usr/bin/google-chrome --json
+browser-automation-cli config set lighthouse_path /usr/bin/lighthouse --json
+browser-automation-cli config set openrouter_api_key "replace-me" --json
+browser-automation-cli config set llm_base_url "https://openrouter.ai/api/v1" --json
+browser-automation-cli config set llm_model "openai/gpt-4o-mini" --json
 browser-automation-cli config show --json
 ```
-#### J. Schema discovery antes de argv desconhecido
+
+#### K. Schema discovery
 ```bash
 browser-automation-cli schema --cmd scrape --json
-browser-automation-cli schema --cmd fill-form --json
-browser-automation-cli schema --cmd workflow --json
+browser-automation-cli schema --cmd goto --json
+browser-automation-cli schema --cmd extract --json
+browser-automation-cli schema --cmd find-paths --json
 browser-automation-cli commands --json
+```
+
+#### L. print-pdf
+```bash
+browser-automation-cli --timeout 60 --json print-pdf --path /tmp/page.pdf --url https://example.com
+```
+
+#### M. QR round-trip
+```bash
+browser-automation-cli --json qr encode --text "https://example.com" --format png --path /tmp/qr.png
+browser-automation-cli --json qr decode --path /tmp/qr.png
+```
+
+#### N. find-paths (flags completas)
+```bash
+browser-automation-cli --json find-paths '\.rs$' . --hidden --no-ignore --max-depth 4 --extension rs --type f --limit 100
+browser-automation-cli --json find-paths '\.md$' . --hidden --no-ignore --max-depth 4 --extension md --type f --limit 50
+```
+
+#### O. extract LLM + schema-json
+```bash
+cat > /tmp/extract.schema.json <<'JSON'
+{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}
+JSON
+browser-automation-cli config set openrouter_api_key "replace-me" --json
+browser-automation-cli config set llm_base_url "https://openrouter.ai/api/v1" --json
+browser-automation-cli config set llm_model "openai/gpt-4o-mini" --json
+browser-automation-cli --timeout 120 --json extract --llm --question "Qual é o título principal?" --schema-json /tmp/extract.schema.json https://example.com
+```
+
+#### P. Scrape multi-formato + webhook
+```bash
+browser-automation-cli --timeout 60 --json scrape https://example.com --format markdown --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format links --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format html --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format metadata --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format summary --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format product --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format branding --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format raw-html --engine browser
+browser-automation-cli --timeout 60 --json scrape https://example.com --format screenshot --engine browser
+browser-automation-cli --json scrape https://example.com --format text --engine http --only-main-content --webhook-url https://127.0.0.1:9000/hook
+```
+
+#### Q. monitor check baseline
+```bash
+browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/example.baseline --write-baseline --engine http
+browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/example.baseline --engine http
+```
+
+#### R. i18n lang pt-BR
+```bash
+browser-automation-cli --lang pt-BR --json click-at --x 1 --y 1
+browser-automation-cli config set lang pt-BR --json
+```
+
+#### S. scroll + attr
+```bash
+browser-automation-cli --json scroll --delta-y 400
+browser-automation-cli --json attr @e1 href
+browser-automation-cli --json attr @e1 value
+```
+
+#### T. fail-fast data.steps
+```bash
+cat > /tmp/failfast.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"wait","ms":200}
+{"cmd":"view"}
+{"cmd":"assert","kind":"url","url_contains":"this-must-not-match.invalid"}
+{"cmd":"grab","path":"/tmp/never.png"}
+JSONL
+set +e
+out=$(browser-automation-cli -q --timeout 60 --json run --script /tmp/failfast.browser-automation.jsonl 2>/dev/null)
+code=$?
+set -e
+echo "$out" | jaq -e '.ok == false'
+echo "$out" | jaq -e '(.data.steps | type) == "array"'
+echo "$out" | jaq -r '.data.steps | length'
+echo "exit=$code"
+```
+
+## Scripts Multi-passo
+### REQUIRED
+- DEVE usar `run --script <path>` para passos NDJSON em um processo
+- DEVE colocar um objeto JSON por linha com campo `cmd`
+- DEVE manter estado de página e refs `@eN` dentro desse único processo
+- DEVE definir `--timeout` grande o bastante para o script inteiro
+- DEVE serializar grab como `{"cmd":"grab","path":"/tmp/example.png"}` no NDJSON
+- DEVE serializar scroll dy como `{"cmd":"scroll","dy":400}` ou `"delta_y":400`
+- DEVE serializar assert de URL com contains como `{"cmd":"assert","kind":"url","url_contains":"example.com"}`
+- DEVE em erros fail-fast de `run` inspecionar `data.steps` parcial no envelope de erro quando presente
+### FORBIDDEN
+- NUNCA divida passos dependentes de ref entre processos
+- NUNCA trate `exec` como engine multi-passo
+- NUNCA espere `@eN` sobreviver ao DIE do processo
+### Correct Pattern
+```bash
+cat > /tmp/demo.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com","init_script":"window.__x=1","handle_before_unload":true,"navigation_timeout_ms":15000}
+{"cmd":"wait","ms":500}
+{"cmd":"view"}
+{"cmd":"scroll","dy":400}
+{"cmd":"assert","kind":"url","url_contains":"example.com"}
+{"cmd":"grab","path":"/tmp/example.png"}
+JSONL
+browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automation.jsonl
+```
+
+## Manifest Workflow
+### REQUIRED
+- DEVE usar `workflow run --manifest <path>` com path JSON (ex. `/tmp/wf.json`)
+- DEVE usar `workflow resume --manifest <path>`; `workflow status`; passar `--journal` quando path não-default for OBRIGATÓRIO
+### FORBIDDEN
+- NUNCA use manifests workflow não-JSON
+### Correct Pattern
+```bash
+cat > /tmp/wf.json <<'JSON'
+{"name":"demo","steps":[{"id":"ping","cmd":"echo","args":{"message":"start"}}]}
+JSON
+browser-automation-cli --json workflow run --manifest /tmp/wf.json
+browser-automation-cli --json workflow resume --manifest /tmp/wf.json
+browser-automation-cli --json workflow status --name demo
 ```
 
 ## Envelope JSON
@@ -354,6 +402,7 @@ browser-automation-cli commands --json
 - DEVE esperar sucesso: `{"schema_version":1,"ok":true,"data":...}`
 - DEVE esperar erro sob `--json`: `{"schema_version":1,"ok":false,"error":{...}}`
 - DEVE validar `ok` antes de ler `data`
+- DEVE em erros fail-fast de `run` inspecionar `data.steps` parcial quando presente
 - DEVE manter stderr só para diagnósticos/tracing
 ### FORBIDDEN
 - NUNCA trate prosa humana no stdout sob `--json` como contrato primário
@@ -362,7 +411,6 @@ browser-automation-cli commands --json
 ```bash
 out=$(browser-automation-cli -q --json version)
 echo "$out" | jaq -e '.ok == true'
-echo "$out" | jaq -r '.data.version'
 ```
 
 ## Exit Codes
@@ -396,22 +444,19 @@ browser-automation-cli --ignore-robots --i-accept-robots-risk --json scrape http
 ### REQUIRED
 - DEVE usar somente o binário `browser-automation-cli`
 - DEVE usar `view` não snapshot; `press` não click; `write` não fill; `grab` não screenshot
-- DEVE mapear DevTools tools para comandos de produto exatamente como abaixo
-- DEVE usar flags/XDG para settings de produto; fora disso só vars de SO `RUST_LOG` e `NO_COLOR`
-Mapa DevTools (OBRIGATÓRIO): click→press, fill→write, take_screenshot→grab, take_snapshot→view, type_text→type, press_key→keys, fill_form→fill-form, upload_file→upload, click_at→click-at, navigate_page→goto|back|forward|reload, wait_for→wait, evaluate_script→eval, list_network_requests→net list, list_console_messages→console list
+- DEVE mapear DevTools exatamente: click→press, fill→write, take_screenshot→grab, take_snapshot→view, type_text→type, press_key→keys, fill_form→fill-form, upload_file→upload, click_at→click-at, navigate_page→goto|back|forward|reload, wait_for→wait, evaluate_script→eval, list_network_requests→net list, list_console_messages→console list
+- DEVE manter o mapa de paridade de 52 tools DevTools como núcleo, E usar extras PRD (`print-pdf`, `monitor`, `qr`, `find-paths`, família parse/extract/scrape) quando a tarefa precisar
+- DEVE usar flags/XDG para settings; logging de produto DEVE usar `--verbose`/`--debug`/`-q` ou `config set log_level`
 ### FORBIDDEN
 - NUNCA invente aliases de produto que conflitem com este mapa
 - NUNCA chame nomes DevTools como subcomandos CLI
-### Correct Pattern
-```bash
-browser-automation-cli --timeout 60 --json run --script /tmp/goto-view-press.jsonl
-```
+- NUNCA ignore comandos só-PRD quando forem a tool correta para a tarefa
 
-## Proibições
+## Proibições Absolutas
 ### REQUIRED
 - DEVE recusar padrões ilegais e reescrever para a superfície CLI canônica
 ### FORBIDDEN
-- NUNCA invente `bac` ou `BROWSER_AUTOMATION_CLI_*`
+- NUNCA invente `bac` ou variáveis de ambiente de produto para settings
 - NUNCA use `.env` como config de produto em runtime
 - NUNCA passe path posicional bare para `grab` (SEMPRE `--path`)
 - NUNCA invente `emulate --device`
@@ -420,9 +465,10 @@ browser-automation-cli --timeout 60 --json run --script /tmp/goto-view-press.jso
 - NUNCA reutilize `@eN` entre processos
 - NUNCA habilite gates de categoria/experimental sem intenção
 - NUNCA exponha MITM além de `127.0.0.1`
-- NUNCA invente Firecrawl cloud ou servidores remotos sticky de workflow
+- NUNCA invente SaaS cloud de scrape ou servidores remotos sticky de workflow
 - NUNCA mascare exit codes com `|| true`
 - NUNCA contorne robots sem as duas dual-flags
+- NUNCA invente variáveis de ambiente de produto para logging de produto
 ### Correct Pattern
 ```bash
 browser-automation-cli --json grab --path /tmp/x.png
@@ -430,7 +476,7 @@ browser-automation-cli --json workflow run --manifest /tmp/wf.json
 browser-automation-cli --timeout 60 --json run --script /tmp/steps.jsonl
 ```
 
-## Checklist
+## Checklist de Validação
 ### REQUIRED
 - OBRIGATÓRIO confirmar binário `browser-automation-cli` e ciclo BORN EXECUTE FINALIZE DIE
 - OBRIGATÓRIO confirmar envelope `--json` `ok` e multi-passo `@eN` dentro de um `run --script`
@@ -439,9 +485,11 @@ browser-automation-cli --timeout 60 --json run --script /tmp/steps.jsonl
 - OBRIGATÓRIO confirmar net `list|get` + `--capture-network` no mesmo processo
 - OBRIGATÓRIO confirmar `type` TEXT posicional + `--target` OU `--focus-only`
 - OBRIGATÓRIO confirmar fill-form `--json` array de comando + `--json` global; upload target+path; `exec` single-step only
-- OBRIGATÓRIO confirmar só sete chaves de config; NUNCA invente env de produto (só `RUST_LOG`/`NO_COLOR`)
+- OBRIGATÓRIO confirmar todas as 13 chaves de config; NUNCA invente env de produto; logging só via `--verbose`/`--debug`/`-q`/`log_level`
 - OBRIGATÓRIO confirmar exit codes 0,2,65,66,69,70,74,78,124,130,141; robots dual-flag; gates categoria/experimental; schema discovery
-- OBRIGATÓRIO confirmar cobertura de todos os 52 comandos no Catálogo Completo de Comandos
+- OBRIGATÓRIO confirmar inventário ~56 comandos incluindo print-pdf, monitor, qr, find-paths + 52 tools de paridade
+- OBRIGATÓRIO confirmar playbooks de print-pdf, QR, find-paths, extract --llm/--schema-json, scrape multi-formato, only-main-content, webhook, i18n, scroll, attr, goto avançado e fail-fast `data.steps`
+- OBRIGATÓRIO confirmar catálogo executável em `references/formulas.md`
 ### FORBIDDEN
 - NUNCA entregue glue de agente que viole este checklist
 ### Correct Pattern

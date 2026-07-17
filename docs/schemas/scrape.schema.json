@@ -3,7 +3,7 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/scrape.schema.json",
   "title": "scrape command input",
   "type": "object",
-  "description": "Navigate and return body text / formats (local Firecrawl-parity)",
+  "description": "Navigate and return body text / formats (local HTTP or CDP scrape)",
   "properties": {
     "engine": {
       "description": "Default browser (CDP)",
@@ -14,13 +14,18 @@
       "type": "string"
     },
     "format": {
-      "description": "Default text",
+      "description": "Default text; browser engine also applies format via outerHTML",
       "enum": [
         "text",
         "markdown",
         "html",
+        "raw-html",
         "links",
-        "metadata"
+        "metadata",
+        "screenshot",
+        "summary",
+        "product",
+        "branding"
       ],
       "type": "string"
     },
@@ -28,6 +33,10 @@
       "type": "boolean"
     },
     "url": {
+      "type": "string"
+    },
+    "webhook_url": {
+      "description": "Optional one-shot operator POST of result data (not product telemetry)",
       "type": "string"
     }
   },

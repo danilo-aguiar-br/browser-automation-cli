@@ -10,8 +10,9 @@
 - JSON envelopes reduce brittle stdout scraping
 - Multi-step scripts preserve accessibility refs without a daemon
 - Category gates keep experimental surfaces opt-in
-- Firecrawl-local discovery surface ships as first-class subcommands
-- XDG config replaces product environment variables
+- Local scrape / crawl / map / search / parse surface ships as first-class subcommands
+- Artifact helpers (`print-pdf`, `monitor`, `qr`, `find-paths`) and XDG LLM keys extend agent workflows without daemons
+- Durable defaults live in flags and XDG `config path|init|show|set|get`
 
 
 ## Economy
@@ -26,13 +27,14 @@
 - No npm runtime dependency for the product binary
 - No remote telemetry path in the CLI
 - System Chrome remains under the operator host policy
-- Product settings live in flags and XDG `config`, not product environment variables
-- There is no product env contract such as `BROWSER_AUTOMATION_CLI_*`
+- Product settings live in flags and XDG `config` only
+- Product logging uses `--verbose` / `--debug` / `-q` and XDG `log_level`
+- Color uses `config set color`; Chrome path uses `config set chrome_path`
 
 
 ## Compatible Agents and Orchestrators
 - Integration mode for every entry below is one-shot subprocess plus `--json`
-- This project validates locally with cargo and e2e scripts; it does not claim hosted CI coverage per agent
+- This project validates locally with cargo and e2e scripts
 - Claude Code
 - Codex
 - Gemini CLI
@@ -55,16 +57,24 @@
 - Always pass `--json` for machine parsing
 - Read success and error envelopes from stdout
 - Keep stderr for human or debug logs only
-- Use `commands --json` to discover the live inventory
-- Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse
+- Use `commands --json` to discover the live inventory (**56 commands**)
+- Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, extract, and DevTools-parity tools
 - Use `schema --cmd <name> --json` before generating argv for unfamiliar commands
 - Prefer flags for one-off control
 - Use `config init|set|get|path|show` for durable XDG defaults
-- OS env only when needed: `RUST_LOG` for tracing, `NO_COLOR` to disable color
+- Full config keys (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Resolve paths with `config path --json`
 - For multi-step work that needs shared `@eN` refs, use one `run --script` process
 - Wait with OR text: `wait --text A --text B`
-- Scrape with `--format text|markdown|html|links|metadata` and `--engine http|browser`
+- Scroll aliases in NDJSON: `{"cmd":"scroll","dy":1500}`
+- Assert aliases: `{"cmd":"assert","url_contains":"example.com"}` / `text_contains`
+- On `run` fail-fast errors, inspect partial `data.steps` when present
+- Scrape with `--format text|markdown|html|links|metadata|summary|product|branding|raw-html|screenshot` and `--engine http|browser`
+- Optional operator webhook on scrape: `--webhook-url` (one-shot POST, not product telemetry)
 - Capture screenshots with `grab --path <file>` (not a positional path)
+- Print PDF with `print-pdf --url … --path …`
+- LLM extract fails closed without XDG `openrouter_api_key`
+- Localize human suggestions with `--lang pt-BR` or `config set lang pt-BR`
 
 
 ## Crate Integrations
@@ -93,13 +103,15 @@ fn main() {
 
 
 ## Surface Discovery for Agents
-- Inventory: `browser-automation-cli commands --json`
+- Inventory: `browser-automation-cli commands --json` (56 commands)
 - Input fragments: `browser-automation-cli schema --cmd <name> --json`
 - Config paths: `browser-automation-cli config path --json`
-- Config keys: `config set|get|show` for lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color
+- Config keys: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
 - MITM: `mitm status|init-ca|start|list|get|har|export|domains|apis`
 - Workflow: `workflow run|resume|status`
-- Firecrawl-local: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- Local scrape surface: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- Artifacts and local IO: `print-pdf`, `monitor check`, `qr encode|decode`, `find-paths`
+- LLM extract: `extract --llm --question …` (XDG keys only)
 - Health: `doctor --json` (reports Chrome discovery and XDG browsers_dir)
 
 
@@ -127,7 +139,7 @@ fn main() {
 - Do not reuse `@eN` refs across separate process launches
 - Do not parse stderr as the primary success channel
 - Do not enable robots bypass without the dual-flag policy
-- Do not rely on product `BROWSER_AUTOMATION_CLI_*` environment variables
+- Use only flags and `config` for product settings
 - Do not pass a positional path to `grab`; use `--path`
 - Do not invent a `--device` preset on `emulate`; use `--user-agent`, `--viewport`, `--network-conditions`
 
@@ -140,8 +152,10 @@ echo "$out" | jaq -e '.ok == true'
 browser-automation-cli -q --json commands
 browser-automation-cli -q --json config path
 browser-automation-cli -q --json wait --text Example --text Domain --ms 5000
-browser-automation-cli -q --json scrape https://example.com --format markdown --engine http
+browser-automation-cli -q --timeout 60 --json scrape https://example.com --format markdown --engine browser
 browser-automation-cli -q --json grab --path /tmp/page.png --full-page
+browser-automation-cli -q --json print-pdf --url https://example.com --path /tmp/page.pdf
+browser-automation-cli -q --json find-paths 'Cargo.*' .
 ```
 
 
@@ -149,6 +163,7 @@ browser-automation-cli -q --json grab --path /tmp/page.png --full-page
 - Success: `{"schema_version":1,"ok":true,"data":...}`
 - Error: `{"schema_version":1,"ok":false,"error":{...}}`
 - Error objects include `kind`, `message`, and `exit_code` when `--json` is set
+- Multi-step fail-fast errors may also include partial `data.steps`
 - Schema index: [docs/schemas/README.md](schemas/README.md)
 - Live input fragments always come from `schema --cmd`; static files may lag
 

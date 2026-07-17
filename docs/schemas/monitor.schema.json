@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/monitor.schema.json",
+  "title": "monitor command input",
+  "type": "object",
+  "description": "One-shot change check against a baseline file (hash/text)",
+  "properties": {
+    "action": {
+      "enum": [
+        "check"
+      ],
+      "type": "string"
+    },
+    "baseline": {
+      "description": "Baseline file path",
+      "type": "string"
+    },
+    "engine": {
+      "enum": [
+        "http",
+        "browser"
+      ],
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "write_baseline": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "action",
+    "url",
+    "baseline"
+  ],
+  "additionalProperties": false
+}

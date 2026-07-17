@@ -111,11 +111,30 @@ pub async fn run_script_with_flags(
                     ledger.chrome_launched = false;
                     ledger.chrome_pid = None;
                 }
-                return Err(CliError::with_suggestion(
-                    e.kind(),
-                    format!("run fail-fast at step {idx} cmd={cmd}: {e}"),
-                    "Fix the failing step; subsequent steps were not executed",
-                ));
+                // Fail-fast keeps partial steps so agents retain context (GAP-006/016).
+                results.push(json!({
+                    "index": idx,
+                    "cmd": cmd,
+                    "ok": false,
+                    "error": {
+                        "kind": e.kind().as_str(),
+                        "message": e.message(),
+                        "suggestion": e.suggestion(),
+                    }
+                }));
+                return Ok(json!({
+                    "total": steps.len(),
+                    "failed_index": idx,
+                    "failed_cmd": cmd,
+                    "steps": results,
+                    "ok": false,
+                    "error": {
+                        "kind": e.kind().as_str(),
+                        "message": format!("run fail-fast at step {idx} cmd={cmd}: {e}"),
+                        "suggestion": crate::i18n::suggestion_key("run_fail_fast", None),
+                        "exit_code": e.exit_code(),
+                    }
+                }));
             }
         }
     }
@@ -130,8 +149,44 @@ pub async fn run_script_with_flags(
     Ok(json!({
         "total": results.len(),
         "steps": results,
-        "ok": true,
     }))
+}
+
+/// Reject unknown fields that look like silent discards (agent-first).
+fn reject_unknown_step_fields(cmd: &str, step: &Value) -> Result<(), CliError> {
+    let Some(obj) = step.as_object() else {
+        return Ok(());
+    };
+    let allowed: &[&str] = match cmd {
+        "scroll" => &[
+            "cmd", "action", "target", "selector", "delta_x", "delta_y", "deltaX", "deltaY", "dx",
+            "dy",
+        ],
+        "goto" => &[
+            "cmd",
+            "action",
+            "url",
+            "init_script",
+            "initScript",
+            "handle_before_unload",
+            "handleBeforeUnload",
+            "navigation_timeout_ms",
+            "navigationTimeoutMs",
+            "timeout_ms",
+            "timeoutMs",
+        ],
+        _ => return Ok(()),
+    };
+    for key in obj.keys() {
+        if !allowed.iter().any(|a| a == key) {
+            return Err(CliError::with_suggestion(
+                ErrorKind::Usage,
+                format!("unknown field `{key}` on step cmd={cmd}"),
+                format!("Allowed fields for {cmd}: {}", allowed.join(", ")),
+            ));
+        }
+    }
+    Ok(())
 }
 
 async fn execute_step(
@@ -141,6 +196,7 @@ async fn execute_step(
     robots: RobotsPolicy,
     flags: RunFlags,
 ) -> Result<Value, CliError> {
+    reject_unknown_step_fields(cmd, step)?;
     match cmd {
         "goto" => {
             let url = step
@@ -404,15 +460,13 @@ async fn execute_step(
                 .or_else(|| step.get("js"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CliError::new(ErrorKind::Usage, "eval requires expression"))?;
-            let args = step
-                .get("args")
-                .map(|v| {
-                    if v.is_string() {
-                        v.as_str().unwrap().to_string()
-                    } else {
-                        v.to_string()
-                    }
-                });
+            let args = step.get("args").map(|v| {
+                if let Some(s) = v.as_str() {
+                    s.to_string()
+                } else {
+                    v.to_string()
+                }
+            });
             let dialog_action = step
                 .get("dialog_action")
                 .or_else(|| step.get("dialogAction"))
@@ -485,11 +539,13 @@ async fn execute_step(
             let delta_x = step
                 .get("delta_x")
                 .or_else(|| step.get("deltaX"))
+                .or_else(|| step.get("dx"))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
             let delta_y = step
                 .get("delta_y")
                 .or_else(|| step.get("deltaY"))
+                .or_else(|| step.get("dy"))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
             session.scroll(target, delta_x, delta_y).await
@@ -1133,7 +1189,9 @@ pub fn argv_to_step(args: &[String]) -> Result<Value, CliError> {
     }
     let cmd = args[0].as_str();
     let mut step = json!({ "cmd": cmd });
-    let obj = step.as_object_mut().expect("object");
+    let obj = step.as_object_mut().ok_or_else(|| {
+        CliError::new(ErrorKind::Software, "exec step object construction failed")
+    })?;
     let mut i = 1;
     while i < args.len() {
         let a = args[i].as_str();
@@ -1248,16 +1306,26 @@ pub async fn run_one_step(
 async fn execute_assert(session: &mut OneShotSession, step: &Value) -> Result<Value, CliError> {
     // Forms:
     // {"cmd":"assert","kind":"url","value":"...","contains":true}
+    // {"cmd":"assert","kind":"url","url_contains":"..."}
     // {"cmd":"assert","kind":"text","value":"...","ref":"@e1"}
     // {"cmd":"assert","kind":"console","level":"error","max":0}
     // {"cmd":"assert","url":"..."} / {"cmd":"assert","text":"..."}
+    // {"cmd":"assert","url_contains":"..."} / {"cmd":"assert","text_contains":"..."}
     if let Some(kind) = step.get("kind").and_then(|v| v.as_str()) {
         match kind {
             "url" => {
                 let value = step
                     .get("value")
+                    .or_else(|| step.get("url_contains"))
+                    .or_else(|| step.get("url"))
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| CliError::new(ErrorKind::Usage, "assert url requires value"))?;
+                    .ok_or_else(|| {
+                        CliError::with_suggestion(
+                            ErrorKind::Usage,
+                            "assert url requires value",
+                            "Use {\"cmd\":\"assert\",\"kind\":\"url\",\"value\":\"example.com\"} or url_contains",
+                        )
+                    })?;
                 let contains = step
                     .get("contains")
                     .and_then(|v| v.as_bool())
@@ -1267,8 +1335,16 @@ async fn execute_assert(session: &mut OneShotSession, step: &Value) -> Result<Va
             "text" => {
                 let value = step
                     .get("value")
+                    .or_else(|| step.get("text_contains"))
+                    .or_else(|| step.get("text"))
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| CliError::new(ErrorKind::Usage, "assert text requires value"))?;
+                    .ok_or_else(|| {
+                        CliError::with_suggestion(
+                            ErrorKind::Usage,
+                            "assert text requires value",
+                            "Use {\"cmd\":\"assert\",\"kind\":\"text\",\"value\":\"Hello\"}",
+                        )
+                    })?;
                 let target = step
                     .get("ref")
                     .or_else(|| step.get("target"))
@@ -1291,23 +1367,32 @@ async fn execute_assert(session: &mut OneShotSession, step: &Value) -> Result<Va
             }
         }
     }
-    if let Some(url) = step.get("url").and_then(|v| v.as_str()) {
+    if let Some(url) = step
+        .get("url_contains")
+        .or_else(|| step.get("url"))
+        .and_then(|v| v.as_str())
+    {
         let contains = step
             .get("contains")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
         return session.assert_url(url, contains).await;
     }
-    if let Some(text) = step.get("text").and_then(|v| v.as_str()) {
+    if let Some(text) = step
+        .get("text_contains")
+        .or_else(|| step.get("text"))
+        .and_then(|v| v.as_str())
+    {
         let target = step
             .get("ref")
             .or_else(|| step.get("target"))
             .and_then(|v| v.as_str());
         return session.assert_text(text, target).await;
     }
-    Err(CliError::new(
+    Err(CliError::with_suggestion(
         ErrorKind::Usage,
-        "assert requires kind=url|text|console or url/text fields",
+        "assert requires kind=url|text|console or url/text/url_contains fields",
+        "Example: {\"cmd\":\"assert\",\"kind\":\"url\",\"value\":\"example.com\"}",
     ))
 }
 

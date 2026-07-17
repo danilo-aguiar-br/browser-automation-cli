@@ -27,12 +27,18 @@ bash scripts/generate_command_schemas.sh
 bash scripts/generate_command_schemas.sh --check
 ```
 
+### Generator notes
+- Generator reads the live inventory from `commands --json` / `schema --cmd`
+- Writes one `docs/schemas/<cmd>.schema.json` per inventory command
+- Does **not** overwrite `envelope-success.schema.json`, `envelope-error.schema.json`, or `run-script-step.schema.json`
+- After adding commands such as `print-pdf`, `monitor`, `qr`, or `find-paths`, re-run the generator
+
 ### Envelopes and non-command contracts
 - `envelope-success.schema.json` — success stdout envelope
-- `envelope-error.schema.json` — error stdout envelope under `--json`
+- `envelope-error.schema.json` — error stdout envelope under `--json` (may include partial `data` for fail-fast multi-step)
 - `run-script-step.schema.json` — one NDJSON step for `run --script`
 
-### Command input schemas (52 — full inventory)
+### Command input schemas (56 — full inventory)
 
 #### Meta and discovery
 - `doctor.schema.json` — `doctor`
@@ -61,18 +67,20 @@ bash scripts/generate_command_schemas.sh --check
 - `drag.schema.json` — `drag`
 - `fill-form.schema.json` — `fill-form`
 - `upload.schema.json` — `upload`
-- `scroll.schema.json` — `scroll`
+- `scroll.schema.json` — `scroll` (`dy`/`dx` aliases)
 
 #### Extract and assert
 - `eval.schema.json` — `eval`
-- `extract.schema.json` — `extract`
+- `extract.schema.json` — `extract` (includes `--llm` / `--question`)
 - `text.schema.json` — `text`
 - `attr.schema.json` — `attr`
-- `assert.schema.json` — `assert`
+- `assert.schema.json` — `assert` (`url_contains` / `text_contains`)
 - `cookie.schema.json` — `cookie`
 
-#### Capture
+#### Capture and artifacts
 - `grab.schema.json` — `grab`
+- `print-pdf.schema.json` — `print-pdf`
+- `monitor.schema.json` — `monitor` (`check`)
 - `console.schema.json` — `console`
 - `net.schema.json` — `net`
 - `screencast.schema.json` — `screencast`
@@ -81,13 +89,17 @@ bash scripts/generate_command_schemas.sh --check
 - `run.schema.json` — `run`
 - `exec.schema.json` — `exec`
 
-#### Local scrape / crawl / parse (Firecrawl-parity)
+#### Local scrape / crawl / parse surface
 - `scrape.schema.json` — `scrape`
 - `batch-scrape.schema.json` — `batch-scrape`
 - `crawl.schema.json` — `crawl`
 - `map.schema.json` — `map`
 - `search.schema.json` — `search`
-- `parse.schema.json` — `parse`
+- `parse.schema.json` — `parse` (`--redact-pii`; pdf/docx/xlsx)
+
+#### Local IO helpers (no Chrome)
+- `qr.schema.json` — `qr` (`encode` / `decode`)
+- `find-paths.schema.json` — `find-paths`
 
 #### Config, MITM, workflow
 - `config.schema.json` — `config`
@@ -109,7 +121,8 @@ bash scripts/generate_command_schemas.sh --check
 ### Live CLI vs static snapshots
 - Always treat `schema --cmd <name> --json` as authoritative for the installed binary
 - After upgrading the CLI, re-run `scripts/generate_command_schemas.sh`
-- Use `commands --json` to confirm inventory membership after upgrades
+- Use `commands --json` to confirm inventory membership after upgrades (56 commands)
+- DevTools e2e suite remains 52 tools; inventory schemas cover the full 56-command surface
 - Bilingual fence audit: `bash scripts/audit_bilingual_docs.sh`
 
 
@@ -133,12 +146,18 @@ bash scripts/generate_command_schemas.sh
 bash scripts/generate_command_schemas.sh --check
 ```
 
+### Notas do gerador
+- O gerador lê o inventário vivo de `commands --json` / `schema --cmd`
+- Grava um `docs/schemas/<cmd>.schema.json` por comando do inventário
+- **Não** sobrescreve `envelope-success.schema.json`, `envelope-error.schema.json` ou `run-script-step.schema.json`
+- Após adicionar comandos como `print-pdf`, `monitor`, `qr` ou `find-paths`, reexecute o gerador
+
 ### Envelopes e contratos fora de comando
 - `envelope-success.schema.json` — envelope de sucesso no stdout
-- `envelope-error.schema.json` — envelope de erro no stdout com `--json`
+- `envelope-error.schema.json` — envelope de erro no stdout com `--json` (pode incluir `data` parcial em fail-fast multi-passo)
 - `run-script-step.schema.json` — um passo NDJSON para `run --script`
 
-### Schemas de input de comando (52 — inventário completo)
+### Schemas de input de comando (56 — inventário completo)
 
 #### Meta e descoberta
 - `doctor.schema.json` — `doctor`
@@ -167,18 +186,20 @@ bash scripts/generate_command_schemas.sh --check
 - `drag.schema.json` — `drag`
 - `fill-form.schema.json` — `fill-form`
 - `upload.schema.json` — `upload`
-- `scroll.schema.json` — `scroll`
+- `scroll.schema.json` — `scroll` (aliases `dy`/`dx`)
 
 #### Extração e assert
 - `eval.schema.json` — `eval`
-- `extract.schema.json` — `extract`
+- `extract.schema.json` — `extract` (inclui `--llm` / `--question`)
 - `text.schema.json` — `text`
 - `attr.schema.json` — `attr`
-- `assert.schema.json` — `assert`
+- `assert.schema.json` — `assert` (`url_contains` / `text_contains`)
 - `cookie.schema.json` — `cookie`
 
-#### Captura
+#### Captura e artefatos
 - `grab.schema.json` — `grab`
+- `print-pdf.schema.json` — `print-pdf`
+- `monitor.schema.json` — `monitor` (`check`)
 - `console.schema.json` — `console`
 - `net.schema.json` — `net`
 - `screencast.schema.json` — `screencast`
@@ -187,13 +208,17 @@ bash scripts/generate_command_schemas.sh --check
 - `run.schema.json` — `run`
 - `exec.schema.json` — `exec`
 
-#### Scrape / crawl / parse local (Firecrawl-parity)
+#### Superfície local de scrape / crawl / parse
 - `scrape.schema.json` — `scrape`
 - `batch-scrape.schema.json` — `batch-scrape`
 - `crawl.schema.json` — `crawl`
 - `map.schema.json` — `map`
 - `search.schema.json` — `search`
-- `parse.schema.json` — `parse`
+- `parse.schema.json` — `parse` (`--redact-pii`; pdf/docx/xlsx)
+
+#### Helpers de IO local (sem Chrome)
+- `qr.schema.json` — `qr` (`encode` / `decode`)
+- `find-paths.schema.json` — `find-paths`
 
 #### Config, MITM, workflow
 - `config.schema.json` — `config`
@@ -215,7 +240,8 @@ bash scripts/generate_command_schemas.sh --check
 ### CLI ao vivo vs snapshots estáticos
 - Trate sempre `schema --cmd <name> --json` como autoritativo para o binário instalado
 - Após atualizar a CLI, reexecute `scripts/generate_command_schemas.sh`
-- Use `commands --json` para confirmar inventário após upgrades
+- Use `commands --json` para confirmar inventário após upgrades (56 comandos)
+- A suite e2e DevTools permanece com 52 tools; os schemas de inventário cobrem a superfície completa de 56 comandos
 - Auditoria bilíngue de fences: `bash scripts/audit_bilingual_docs.sh`
 
 

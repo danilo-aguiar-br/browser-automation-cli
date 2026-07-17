@@ -2,11 +2,11 @@
 
 # browser-automation-cli
 
-> One-shot Chrome CDP automation CLI for AI agents with no daemon and no telemetry.
+> One-shot Chrome CDP automation CLI for AI agents with no daemon and no remote telemetry.
 
 browser-automation-cli is a single-process Rust CLI that launches system Chrome or Chromium through CDP, executes agent browser actions, then finalizes and exits. Multi-step work must use `run --script` inside one process so `@eN` refs remain valid. Lifecycle: BORN, EXECUTE, FINALIZE, DIE.
 
-Product settings are commands, flags, and XDG config only. Do not invent product environment variables. OS-only vars outside that surface: `RUST_LOG`, `NO_COLOR`.
+Product settings are commands, flags, and XDG via `config path|init|show|set|get` only. Logging uses `--verbose`/`--debug`/`-q` or `config set log_level`. Color uses `config set color true|false`. Chrome and Lighthouse use shell path or `config set chrome_path|lighthouse_path`.
 
 ## Primary Documentation
 - [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.md): product landing, install, commands, flags, config, FAQ
@@ -27,26 +27,34 @@ Product settings are commands, flags, and XDG config only. Do not invent product
 - [CODE_OF_CONDUCT](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CODE_OF_CONDUCT.md): Contributor Covenant 2.1
 - [LICENSE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/LICENSE): dual license pointer
 
-## Command Surface (v0.1.1)
-- Discovery: doctor, commands, schema, version, completions
-- Config XDG: config init|path|show|get|set (keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color)
+## Command Surface (v0.1.2)
+- Full inventory (56 top-level names via `commands --json`): doctor, commands, schema, version, goto, view, press, click-at, write, keys, type, wait, hover, drag, fill-form, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, extract, text, scroll, cookie, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, search, parse, qr, find-paths, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions
+- Discovery: doctor, commands, schema --cmd (goto/eval/type/scroll/assert expanded), version, completions
+- Config XDG: config init|path|show|get|set
+  - Keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model
 - Navigate: goto, back, forward, reload
-- Local scrape / Firecrawl-local: scrape (--format text|markdown|html|links|metadata, --engine http|browser), batch-scrape, crawl, map, search, parse
+- Local scrape/crawl/map/search/parse:
+  - scrape --format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding --engine http|browser (browser applies formats via outerHTML)
+  - batch-scrape, crawl, map, search (cleans uddg= SERP redirects), parse (PDF/DOCX/xlsx/ods + --redact-pii)
 - Interact: view, press, write, type, keys, wait (repeatable --text OR), hover, drag, fill-form, upload, click-at
-- Observe: extract, text, scroll, attr, assert, grab --path
+- Observe: extract (--llm/--question/--schema-json; XDG openrouter_api_key, llm_base_url, llm_model), text, scroll (run dy/dx aliases for delta_y/delta_x), attr (DOM property fallback), assert (url_contains/text_contains), grab --path
+- PDF / monitor / utils (some without Chrome): print-pdf (CDP Page.printToPDF), monitor check --url --baseline [--write-baseline], qr encode|decode, find-paths
 - Tabs: page, dialog, cookie
 - Capture: console, net
 - MITM local one-shot: mitm init-ca|start|status|list|get|har|export|domains|apis (127.0.0.1 only; CA under XDG)
 - Workflow journal: workflow run|resume|status (SQLite journal under XDG state)
-- Advanced: eval, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, run, exec
+- Advanced: eval, emulate, resize, perf, lighthouse (XDG lighthouse_path), screencast, heap, extension, devtools3p, webmcp, run (fail-fast may return partial data.steps), exec
+- Lang: --lang pt-BR or config set lang localizes human suggestions
 
 ## Settings Contract
-- Product settings: commands, flags, config (XDG `config.toml`) — not product env vars
+- Product settings: commands, flags, XDG via `config path|init|show|set|get` only
 - Encryption: `config set encryption_key` only
-- OS-only: `RUST_LOG`, `NO_COLOR`
+- Logging: `--verbose`/`--debug`/`-q` or `config set log_level`
+- Color: `config set color true|false`
+- Chrome / Lighthouse: shell path or `config set chrome_path` / `config set lighthouse_path`
 
 ## Contract Basics
 - Success envelope: `{"schema_version":1,"ok":true,"data":...}`
-- Error envelope with `--json`: `{"schema_version":1,"ok":false,"error":{...}}`
+- Error envelope with `--json`: `{"schema_version":1,"ok":false,"error":{...}}` (multi-step fail-fast may include partial `data.steps`)
 - Exit codes include 0, 2, 65, 66, 69, 70, 74, 78, 124, 130, 141, 255
 - Live schema fragments: `browser-automation-cli schema --cmd <name> --json`

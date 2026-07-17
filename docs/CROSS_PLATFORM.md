@@ -9,7 +9,7 @@
 - Browser tooling often assumes one OS path layout
 - Local agents fail when Chrome discovery is host-specific and undocumented
 - Shell quoting and path separators break fragile wrappers
-- Product env vars multiply across shells and CI images without a single source of truth
+- Settings scattered outside flags and XDG `config` multiply across shells without a single source of truth
 
 
 ## Support Matrix
@@ -32,6 +32,7 @@
 ## Linux Notes
 - Common binaries include `chromium-browser`, `chromium`, and `google-chrome`
 - Run `doctor` after package install to confirm discovery
+- Override discovery with `config set chrome_path /path/to/chrome` when PATH is messy
 - Headless is default for local agent runs
 - On Alpine or other musl hosts, cross-compile or build natively for the musl target
 - Provide a real Chrome or Chromium binary; the CLI does not bundle a browser
@@ -39,7 +40,7 @@
 
 ## macOS Notes
 - Install Google Chrome from the official channel
-- Prefer full binary path only when PATH discovery fails
+- Prefer full binary path via XDG `chrome_path` only when PATH discovery fails
 - Apple Silicon and Intel both use system Chrome discovery
 - Grant accessibility or screen permissions only if you use headed debugging outside agents
 
@@ -57,7 +58,7 @@
 - Install Chrome or Chromium in the image before runtime tests
 - Provide enough shared memory for Chrome (`/dev/shm` or equivalent)
 - Keep one-shot process cleanup expectations under orchestration restarts
-- Do not assume a host-mounted product env file; use flags and XDG mounts if needed
+- Do not assume a host-mounted product settings file outside XDG; use flags and XDG mounts if needed
 - Example shape: package `browser-automation-cli` plus Chromium, then call `doctor --json`
 
 
@@ -83,16 +84,18 @@ browser-automation-cli completions powershell
 - Cache, state, sessions, and workflow journals stay under user-local XDG trees
 - MITM CA material lives under XDG data (`mitm/ca`); captures under XDG state (`mitm/`)
 - Workflow journals live under XDG state (`workflows`)
-- Encryption key is set with `config set encryption_key <value>`, not a product env var
-- There are no product `BROWSER_AUTOMATION_CLI_*` environment settings
-- OS conventions only: `RUST_LOG`, `NO_COLOR` (and host `PATH` for Chrome discovery)
+- Encryption key is set with `config set encryption_key <value>`
+- Full config keys (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Product settings use flags and XDG CLI only (`config path|init|show|set|get`)
+- Product logging: `--verbose` / `--debug` / `-q` or XDG `log_level`
+- Color: `config set color`; Chrome path: `config set chrome_path`
 
 
 ## Performance by Target
 - Linux desktop and servers are the primary optimization target
 - Cold start remains Chrome-bound on every OS when using the browser engine
 - Prefer `--engine http` on scrape-style commands when a full browser is unnecessary
-- Local maintainer validation uses `cargo build --release` and host Chrome; no multi-OS hosted CI matrix is claimed
+- Local maintainer validation uses `cargo build --release`, host Chrome, and e2e scripts
 
 
 ## Agents Validated per Platform
@@ -100,4 +103,4 @@ browser-automation-cli completions powershell
 - Linux: Claude Code, Codex, Gemini CLI, Cursor, shell local, editor agents
 - macOS: local shell agents and editor integrations
 - Windows: shell and editor integrations with explicit quoting
-- Expanded agent lists in [docs/AGENTS.md](AGENTS.md) are subprocess-compatible; they are not claimed as per-platform CI matrix results
+- Expanded agent lists in [docs/AGENTS.md](AGENTS.md) are subprocess-compatible via local validation with cargo and e2e scripts

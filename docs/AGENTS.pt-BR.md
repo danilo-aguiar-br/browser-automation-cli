@@ -10,8 +10,9 @@
 - Envelopes JSON reduzem scraping frágil de stdout
 - Scripts multi-passo preservam refs de acessibilidade sem daemon
 - Gates de categoria mantêm superfícies experimentais opt-in
-- Superfície de descoberta firecrawl-local embarca como subcomandos de primeira classe
-- Config XDG substitui variáveis de ambiente de produto
+- Superfície local de scrape / crawl / map / search / parse embarca como subcomandos de primeira classe
+- Helpers de artefato (`print-pdf`, `monitor`, `qr`, `find-paths`) e chaves LLM XDG estendem fluxos de agente sem daemons
+- Defaults duráveis vivem em flags e XDG `config path|init|show|set|get`
 
 
 ## Economia
@@ -26,13 +27,14 @@
 - Sem dependência de runtime npm no binário do produto
 - Sem caminho de telemetria remota na CLI
 - Chrome do sistema permanece sob a política do host do operador
-- Settings de produto vivem em flags e `config` XDG, não em variáveis de ambiente de produto
-- Não existe contrato de env de produto como `BROWSER_AUTOMATION_CLI_*`
+- Settings de produto vivem só em flags e `config` XDG
+- Logging de produto usa `--verbose` / `--debug` / `-q` e XDG `log_level`
+- Cor usa `config set color`; path do Chrome usa `config set chrome_path`
 
 
 ## Agentes e Orquestradores Compatíveis
 - O modo de integração de cada entrada abaixo é subprocesso one-shot com `--json`
-- Este projeto valida localmente com cargo e scripts e2e; não afirma cobertura CI hospedada por agente
+- Este projeto valida localmente com cargo e scripts e2e
 - Claude Code
 - Codex
 - Gemini CLI
@@ -55,16 +57,24 @@
 - Passe sempre `--json` para parsing por máquina
 - Leia envelopes de sucesso e erro no stdout
 - Mantenha stderr só para logs humanos ou debug
-- Use `commands --json` para descobrir o inventário vivo
-- O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse
+- Use `commands --json` para descobrir o inventário vivo (**56 comandos**)
+- O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, extract e tools de paridade DevTools
 - Use `schema --cmd <name> --json` antes de gerar argv de comandos pouco familiares
 - Prefira flags para controle pontual
 - Use `config init|set|get|path|show` para defaults XDG duráveis
-- Env de SO só quando necessário: `RUST_LOG` para tracing, `NO_COLOR` para desligar cor
+- Chaves completas de config (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Resolva paths com `config path --json`
 - Para multi-passo que precisa de refs `@eN` compartilhadas, use um processo `run --script`
 - Wait com texto OR: `wait --text A --text B`
-- Scrape com `--format text|markdown|html|links|metadata` e `--engine http|browser`
+- Aliases de scroll no NDJSON: `{"cmd":"scroll","dy":1500}`
+- Aliases de assert: `{"cmd":"assert","url_contains":"example.com"}` / `text_contains`
+- Em erros fail-fast de `run`, inspecione `data.steps` parcial quando presente
+- Scrape com `--format text|markdown|html|links|metadata|summary|product|branding|raw-html|screenshot` e `--engine http|browser`
+- Webhook opcional de operador no scrape: `--webhook-url` (POST one-shot, não telemetria de produto)
 - Capture screenshots com `grab --path <file>` (não path posicional)
+- Imprima PDF com `print-pdf --url … --path …`
+- Extract LLM falha fechado sem XDG `openrouter_api_key`
+- Localize sugestões humanas com `--lang pt-BR` ou `config set lang pt-BR`
 
 
 ## Integrações do Crate
@@ -93,13 +103,15 @@ fn main() {
 
 
 ## Descoberta de Superfície para Agentes
-- Inventário: `browser-automation-cli commands --json`
+- Inventário: `browser-automation-cli commands --json` (56 comandos)
 - Fragments de input: `browser-automation-cli schema --cmd <name> --json`
 - Paths de config: `browser-automation-cli config path --json`
-- Chaves de config: `config set|get|show` para lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color
+- Chaves de config: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
 - MITM: `mitm status|init-ca|start|list|get|har|export|domains|apis`
 - Workflow: `workflow run|resume|status`
-- Firecrawl-local: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- Superfície local de scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- Artefatos e IO local: `print-pdf`, `monitor check`, `qr encode|decode`, `find-paths`
+- Extract LLM: `extract --llm --question …` (só chaves XDG)
 - Saúde: `doctor --json` (reporta descoberta de Chrome e XDG browsers_dir)
 
 
@@ -127,7 +139,7 @@ fn main() {
 - Não reutilize refs `@eN` entre launches de processo separados
 - Não parseie stderr como canal primário de sucesso
 - Não habilite bypass de robots sem a política dual-flag
-- Não dependa de variáveis de ambiente de produto `BROWSER_AUTOMATION_CLI_*`
+- Use só flags e `config` para settings de produto
 - Não passe path posicional para `grab`; use `--path`
 - Não invente preset `--device` em `emulate`; use `--user-agent`, `--viewport`, `--network-conditions`
 
@@ -140,8 +152,10 @@ echo "$out" | jaq -e '.ok == true'
 browser-automation-cli -q --json commands
 browser-automation-cli -q --json config path
 browser-automation-cli -q --json wait --text Example --text Domain --ms 5000
-browser-automation-cli -q --json scrape https://example.com --format markdown --engine http
+browser-automation-cli -q --timeout 60 --json scrape https://example.com --format markdown --engine browser
 browser-automation-cli -q --json grab --path /tmp/page.png --full-page
+browser-automation-cli -q --json print-pdf --url https://example.com --path /tmp/page.pdf
+browser-automation-cli -q --json find-paths 'Cargo.*' .
 ```
 
 
@@ -149,6 +163,7 @@ browser-automation-cli -q --json grab --path /tmp/page.png --full-page
 - Sucesso: `{"schema_version":1,"ok":true,"data":...}`
 - Erro: `{"schema_version":1,"ok":false,"error":{...}}`
 - Objetos de erro incluem `kind`, `message` e `exit_code` quando `--json` está ativo
+- Erros fail-fast multi-passo também podem incluir `data.steps` parcial
 - Índice de schemas: [docs/schemas/README.md](schemas/README.md)
 - Fragments vivos de input sempre vêm de `schema --cmd`; arquivos estáticos podem atrasar
 

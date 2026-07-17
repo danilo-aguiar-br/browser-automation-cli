@@ -47,7 +47,7 @@
 - Keep Chrome or Chromium updated on the host
 - Never pass secrets on argv when stdin alternatives exist
 - Treat `--ignore-robots` as an explicit high-risk choice
-- Store encryption material with `browser-automation-cli config set encryption_key <secret>` (XDG config only; never invent product env vars such as `BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY`)
+- Store encryption material with `browser-automation-cli config set encryption_key <secret>` (XDG config only)
 - Keep encryption keys and cookie values out of shell history and durable logs
 - Prefer `--json` pipelines that discard stderr secrets from durable logs
 - Do not point the CLI at untrusted pages without isolation expectations

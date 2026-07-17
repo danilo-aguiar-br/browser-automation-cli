@@ -28,6 +28,8 @@ pub const COMMANDS: &[&str] = &[
     "reload",
     "eval",
     "grab",
+    "print-pdf",
+    "monitor",
     "run",
     "exec",
     "extract",
@@ -46,6 +48,8 @@ pub const COMMANDS: &[&str] = &[
     "map",
     "search",
     "parse",
+    "qr",
+    "find-paths",
     "mitm",
     "workflow",
     "config",
@@ -212,7 +216,10 @@ fn schema_for(cmd: &str) -> Option<Value> {
         "goto" => schema_object(
             "Navigate to URL and wait for load (one-shot)",
             json!({
-                "url": { "type": "string", "description": "Absolute URL or about:blank" }
+                "url": { "type": "string", "description": "Absolute URL or about:blank" },
+                "init_script": { "type": "string", "description": "JS to evaluate before navigation (tool-ref initScript)" },
+                "handle_before_unload": { "type": "boolean", "description": "Accept beforeunload dialogs automatically" },
+                "navigation_timeout_ms": { "type": "integer", "description": "Navigation timeout override in milliseconds" }
             }),
             &["url"],
         ),
@@ -263,9 +270,11 @@ fn schema_for(cmd: &str) -> Option<Value> {
                 "target": { "type": "string" },
                 "text": { "type": "string" },
                 "clear": { "type": "boolean" },
-                "submit": { "type": "string", "description": "Optional key after type (e.g. Enter)" }
+                "submit": { "type": "string", "description": "Optional key after type (e.g. Enter)" },
+                "focus_only": { "type": "boolean", "description": "Focus target without typing" },
+                "include_snapshot": { "type": "boolean" }
             }),
-            &["target", "text"],
+            &["text"],
         ),
         "wait" => schema_object(
             "Wait ms and/or text and/or CSS selector and/or load state",
@@ -327,8 +336,13 @@ fn schema_for(cmd: &str) -> Option<Value> {
             &[],
         ),
         "eval" => schema_object(
-            "Evaluate JavaScript expression",
-            json!({ "expression": { "type": "string" } }),
+            "Evaluate JavaScript expression or function declaration",
+            json!({
+                "expression": { "type": "string" },
+                "args": { "type": "string", "description": "JSON array of function args" },
+                "dialog_action": { "type": "string", "description": "accept|dismiss during evaluate" },
+                "file_path": { "type": "string", "description": "Optional path to write result" }
+            }),
             &["expression"],
         ),
         "grab" => schema_object(
@@ -341,6 +355,25 @@ fn schema_for(cmd: &str) -> Option<Value> {
                 "element": { "type": "string", "description": "CSS selector or @eN" }
             }),
             &[],
+        ),
+        "print-pdf" => schema_object(
+            "Print current page to PDF via CDP Page.printToPDF (one-shot)",
+            json!({
+                "path": { "type": "string", "description": "Output PDF path" },
+                "url": { "type": "string", "description": "Optional URL to navigate before print" }
+            }),
+            &[],
+        ),
+        "monitor" => schema_object(
+            "One-shot change check against a baseline file (hash/text)",
+            json!({
+                "action": { "type": "string", "enum": ["check"] },
+                "url": { "type": "string" },
+                "baseline": { "type": "string", "description": "Baseline file path" },
+                "write_baseline": { "type": "boolean" },
+                "engine": { "type": "string", "enum": ["http", "browser"] }
+            }),
+            &["action", "url", "baseline"],
         ),
         "run" => schema_object(
             "Execute NDJSON multi-step script in one process",
@@ -359,10 +392,13 @@ fn schema_for(cmd: &str) -> Option<Value> {
             &["args"],
         ),
         "extract" => schema_object(
-            "Extract text or attribute from target",
+            "Extract text or attribute from target, or LLM extract with --llm",
             json!({
-                "target": { "type": "string" },
-                "attr": { "type": "string" }
+                "target": { "type": "string", "description": "CSS/@eN, http(s) URL, or file path for --llm" },
+                "attr": { "type": "string" },
+                "llm": { "type": "boolean" },
+                "question": { "type": "string" },
+                "schema_json": { "type": "string", "description": "Path to JSON schema file" }
             }),
             &["target"],
         ),
@@ -378,7 +414,9 @@ fn schema_for(cmd: &str) -> Option<Value> {
             json!({
                 "target": { "type": "string", "description": "Optional CSS/@eN" },
                 "delta_x": { "type": "number" },
-                "delta_y": { "type": "number" }
+                "delta_y": { "type": "number" },
+                "dx": { "type": "number", "description": "Alias for delta_x" },
+                "dy": { "type": "number", "description": "Alias for delta_y" }
             }),
             &[],
         ),
@@ -402,9 +440,18 @@ fn schema_for(cmd: &str) -> Option<Value> {
         "assert" => schema_object(
             "Assertion helpers (url/text/console)",
             json!({
-                "kind": { "type": "string", "enum": ["url", "text", "console"] }
+                "kind": { "type": "string", "enum": ["url", "text", "console"] },
+                "value": { "type": "string" },
+                "url": { "type": "string" },
+                "url_contains": { "type": "string" },
+                "text": { "type": "string" },
+                "text_contains": { "type": "string" },
+                "contains": { "type": "boolean" },
+                "target": { "type": "string" },
+                "level": { "type": "string" },
+                "max": { "type": "integer" }
             }),
-            &["kind"],
+            &[],
         ),
         "console" => schema_object(
             "List/get/clear/dump captured console messages (needs --capture-console)",
@@ -446,20 +493,27 @@ fn schema_for(cmd: &str) -> Option<Value> {
             &["action"],
         ),
         "scrape" => schema_object(
-            "Navigate and return body text / formats (local Firecrawl-parity)",
+            "Navigate and return body text / formats (local HTTP or CDP scrape)",
             json!({
                 "url": { "type": "string" },
                 "format": {
                     "type": "string",
-                    "enum": ["text", "markdown", "html", "links", "metadata"],
-                    "description": "Default text"
+                    "enum": [
+                        "text", "markdown", "html", "raw-html", "links", "metadata",
+                        "screenshot", "summary", "product", "branding"
+                    ],
+                    "description": "Default text; browser engine also applies format via outerHTML"
                 },
                 "engine": {
                     "type": "string",
                     "enum": ["http", "browser"],
                     "description": "Default browser (CDP)"
                 },
-                "only_main_content": { "type": "boolean" }
+                "only_main_content": { "type": "boolean" },
+                "webhook_url": {
+                    "type": "string",
+                    "description": "Optional one-shot operator POST of result data (not product telemetry)"
+                }
             }),
             &["url"],
         ),
@@ -504,9 +558,36 @@ fn schema_for(cmd: &str) -> Option<Value> {
             &["query"],
         ),
         "parse" => schema_object(
-            "Parse a local file (html/md/txt/pdf text extract)",
-            json!({ "path": { "type": "string" } }),
+            "Parse a local file (html/md/txt/pdf/docx/xlsx)",
+            json!({
+                "path": { "type": "string" },
+                "redact_pii": { "type": "boolean" }
+            }),
             &["path"],
+        ),
+        "qr" => schema_object(
+            "QR encode/decode one-shot (no Chrome)",
+            json!({
+                "action": { "type": "string", "enum": ["encode", "decode"] },
+                "text": { "type": "string" },
+                "format": { "type": "string", "enum": ["png", "svg", "terminal"] },
+                "path": { "type": "string" }
+            }),
+            &["action"],
+        ),
+        "find-paths" => schema_object(
+            "Discover filesystem paths (fd-like; no Chrome)",
+            json!({
+                "pattern": { "type": "string" },
+                "paths": { "type": "array", "items": { "type": "string" } },
+                "extension": { "type": "string" },
+                "hidden": { "type": "boolean" },
+                "no_ignore": { "type": "boolean" },
+                "max_depth": { "type": "integer" },
+                "type": { "type": "string", "enum": ["f", "d"] },
+                "limit": { "type": "integer" }
+            }),
+            &[],
         ),
         "mitm" => schema_object(
             "MITM capture / CA / HAR (one-shot local 127.0.0.1)",
@@ -544,7 +625,7 @@ fn schema_for(cmd: &str) -> Option<Value> {
                 },
                 "key": {
                     "type": "string",
-                    "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color"
+                    "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|chrome_path|lighthouse_path|openrouter_api_key|llm_base_url|llm_model"
                 },
                 "value": { "type": "string" }
             }),

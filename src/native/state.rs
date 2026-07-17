@@ -830,7 +830,9 @@ pub fn dispatch_state_command(cmd: &Value) -> Option<Result<Value, String>> {
 /// Optional namespace is read from the XDG config file (`namespace = "..."`), not from env.
 pub fn get_state_dir() -> PathBuf {
     let base = crate::xdg::state_dir().unwrap_or_else(|_| {
-        std::env::temp_dir().join("browser-automation-cli").join("state")
+        std::env::temp_dir()
+            .join("browser-automation-cli")
+            .join("state")
     });
 
     if let Ok(cfg) = crate::xdg::load_config() {
@@ -974,13 +976,16 @@ mod tests {
         // Namespace is XDG-config only (no product env vars).
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path();
-        let guard = crate::test_utils::EnvGuard::new(&["HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"]);
+        let guard =
+            crate::test_utils::EnvGuard::new(&["HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"]);
         guard.set("HOME", home.to_str().unwrap());
         guard.set("XDG_CONFIG_HOME", home.join("config").to_str().unwrap());
         guard.set("XDG_STATE_HOME", home.join("state").to_str().unwrap());
 
-        let mut cfg = crate::xdg::ProductConfig::default();
-        cfg.namespace = Some("Worktree: One".into());
+        let cfg = crate::xdg::ProductConfig {
+            namespace: Some("Worktree: One".into()),
+            ..Default::default()
+        };
         crate::xdg::write_config(&cfg).expect("write config under temp XDG");
 
         let state = get_state_dir();

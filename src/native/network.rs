@@ -666,9 +666,9 @@ impl EventTracker {
             .map(|e| {
                 let mut msg = json!({ "type": e.level, "text": e.text });
                 if !e.args.is_empty() {
-                    msg.as_object_mut()
-                        .unwrap()
-                        .insert("args".to_string(), Value::Array(e.args.clone()));
+                    if let Some(obj) = msg.as_object_mut() {
+                        obj.insert("args".to_string(), Value::Array(e.args.clone()));
+                    }
                 }
                 msg
             })

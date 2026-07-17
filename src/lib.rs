@@ -113,26 +113,32 @@ pub mod doctor;
 pub mod envelope;
 /// Typed CLI errors and exit codes.
 pub mod error;
+/// One-shot filesystem path discovery (`find-paths`).
+pub mod find_paths;
 /// Locale messaging helpers.
 pub mod i18n;
 /// Install path helpers for doctor and packaging checks.
 pub mod install;
-/// Local Firecrawl-parity scrape/crawl/map/search/parse (HTTP + files).
-pub mod scrape_local;
+/// Cooperative cancel and FINALIZE ledger.
+pub mod lifecycle;
+/// Optional one-shot LLM HTTP extract (XDG key only).
+pub mod llm_local;
 /// Local MITM capture, CA, and HAR export (one-shot).
 pub mod mitm_local;
+/// Native CDP stack (browser, network, snapshot, heap).
+pub mod native;
+/// One-shot QR encode/decode (no Chrome).
+pub mod qr_local;
+/// robots.txt policy enforcement.
+pub mod robots;
+/// Local scrape/crawl/map/search/parse (HTTP + files; one-shot).
+pub mod scrape_local;
+/// Input and path validation helpers.
+pub mod validation;
 /// Workflow journal DAG (petgraph + SQLite), one-shot run/resume.
 pub mod workflow_local;
 /// XDG Base Directory paths and config file (no `.env` at runtime).
 pub mod xdg;
-/// Cooperative cancel and FINALIZE ledger.
-pub mod lifecycle;
-/// Native CDP stack (browser, network, snapshot, heap).
-pub mod native;
-/// robots.txt policy enforcement.
-pub mod robots;
-/// Input and path validation helpers.
-pub mod validation;
 
 #[cfg(test)]
 #[allow(missing_docs)]
@@ -186,7 +192,16 @@ pub fn run() -> ExitCode {
         }
     };
 
-    init_tracing(cli.globals.quiet, cli.globals.verbose, cli.globals.debug);
+    // Resolve language once (CLI flag > XDG config > OS locale). Used for human suggestions.
+    let lang = crate::i18n::resolve_lang(cli.globals.lang.as_deref());
+    crate::i18n::set_effective_lang(lang);
+
+    init_tracing(
+        cli.globals.quiet,
+        cli.globals.verbose,
+        cli.globals.debug,
+        cli.globals.lang.as_deref(),
+    );
 
     let code = commands_prd::dispatch(cli, &life);
     // finalize is called inside dispatch; call again is idempotent
@@ -213,17 +228,25 @@ pub fn exit_code_for(err: &CliError) -> u8 {
 }
 
 /// Local-only tracing on stderr (zero remote telemetry).
-fn init_tracing(quiet: bool, verbose: bool, debug: bool) {
+///
+/// Level order: `--quiet` / `--debug` / `--verbose` / XDG `log_level` / default `error`.
+/// Product settings never read `RUST_LOG` (XDG + argv only).
+fn init_tracing(quiet: bool, verbose: bool, debug: bool, _cli_lang: Option<&str>) {
     use tracing_subscriber::EnvFilter;
+
+    let xdg_level = crate::xdg::load_config()
+        .ok()
+        .and_then(|c| c.log_level)
+        .filter(|s| !s.trim().is_empty());
 
     let filter = if quiet {
         EnvFilter::new("error")
-    } else if let Ok(from_env) = std::env::var("RUST_LOG") {
-        EnvFilter::new(from_env)
     } else if debug {
         EnvFilter::new("debug")
     } else if verbose {
         EnvFilter::new("info")
+    } else if let Some(level) = xdg_level {
+        EnvFilter::new(level)
     } else {
         EnvFilter::new("error")
     };

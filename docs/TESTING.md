@@ -9,7 +9,7 @@
 - Browser runtime tests are slower and host-dependent
 - Schema and inventory tests catch contract drift without Chrome
 - Keeping categories explicit protects local iteration speed
-- Local validation replaces any claim of hosted GitHub Actions CI
+- Prefer local validation with cargo and e2e scripts
 
 
 ## Test Categories
@@ -20,7 +20,8 @@
 - Robots and pipe behaviour tests (`tests/robots_http.rs`, `tests/pipe_broken.rs`)
 - Golden i18n and cold-start helpers (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Optional e2e CDP event coverage when Chrome is available (`tests/e2e_cdp_events.rs`)
-- Full 52-tool e2e script: `scripts/e2e_all_52_tools.sh`
+- Full **52-tool** DevTools e2e script (still): `scripts/e2e_all_52_tools.sh`
+- Live CLI inventory is **56 commands** (`commands --json`) — broader than the 52 tool-ref e2e set
 - Vendored tool-ref fixture: `tests/fixtures/tool-reference.md`
 
 
@@ -41,10 +42,39 @@ cargo fmt --check
 cargo build --release --locked
 bash scripts/e2e_all_52_tools.sh
 ```
-- Requires a release binary at `target/release/browser-automation-cli` (or set `BIN`)
+- Requires a release binary at `target/release/browser-automation-cli` (build with `cargo build --release --locked` first)
 - Exercises DevTools-parity tools against the local fixture page under `scripts/fixtures/e2e_page/`
 - Writes a report under a temp workdir and prints PASS/FAIL/SKIP counts
-- Maintainer evidence for v0.1.1: 52 PASS / 0 FAIL on a local host with Chrome
+- Maintainer evidence for v0.1.2: 52 PASS / 0 FAIL on a local host with Chrome
+- The 52-tool suite does not replace residual smokes for commands outside the tool-ref set
+
+
+## Residual PRD Smokes (beyond 52 tools)
+Run after e2e when validating the full 56-command inventory:
+
+```bash
+# print-pdf artifact
+browser-automation-cli --json print-pdf --url https://example.com --path /tmp/page.pdf
+
+# monitor baseline check
+browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/mon.base --write-baseline
+
+# QR encode/decode (no Chrome)
+browser-automation-cli --json qr encode --text 'hello' --format png --path /tmp/qr.png
+browser-automation-cli --json qr decode --path /tmp/qr.png
+
+# find-paths (no Chrome)
+browser-automation-cli --json find-paths 'Cargo.*' .
+
+# parse PDF / DOCX with optional PII redact
+browser-automation-cli --json parse tests/fixtures/hello.pdf
+browser-automation-cli --json parse tests/fixtures/hello.docx --redact-pii
+
+# extract --llm fail-closed without XDG key
+browser-automation-cli --json extract https://example.com --llm --question 'What is the title?'
+# expect usage envelope requiring: config set openrouter_api_key
+```
+- Also useful: browser format scrape, `config path`, `mitm start`, doctor XDG, i18n `--lang pt-BR`
 
 
 ## Lighthouse Mock
@@ -52,7 +82,7 @@ bash scripts/e2e_all_52_tools.sh
 browser-automation-cli --json lighthouse https://example.com \
   --lighthouse-path ./scripts/mock-lighthouse.sh
 ```
-- Use `--lighthouse-path` to point at `scripts/mock-lighthouse.sh` when a real Lighthouse install is unavailable
+- Use `--lighthouse-path` or XDG `lighthouse_path` to point at `scripts/mock-lighthouse.sh` when a real Lighthouse install is unavailable
 - The mock writes minimal HTML/JSON reports for smoke paths
 - Doctor reports lighthouse presence as informational when the binary is missing
 
@@ -60,10 +90,9 @@ browser-automation-cli --json lighthouse https://example.com \
 ## Local Validation Profiles
 - Run fmt, clippy, and non-browser contract tests first on your machine
 - Browser-backed tests require Chrome or Chromium installed locally
-- Validation runs locally with cargo on the maintainer machine
-- There is no hosted GitHub Actions workflow matrix in this repository
+- Validation runs locally with cargo and e2e scripts on the maintainer machine
 - Keep crates.io publish blocked without explicit maintainer approval
-- Optional pillar smokes after e2e: `run` + scrape, `config path`, `mitm start`, doctor XDG
+- Optional pillar smokes after e2e: `run` + scrape, residual PRD commands above, `config path`, `mitm start`, doctor XDG
 
 
 ## Documentation Schema and Bilingual Audit
@@ -80,22 +109,22 @@ bash scripts/audit_bilingual_docs.sh
 - Exit `0` means fence multisets match; exit `1` means drift; exit `2` means a missing pair file
 
 
-## Environment Variables
-- `RUST_LOG` for deeper tracing during failing tests
-- `NO_COLOR` to disable ANSI color on human stderr paths
-- `BIN` overrides the e2e script binary path (`scripts/e2e_all_52_tools.sh` only)
-- There is no product `BROWSER_AUTOMATION_CLI_DEBUG` (or other product env) setting
-- Host-specific Chrome path overrides only when discovery needs a host PATH change
+## Logging and Paths During Tests
+- Product logging in the CLI under test: `--verbose` / `--debug` / `-q` or XDG `config set log_level`
+- Color defaults via `config set color`
+- Host-specific Chrome path overrides via `config set chrome_path` when discovery needs it
+- Resolve XDG layout with `config path --json`
 
 
 ## Troubleshooting
-- Doctor fails on chrome: install Chromium or Google Chrome first
+- Doctor fails on chrome: install Chromium or Google Chrome first, or set `config set chrome_path`
 - Timeouts in goto smoke: raise process timeout or inspect network policy
 - Schema gate failures: update both code and `docs/schemas/` in the same change
 - Command schema drift: re-run `bash scripts/generate_command_schemas.sh` after changing `meta.rs`
 - Bilingual fence drift: re-run `bash scripts/audit_bilingual_docs.sh` and align EN and `.pt-BR` command blocks
-- Inventory drift: refresh against `commands --json` and `tests/fixtures/tool-reference.md`
-- E2E script missing binary: build release first or export `BIN=/path/to/browser-automation-cli`
-- Lighthouse path missing: pass `--lighthouse-path ./scripts/mock-lighthouse.sh`
+- Inventory drift: refresh against `commands --json` (56) and `tests/fixtures/tool-reference.md` (52 tools)
+- E2E script missing binary: run `cargo build --release --locked` first so `target/release/browser-automation-cli` exists
+- Lighthouse path missing: pass `--lighthouse-path ./scripts/mock-lighthouse.sh` or set XDG `lighthouse_path`
+- LLM extract fail-closed: expected without `config set openrouter_api_key`
 - MITM bind issues: ensure local loopback is free and review `mitm status --json`
 - Workflow journal confusion: inspect `workflow status` and XDG `workflow_dir` from `config path --json`

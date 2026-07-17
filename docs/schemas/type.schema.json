@@ -8,6 +8,13 @@
     "clear": {
       "type": "boolean"
     },
+    "focus_only": {
+      "description": "Focus target without typing",
+      "type": "boolean"
+    },
+    "include_snapshot": {
+      "type": "boolean"
+    },
     "submit": {
       "description": "Optional key after type (e.g. Enter)",
       "type": "string"
@@ -20,7 +27,6 @@
     }
   },
   "required": [
-    "target",
     "text"
   ],
   "additionalProperties": false

@@ -28,37 +28,22 @@ pub struct GlobalOpts {
     pub json: bool,
 
     /// Suppress non-error human logs on stderr
-    #[arg(
-        short = 'q',
-        long = "quiet",
-        global = true,
-    )]
+    #[arg(short = 'q', long = "quiet", global = true)]
     pub quiet: bool,
 
-    /// Increase stderr verbosity (`--verbose` once = info; use RUST_LOG for finer control)
-    #[arg(
-        long = "verbose",
-        global = true,
-    )]
+    /// Increase stderr verbosity (`--verbose` once = info; or `config set log_level debug`)
+    #[arg(long = "verbose", global = true)]
     pub verbose: bool,
 
     /// Maximum tracing detail on stderr (debug/trace)
     #[arg(long = "debug", global = true)]
     pub debug: bool,
 
-    #[arg(
-        long,
-        global = true,
-        default_value_t = 0
-    )]
+    #[arg(long, global = true, default_value_t = 0)]
     pub timeout: u64,
 
     /// Per-step timeout in seconds for `run` scripts (0 = inherit global timeout)
-    #[arg(
-        long,
-        global = true,
-        default_value_t = 0
-    )]
+    #[arg(long, global = true, default_value_t = 0)]
     pub step_timeout: u64,
 
     /// Launch Chrome with a visible window (debug; default headless=new)
@@ -80,10 +65,7 @@ pub struct GlobalOpts {
     #[arg(long, global = true)]
     pub ignore_robots: bool,
 
-    #[arg(
-        long,
-        global = true,
-    )]
+    #[arg(long, global = true)]
     pub i_accept_robots_risk: bool,
 
     /// Enable deep heap analysis tools (PRD category-memory)
@@ -91,17 +73,11 @@ pub struct GlobalOpts {
     pub category_memory: bool,
 
     /// Enable extension management tools
-    #[arg(
-        long,
-        global = true,
-    )]
+    #[arg(long, global = true)]
     pub category_extensions: bool,
 
     /// Enable third-party developer tool surface
-    #[arg(
-        long,
-        global = true,
-    )]
+    #[arg(long, global = true)]
     pub category_third_party: bool,
 
     /// Enable WebMCP-compatible tool surface
@@ -109,17 +85,11 @@ pub struct GlobalOpts {
     pub category_webmcp: bool,
 
     /// Enable experimental screencast (may require ffmpeg for file export)
-    #[arg(
-        long,
-        global = true,
-    )]
+    #[arg(long, global = true)]
     pub experimental_screencast: bool,
 
     /// Enable coordinate click-at (vision) tools
-    #[arg(
-        long,
-        global = true,
-    )]
+    #[arg(long, global = true)]
     pub experimental_vision: bool,
 }
 
@@ -315,23 +285,47 @@ pub enum Commands {
         #[arg(long)]
         element: Option<String>,
     },
+    /// Print current page to PDF via CDP Page.printToPDF (one-shot)
+    PrintPdf {
+        /// Output path for the PDF artifact
+        #[arg(long)]
+        path: Option<std::path::PathBuf>,
+        /// Optional URL to navigate before printing (one-shot)
+        #[arg(long)]
+        url: Option<String>,
+    },
+    /// One-shot change check against a baseline file (hash/text)
+    Monitor {
+        #[command(subcommand)]
+        action: MonitorAction,
+    },
     /// Run multi-step NDJSON script in one process
     Run {
         #[arg(long)]
         script: std::path::PathBuf,
     },
-    /// Limited inline subcommand (goto)
+    /// Single-step inline command (same surface as `run` steps: goto, wait, view, press, …)
     Exec {
         // Do NOT set allow_hyphen_values: global flags like --json after `exec`
         // must stay on GlobalOpts, not be swallowed into trailing args.
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },
-    /// Extract text or attribute from a target
+    /// Extract text/attribute from a target, or LLM extract with --llm
     Extract {
+        /// Selector, @eN ref, about:blank target, or http(s) URL for LLM/text path
         target: String,
         #[arg(long)]
         attr: Option<String>,
+        /// Opt-in LLM HTTP extract (requires XDG openrouter_api_key)
+        #[arg(long)]
+        llm: bool,
+        /// Question for LLM extract
+        #[arg(long)]
+        question: Option<String>,
+        /// Path to JSON schema file for structured LLM extract
+        #[arg(long)]
+        schema_json: Option<std::path::PathBuf>,
     },
     /// Extract visible text from a target (PRD §7 `text`)
     Text { target: String },
@@ -377,10 +371,10 @@ pub enum Commands {
         #[command(subcommand)]
         action: DialogAction,
     },
-    /// Navigate and return body text / formats (local Firecrawl-parity)
+    /// Navigate and return body text / formats (local HTTP or CDP scrape)
     Scrape {
         url: String,
-        /// text | markdown | html | links | metadata
+        /// text | markdown | html | links | metadata | raw-html | screenshot
         #[arg(long, default_value = "text")]
         format: String,
         /// http (reqwest+scraper) or browser (CDP)
@@ -389,6 +383,9 @@ pub enum Commands {
         /// Prefer main/article content heuristics
         #[arg(long)]
         only_main_content: bool,
+        /// Optional one-shot webhook POST of the result envelope data (127.0.0.1/operator URL)
+        #[arg(long)]
+        webhook_url: Option<String>,
     },
     /// Scrape many URLs from a file (HTTP engine, one-shot)
     BatchScrape {
@@ -426,9 +423,43 @@ pub enum Commands {
         #[arg(long, default_value_t = 10)]
         limit: usize,
     },
-    /// Parse a local file (html/md/txt/pdf text extract)
+    /// Parse a local file (html/md/txt/pdf/docx/xlsx text extract)
     Parse {
         path: std::path::PathBuf,
+        /// Mask email/phone/card-like patterns in text output
+        #[arg(long)]
+        redact_pii: bool,
+    },
+    /// QR encode/decode one-shot (no Chrome)
+    Qr {
+        #[command(subcommand)]
+        action: QrAction,
+    },
+    /// Discover filesystem paths (fd-like UX; binary remains browser-automation-cli)
+    FindPaths {
+        /// Regex pattern on name/path (optional)
+        pattern: Option<String>,
+        /// Root paths to search
+        #[arg(num_args = 0..)]
+        paths: Vec<String>,
+        /// Filter by extension (e.g. rs, html)
+        #[arg(long)]
+        extension: Option<String>,
+        /// Include hidden files
+        #[arg(long)]
+        hidden: bool,
+        /// Do not respect .gitignore
+        #[arg(long)]
+        no_ignore: bool,
+        /// Max directory depth
+        #[arg(long)]
+        max_depth: Option<usize>,
+        /// Entry type: f|d
+        #[arg(long = "type")]
+        entry_type: Option<String>,
+        /// Max results
+        #[arg(long, default_value_t = 10000)]
+        limit: usize,
     },
     /// MITM capture / CA / HAR (one-shot local)
     Mitm {
@@ -743,6 +774,44 @@ pub enum CompletionShell {
 }
 
 #[derive(Debug, Clone, Subcommand)]
+pub enum QrAction {
+    /// Encode text to PNG, SVG, or terminal matrix
+    Encode {
+        #[arg(long)]
+        text: String,
+        /// png | svg | terminal
+        #[arg(long, default_value = "png")]
+        format: String,
+        #[arg(long)]
+        path: Option<std::path::PathBuf>,
+    },
+    /// Decode QR payload from an image file
+    Decode {
+        #[arg(long)]
+        path: std::path::PathBuf,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum MonitorAction {
+    /// Compare URL body hash/text to a baseline file and exit
+    Check {
+        /// URL to fetch/scrape one-shot
+        #[arg(long)]
+        url: String,
+        /// Baseline file path (created on first run if missing when --write-baseline)
+        #[arg(long)]
+        baseline: std::path::PathBuf,
+        /// Write/update baseline after check
+        #[arg(long)]
+        write_baseline: bool,
+        /// Use browser engine instead of HTTP
+        #[arg(long, default_value = "http")]
+        engine: String,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
 pub enum PageAction {
     /// Current page url and title (default when bare `page`)
     Info,
@@ -964,13 +1033,8 @@ pub enum ConfigAction {
     Init,
     /// Show config values
     Show,
-    /// Set a config key (lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color)
-    Set {
-        key: String,
-        value: String,
-    },
+    /// Set a config key (lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|chrome_path|lighthouse_path|openrouter_api_key|llm_base_url|llm_model)
+    Set { key: String, value: String },
     /// Get one config key
-    Get {
-        key: Option<String>,
-    },
+    Get { key: Option<String> },
 }

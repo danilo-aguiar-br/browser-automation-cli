@@ -51,7 +51,7 @@ browser-automation-cli doctor --offline --quick --json
 - Refresh `docs/schemas/` when JSON contracts change
 - Refresh skill packages under `skills/` when command surface changes
 - Keep product settings documented as flags plus `config` XDG only
-- Do not document product `BROWSER_AUTOMATION_CLI_*` settings (none exist)
+- Do not invent or document product environment variables for settings
 - When adding commands, update README Commands, INTEGRATIONS New Flags, llms-full Command Surface, COOKBOOK recipes, skills, and MIGRATION
 
 ## Report Bugs

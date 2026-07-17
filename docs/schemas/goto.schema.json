@@ -5,6 +5,18 @@
   "type": "object",
   "description": "Navigate to URL and wait for load (one-shot)",
   "properties": {
+    "handle_before_unload": {
+      "description": "Accept beforeunload dialogs automatically",
+      "type": "boolean"
+    },
+    "init_script": {
+      "description": "JS to evaluate before navigation (tool-ref initScript)",
+      "type": "string"
+    },
+    "navigation_timeout_ms": {
+      "description": "Navigation timeout override in milliseconds",
+      "type": "integer"
+    },
     "url": {
       "description": "Absolute URL or about:blank",
       "type": "string"

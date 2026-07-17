@@ -91,6 +91,8 @@ pub struct CliError {
     kind: ErrorKind,
     message: String,
     suggestion: Option<String>,
+    /// Optional partial JSON payload (e.g. fail-fast `run` steps).
+    data: Option<serde_json::Value>,
 }
 
 impl CliError {
@@ -100,6 +102,7 @@ impl CliError {
             kind,
             message: message.into(),
             suggestion: None,
+            data: None,
         }
     }
 
@@ -113,7 +116,14 @@ impl CliError {
             kind,
             message: message.into(),
             suggestion: Some(suggestion.into()),
+            data: None,
         }
+    }
+
+    /// Attach partial JSON `data` (kept on error envelopes).
+    pub fn with_data(mut self, data: serde_json::Value) -> Self {
+        self.data = Some(data);
+        self
     }
 
     /// Error category.
@@ -129,6 +139,11 @@ impl CliError {
     /// Optional remediation hint.
     pub fn suggestion(&self) -> Option<&str> {
         self.suggestion.as_deref()
+    }
+
+    /// Optional partial data payload.
+    pub fn data(&self) -> Option<&serde_json::Value> {
+        self.data.as_ref()
     }
 
     /// Process exit code for this error.

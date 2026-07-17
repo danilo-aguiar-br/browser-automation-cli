@@ -11,6 +11,14 @@
     "delta_y": {
       "type": "number"
     },
+    "dx": {
+      "description": "Alias for delta_x",
+      "type": "number"
+    },
+    "dy": {
+      "description": "Alias for delta_y",
+      "type": "number"
+    },
     "target": {
       "description": "Optional CSS/@eN",
       "type": "string"

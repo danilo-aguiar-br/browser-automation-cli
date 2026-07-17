@@ -2,9 +2,9 @@
 
 # browser-automation-cli
 
-> CLI one-shot de automação Chrome CDP para agentes de IA, sem daemon e sem telemetria.
+> CLI one-shot de automação Chrome CDP para agentes de IA, sem daemon e sem telemetria remota.
 
-browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou Chromium do sistema via CDP, executa ações de browser do agente e depois finaliza e sai. Ciclo de vida: BORN, EXECUTE, FINALIZE, DIE. Settings de produto usam flags da CLI e config XDG apenas (sem env vars de produto).
+browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou Chromium do sistema via CDP, executa ações de browser do agente e depois finaliza e sai. Ciclo de vida: BORN, EXECUTE, FINALIZE, DIE. Settings de produto usam flags da CLI e comandos XDG `config` apenas.
 
 ## Documentação Primária
 - [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.pt-BR.md): landing do produto, install, comandos, flags, config
@@ -21,20 +21,24 @@ browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou C
 - [SECURITY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/SECURITY.pt-BR.md): reporte de vulnerabilidades
 - [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): mapa expandido de descoberta
 
-## Superfície de Comandos (v0.1.1)
-- Descoberta: doctor, commands, schema, version, completions
+## Superfície de Comandos (v0.1.2)
+- Descoberta: doctor, commands, schema, version, completions (56 nomes de topo via `commands --json`)
 - Config XDG: config init|path|show|get|set
 - Navegação: goto, back, forward, reload
-- Scrape local: scrape (--format/--engine), batch-scrape, crawl, map, search, parse
+- Scrape/crawl/map/search/parse local: scrape (--format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding, --engine http|browser), batch-scrape, crawl, map, search (limpa uddg), parse (PDF/DOCX/xlsx/ods, --redact-pii)
 - Interação: view, press, write, type, keys, wait (multi --text OR), hover, drag, fill-form, upload, click-at
-- Observação: extract, text, scroll, attr, assert, grab --path
+- Observação: extract (--llm/--question/--schema-json), text, scroll (aliases dy/dx no run), attr (fallback property), assert (url_contains/text_contains), grab --path
+- PDF/monitor/utils: print-pdf, monitor check, qr encode|decode, find-paths
 - Abas: page, dialog, cookie
 - Captura: console, net
 - MITM: mitm init-ca|start|status|list|get|har|export|domains|apis
 - Workflow: workflow run|resume|status
-- Avançado: eval, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, run, exec
+- Avançado: eval, emulate, resize, perf, lighthouse (lighthouse_path), screencast, heap, extension, devtools3p, webmcp, run (data.steps parciais no fail-fast), exec
 
 ## Contrato de Settings
-- Settings de produto: flags da CLI + XDG `config.toml` apenas
-- Sem env vars de produto (`BROWSER_AUTOMATION_CLI_*` não devem ser inventadas)
-- Vars de SO fora de settings de produto: `RUST_LOG`, `NO_COLOR`
+- Settings de produto: flags da CLI + XDG via `config path|init|show|set|get` apenas
+- Chaves de config: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model
+- Logging: `--verbose`/`--debug`/`-q` ou `config set log_level`
+- Cor: `config set color true|false`
+- Chrome / Lighthouse: path do shell ou `config set chrome_path|lighthouse_path`
+- Lang: `--lang pt-BR` ou `config set lang` localiza sugestões

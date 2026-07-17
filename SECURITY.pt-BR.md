@@ -5,9 +5,9 @@
 ## Versões Suportadas
 - `0.1.x` é a linha suportada atual
 
-| Version | Supported |
-|---------|-----------|
-| 0.1.x   | yes       |
+| Versão | Suportado |
+|--------|-----------|
+| 0.1.x  | sim       |
 
 ## Reportar uma Vulnerabilidade
 - Não abra issue pública no GitHub para problemas sensíveis de segurança
@@ -47,7 +47,7 @@
 - Mantenha Chrome ou Chromium atualizados no host
 - Nunca passe secrets em argv quando houver alternativa via stdin
 - Trate `--ignore-robots` como escolha explícita de alto risco
-- Armazene material de encryption com `browser-automation-cli config set encryption_key <secret>` (somente config XDG; nunca invente env vars de produto como `BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY`)
+- Armazene material de encryption com `browser-automation-cli config set encryption_key <secret>` (somente config XDG)
 - Mantenha encryption keys e valores de cookie fora de history e logs duráveis
 - Prefira pipelines `--json` que descartem secrets de stderr em logs duráveis
 - Não aponte a CLI a páginas não confiáveis sem expectativas de isolamento

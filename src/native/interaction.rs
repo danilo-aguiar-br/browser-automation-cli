@@ -1427,8 +1427,11 @@ fn named_key_info(key: &str) -> (String, String, i32) {
         "space" | " " => (" ".to_string(), "Space".to_string(), 32),
         _ => {
             if key.len() == 1 {
-                let ch = key.chars().next().unwrap();
-                char_to_key_info(ch)
+                if let Some(ch) = key.chars().next() {
+                    char_to_key_info(ch)
+                } else {
+                    (key.to_string(), key.to_string(), 0)
+                }
             } else {
                 (key.to_string(), key.to_string(), 0)
             }

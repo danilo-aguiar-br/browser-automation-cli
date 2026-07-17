@@ -16,7 +16,7 @@
       "type": "string"
     },
     "key": {
-      "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color",
+      "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|chrome_path|lighthouse_path|openrouter_api_key|llm_base_url|llm_model",
       "type": "string"
     },
     "value": {
