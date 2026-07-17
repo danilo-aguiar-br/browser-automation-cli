@@ -26,7 +26,7 @@
 - Cursor
 - Continue
 - Cline
-- GitHub Actions and generic shell CI
+- Local shell scripts and editor agents
 
 ## Agent Integration Details
 - Spawn `browser-automation-cli` as a one-shot subprocess
@@ -38,7 +38,7 @@
 
 ## Crate Integrations
 - Binary name is always `browser-automation-cli`
-- Install currently from git or path while `publish = false`
+- Install from git/path during development or `cargo install browser-automation-cli --locked` after crates.io publish
 - After crates.io release use `cargo install browser-automation-cli --locked`
 
 ## Technical Contract

@@ -1,4 +1,5 @@
 //! Offline V8 `.heapsnapshot` analysis for `browser-automation-cli heap *`.
+#![allow(missing_docs)]
 //!
 //! Parses the Chrome heap snapshot JSON format and rebuilds a real object graph:
 //! outgoing edges, retainers (reverse edges), dominator chains, retaining paths,

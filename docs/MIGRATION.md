@@ -32,7 +32,7 @@
 ## Compatibility Notes
 - No previous stable crates.io line exists for this repository
 - Branding and history cleanup recreated a clean public root commit
-- `publish = false` until the first intentional crates.io release
+- First crates.io publish still requires explicit maintainer approval
 
 ## Rollback
 - Pin to the previous local commit or installed binary path

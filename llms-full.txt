@@ -14,7 +14,7 @@ browser-automation-cli is a single-process Rust CLI that launches system Chrome 
 - [COOKBOOK](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/COOKBOOK.md): how-to recipes with executable commands
 - [CROSS_PLATFORM](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CROSS_PLATFORM.md): OS matrix and shell notes
 - [MIGRATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/MIGRATION.md): migration and compatibility notes
-- [TESTING](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/TESTING.md): categorized tests and CI profiles
+- [TESTING](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/TESTING.md): categorized tests and local validation profiles
 - [schemas README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/schemas/README.md): machine-readable contracts
 - [INTEGRATIONS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/INTEGRATIONS.md): agents and platforms
 - [SKILL en](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skill/browser-automation-cli-en/SKILL.md): full operational contract

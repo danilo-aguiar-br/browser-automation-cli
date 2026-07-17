@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use aes_gcm::{aead::Aead, aead::KeyInit, Aes256Gcm};
 use base64::Engine;
 use serde::{Deserialize, Serialize};

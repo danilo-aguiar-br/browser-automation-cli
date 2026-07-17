@@ -1,4 +1,5 @@
 //! Native CDP/browser stack used by one-shot MVP path.
+#![allow(missing_docs)]
 
 pub mod browser;
 pub mod cdp;

@@ -1,4 +1,7 @@
 //! Clap derive surface for browser-automation-cli (PRD Camada L).
+//!
+//! Help text on flags is the primary documentation for this module.
+#![allow(missing_docs)]
 
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -25,11 +28,20 @@ pub struct GlobalOpts {
     pub json: bool,
 
     /// Suppress non-error human logs on stderr
-    #[arg(short = 'q', long = "quiet", global = true, env = "BROWSER_AUTOMATION_CLI_QUIET")]
+    #[arg(
+        short = 'q',
+        long = "quiet",
+        global = true,
+        env = "BROWSER_AUTOMATION_CLI_QUIET"
+    )]
     pub quiet: bool,
 
     /// Increase stderr verbosity (`--verbose` once = info; use RUST_LOG for finer control)
-    #[arg(long = "verbose", global = true, env = "BROWSER_AUTOMATION_CLI_VERBOSE")]
+    #[arg(
+        long = "verbose",
+        global = true,
+        env = "BROWSER_AUTOMATION_CLI_VERBOSE"
+    )]
     pub verbose: bool,
 
     /// Maximum tracing detail on stderr (debug/trace)
@@ -331,9 +343,7 @@ pub enum Commands {
         attr: Option<String>,
     },
     /// Extract visible text from a target (PRD §7 `text`)
-    Text {
-        target: String,
-    },
+    Text { target: String },
     /// Scroll page or element by delta pixels (PRD §7 `scroll`)
     Scroll {
         /// CSS selector or @eN (optional; omit for window scroll)
@@ -406,7 +416,7 @@ pub enum Commands {
         /// Extra HTTP headers as JSON object string
         #[arg(long)]
         extra_headers: Option<String>,
-        /// Viewport WxHxDPR[,mobile][,touch][,landscape]
+        /// Viewport `WxHxDPR` with optional `,mobile`, `,touch`, `,landscape` flags
         #[arg(long)]
         viewport: Option<String>,
     },

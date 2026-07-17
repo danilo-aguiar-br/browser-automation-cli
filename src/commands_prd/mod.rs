@@ -1,4 +1,5 @@
 //! PRD command dispatch (paths leves + Camada A/B browser one-shot).
+#![allow(missing_docs)]
 
 mod meta;
 mod run;
@@ -1569,9 +1570,7 @@ fn handle_page(
                 })?;
                 session.page_select(idx, bring_to_front).await?
             }
-            PageAction::Close { index, page_id } => {
-                session.page_close(index.or(page_id)).await?
-            }
+            PageAction::Close { index, page_id } => session.page_close(index.or(page_id)).await?,
         };
         Ok((session, v))
     })?;

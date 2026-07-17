@@ -4,9 +4,12 @@
 
 > Automação one-shot do Chrome CDP para agentes de IA. NASCE, EXECUTA, FINALIZE, MORRE.
 
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
-[![MSRV 1.88.0](https://img.shields.io/badge/MSRV-1.88.0-blue.svg)](Cargo.toml)
-[![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
+[![docs.rs](https://img.shields.io/docsrs/browser-automation-cli)](https://docs.rs/browser-automation-cli)
+[![crates.io](https://img.shields.io/crates/v/browser-automation-cli)](https://crates.io/crates/browser-automation-cli)
+[![License](https://img.shields.io/crates/l/browser-automation-cli)](LICENSE)
+[![MSRV](https://img.shields.io/badge/MSRV-1.88.0-orange)](Cargo.toml)
+[![Downloads](https://img.shields.io/crates/d/browser-automation-cli)](https://crates.io/crates/browser-automation-cli)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-blue)](https://www.rust-lang.org)
 [![GitHub](https://img.shields.io/badge/github-browser--automation--cli-black.svg)](https://github.com/danilo-aguiar-br/browser-automation-cli)
 
 ## O que é
@@ -48,13 +51,13 @@ browser-automation-cli view --json
 ```
 
 ## Instalação
-- Prefira path local enquanto `publish = false` no crates.io
+- Install de desenvolvimento local:
 ```bash
 git clone https://github.com/danilo-aguiar-br/browser-automation-cli
 cd browser-automation-cli
 cargo install --path . --locked
 ```
-- Após o primeiro release no crates.io use:
+- Do crates.io após o primeiro publish:
 ```bash
 cargo install browser-automation-cli --locked
 ```
@@ -109,8 +112,33 @@ browser-automation-cli --category-memory heap summary --path snap.heapsnapshot -
 - `BROWSER_AUTOMATION_CLI_COLOR` e `NO_COLOR` controlam cor no stderr
 - `RUST_LOG` sobrescreve filtros de tracing quando necessário
 
+## Features
+- Este crate não tem feature flags de Cargo
+- Categorias opcionais são flags de processo, não features de compile-time
+- `--category-memory` habilita ferramentas profundas de heap
+- `--category-extensions` habilita ferramentas de extension
+- `--category-third-party` habilita helpers DevTools de terceiros
+- `--category-webmcp` habilita ferramentas webmcp
+- `--experimental-vision` habilita `click-at`
+- `--experimental-screencast` habilita export de screencast com ffmpeg
+
+## Targets
+- Documentado para `x86_64-unknown-linux-gnu`
+- Documentado para `x86_64-apple-darwin`
+- Documentado para `aarch64-apple-darwin`
+- Documentado para `x86_64-pc-windows-msvc`
+- Documentado para `aarch64-unknown-linux-musl`
+- Sem suporte em `wasm32-unknown-unknown` (CDP exige browser desktop)
+- Metadados docs.rs declaram esses targets após a mudança multi-target de 2026-05-01
+
+## MSRV
+- Minimum Supported Rust Version é 1.88.0
+- Política: subir MSRV só em release minor ou major com nota no CHANGELOG
+- Docs locais: `timeout 180 cargo doc --no-deps`
+- Nightly com cfg docsrs: `RUSTDOCFLAGS="--cfg docsrs" timeout 180 cargo +nightly doc --no-deps`
+
 ## Padrões de Integração
-- Claude Code, Codex, Cursor e agentes shell disparam um processo por ação
+- Claude Code, Codex, Cursor e agentes de shell disparam um processo por ação
 - Planos multi-passo devem usar `run --script` em vez de encadear processos
 - Parseie stdout com `jaq` e ignore stderr salvo em diagnóstico
 - Veja [INTEGRATIONS.pt-BR.md](INTEGRATIONS.pt-BR.md) e [docs/AGENTS.pt-BR.md](docs/AGENTS.pt-BR.md)

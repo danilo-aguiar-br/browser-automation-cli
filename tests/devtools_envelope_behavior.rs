@@ -35,9 +35,8 @@ fn chrome_ready() -> bool {
                 || v.pointer("/data/checks")
                     .and_then(|c| c.as_array())
                     .map(|arr| {
-                        arr.iter().any(|x| {
-                            x["id"] == "chrome" && x["status"] == "pass"
-                        })
+                        arr.iter()
+                            .any(|x| x["id"] == "chrome" && x["status"] == "pass")
                     })
                     .unwrap_or(false)
         })
@@ -109,12 +108,7 @@ fn goto_view_press_envelope_fields_when_chrome() {
     .unwrap();
 
     let assert = cargo_bin_cmd!("browser-automation-cli")
-        .args([
-            "--json",
-            "run",
-            "--script",
-            script.to_str().unwrap(),
-        ])
+        .args(["--json", "run", "--script", script.to_str().unwrap()])
         .assert()
         .success();
     let v = parse_stdout(&assert);
@@ -202,20 +196,15 @@ fn heap_offline_envelope_when_snapshot_available() {
         .into_iter()
         .flatten()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("ba-e2e-52-")
-        })
+        .filter(|e| e.file_name().to_string_lossy().starts_with("ba-e2e-52-"))
         .map(|e| e.path().join("a.heapsnapshot"))
         .filter(|p| p.is_file())
         .collect();
 
-    let snap = match candidates.into_iter().max_by_key(|p| {
-        std::fs::metadata(p)
-            .and_then(|m| m.modified())
-            .ok()
-    }) {
+    let snap = match candidates
+        .into_iter()
+        .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+    {
         Some(p) => p,
         None => {
             eprintln!("skip heap offline: no e2e heapsnapshot in /tmp");
@@ -225,8 +214,22 @@ fn heap_offline_envelope_when_snapshot_available() {
 
     let path = snap.to_str().unwrap();
     for args in [
-        vec!["--json", "--category-memory", "heap", "summary", "--path", path],
-        vec!["--json", "--category-memory", "heap", "details", "--path", path],
+        vec![
+            "--json",
+            "--category-memory",
+            "heap",
+            "summary",
+            "--path",
+            path,
+        ],
+        vec![
+            "--json",
+            "--category-memory",
+            "heap",
+            "details",
+            "--path",
+            path,
+        ],
         vec![
             "--json",
             "--category-memory",
@@ -235,7 +238,14 @@ fn heap_offline_envelope_when_snapshot_available() {
             "--path",
             path,
         ],
-        vec!["--json", "--category-memory", "heap", "close", "--path", path],
+        vec![
+            "--json",
+            "--category-memory",
+            "heap",
+            "close",
+            "--path",
+            path,
+        ],
     ] {
         let assert = cargo_bin_cmd!("browser-automation-cli")
             .args(&args)
@@ -277,4 +287,3 @@ fn binary_name_never_short_alias() {
     let s = String::from_utf8_lossy(&help.stdout);
     assert!(!s.contains(" bac "), "help must not document bac alias");
 }
-

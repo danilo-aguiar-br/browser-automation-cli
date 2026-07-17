@@ -26,10 +26,11 @@ cargo fmt --check
 - Run a single file with `cargo test --test doctor_cli --locked`
 - Use `-- --nocapture` only while debugging
 
-## CI Profiles
-- Default CI should run fmt, clippy, and non-browser contract tests first
-- Browser-backed tests require Chrome or Chromium in the runner image
-- Keep publish and release jobs blocked without maintainer approval
+## Local Validation Profiles
+- Run fmt, clippy, and non-browser contract tests first on your machine
+- Browser-backed tests require Chrome or Chromium installed locally
+- Validation runs locally with cargo on the maintainer machine
+- Keep crates.io publish blocked without explicit maintainer approval
 
 ## Environment Variables
 - `RUST_LOG` for deeper tracing during failing tests

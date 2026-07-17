@@ -1,4 +1,5 @@
 //! CDP client over chromiumoxide (single connection — no dual WebSocket).
+#![allow(missing_docs)]
 //!
 //! Chrome one-shot: `Browser::launch` only.
 //! Lightpanda / attach path: `Browser::connect` only.

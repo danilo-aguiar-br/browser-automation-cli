@@ -6,8 +6,9 @@
 
 ## Coverage Snapshot
 - Works with any agent that can spawn a subprocess and read stdout plus stderr
-- Primary surfaces: Claude Code, Codex, Cursor, shell CI, GitHub Actions
+- Primary surfaces: Claude Code, Codex, Cursor, local shell, editor agents
 - Discovery helpers: `commands --json`, `schema --cmd`, `doctor --json`
+- Integration path is local subprocess only
 
 ## Flag Aliases and Version Notes
 - Product names stay fixed: `view`, `press`, `write`, `grab`
@@ -22,8 +23,7 @@
 | Claude Code | subprocess | `--json` | multi-step via `run --script` |
 | Codex | subprocess | `--json -q` | quiet stderr for cleaner transcripts |
 | Cursor | shell tool | `--json` | keep timeouts explicit |
-| GitHub Actions | workflow step | `--json` | install Chrome in the runner |
-| Shell CI | script | `--json` | parse with `jaq` |
+| Local shell | script | `--json` | parse with `jaq` |
 | Continue / Cline | editor shell | `--json -q` | one-shot only |
 
 ## Claude Code
@@ -47,18 +47,9 @@ browser-automation-cli -q --json goto https://example.com
 browser-automation-cli --timeout 60 --json scrape https://example.com
 ```
 
-## GitHub Actions
-```yaml
-- name: Install CLI
-  run: cargo install --path . --locked
-- name: Doctor
-  run: browser-automation-cli doctor --offline --quick --json
-- name: Smoke goto
-  run: browser-automation-cli --timeout 60 --json goto https://example.com
-```
-
-## Shell CI
+## Local Shell
 - Always capture exit codes before parsing JSON
+- Run validations on your local machine before release
 ```bash
 out=$(browser-automation-cli --json version)
 echo "$out" | jaq -e '.ok == true'

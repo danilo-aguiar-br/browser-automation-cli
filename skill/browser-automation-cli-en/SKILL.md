@@ -13,7 +13,7 @@ description: Triggers when the user asks for one-shot browser automation, Chrome
 - Use system Chrome or Chromium discovered by the CLI
 - Keep multi-step browser work inside `run --script` when `@eN` refs must survive
 - Prefer `--json` for every programmatic consumer
-- Install with `cargo install --path . --locked` while `publish = false`
+- Install from path with `cargo install --path . --locked` during development
 - After crates.io release use `cargo install browser-automation-cli --locked`
 - MSRV is Rust 1.88.0
 

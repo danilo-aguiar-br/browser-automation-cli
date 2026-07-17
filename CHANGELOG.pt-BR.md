@@ -13,10 +13,30 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Framework público bilíngue de documentação para empacotamento crates
 - Guias em `docs/`, índice `docs/schemas/` e pacotes de skill dual-idioma
 - Arquivos de dual license `LICENSE-MIT` e `LICENSE-APACHE`
+- rustdoc no nível do crate com Overview, Features, Targets, MSRV, Safety e Examples
+- Lints rustdoc no crate root (`missing_docs`, links quebrados/privados, HTML/codeblocks inválidos)
+- `targets` e `default-target` do docs.rs para builds multiplataforma após 2026-05-01
+- Seções Features, Targets e MSRV no README com fórmulas locais de `cargo doc`
+- Diagrama Mermaid de lifecycle via `aquamarine` no rustdoc de `run()`
 
 ### Changed
 - Metadados do `Cargo.toml` agora incluem authors, repository, homepage, documentation e MSRV
 - Licença declarada como `MIT OR Apache-2.0`
+- Ordem de badges do README começa com docs.rs e crates.io
+- Docs da API pública expandidas para `error`, `envelope` e `lifecycle`
+
+### Fixed
+- Links intra-doc quebrados no help de `emulate --viewport`
+
+### Removed
+- Workflows GitHub Actions em `.github/workflows/`
+- Cargo `[profile.ci]` usado só pelo CI removido
+- Orientação de CI hospedado e GitHub Actions da documentação pública
+
+### Fixed
+- `tests/parity_inventory.rs` lê `tests/fixtures/tool-reference.md` vendored (52 tools)
+- Empacotamento crates liberado com remoção de `publish = false`
+- Drift de formatação sob `cargo fmt`
 
 ## [0.1.0] - 2025-07-16
 

@@ -11,11 +11,14 @@ use crate::error::{CliError, ErrorKind};
 /// Effective robots policy for one invocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RobotsPolicy {
+    /// Honor robots.txt rules (default).
     Honor,
+    /// Skip robots.txt only when dual risk flags are set.
     Ignore,
 }
 
 impl RobotsPolicy {
+    /// Stable string for JSON and logs (`honor` | `ignore`).
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Honor => "honor",

@@ -1,4 +1,5 @@
 //! Chrome discovery + launch option args for chromiumoxide one-shot.
+#![allow(missing_docs)]
 //!
 //! PROIBIDO: dual spawn via Child/Command for Chrome production path.
 //! PROIBIDO: BrowserFetcher embutido no MVP (system Chrome only).

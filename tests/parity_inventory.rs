@@ -12,8 +12,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn official_tools() -> Vec<String> {
-    let path =
-        workspace_root().join("base_conhecimento_chrome-devtools-mcp-main/docs/tool-reference.md");
+    let path = workspace_root().join("tests/fixtures/tool-reference.md");
     let text = fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!("read tool-reference at {}: {e}", path.display());
     });

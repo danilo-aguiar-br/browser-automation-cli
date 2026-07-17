@@ -1,4 +1,5 @@
 //! Chromiumoxide launch + FINALIZE helpers (PRD: Browser::launch only, no connect).
+#![allow(missing_docs)]
 //!
 //! System Chrome/Chromium only — no BrowserFetcher embutido (PRD L56 / L387).
 //! Launch flags come from `build_chrome_args` so proxy/webgpu/extensions are live.

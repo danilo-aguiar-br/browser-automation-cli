@@ -1,3 +1,8 @@
+//! Chrome DevTools Protocol wire types used by the native CDP stack.
+//!
+//! Field-level docs are intentionally sparse: shapes mirror the upstream protocol JSON.
+#![allow(missing_docs)]
+
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 

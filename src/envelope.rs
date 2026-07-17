@@ -1,9 +1,25 @@
-//! JSON envelope helpers (schema_version = 1).
+//! JSON envelope helpers (`schema_version = 1`).
+//!
+//! Success and error envelopes are written to **stdout** for agent parsing.
+//! Human diagnostics stay on stderr.
+//!
+//! # Success shape
+//!
+//! ```json
+//! {"schema_version":1,"ok":true,"data":{}}
+//! ```
+//!
+//! # Error shape
+//!
+//! ```json
+//! {"schema_version":1,"ok":false,"error":{"kind":"unavailable","message":"...","exit_code":69}}
+//! ```
 
 use serde_json::{json, Value};
 
 use crate::error::CliError;
 
+/// Print a success envelope with arbitrary JSON `data` and flush a single line.
 pub fn print_success_json(data: Value) -> Result<(), CliError> {
     let env = json!({
         "schema_version": 1,
@@ -22,6 +38,7 @@ pub fn print_success_json(data: Value) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Print an error envelope derived from [`CliError`].
 pub fn print_error_json(err: &CliError) -> Result<(), CliError> {
     let mut env = json!({
         "schema_version": 1,

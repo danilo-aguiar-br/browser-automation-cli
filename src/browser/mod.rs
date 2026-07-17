@@ -2,6 +2,9 @@
 //!
 //! PROHIBITED on this path: ensure_daemon, connect_cdp, multi-process session.
 //! Refs live only inside this process; multi-step scripts share one session via `run`.
+//!
+//! Method-level docs are expanded over time; clap and skill surfaces document agent usage.
+#![allow(missing_docs)]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -1042,12 +1045,7 @@ impl OneShotSession {
             .map_err(|e| CliError::new(ErrorKind::Browser, e))?
             .to_string();
         let cookies = if let Some(u) = url {
-            cookies::get_cookies(
-                &self.manager.client,
-                &session_id,
-                Some(vec![u.to_string()]),
-            )
-            .await
+            cookies::get_cookies(&self.manager.client, &session_id, Some(vec![u.to_string()])).await
         } else {
             cookies::get_all_cookies(&self.manager.client, &session_id).await
         }
@@ -3147,11 +3145,7 @@ mod eval_normalize_tests {
 
     #[test]
     fn args_force_call() {
-        let out = normalize_eval_expression(
-            "(el) => el",
-            Some(r#"["@e1"]"#),
-        )
-        .unwrap();
+        let out = normalize_eval_expression("(el) => el", Some(r#"["@e1"]"#)).unwrap();
         assert_eq!(out, r#"((el) => el)("e1")"#);
     }
 }

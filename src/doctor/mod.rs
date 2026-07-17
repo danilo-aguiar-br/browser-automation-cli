@@ -6,14 +6,20 @@ use crate::envelope::print_success_json;
 use crate::install;
 use crate::native::cdp::chrome;
 
+/// Options for local install diagnostics.
 #[derive(Default, Clone, Copy)]
 pub struct DoctorOptions {
+    /// Skip network checks.
     pub offline: bool,
+    /// Run a reduced check set.
     pub quick: bool,
+    /// Attempt automatic remediations when supported.
     pub fix: bool,
+    /// Emit JSON envelope on stdout.
     pub json: bool,
 }
 
+/// Run doctor checks and return a process exit code (`0` = all pass).
 pub fn run_doctor(opts: DoctorOptions) -> i32 {
     let mut checks = Vec::new();
     let mut failed = false;

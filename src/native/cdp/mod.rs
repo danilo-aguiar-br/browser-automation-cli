@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 pub mod chrome;
 pub mod client;
 pub mod discovery;

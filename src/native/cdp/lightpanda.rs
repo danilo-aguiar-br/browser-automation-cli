@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;

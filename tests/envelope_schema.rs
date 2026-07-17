@@ -47,7 +47,11 @@ fn commands_json_includes_devtools_tool_map() {
         .iter()
         .any(|c| c.as_str() == Some("cookie")));
     let map = data["devtools_tool_map"].as_array().expect("tool map");
-    assert!(map.len() >= 50, "expected full DevTools map, got {}", map.len());
+    assert!(
+        map.len() >= 50,
+        "expected full DevTools map, got {}",
+        map.len()
+    );
     assert_eq!(data["binary"], "browser-automation-cli");
 }
 

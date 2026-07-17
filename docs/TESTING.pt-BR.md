@@ -26,10 +26,11 @@ cargo fmt --check
 - Rode um arquivo com `cargo test --test doctor_cli --locked`
 - Use `-- --nocapture` só durante debug
 
-## Perfis de CI
-- CI default deve rodar fmt, clippy e testes de contrato sem browser primeiro
-- Testes com browser exigem Chrome ou Chromium na imagem do runner
-- Mantenha jobs de publish e release bloqueados sem aprovação do maintainer
+## Perfis de Validação Local
+- Rode fmt, clippy e testes de contrato sem browser primeiro na sua máquina
+- Testes com browser exigem Chrome ou Chromium instalado localmente
+- A validação roda localmente com cargo na máquina do mantenedor
+- Mantenha publish no crates.io bloqueado sem aprovação explícita do mantenedor
 
 ## Variáveis de Ambiente
 - `RUST_LOG` para tracing mais profundo em testes falhando

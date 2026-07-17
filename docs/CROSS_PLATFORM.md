@@ -6,7 +6,7 @@
 
 ## The Pain You Already Know
 - Browser tooling often assumes one OS path layout
-- CI agents fail when Chrome discovery is host-specific and undocumented
+- Local agents fail when Chrome discovery is host-specific and undocumented
 - Shell quoting and path separators break fragile wrappers
 
 ## Support Matrix
@@ -22,7 +22,7 @@
 ## Linux Notes
 - Common binaries include `chromium-browser`, `chromium`, and `google-chrome`
 - Run `doctor` after package install to confirm discovery
-- Headless is default for agent CI
+- Headless is default for local agent runs
 
 ## macOS Notes
 - Install Google Chrome from the official channel
@@ -47,10 +47,10 @@
 - Encrypted state requires `BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY`
 
 ## Performance by Target
-- Linux CI is the primary optimization target
+- Linux desktop and servers are the primary optimization target
 - Cold start remains Chrome-bound on every OS
 
 ## Agents Validated per Platform
-- Linux: Claude Code, Codex, shell CI, GitHub Actions
+- Linux: Claude Code, Codex, shell local, editor agents
 - macOS: local shell agents and editor integrations
 - Windows: shell and editor integrations with explicit quoting

@@ -3,10 +3,15 @@
 /// Network throttling presets aligned with Chrome DevTools / Puppeteer PredefinedNetworkConditions.
 #[derive(Debug, Clone, Copy)]
 pub struct NetworkPreset {
+    /// Human-readable preset name (`Slow 3G`, `Fast 4G`, ...).
     pub name: &'static str,
+    /// When true, network is forced offline.
     pub offline: bool,
+    /// Extra RTT latency in milliseconds.
     pub latency_ms: f64,
+    /// Download throughput in bytes/sec (`-1.0` = unlimited).
     pub download_throughput: f64,
+    /// Upload throughput in bytes/sec (`-1.0` = unlimited).
     pub upload_throughput: f64,
 }
 
@@ -56,6 +61,7 @@ pub const NETWORK_PRESETS: &[NetworkPreset] = &[
     },
 ];
 
+/// Lookup a network preset by case-insensitive name.
 pub fn network_preset_by_name(name: &str) -> Option<&'static NetworkPreset> {
     let n = name.trim();
     NETWORK_PRESETS
@@ -63,6 +69,7 @@ pub fn network_preset_by_name(name: &str) -> Option<&'static NetworkPreset> {
         .find(|p| p.name.eq_ignore_ascii_case(n))
 }
 
+/// List known network preset names for help and validation.
 pub fn network_preset_names() -> Vec<&'static str> {
     NETWORK_PRESETS.iter().map(|p| p.name).collect()
 }
@@ -70,14 +77,21 @@ pub fn network_preset_names() -> Vec<&'static str> {
 /// Parsed viewport string: `WxHxDPR[,mobile][,touch][,landscape]`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewportSpec {
+    /// CSS width in pixels.
     pub width: i32,
+    /// CSS height in pixels.
     pub height: i32,
+    /// Device pixel ratio.
     pub device_scale_factor: f64,
+    /// Mobile metric emulation.
     pub mobile: bool,
+    /// Touch support flag.
     pub has_touch: bool,
+    /// Landscape orientation flag.
     pub is_landscape: bool,
 }
 
+/// Parse `WxHxDPR` with optional `,mobile`, `,touch`, `,landscape` flags.
 pub fn parse_viewport_spec(raw: &str) -> Result<ViewportSpec, String> {
     let mut parts = raw.split(',').map(|s| s.trim()).filter(|s| !s.is_empty());
     let dims = parts

@@ -6,7 +6,7 @@
 
 ## A Dor Que Você Já Conhece
 - Tooling de browser costuma assumir um layout de path de um único OS
-- Agentes de CI falham quando a descoberta do Chrome é host-específica e não documentada
+- Agentes locais falham quando a descoberta do Chrome é host-específica e não documentada
 - Quoting de shell e separadores de path quebram wrappers frágeis
 
 ## Matriz de Suporte
@@ -22,7 +22,7 @@
 ## Notas Linux
 - Binários comuns incluem `chromium-browser`, `chromium` e `google-chrome`
 - Rode `doctor` após install de pacote para confirmar descoberta
-- Headless é o default para CI de agente
+- Headless é o default para execuções locais de agentes
 
 ## Notas macOS
 - Instale Google Chrome pelo canal oficial
@@ -47,10 +47,10 @@
 - State cifrado exige `BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY`
 
 ## Performance por Target
-- Linux CI é o alvo primário de otimização
+- Desktop e servidores Linux são o alvo primário de otimização
 - Cold start permanece limitado pelo Chrome em todo OS
 
 ## Agentes Validados por Plataforma
-- Linux: Claude Code, Codex, shell CI, GitHub Actions
+- Linux: Claude Code, Codex, shell local, agentes de editor
 - macOS: agentes shell locais e integrações de editor
 - Windows: integrações shell e editor com quoting explícito

@@ -1,4 +1,5 @@
 //! Offline analysis of Chrome Tracing event dumps produced by `perf stop`.
+#![allow(missing_docs)]
 //!
 //! Input formats supported:
 //! - NDJSON lines, each an array of trace events

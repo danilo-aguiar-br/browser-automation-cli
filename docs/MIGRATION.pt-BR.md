@@ -32,7 +32,7 @@
 ## Notas de Compatibilidade
 - Não existe linha estável prévia no crates.io para este repositório
 - Limpeza de branding e histórico recriou um root commit público limpo
-- `publish = false` até o primeiro release intencional no crates.io
+- O primeiro publish no crates.io ainda exige aprovação explícita do mantenedor
 
 ## Rollback
 - Fixe o commit local anterior ou o path do binário instalado

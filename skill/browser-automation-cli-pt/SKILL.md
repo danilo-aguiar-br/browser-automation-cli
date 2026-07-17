@@ -13,7 +13,7 @@ description: Aciona quando o usuário pede automação one-shot de browser, CLI 
 - Use Chrome ou Chromium de sistema descoberto pela CLI
 - Mantenha trabalho multi-passo dentro de `run --script` quando refs `@eN` precisarem sobreviver
 - Prefira `--json` para todo consumidor programático
-- Instale com `cargo install --path . --locked` enquanto `publish = false`
+- Instale do path com `cargo install --path . --locked` durante desenvolvimento
 - Após release no crates.io use `cargo install browser-automation-cli --locked`
 - MSRV é Rust 1.88.0
 

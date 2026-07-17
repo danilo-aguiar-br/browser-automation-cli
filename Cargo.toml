@@ -12,7 +12,6 @@ categories = ["command-line-utilities", "web-programming"]
 repository = "https://github.com/danilo-aguiar-br/browser-automation-cli"
 homepage = "https://github.com/danilo-aguiar-br/browser-automation-cli"
 documentation = "https://docs.rs/browser-automation-cli"
-publish = false
 exclude = [
     ".github/",
     "base_conhecimento_chrome-devtools-mcp-main/",
@@ -36,7 +35,15 @@ exclude = [
 
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+default-target = "x86_64-unknown-linux-gnu"
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-unknown-linux-musl",
+]
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [[bin]]
 name = "browser-automation-cli"
@@ -75,6 +82,7 @@ indexmap = { version = "2", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 robotstxt = "0.3"
+aquamarine = "0.6"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -98,5 +106,3 @@ codegen-units = 1
 strip = true
 panic = "abort"
 
-[profile.ci]
-inherits = "release"

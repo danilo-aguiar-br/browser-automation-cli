@@ -1,24 +1,56 @@
 //! Typed CLI errors with sysexits-style exit codes.
+//!
+//! # Error kinds
+//!
+//! `ErrorKind` maps to process exit codes used by the binary and JSON envelopes.
+//!
+//! # Examples
+//!
+//! ```
+//! use browser_automation_cli::error::{CliError, ErrorKind};
+//!
+//! let err = CliError::with_suggestion(
+//!     ErrorKind::Unavailable,
+//!     "chrome not found",
+//!     "install Chromium or Google Chrome",
+//! );
+//! assert_eq!(err.exit_code(), 69);
+//! assert_eq!(err.kind().as_str(), "unavailable");
+//! ```
 
 use std::fmt;
 
+/// High-level failure category mapped to a process exit code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
+    /// Invalid usage or clap parse failure (`2`).
     Usage,
+    /// Invalid data or payload (`65`).
     Data,
+    /// Required input missing (`66`).
     NoInput,
+    /// Browser or dependency unavailable (`69`).
     Unavailable,
+    /// Internal software failure (`70`).
     Software,
+    /// Browser runtime failure (`70`).
     Browser,
+    /// CDP/protocol failure (`70`).
     Protocol,
+    /// Wall-clock timeout (`124`).
     Timeout,
+    /// Cancelled by signal (`130`).
     Cancelled,
+    /// Broken pipe on stdout (`141`).
     BrokenPipe,
+    /// Configuration error (`78`).
     Config,
+    /// I/O failure (`74`).
     Io,
 }
 
 impl ErrorKind {
+    /// Process exit code for this kind.
     pub fn exit_code(self) -> u8 {
         match self {
             ErrorKind::Usage => 2,
@@ -34,6 +66,7 @@ impl ErrorKind {
         }
     }
 
+    /// Stable machine-readable kind string for JSON envelopes.
     pub fn as_str(self) -> &'static str {
         match self {
             ErrorKind::Usage => "usage",
@@ -52,6 +85,7 @@ impl ErrorKind {
     }
 }
 
+/// Typed CLI error with optional remediation hint.
 #[derive(Debug, Clone)]
 pub struct CliError {
     kind: ErrorKind,
@@ -60,6 +94,7 @@ pub struct CliError {
 }
 
 impl CliError {
+    /// Create an error without a suggestion.
     pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
@@ -68,6 +103,7 @@ impl CliError {
         }
     }
 
+    /// Create an error with a short remediation suggestion for agents.
     pub fn with_suggestion(
         kind: ErrorKind,
         message: impl Into<String>,
@@ -80,18 +116,22 @@ impl CliError {
         }
     }
 
+    /// Error category.
     pub fn kind(&self) -> ErrorKind {
         self.kind
     }
 
+    /// Human-readable message (also used in JSON `error.message`).
     pub fn message(&self) -> &str {
         &self.message
     }
 
+    /// Optional remediation hint.
     pub fn suggestion(&self) -> Option<&str> {
         self.suggestion.as_deref()
     }
 
+    /// Process exit code for this error.
     pub fn exit_code(&self) -> u8 {
         self.kind.exit_code()
     }

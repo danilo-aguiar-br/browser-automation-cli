@@ -13,10 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Public bilingual documentation framework for crates packaging
 - `docs/` guides, `docs/schemas/` index, and dual-language skill packages
 - Dual license files `LICENSE-MIT` and `LICENSE-APACHE`
+- Crate-level rustdoc with Overview, Features, Targets, MSRV, Safety, and Examples
+- rustdoc lints on the crate root (`missing_docs`, broken/private links, invalid HTML/codeblocks)
+- docs.rs `targets` and `default-target` for multiplatform builds after 2026-05-01
+- README Features, Targets, and MSRV sections with local `cargo doc` formulas
+- `aquamarine` Mermaid lifecycle diagram on `run()` rustdoc
 
 ### Changed
 - `Cargo.toml` metadata now includes authors, repository, homepage, documentation, and MSRV
 - License declared as `MIT OR Apache-2.0`
+- README badge order now starts with docs.rs and crates.io
+- Public API docs expanded for `error`, `envelope`, and `lifecycle`
+
+### Fixed
+- rustdoc broken intra-doc links in `emulate --viewport` help text
+
+### Removed
+- GitHub Actions workflows under `.github/workflows/`
+- Cargo `[profile.ci]` used only by removed CI
+- Hosted CI and GitHub Actions integration guidance from public docs
+
+### Fixed
+- `tests/parity_inventory.rs` now reads vendored `tests/fixtures/tool-reference.md` (52 tools)
+- Enabled crates packaging by removing `publish = false`
+- Formatting drift under `cargo fmt`
 
 ## [0.1.0] - 2025-07-16
 
