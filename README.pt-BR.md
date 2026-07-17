@@ -2,7 +2,7 @@
 
 # browser-automation-cli
 
-> Automação one-shot do Chrome CDP para agentes de IA. NASCE, EXECUTA, FINALIZE, MORRE.
+> Automação one-shot do Chrome CDP para agentes de IA. BORN, EXECUTE, FINALIZE, DIE.
 
 [![docs.rs](https://img.shields.io/docsrs/browser-automation-cli)](https://docs.rs/browser-automation-cli)
 [![crates.io](https://img.shields.io/crates/v/browser-automation-cli)](https://crates.io/crates/browser-automation-cli)
@@ -16,13 +16,16 @@
 - CLI de automação de browser em um único processo para agentes de IA
 - Fala com Chrome ou Chromium do sistema via chromiumoxide CDP
 - Sem daemon, sem empacotamento npm e sem telemetria remota
-- O ciclo de vida é sempre NASCE, EXECUTA, FINALIZE, MORRE
+- O ciclo de vida é sempre BORN, EXECUTE, FINALIZE, DIE
+- Envelopes JSON no stdout para agentes programáticos
+- Config e caminhos XDG sem variáveis de ambiente de produto
 
 ## A Dor
 - Fluxos de agente precisam de browser multi-passo sem daemon sticky
 - Stacks Node e npm adicionam peso de runtime e superfície de supply-chain
 - Ferramentas baseadas em sessão deixam Chrome órfão e ownership obscuro
 - Contratos JSON costumam divergir de flags e exit codes reais
+- Settings de produto espalhados em env vars tornam prompts de agente frágeis
 
 ## Por que browser-automation-cli
 - Um processo é dono de um ciclo completo de Chrome do launch ao kill fallback
@@ -30,16 +33,23 @@
 - Refs de acessibilidade `@eN` só valem dentro daquele processo
 - Envelopes `--json` estáveis para agentes programáticos
 - Caminho de install é Rust puro via cargo
+- v0.1.1 entrega config, mitm, workflow, batch-scrape, crawl, map, search e parse
 
 ## Superpoderes
 - Navegação e ciclo de página: `goto`, `back`, `forward`, `reload`, `page`
 - Input: `press`, `write`, `type`, `keys`, `hover`, `drag`, `fill-form`, `upload`
 - Observação: `view`, `grab`, `extract`, `text`, `attr`, `scroll`, `assert`
+- Wait: múltiplos `--text` resolvem como OR (qualquer texto desbloqueia)
+- Scrape: `scrape` com `--format text|markdown|html|links|metadata` e `--engine http|browser`
+- Superfície local Firecrawl-parity: `batch-scrape`, `crawl`, `map`, `search`, `parse`
 - Captura: `console` e `net` com flags globais opcionais
 - Profundidade DevTools: `eval`, `emulate`, `resize`, `perf`, `lighthouse`, `heap`
 - Categorias opcionais: memory, extensions, third-party, webmcp
 - Experimental: vision `click-at`, screencast com export via ffmpeg
-- Descoberta: `doctor`, `commands`, `schema`, `completions`
+- MITM one-shot: `mitm start` escuta só em `127.0.0.1` (hudsucker)
+- Workflow DAG: `workflow run|resume|status` com journal SQLite (resume pula ok)
+- Config XDG: `config path|init|show|set|get` para config.toml
+- Descoberta: `doctor` (inclui XDG browsers_dir), `commands`, `schema`, `completions`
 
 ## Início Rápido
 ```bash
@@ -70,47 +80,42 @@ cargo install browser-automation-cli --locked
 - Mantenha diagnósticos humanos no stderr com `-q` ao pipar
 - Use `--timeout` para orçamento wall-clock do processo em segundos
 - Use `run --script` para sessões multi-passo que compartilham refs `@eN`
+- Prefira flags de CLI em chamadas one-off; use `config` para defaults XDG duráveis
 
 ```bash
 browser-automation-cli --json goto https://example.com
+browser-automation-cli --json wait --text Hello --text Welcome --ms 5000
+browser-automation-cli --json scrape https://example.com --format markdown --engine http
 browser-automation-cli --capture-network --json net list --resource-types Document,XHR
 browser-automation-cli --category-memory heap summary --path snap.heapsnapshot --json
+browser-automation-cli --json mitm start --seconds 30
+browser-automation-cli --json workflow resume --manifest workflow.toml
 ```
 
 ## Comandos
 - Descoberta: `doctor`, `commands`, `schema`, `version`, `completions`
-- Navegação: `goto`, `back`, `forward`, `reload`, `scrape`
+- Config: `config path`, `config init`, `config show`, `config set`, `config get`
+- Navegação: `goto`, `back`, `forward`, `reload`
 - Snapshot e input: `view`, `press`, `write`, `type`, `keys`, `wait`, `hover`, `drag`, `fill-form`, `upload`
 - Conteúdo: `extract`, `text`, `scroll`, `attr`, `assert`, `grab`
+- Scrape e discovery: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
 - Abas e diálogos: `page`, `dialog`, `cookie`
 - Captura: `console`, `net`
+- MITM: `mitm status|list|get|har|export|domains|apis|init-ca|start`
+- Workflow: `workflow run|resume|status`
 - Avançado: `eval`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`
 - Categorias: `extension`, `devtools3p`, `webmcp`
 - Multi-passo: `run`, `exec`
 
-## Variáveis de Ambiente
-- `BROWSER_AUTOMATION_CLI_JSON` ativa envelopes JSON
-- `BROWSER_AUTOMATION_CLI_QUIET` suprime prosa não-erro no stderr
-- `BROWSER_AUTOMATION_CLI_VERBOSE` eleva tracing para info
-- `BROWSER_AUTOMATION_CLI_DEBUG` eleva tracing para debug
-- `BROWSER_AUTOMATION_CLI_TIMEOUT` define timeout global em segundos
-- `BROWSER_AUTOMATION_CLI_STEP_TIMEOUT` define timeout por passo do `run`
-- `BROWSER_AUTOMATION_CLI_HEADED` lança Chrome visível
-- `BROWSER_AUTOMATION_CLI_ARTIFACTS_DIR` armazena artefatos
-- `BROWSER_AUTOMATION_CLI_LANG` seleciona locale de mensagens
-- `BROWSER_AUTOMATION_CLI_CAPTURE_CONSOLE` ativa captura de console
-- `BROWSER_AUTOMATION_CLI_CAPTURE_NETWORK` ativa captura de rede
-- `BROWSER_AUTOMATION_CLI_IGNORE_ROBOTS` e `BROWSER_AUTOMATION_CLI_I_ACCEPT_ROBOTS_RISK` controlam política robots
-- `BROWSER_AUTOMATION_CLI_CATEGORY_MEMORY` habilita heap profundo
-- `BROWSER_AUTOMATION_CLI_CATEGORY_EXTENSIONS` habilita tools de extensão
-- `BROWSER_AUTOMATION_CLI_CATEGORY_THIRD_PARTY` habilita tools third-party
-- `BROWSER_AUTOMATION_CLI_CATEGORY_WEBMCP` habilita tools webmcp
-- `BROWSER_AUTOMATION_CLI_EXPERIMENTAL_VISION` habilita `click-at`
-- `BROWSER_AUTOMATION_CLI_EXPERIMENTAL_SCREENCAST` habilita screencast
-- `BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY` cifra state nativo opcional
-- `BROWSER_AUTOMATION_CLI_NAMESPACE` escopa namespaces de state
-- `BROWSER_AUTOMATION_CLI_COLOR` e `NO_COLOR` controlam cor no stderr
-- `RUST_LOG` sobrescreve filtros de tracing quando necessário
+## Configuração
+- Prefira flags de CLI para chamadas one-off de agente
+- Use `config path|init|show|set|get` para o config.toml XDG
+- Settings de produto NÃO são lidos de variáveis de ambiente `BROWSER_AUTOMATION_CLI_*`
+- Apenas nível de SO: `RUST_LOG` (tracing), `NO_COLOR` / cor via config, `PATH` para Chrome/ffmpeg/lighthouse
+- `config init` cria o layout XDG e o config.toml padrão
+- `config path` imprime paths resolvidos de config, data, cache, state e browsers_dir
+- Flags de CLI sobrescrevem valores gravados no config.toml
+- Doctor reporta XDG browsers_dir entre as checagens de readiness
 
 ## Features
 - Este crate não tem feature flags de Cargo
@@ -141,25 +146,34 @@ browser-automation-cli --category-memory heap summary --path snap.heapsnapshot -
 - Claude Code, Codex, Cursor e agentes de shell disparam um processo por ação
 - Planos multi-passo devem usar `run --script` em vez de encadear processos
 - Parseie stdout com `jaq` e ignore stderr salvo em diagnóstico
+- Persista defaults duráveis com `config set` sob XDG, não com env vars de produto
 - Veja [INTEGRATIONS.pt-BR.md](INTEGRATIONS.pt-BR.md) e [docs/AGENTS.pt-BR.md](docs/AGENTS.pt-BR.md)
 
 ## Performance
 - Cold start é dominado pelo launch do Chrome, não pelo tamanho do binário Rust
 - Prefira `doctor --offline --quick` para checagens de install sem rede
 - Reutilize scripts multi-passo para evitar launches repetidos do Chrome
+- Prefira `scrape --engine http` quando CDP não for necessário
+- Use concorrência de `batch-scrape` para fetches HTTP paralelos
 
 ## Requisitos de Memória
 - Espere memória do processo Chrome muito acima do binário da CLI
 - Tools de heap exigem `--category-memory` e snapshots maiores elevam RAM
 - Screencast pode invocar ffmpeg como helper externo
+- Journals de workflow e capturas MITM ficam sob paths XDG de state/data
 
 ## FAQ de Troubleshooting
-- Chrome não encontrado: instale Chromium ou Google Chrome e rode `doctor`
+- Chrome não encontrado: instale Chromium ou Google Chrome, garanta PATH, e rode `doctor`
+- Config / XDG: rode `config init` e depois `config path` para inspecionar o layout; use `config set|get` para valores
 - Exit 69 unavailable: binário do browser ausente, bloqueado ou não lançável
 - Exit 124 timeout: eleve `--timeout` ou encurte o script
 - Exit 2 usage: confira flags com `browser-automation-cli help <cmd>`
-- Refs `@eN` inválidas entre comandos: mantenha passos dentro de um `run`
+- Refs `@eN` inválidas entre comandos: mantenha passos dentro de um `run`; refs não atravessam processos
 - Network vazio: passe `--capture-network` no mesmo processo que navega
+- Env de produto não suportada: não use `BROWSER_AUTOMATION_CLI_*` para settings; use flags ou `config`
+- Wait multi-text: repita `--text` para semântica OR (qualquer texto listado desbloqueia)
+- Bind MITM: `mitm start` escuta só em `127.0.0.1` com porta efêmera
+- Workflow resume: `workflow resume` pula passos já `ok` no journal
 
 ## Códigos de Saída
 - `0` sucesso
@@ -183,7 +197,7 @@ browser-automation-cli --category-memory heap summary --path snap.heapsnapshot -
 - [docs/MIGRATION.pt-BR.md](docs/MIGRATION.pt-BR.md) notas de migração
 - [docs/TESTING.pt-BR.md](docs/TESTING.pt-BR.md) categorias de teste
 - [docs/schemas/README.md](docs/schemas/README.md) índice de JSON schemas
-- [skill/browser-automation-cli-pt/SKILL.md](skill/browser-automation-cli-pt/SKILL.md) skill imperativa
+- [skills/browser-automation-cli-pt/SKILL.md](skills/browser-automation-cli-pt/SKILL.md) skill imperativa
 - [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md) histórico Keep a Changelog
 - [SECURITY.pt-BR.md](SECURITY.pt-BR.md) reporte de vulnerabilidades
 - [CONTRIBUTING.pt-BR.md](CONTRIBUTING.pt-BR.md) fluxo do contribuidor

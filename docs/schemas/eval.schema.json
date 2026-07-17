@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/eval.schema.json",
+  "title": "eval command input",
+  "type": "object",
+  "description": "Evaluate JavaScript expression",
+  "properties": {
+    "expression": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "expression"
+  ],
+  "additionalProperties": false
+}

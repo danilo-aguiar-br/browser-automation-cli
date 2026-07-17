@@ -1,4 +1,4 @@
-//! Clap derive surface for browser-automation-cli (PRD Camada L).
+//! Clap derive surface for browser-automation-cli (PRD Layer L).
 //!
 //! Help text on flags is the primary documentation for this module.
 #![allow(missing_docs)]
@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[command(
     name = "browser-automation-cli",
     version,
-    about = "One-shot browser automation CLI (Chrome CDP). NASCE, EXECUTA, FINALIZE, MORRE.",
+    about = "One-shot browser automation CLI (Chrome CDP). BORN, EXECUTE, FINALIZE, DIE.",
     long_about = None,
     propagate_version = true
 )]
@@ -24,7 +24,7 @@ pub struct Cli {
 
 #[derive(Debug, Clone, Parser)]
 pub struct GlobalOpts {
-    #[arg(long, global = true, env = "BROWSER_AUTOMATION_CLI_JSON")]
+    #[arg(long, global = true)]
     pub json: bool,
 
     /// Suppress non-error human logs on stderr
@@ -32,7 +32,6 @@ pub struct GlobalOpts {
         short = 'q',
         long = "quiet",
         global = true,
-        env = "BROWSER_AUTOMATION_CLI_QUIET"
     )]
     pub quiet: bool,
 
@@ -40,18 +39,16 @@ pub struct GlobalOpts {
     #[arg(
         long = "verbose",
         global = true,
-        env = "BROWSER_AUTOMATION_CLI_VERBOSE"
     )]
     pub verbose: bool,
 
     /// Maximum tracing detail on stderr (debug/trace)
-    #[arg(long = "debug", global = true, env = "BROWSER_AUTOMATION_CLI_DEBUG")]
+    #[arg(long = "debug", global = true)]
     pub debug: bool,
 
     #[arg(
         long,
         global = true,
-        env = "BROWSER_AUTOMATION_CLI_TIMEOUT",
         default_value_t = 0
     )]
     pub timeout: u64,
@@ -60,46 +57,43 @@ pub struct GlobalOpts {
     #[arg(
         long,
         global = true,
-        env = "BROWSER_AUTOMATION_CLI_STEP_TIMEOUT",
         default_value_t = 0
     )]
     pub step_timeout: u64,
 
     /// Launch Chrome with a visible window (debug; default headless=new)
-    #[arg(long, global = true, env = "BROWSER_AUTOMATION_CLI_HEADED")]
+    #[arg(long, global = true)]
     pub headed: bool,
 
-    #[arg(long, global = true, env = "BROWSER_AUTOMATION_CLI_ARTIFACTS_DIR")]
+    #[arg(long, global = true)]
     pub artifacts_dir: Option<std::path::PathBuf>,
 
-    #[arg(long, global = true, env = "BROWSER_AUTOMATION_CLI_LANG")]
+    #[arg(long, global = true)]
     pub lang: Option<String>,
 
-    #[arg(long, global = true, env = "BROWSER_AUTOMATION_CLI_CAPTURE_CONSOLE")]
+    #[arg(long, global = true)]
     pub capture_console: bool,
 
-    #[arg(long, global = true, env = "BROWSER_AUTOMATION_CLI_CAPTURE_NETWORK")]
+    #[arg(long, global = true)]
     pub capture_network: bool,
 
-    #[arg(long, global = true, env = "BROWSER_AUTOMATION_CLI_IGNORE_ROBOTS")]
+    #[arg(long, global = true)]
     pub ignore_robots: bool,
 
     #[arg(
         long,
         global = true,
-        env = "BROWSER_AUTOMATION_CLI_I_ACCEPT_ROBOTS_RISK"
     )]
     pub i_accept_robots_risk: bool,
 
     /// Enable deep heap analysis tools (PRD category-memory)
-    #[arg(long, global = true, env = "BROWSER_AUTOMATION_CLI_CATEGORY_MEMORY")]
+    #[arg(long, global = true)]
     pub category_memory: bool,
 
     /// Enable extension management tools
     #[arg(
         long,
         global = true,
-        env = "BROWSER_AUTOMATION_CLI_CATEGORY_EXTENSIONS"
     )]
     pub category_extensions: bool,
 
@@ -107,19 +101,17 @@ pub struct GlobalOpts {
     #[arg(
         long,
         global = true,
-        env = "BROWSER_AUTOMATION_CLI_CATEGORY_THIRD_PARTY"
     )]
     pub category_third_party: bool,
 
     /// Enable WebMCP-compatible tool surface
-    #[arg(long, global = true, env = "BROWSER_AUTOMATION_CLI_CATEGORY_WEBMCP")]
+    #[arg(long, global = true)]
     pub category_webmcp: bool,
 
     /// Enable experimental screencast (may require ffmpeg for file export)
     #[arg(
         long,
         global = true,
-        env = "BROWSER_AUTOMATION_CLI_EXPERIMENTAL_SCREENCAST"
     )]
     pub experimental_screencast: bool,
 
@@ -127,7 +119,6 @@ pub struct GlobalOpts {
     #[arg(
         long,
         global = true,
-        env = "BROWSER_AUTOMATION_CLI_EXPERIMENTAL_VISION"
     )]
     pub experimental_vision: bool,
 }
@@ -386,8 +377,74 @@ pub enum Commands {
         #[command(subcommand)]
         action: DialogAction,
     },
-    /// Navigate and return body text
-    Scrape { url: String },
+    /// Navigate and return body text / formats (local Firecrawl-parity)
+    Scrape {
+        url: String,
+        /// text | markdown | html | links | metadata
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// http (reqwest+scraper) or browser (CDP)
+        #[arg(long, default_value = "browser")]
+        engine: String,
+        /// Prefer main/article content heuristics
+        #[arg(long)]
+        only_main_content: bool,
+    },
+    /// Scrape many URLs from a file (HTTP engine, one-shot)
+    BatchScrape {
+        #[arg(long)]
+        urls_file: std::path::PathBuf,
+        #[arg(long, default_value = "text")]
+        format: String,
+        #[arg(long, default_value_t = 2)]
+        concurrency: usize,
+    },
+    /// Crawl from a seed URL (HTTP BFS, one-shot)
+    Crawl {
+        url: String,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long, default_value_t = 2)]
+        max_depth: usize,
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Stay on seed host
+        #[arg(long, default_value_t = true)]
+        same_host: bool,
+    },
+    /// Map site URLs from a seed (HTTP)
+    Map {
+        url: String,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        #[arg(long, default_value_t = 2)]
+        max_depth: usize,
+    },
+    /// Local search (HTTP SERP links or URL map)
+    Search {
+        query: String,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
+    /// Parse a local file (html/md/txt/pdf text extract)
+    Parse {
+        path: std::path::PathBuf,
+    },
+    /// MITM capture / CA / HAR (one-shot local)
+    Mitm {
+        #[command(subcommand)]
+        action: MitmAction,
+    },
+    /// Workflow journal DAG (petgraph + SQLite)
+    Workflow {
+        #[command(subcommand)]
+        action: WorkflowAction,
+    },
+    /// XDG config and path management (no .env at runtime)
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// Emulate device / network / UA / geo / CPU
     Emulate {
         #[arg(long)]
@@ -830,4 +887,90 @@ pub enum DialogAction {
         text: Option<String>,
     },
     Dismiss,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum MitmAction {
+    /// CA paths, capture count, bind policy
+    Status,
+    /// List captured exchanges
+    List {
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
+    /// Get one exchange by id
+    Get { id: u64 },
+    /// Export HAR 1.2 JSON
+    Har {
+        #[arg(long)]
+        out: std::path::PathBuf,
+    },
+    /// Export capture as JSON/NDJSON
+    Export {
+        #[arg(long, default_value = "json")]
+        format: String,
+        #[arg(long)]
+        out: std::path::PathBuf,
+    },
+    /// Unique hosts seen
+    Domains,
+    /// REST/GraphQL endpoint discovery
+    Apis {
+        #[arg(long)]
+        kind: Option<String>,
+    },
+    /// Ensure local CA under XDG data
+    InitCa,
+    /// Start one-shot MITM proxy on 127.0.0.1 (ephemeral port); captures until timeout
+    Start {
+        /// Seconds to keep the proxy alive (one-shot; default 30)
+        #[arg(long, default_value_t = 30)]
+        seconds: u64,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum WorkflowAction {
+    /// Validate DAG and execute offline steps; journal under XDG state
+    Run {
+        #[arg(long)]
+        manifest: std::path::PathBuf,
+        #[arg(long)]
+        journal: Option<std::path::PathBuf>,
+    },
+    /// Resume / re-run from journal + manifest
+    Resume {
+        #[arg(long)]
+        manifest: std::path::PathBuf,
+        #[arg(long)]
+        journal: Option<std::path::PathBuf>,
+    },
+    /// Show journal step statuses
+    Status {
+        #[arg(long)]
+        journal: Option<std::path::PathBuf>,
+        #[arg(long)]
+        name: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ConfigAction {
+    /// Print resolved XDG paths
+    Path,
+    /// Create XDG layout + default config.toml
+    Init,
+    /// Show config values
+    Show,
+    /// Set a config key (lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color)
+    Set {
+        key: String,
+        value: String,
+    },
+    /// Get one config key
+    Get {
+        key: Option<String>,
+    },
 }

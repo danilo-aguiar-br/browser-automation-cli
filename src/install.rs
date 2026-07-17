@@ -1,31 +1,33 @@
 //! Chrome cache discovery for one-shot launches (no download / no apt).
 //!
-//! PRD: system Chrome/Chromium only — no BrowserFetcher embutido no MVP.
+//! PRD: system Chrome/Chromium only — no embedded BrowserFetcher in MVP.
 
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-/// Cache directory for optional pre-placed Chrome builds.
+/// Cache directory for optional pre-placed Chrome builds (XDG cache).
 ///
-/// Path: `~/.browser-automation-cli/browsers`
+/// Path: `$XDG_CACHE_HOME/browser-automation-cli/browsers` (via `directories`).
 pub fn get_browsers_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".browser-automation-cli")
-        .join("browsers")
+    crate::xdg::browsers_dir().unwrap_or_else(|_| {
+        std::env::temp_dir()
+            .join("browser-automation-cli")
+            .join("browsers")
+    })
 }
 
 /// Find a Chrome binary previously placed under the product browsers cache.
 pub fn find_installed_chrome() -> Option<PathBuf> {
     let browsers_dir = get_browsers_dir();
-    let debug = std::env::var("BROWSER_AUTOMATION_CLI_DEBUG").is_ok();
+    // Debug diagnostics only when stderr is a terminal and --debug was used by the process
+    // (tracing layer). Avoid reading product env vars at runtime.
+    let debug = false;
 
     if debug {
         let _ = writeln!(
             io::stderr(),
-            "[chrome-search] home_dir={:?} browsers_dir={}",
-            dirs::home_dir(),
+            "[chrome-search] browsers_dir={}",
             browsers_dir.display()
         );
     }

@@ -1,4 +1,4 @@
-//! One-shot lifecycle: INIT → EXECUTA → FINALIZE → EXIT.
+//! One-shot lifecycle: INIT → EXECUTE → FINALIZE → EXIT.
 //!
 //! # Flow
 //!

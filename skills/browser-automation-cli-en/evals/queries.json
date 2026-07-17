@@ -1,0 +1,22 @@
+[
+  {"query": "Automate headless Chrome to open a page and click a button via CDP", "should_trigger": true},
+  {"query": "Scrape this page to markdown without launching a full browser if possible", "should_trigger": true},
+  {"query": "Fill a login form in Chrome using accessibility snapshot refs", "should_trigger": true},
+  {"query": "Take a full-page screenshot with headless browser automation", "should_trigger": true},
+  {"query": "Start a local MITM proxy capture and export HAR", "should_trigger": true},
+  {"query": "Crawl a site with limit and max depth then list discovered URLs", "should_trigger": true},
+  {"query": "Get an accessibility snapshot and click element @e3", "should_trigger": true},
+  {"query": "List network requests after navigation in the same browser process", "should_trigger": true},
+  {"query": "Resume a browser-automation-cli workflow journal from the last failed step", "should_trigger": true},
+  {"query": "Run a lighthouse performance audit on https://example.com", "should_trigger": true},
+  {"query": "Explain Rust ownership and borrowing for a struct with lifetimes", "should_trigger": false},
+  {"query": "Write a pure Postgres SQL query to join orders and customers", "should_trigger": false},
+  {"query": "Help me interactive git rebase and fix a merge conflict only", "should_trigger": false},
+  {"query": "Teach pure CSS flexbox and grid layout theory with no browser tool", "should_trigger": false},
+  {"query": "Run cargo clippy and fix style lints in a library crate only", "should_trigger": false},
+  {"query": "Debug docker compose networking between two backend services only", "should_trigger": false},
+  {"query": "Solve this linear algebra problem and show matrix eigenvalues", "should_trigger": false},
+  {"query": "Write Excel VBA to format a worksheet and add a pivot table", "should_trigger": false},
+  {"query": "Discuss pure unit test philosophy and test pyramid without browser E2E", "should_trigger": false},
+  {"query": "Build an iOS SwiftUI list view with navigation only", "should_trigger": false}
+]

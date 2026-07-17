@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/page.schema.json",
+  "title": "page command input",
+  "type": "object",
+  "description": "Page info or multi-tab list|new|select|close",
+  "properties": {
+    "action": {
+      "enum": [
+        "info",
+        "list",
+        "new",
+        "select",
+        "close"
+      ],
+      "type": "string"
+    },
+    "index": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "url": {
+      "type": "string"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

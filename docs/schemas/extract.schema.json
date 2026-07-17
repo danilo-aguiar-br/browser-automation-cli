@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/extract.schema.json",
+  "title": "extract command input",
+  "type": "object",
+  "description": "Extract text or attribute from target",
+  "properties": {
+    "attr": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target"
+  ],
+  "additionalProperties": false
+}

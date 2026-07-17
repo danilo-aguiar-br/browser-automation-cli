@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/completions.schema.json",
+  "title": "completions command input",
+  "type": "object",
+  "description": "Generate shell completions (no Chrome)",
+  "properties": {
+    "shell": {
+      "enum": [
+        "bash",
+        "zsh",
+        "fish",
+        "elvish",
+        "powershell"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "shell"
+  ],
+  "additionalProperties": false
+}

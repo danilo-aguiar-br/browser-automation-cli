@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/run.schema.json",
+  "title": "run command input",
+  "type": "object",
+  "description": "Execute NDJSON multi-step script in one process",
+  "properties": {
+    "script": {
+      "description": "Path to .jsonl script",
+      "type": "string"
+    }
+  },
+  "required": [
+    "script"
+  ],
+  "additionalProperties": false
+}

@@ -4,10 +4,12 @@
 
 > One-shot Chrome CDP automation CLI for AI agents with no daemon and no telemetry.
 
-browser-automation-cli is a single-process Rust CLI that launches system Chrome or Chromium through CDP, executes agent browser actions, then finalizes and exits. Multi-step work must use `run --script` inside one process so `@eN` refs remain valid.
+browser-automation-cli is a single-process Rust CLI that launches system Chrome or Chromium through CDP, executes agent browser actions, then finalizes and exits. Multi-step work must use `run --script` inside one process so `@eN` refs remain valid. Lifecycle: BORN, EXECUTE, FINALIZE, DIE.
+
+Product settings are commands, flags, and XDG config only. Do not invent product environment variables. OS-only vars outside that surface: `RUST_LOG`, `NO_COLOR`.
 
 ## Primary Documentation
-- [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.md): product landing, install, commands, env vars, FAQ
+- [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.md): product landing, install, commands, flags, config, FAQ
 - [README pt-BR](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.pt-BR.md): Portuguese landing page
 - [HOW_TO_USE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/HOW_TO_USE.md): pedagogical first-use guide
 - [AGENTS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/AGENTS.md): hybrid persuasive plus imperative agent guide
@@ -17,22 +19,31 @@ browser-automation-cli is a single-process Rust CLI that launches system Chrome 
 - [TESTING](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/TESTING.md): categorized tests and local validation profiles
 - [schemas README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/schemas/README.md): machine-readable contracts
 - [INTEGRATIONS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/INTEGRATIONS.md): agents and platforms
-- [SKILL en](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skill/browser-automation-cli-en/SKILL.md): full operational contract
-- [SKILL pt](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skill/browser-automation-cli-pt/SKILL.md): Portuguese operational contract
+- [SKILL en](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skills/browser-automation-cli-en/SKILL.md): full operational contract
+- [SKILL pt](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skills/browser-automation-cli-pt/SKILL.md): Portuguese operational contract
 - [CHANGELOG](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CHANGELOG.md): Keep a Changelog history
 - [CONTRIBUTING](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CONTRIBUTING.md): contributor workflow
 - [SECURITY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/SECURITY.md): vulnerability process
 - [CODE_OF_CONDUCT](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CODE_OF_CONDUCT.md): Contributor Covenant 2.1
 - [LICENSE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/LICENSE): dual license pointer
 
-## Command Surface
+## Command Surface (v0.1.1)
 - Discovery: doctor, commands, schema, version, completions
-- Navigate: goto, back, forward, reload, scrape
-- Interact: view, press, write, type, keys, wait, hover, drag, fill-form, upload, click-at
-- Observe: extract, text, scroll, attr, assert, grab
+- Config XDG: config init|path|show|get|set (keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color)
+- Navigate: goto, back, forward, reload
+- Local scrape / Firecrawl-local: scrape (--format text|markdown|html|links|metadata, --engine http|browser), batch-scrape, crawl, map, search, parse
+- Interact: view, press, write, type, keys, wait (repeatable --text OR), hover, drag, fill-form, upload, click-at
+- Observe: extract, text, scroll, attr, assert, grab --path
 - Tabs: page, dialog, cookie
 - Capture: console, net
+- MITM local one-shot: mitm init-ca|start|status|list|get|har|export|domains|apis (127.0.0.1 only; CA under XDG)
+- Workflow journal: workflow run|resume|status (SQLite journal under XDG state)
 - Advanced: eval, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, run, exec
+
+## Settings Contract
+- Product settings: commands, flags, config (XDG `config.toml`) — not product env vars
+- Encryption: `config set encryption_key` only
+- OS-only: `RUST_LOG`, `NO_COLOR`
 
 ## Contract Basics
 - Success envelope: `{"schema_version":1,"ok":true,"data":...}`

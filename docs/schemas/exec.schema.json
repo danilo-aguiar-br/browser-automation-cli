@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/exec.schema.json",
+  "title": "exec command input",
+  "type": "object",
+  "description": "Single-step inline command (same surface as run steps)",
+  "properties": {
+    "args": {
+      "description": "e.g. [\"goto\", \"about:blank\"] or [\"wait\", \"--ms\", \"100\"]",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "args"
+  ],
+  "additionalProperties": false
+}

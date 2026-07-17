@@ -942,7 +942,7 @@ impl OneShotSession {
         }))
     }
 
-    // --- Camada B ---
+    // --- Layer B ---
 
     pub async fn extract(&mut self, target: &str, attr: Option<&str>) -> Result<Value, CliError> {
         self.drain_events();
@@ -1773,7 +1773,23 @@ impl OneShotSession {
         state: Option<&str>,
         include_snapshot: bool,
     ) -> Result<Value, CliError> {
+        // Back-compat single text: treat as one-element OR set.
+        let owned: Vec<String> = text.map(|t| vec![t.to_string()]).unwrap_or_default();
+        self.wait_for_any(ms, &owned, selector, state, include_snapshot)
+            .await
+    }
+
+    /// Wait until any of `texts` appears (OR), and/or selector/state/ms.
+    pub async fn wait_for_any(
+        &mut self,
+        ms: Option<u64>,
+        texts: &[String],
+        selector: Option<&str>,
+        state: Option<&str>,
+        include_snapshot: bool,
+    ) -> Result<Value, CliError> {
         let mut waited = Vec::new();
+        let has_text = !texts.is_empty();
 
         if let Some(st) = state {
             let until = WaitUntil::parse_token(st);
@@ -1796,11 +1812,11 @@ impl OneShotSession {
         }
 
         if let Some(m) = ms {
-            if m > 0 && text.is_none() && selector.is_none() && state.is_none() {
+            if m > 0 && !has_text && selector.is_none() && state.is_none() {
                 let data = self.wait_ms(m).await?;
                 return self.attach_snapshot_if(include_snapshot, data).await;
             }
-            if m > 0 && text.is_none() && selector.is_none() && state.is_some() {
+            if m > 0 && !has_text && selector.is_none() && state.is_some() {
                 // pure ms after state already done above
                 if m > 0 {
                     let _ = self.wait_ms(m).await?;
@@ -1811,12 +1827,12 @@ impl OneShotSession {
             }
         }
 
-        if text.is_none() && selector.is_none() && state.is_some() {
+        if !has_text && selector.is_none() && state.is_some() {
             let data = json!({ "waited": waited, "ok": true });
             return self.attach_snapshot_if(include_snapshot, data).await;
         }
 
-        if text.is_none() && selector.is_none() && state.is_none() {
+        if !has_text && selector.is_none() && state.is_none() {
             let data = self.wait_ms(ms.unwrap_or(0)).await?;
             return self.attach_snapshot_if(include_snapshot, data).await;
         }
@@ -1841,15 +1857,15 @@ impl OneShotSession {
                     return self.attach_snapshot_if(include_snapshot, data).await;
                 }
             }
-            if let Some(t) = text {
+            if has_text {
                 let body = self
                     .manager
                     .evaluate("document.body ? document.body.innerText : ''", None)
                     .await
                     .unwrap_or(json!(""));
                 let hay = body.as_str().unwrap_or("");
-                if hay.contains(t) {
-                    waited.push(json!({"kind": "text", "text": t}));
+                if let Some(t) = texts.iter().find(|t| hay.contains(t.as_str())) {
+                    waited.push(json!({"kind": "text", "text": t, "match": "any"}));
                     let data = json!({ "waited": waited, "ok": true });
                     return self.attach_snapshot_if(include_snapshot, data).await;
                 }

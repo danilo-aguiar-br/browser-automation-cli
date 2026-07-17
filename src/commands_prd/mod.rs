@@ -1,4 +1,4 @@
-//! PRD command dispatch (paths leves + Camada A/B browser one-shot).
+//! PRD command dispatch (paths leves + Layer A/B browser one-shot).
 #![allow(missing_docs)]
 
 mod meta;
@@ -11,9 +11,9 @@ use crate::browser::{
     run_view, run_write, CaptureOpts, OneShotSession,
 };
 use crate::cli::{
-    AssertKind, Cli, Commands, CompletionShell, ConsoleAction, CookieAction, Devtools3pAction,
-    DialogAction, ExtensionAction, GrabFormat, HeapAction, NetAction, PageAction, PerfAction,
-    ScreencastAction, WebmcpAction,
+    AssertKind, Cli, Commands, CompletionShell, ConfigAction, ConsoleAction, CookieAction,
+    Devtools3pAction, DialogAction, ExtensionAction, GrabFormat, HeapAction, MitmAction,
+    NetAction, PageAction, PerfAction, ScreencastAction, WebmcpAction, WorkflowAction,
 };
 use crate::envelope::{print_error_json, print_success_json};
 use crate::error::{CliError, ErrorKind};
@@ -128,7 +128,7 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
                 let e = CliError::with_suggestion(
                     ErrorKind::Usage,
                     "click-at requires --experimental-vision",
-                    "Pass --experimental-vision (or BROWSER_AUTOMATION_CLI_EXPERIMENTAL_VISION=1)",
+                    "Pass --experimental-vision on the same invocation",
                 );
                 emit_err(&e, json)
             } else {
@@ -343,11 +343,14 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             Err(e) => emit_err(&e, json),
         },
         Commands::Run { script } => {
-            let flags = run::RunFlags {
+            let flags = run::RunFlags::from_globals(
                 experimental_vision,
                 experimental_screencast,
                 category_memory,
-            };
+                category_extensions,
+                category_third_party,
+                category_webmcp,
+            );
             match handle_run(life, &script, robots, capture, timeout_secs, json, flags) {
                 Ok(()) => 0,
                 Err(e) => emit_err(&e, json),
@@ -358,11 +361,14 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             // peel them so agents can write: exec goto URL --json
             let (args, json_from_trail) = peel_trailing_globals(&args);
             let json = json || json_from_trail;
-            let flags = run::RunFlags {
+            let flags = run::RunFlags::from_globals(
                 experimental_vision,
                 experimental_screencast,
                 category_memory,
-            };
+                category_extensions,
+                category_third_party,
+                category_webmcp,
+            );
             match handle_exec(life, &args, robots, capture, timeout_secs, json, flags) {
                 Ok(()) => 0,
                 Err(e) => emit_err(&e, json),
@@ -432,12 +438,73 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
                 Err(e) => emit_err(&e, json),
             }
         }
-        Commands::Scrape { url } => {
-            match handle_scrape(life, &url, robots, capture, timeout_secs, json) {
+        Commands::Scrape {
+            url,
+            format,
+            engine,
+            only_main_content,
+        } => {
+            match handle_scrape(
+                life,
+                &url,
+                robots,
+                capture,
+                timeout_secs,
+                json,
+                &format,
+                &engine,
+                only_main_content,
+            ) {
                 Ok(()) => 0,
                 Err(e) => emit_err(&e, json),
             }
         }
+        Commands::BatchScrape {
+            urls_file,
+            format,
+            concurrency,
+        } => match handle_batch_scrape(&urls_file, robots, &format, concurrency, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::Crawl {
+            url,
+            limit,
+            max_depth,
+            format,
+            same_host,
+        } => match handle_crawl(&url, robots, limit, max_depth, &format, same_host, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::Map {
+            url,
+            limit,
+            max_depth,
+        } => match handle_map(&url, robots, limit, max_depth, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::Search { query, limit } => match handle_search(&query, robots, limit, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::Parse { path } => match handle_parse(&path, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::Mitm { action } => match handle_mitm(action, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::Workflow { action } => match handle_workflow(action, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::Config { action } => match handle_config(action, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
         Commands::Emulate {
             user_agent,
             locale,
@@ -1667,6 +1734,7 @@ fn handle_dialog(
     emit_ok(data, json, |_| println!("ok dialog"))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_scrape(
     life: &Lifecycle,
     url: &str,
@@ -1674,8 +1742,55 @@ fn handle_scrape(
     capture: CaptureOpts,
     timeout_secs: u64,
     json: bool,
+    format: &str,
+    engine: &str,
+    only_main_content: bool,
 ) -> Result<(), CliError> {
+    let fmt = crate::scrape_local::ScrapeFormat::parse(format)?;
+    let engine_l = engine.to_ascii_lowercase();
+    if engine_l == "http" {
+        let opts = crate::scrape_local::ScrapeOpts {
+            format: fmt,
+            only_main_content,
+            engine: "http".into(),
+            ..Default::default()
+        };
+        let data = block_on_browser_timeout(
+            crate::scrape_local::scrape_http(url, robots, &opts),
+            timeout_secs,
+        )?;
+        return emit_ok(data, json, |d| {
+            let u = d.get("source_url").and_then(|v| v.as_str()).unwrap_or(url);
+            println!("ok scrape engine=http source_url={u}");
+        });
+    }
+    // browser engine: CDP scrape then reformat when needed
     let data = block_on_browser_timeout(run_scrape(life, url, robots, capture), timeout_secs)?;
+    let data = if matches!(
+        fmt,
+        crate::scrape_local::ScrapeFormat::Text
+    ) && !only_main_content
+    {
+        data
+    } else {
+        // When non-text formats requested, also fetch HTML via page content if present.
+        let html = data
+            .get("html")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if html.is_empty() {
+            data
+        } else {
+            let opts = crate::scrape_local::ScrapeOpts {
+                format: fmt,
+                only_main_content,
+                engine: "browser".into(),
+                ..Default::default()
+            };
+            crate::scrape_local::build_scrape_payload(url, 200, &html, &opts, robots)
+        }
+    };
     emit_ok(data, json, |d| {
         let policy = d
             .get("robots_policy")
@@ -1684,6 +1799,164 @@ fn handle_scrape(
         let u = d.get("source_url").and_then(|v| v.as_str()).unwrap_or(url);
         println!("ok scrape source_url={u} robots_policy={policy}");
     })
+}
+
+fn handle_batch_scrape(
+    urls_file: &Path,
+    robots: RobotsPolicy,
+    format: &str,
+    concurrency: usize,
+    json: bool,
+) -> Result<(), CliError> {
+    let urls = crate::scrape_local::read_urls_file(urls_file)?;
+    let opts = crate::scrape_local::ScrapeOpts {
+        format: crate::scrape_local::ScrapeFormat::parse(format)?,
+        engine: "http".into(),
+        ..Default::default()
+    };
+    let data = block_on_browser_timeout(
+        crate::scrape_local::batch_scrape_http(&urls, robots, &opts, concurrency),
+        0,
+    )?;
+    emit_ok(data, json, |d| {
+        println!(
+            "ok batch-scrape count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
+        );
+    })
+}
+
+fn handle_crawl(
+    url: &str,
+    robots: RobotsPolicy,
+    limit: usize,
+    max_depth: usize,
+    format: &str,
+    same_host: bool,
+    json: bool,
+) -> Result<(), CliError> {
+    let opts = crate::scrape_local::ScrapeOpts {
+        format: crate::scrape_local::ScrapeFormat::parse(format)?,
+        engine: "http".into(),
+        ..Default::default()
+    };
+    let data = block_on_browser_timeout(
+        crate::scrape_local::crawl_http(url, robots, &opts, limit, max_depth, same_host),
+        0,
+    )?;
+    emit_ok(data, json, |d| {
+        println!(
+            "ok crawl count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
+        );
+    })
+}
+
+fn handle_map(
+    url: &str,
+    robots: RobotsPolicy,
+    limit: usize,
+    max_depth: usize,
+    json: bool,
+) -> Result<(), CliError> {
+    let data = block_on_browser_timeout(
+        crate::scrape_local::map_http(url, robots, limit, max_depth),
+        0,
+    )?;
+    emit_ok(data, json, |d| {
+        println!(
+            "ok map count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
+        );
+    })
+}
+
+fn handle_search(
+    query: &str,
+    robots: RobotsPolicy,
+    limit: usize,
+    json: bool,
+) -> Result<(), CliError> {
+    let data =
+        block_on_browser_timeout(crate::scrape_local::search_http(query, robots, limit), 0)?;
+    emit_ok(data, json, |d| {
+        println!(
+            "ok search count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
+        );
+    })
+}
+
+fn handle_parse(path: &Path, json: bool) -> Result<(), CliError> {
+    let data = crate::scrape_local::parse_file(path)?;
+    emit_ok(data, json, |d| {
+        println!(
+            "ok parse path={}",
+            d.get("path").and_then(|v| v.as_str()).unwrap_or("")
+        );
+    })
+}
+
+fn handle_mitm(action: MitmAction, json: bool) -> Result<(), CliError> {
+    let data = match action {
+        MitmAction::Status => crate::mitm_local::status()?,
+        MitmAction::List { host, limit } => crate::mitm_local::list(host.as_deref(), limit)?,
+        MitmAction::Get { id } => crate::mitm_local::get(id)?,
+        MitmAction::Har { out } => crate::mitm_local::export_har(&out)?,
+        MitmAction::Export { format, out } => {
+            if format.eq_ignore_ascii_case("har") {
+                crate::mitm_local::export_har(&out)?
+            } else {
+                let path = crate::mitm_local::default_capture_path()?;
+                let cap = crate::mitm_local::MitmCapture::load(&path, true)?;
+                let body = serde_json::to_vec_pretty(&serde_json::json!({
+                    "count": cap.items.len(),
+                    "items": cap.items,
+                }))
+                .map_err(|e| CliError::new(ErrorKind::Data, format!("export: {e}")))?;
+                std::fs::write(&out, body)
+                    .map_err(|e| CliError::new(ErrorKind::Io, format!("export write: {e}")))?;
+                serde_json::json!({
+                    "path": out.display().to_string(),
+                    "format": format,
+                    "count": cap.items.len(),
+                })
+            }
+        }
+        MitmAction::Domains => crate::mitm_local::domains()?,
+        MitmAction::Apis { kind } => crate::mitm_local::apis(kind.as_deref())?,
+        MitmAction::InitCa => crate::mitm_local::ensure_ca()?,
+        MitmAction::Start { seconds } => {
+            crate::browser::block_on_browser(crate::mitm_local::start_proxy_oneshot(seconds))?
+        }
+    };
+    emit_ok(data, json, |d| println!("ok mitm {d}"))
+}
+
+fn handle_workflow(action: WorkflowAction, json: bool) -> Result<(), CliError> {
+    let data = match action {
+        WorkflowAction::Run { manifest, journal } => {
+            crate::workflow_local::workflow_run(&manifest, journal.as_deref())?
+        }
+        WorkflowAction::Resume { manifest, journal } => {
+            crate::workflow_local::workflow_resume(&manifest, journal.as_deref())?
+        }
+        WorkflowAction::Status { journal, name } => {
+            crate::workflow_local::workflow_status(journal.as_deref(), name.as_deref())?
+        }
+    };
+    emit_ok(data, json, |d| println!("ok workflow {d}"))
+}
+
+fn handle_config(action: ConfigAction, json: bool) -> Result<(), CliError> {
+    let data = match action {
+        ConfigAction::Path => crate::xdg::paths_snapshot()?,
+        ConfigAction::Init => crate::xdg::init_layout()?,
+        ConfigAction::Show => crate::xdg::config_get(None)?,
+        ConfigAction::Set { key, value } => crate::xdg::config_set(&key, &value)?,
+        ConfigAction::Get { key } => crate::xdg::config_get(key.as_deref())?,
+    };
+    emit_ok(data, json, |d| println!("ok config {d}"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1788,21 +2061,20 @@ fn handle_perf(
     emit_ok(data, json, |d| println!("ok perf {d}"))
 }
 
-fn handle_lighthouse(
+/// Run lighthouse binary and return envelope data (shared by CLI and `run` scripts).
+pub(crate) fn lighthouse_to_value(
     url: &str,
     out_dir: Option<&Path>,
     device: &str,
     mode: &str,
     lighthouse_path: Option<&Path>,
-    json: bool,
-) -> Result<(), CliError> {
+) -> Result<serde_json::Value, CliError> {
     let bin = lighthouse_path
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "lighthouse".to_string());
     let out = out_dir.map(|p| p.to_path_buf()).unwrap_or_else(|| {
-        dirs::cache_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join("browser-automation-cli")
+        crate::xdg::cache_dir()
+            .unwrap_or_else(|_| std::env::temp_dir().join("browser-automation-cli"))
             .join("lighthouse")
     });
     std::fs::create_dir_all(&out)
@@ -1892,7 +2164,7 @@ fn handle_lighthouse(
         }
     }
 
-    let data = serde_json::json!({
+    Ok(serde_json::json!({
         "lighthouse": true,
         "url": url,
         "device": form_factor,
@@ -1906,7 +2178,18 @@ fn handle_lighthouse(
         "scores": scores,
         "passed_audits": passed_audits,
         "failed_audits": failed_audits,
-    });
+    }))
+}
+
+fn handle_lighthouse(
+    url: &str,
+    out_dir: Option<&Path>,
+    device: &str,
+    mode: &str,
+    lighthouse_path: Option<&Path>,
+    json: bool,
+) -> Result<(), CliError> {
+    let data = lighthouse_to_value(url, out_dir, device, mode, lighthouse_path)?;
     emit_ok(data, json, |d| {
         println!(
             "ok lighthouse report={}",

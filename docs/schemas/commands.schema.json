@@ -1,32 +1,14 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/commands.schema.json",
-  "title": "commands inventory data",
+  "title": "commands command input",
   "type": "object",
-  "required": ["binary", "commands", "schema_version"],
+  "description": "List available commands",
   "properties": {
-    "binary": { "const": "browser-automation-cli" },
-    "commands": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "devtools_tool_map": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["cli", "tool"],
-        "properties": {
-          "cli": { "type": "string" },
-          "tool": { "type": "string" }
-        },
-        "additionalProperties": true
-      }
-    },
-    "parity_default_on": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "schema_version": { "type": "integer" }
+    "json": {
+      "type": "boolean"
+    }
   },
-  "additionalProperties": true
+  "required": [],
+  "additionalProperties": false
 }

@@ -1,4 +1,4 @@
-//! `run --script` — multi-step NDJSON, one launch, fail-fast (Camada A+B).
+//! `run --script` — multi-step NDJSON, one launch, fail-fast (layers A+B).
 
 use std::path::Path;
 
@@ -15,6 +15,30 @@ pub struct RunFlags {
     pub experimental_vision: bool,
     pub experimental_screencast: bool,
     pub category_memory: bool,
+    pub category_extensions: bool,
+    pub category_third_party: bool,
+    pub category_webmcp: bool,
+}
+
+impl RunFlags {
+    /// Project CLI global gates into the multi-step dispatcher.
+    pub fn from_globals(
+        experimental_vision: bool,
+        experimental_screencast: bool,
+        category_memory: bool,
+        category_extensions: bool,
+        category_third_party: bool,
+        category_webmcp: bool,
+    ) -> Self {
+        Self {
+            experimental_vision,
+            experimental_screencast,
+            category_memory,
+            category_extensions,
+            category_third_party,
+            category_webmcp,
+        }
+    }
 }
 
 /// Execute NDJSON script with feature gates (vision/screencast/memory).
@@ -127,7 +151,14 @@ async fn execute_step(
         }
         "wait" => {
             let ms = step.get("ms").and_then(|v| v.as_u64());
-            let text = step.get("text").and_then(|v| v.as_str());
+            let texts: Vec<String> = match step.get("text") {
+                Some(Value::Array(arr)) => arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect(),
+                Some(Value::String(s)) => vec![s.clone()],
+                _ => Vec::new(),
+            };
             let selector = step
                 .get("selector")
                 .or_else(|| step.get("sel"))
@@ -138,11 +169,11 @@ async fn execute_step(
                 .or_else(|| step.get("includeSnapshot"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            if text.is_none() && selector.is_none() && state.is_none() && !include_snapshot {
+            if texts.is_empty() && selector.is_none() && state.is_none() && !include_snapshot {
                 session.wait_ms(ms.unwrap_or(0)).await
             } else {
                 session
-                    .wait_for(ms, text, selector, state, include_snapshot)
+                    .wait_for_any(ms, &texts, selector, state, include_snapshot)
                     .await
             }
         }
@@ -344,7 +375,7 @@ async fn execute_step(
                 return Err(CliError::with_suggestion(
                     ErrorKind::Usage,
                     "click-at requires --experimental-vision",
-                    "Pass --experimental-vision (or BROWSER_AUTOMATION_CLI_EXPERIMENTAL_VISION=1)",
+                    "Pass --experimental-vision on the same invocation",
                 ));
             }
             let x = step
@@ -933,6 +964,13 @@ async fn execute_step(
             }
         }
         "devtools3p-list" | "devtools3p" if step.get("action").and_then(|v| v.as_str()) == Some("list") => {
+            if !flags.category_third_party {
+                return Err(CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    "devtools3p tools require --category-third-party",
+                    "Pass --category-third-party on the same invocation",
+                ));
+            }
             if let Some(url) = step.get("url").and_then(|v| v.as_str()) {
                 if url != "about:blank" {
                     let _ = session
@@ -943,6 +981,13 @@ async fn execute_step(
             session.devtools3p_list().await
         }
         "devtools3p-exec" | "devtools3p" if step.get("action").and_then(|v| v.as_str()) == Some("exec") => {
+            if !flags.category_third_party {
+                return Err(CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    "devtools3p tools require --category-third-party",
+                    "Pass --category-third-party on the same invocation",
+                ));
+            }
             let name = step
                 .get("name")
                 .and_then(|v| v.as_str())
@@ -958,6 +1003,13 @@ async fn execute_step(
             session.devtools3p_exec(name, params).await
         }
         "webmcp-list" | "webmcp" if step.get("action").and_then(|v| v.as_str()) == Some("list") => {
+            if !flags.category_webmcp {
+                return Err(CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    "webmcp tools require --category-webmcp",
+                    "Pass --category-webmcp on the same invocation",
+                ));
+            }
             if let Some(url) = step.get("url").and_then(|v| v.as_str()) {
                 if url != "about:blank" {
                     let _ = session
@@ -968,6 +1020,13 @@ async fn execute_step(
             session.webmcp_list().await
         }
         "webmcp-exec" | "webmcp" if step.get("action").and_then(|v| v.as_str()) == Some("exec") => {
+            if !flags.category_webmcp {
+                return Err(CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    "webmcp tools require --category-webmcp",
+                    "Pass --category-webmcp on the same invocation",
+                ));
+            }
             let name = step
                 .get("name")
                 .and_then(|v| v.as_str())
@@ -982,6 +1041,79 @@ async fn execute_step(
             }
             session.webmcp_exec(name, input).await
         }
+        "scrape" => {
+            let url = step
+                .get("url")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| CliError::new(ErrorKind::Usage, "scrape requires url"))?;
+            // Prefer browser engine inside `run` (session already live).
+            session.scrape(url, robots).await
+        }
+        "lighthouse" => {
+            let url = step
+                .get("url")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| CliError::new(ErrorKind::Usage, "lighthouse requires url"))?;
+            let out_dir = step
+                .get("out_dir")
+                .or_else(|| step.get("outDir"))
+                .and_then(|v| v.as_str())
+                .map(Path::new);
+            let device = step
+                .get("device")
+                .and_then(|v| v.as_str())
+                .unwrap_or("desktop");
+            let mode = step
+                .get("mode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("navigation");
+            let lighthouse_path = step
+                .get("lighthouse_path")
+                .or_else(|| step.get("lighthousePath"))
+                .and_then(|v| v.as_str())
+                .map(Path::new);
+            // External binary; run off the browser session but same process.
+            super::lighthouse_to_value(url, out_dir, device, mode, lighthouse_path)
+        }
+        "extension" => {
+            if !flags.category_extensions {
+                return Err(CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    "extension tools require --category-extensions",
+                    "Pass --category-extensions on the same invocation",
+                ));
+            }
+            let action = step
+                .get("action")
+                .and_then(|v| v.as_str())
+                .unwrap_or("list");
+            match action {
+                "list" => session.extension_list().await,
+                "reload" => {
+                    let id = step
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            CliError::new(ErrorKind::Usage, "extension reload requires id")
+                        })?;
+                    session.extension_reload(id).await
+                }
+                "trigger" => {
+                    let id = step
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            CliError::new(ErrorKind::Usage, "extension trigger requires id")
+                        })?;
+                    session.extension_trigger(id).await
+                }
+                other => Err(CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    format!("unsupported extension action in run: {other}"),
+                    "Use list|reload|trigger in run; install/uninstall are top-level one-shot launches",
+                )),
+            }
+        }
         "" => Err(CliError::new(
             ErrorKind::Usage,
             "step missing cmd/action field",
@@ -989,7 +1121,7 @@ async fn execute_step(
         other => Err(CliError::with_suggestion(
             ErrorKind::Usage,
             format!("unknown script cmd: {other}"),
-            "Supported: goto wait hover drag fill-form upload back forward reload view press write keys type click-at eval grab extract text scroll cookie attr assert console net page dialog emulate resize perf lighthouse screencast heap devtools3p-list devtools3p-exec webmcp-list webmcp-exec",
+            "Supported: goto wait hover drag fill-form upload back forward reload view press write keys type click-at eval grab extract text scroll cookie attr assert console net page dialog scrape emulate resize perf lighthouse screencast heap extension devtools3p-list devtools3p-exec webmcp-list webmcp-exec",
         )),
     }
 }

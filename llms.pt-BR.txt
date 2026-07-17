@@ -4,10 +4,10 @@
 
 > CLI one-shot de automação Chrome CDP para agentes de IA, sem daemon e sem telemetria.
 
-browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou Chromium do sistema via CDP, executa ações de browser do agente e depois finaliza e sai.
+browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou Chromium do sistema via CDP, executa ações de browser do agente e depois finaliza e sai. Ciclo de vida: BORN, EXECUTE, FINALIZE, DIE. Settings de produto usam flags da CLI e config XDG apenas (sem env vars de produto).
 
 ## Documentação Primária
-- [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.pt-BR.md): landing do produto, install, comandos, env vars
+- [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.pt-BR.md): landing do produto, install, comandos, flags, config
 - [HOW_TO_USE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/HOW_TO_USE.pt-BR.md): primeiro comando em 60 segundos
 - [AGENTS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/AGENTS.pt-BR.md): contrato de integração para agentes
 - [COOKBOOK](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/COOKBOOK.pt-BR.md): receitas práticas
@@ -16,7 +16,25 @@ browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou C
 - [MIGRATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/MIGRATION.pt-BR.md): migração de versão
 - [TESTING](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/TESTING.pt-BR.md): categorias de teste
 - [schemas](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/schemas/README.md): índice de JSON schemas
-- [SKILL pt](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skill/browser-automation-cli-pt/SKILL.md): skill imperativa
+- [SKILL pt](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skills/browser-automation-cli-pt/SKILL.md): skill imperativa
 - [CHANGELOG](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CHANGELOG.pt-BR.md): histórico de releases
 - [SECURITY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/SECURITY.pt-BR.md): reporte de vulnerabilidades
 - [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): mapa expandido de descoberta
+
+## Superfície de Comandos (v0.1.1)
+- Descoberta: doctor, commands, schema, version, completions
+- Config XDG: config init|path|show|get|set
+- Navegação: goto, back, forward, reload
+- Scrape local: scrape (--format/--engine), batch-scrape, crawl, map, search, parse
+- Interação: view, press, write, type, keys, wait (multi --text OR), hover, drag, fill-form, upload, click-at
+- Observação: extract, text, scroll, attr, assert, grab --path
+- Abas: page, dialog, cookie
+- Captura: console, net
+- MITM: mitm init-ca|start|status|list|get|har|export|domains|apis
+- Workflow: workflow run|resume|status
+- Avançado: eval, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, run, exec
+
+## Contrato de Settings
+- Settings de produto: flags da CLI + XDG `config.toml` apenas
+- Sem env vars de produto (`BROWSER_AUTOMATION_CLI_*` não devem ser inventadas)
+- Vars de SO fora de settings de produto: `RUST_LOG`, `NO_COLOR`

@@ -1,0 +1,10 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/back.schema.json",
+  "title": "back command input",
+  "type": "object",
+  "description": "History back",
+  "properties": {},
+  "required": [],
+  "additionalProperties": false
+}

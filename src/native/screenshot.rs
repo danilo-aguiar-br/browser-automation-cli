@@ -589,15 +589,13 @@ fn round(value: f64) -> i64 {
 }
 
 fn get_screenshot_dir() -> PathBuf {
-    if let Some(home) = dirs::home_dir() {
-        home.join(".browser-automation-cli")
-            .join("tmp")
-            .join("screenshots")
-    } else {
-        std::env::temp_dir()
-            .join("browser-automation-cli")
-            .join("screenshots")
-    }
+    crate::xdg::cache_dir()
+        .map(|d| d.join("screenshots"))
+        .unwrap_or_else(|_| {
+            std::env::temp_dir()
+                .join("browser-automation-cli")
+                .join("screenshots")
+        })
 }
 
 #[cfg(test)]

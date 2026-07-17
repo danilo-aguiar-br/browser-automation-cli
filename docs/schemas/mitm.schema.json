@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/mitm.schema.json",
+  "title": "mitm command input",
+  "type": "object",
+  "description": "MITM capture / CA / HAR (one-shot local 127.0.0.1)",
+  "properties": {
+    "action": {
+      "enum": [
+        "status",
+        "list",
+        "get",
+        "har",
+        "export",
+        "domains",
+        "apis",
+        "init-ca",
+        "start"
+      ],
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "limit": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "out": {
+      "type": "string"
+    },
+    "seconds": {
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

@@ -1,12 +1,10 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/version.schema.json",
-  "title": "version command data",
+  "title": "version command input",
   "type": "object",
-  "required": ["name", "version"],
-  "properties": {
-    "name": { "const": "browser-automation-cli" },
-    "version": { "type": "string" }
-  },
-  "additionalProperties": true
+  "description": "Print CLI version (JSON when --json)",
+  "properties": {},
+  "required": [],
+  "additionalProperties": false
 }

@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/attr.schema.json",
+  "title": "attr command input",
+  "type": "object",
+  "description": "Read one attribute from target",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "name"
+  ],
+  "additionalProperties": false
+}

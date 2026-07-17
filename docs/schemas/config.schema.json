@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/config.schema.json",
+  "title": "config command input",
+  "type": "object",
+  "description": "XDG config and path management (no product env at runtime)",
+  "properties": {
+    "action": {
+      "enum": [
+        "path",
+        "init",
+        "show",
+        "set",
+        "get"
+      ],
+      "type": "string"
+    },
+    "key": {
+      "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color",
+      "type": "string"
+    },
+    "value": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

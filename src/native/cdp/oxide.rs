@@ -1,7 +1,7 @@
 //! Chromiumoxide launch + FINALIZE helpers (PRD: Browser::launch only, no connect).
 #![allow(missing_docs)]
 //!
-//! System Chrome/Chromium only — no BrowserFetcher embutido (PRD L56 / L387).
+//! System Chrome/Chromium only — no BrowserFetcher embedded (PRD L56 / L387).
 //! Launch flags come from `build_chrome_args` so proxy/webgpu/extensions are live.
 
 use std::path::PathBuf;
@@ -26,7 +26,7 @@ pub struct OxideLaunch {
 
 /// Launch headless Chrome via chromiumoxide using system or explicit executable.
 ///
-/// PROIBIDO: attach/connect to external CDP in MVP. PROIBIDO: BrowserFetcher download automático.
+/// Forbidden in MVP: attach/connect to external CDP. Forbidden: BrowserFetcher auto-download.
 /// Handler must be polled (via CdpClient::from_browser) for commands to complete.
 pub async fn launch_with_oxide(options: &LaunchOptions) -> Result<OxideLaunch, String> {
     let chrome_args = build_chrome_args(options)?;

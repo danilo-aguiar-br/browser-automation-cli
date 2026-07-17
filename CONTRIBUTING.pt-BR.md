@@ -49,7 +49,10 @@ browser-automation-cli doctor --offline --quick --json
 - Atualize docs públicas em inglês e português no mesmo PR
 - Mantenha identificadores técnicos sem tradução
 - Atualize `docs/schemas/` quando contratos JSON mudarem
-- Atualize skill packages quando a superfície de comandos mudar
+- Atualize skill packages em `skills/` quando a superfície de comandos mudar
+- Documente settings de produto só como flags mais `config` XDG
+- Não documente settings de produto via `BROWSER_AUTOMATION_CLI_*` (não existem)
+- Ao adicionar comandos, atualize README Commands, INTEGRATIONS New Flags, llms-full Command Surface, COOKBOOK, skills e MIGRATION
 
 ## Reportar Bugs
 - Abra issue no GitHub com `browser-automation-cli --version`
@@ -64,6 +67,9 @@ browser-automation-cli doctor --offline --quick --json
 ## Processo de Release
 - Bump SemVer no `Cargo.toml`
 - Atualize ambos CHANGELOGs em `[Unreleased]` e depois corte a seção da versão
+- Mantenha a ordem Keep a Changelog: Unreleased primeiro, depois versões decrescentes
+- Sincronize docs públicas com a superfície de comandos shipável antes da tag
+- Confirme que `cargo package --list` inclui `docs/`, `skills/` e docs públicas da raiz
 - Mantenha publish crates.io e GitHub Release bloqueados até aprovação explícita
 - Valide com build, clippy, fmt e testes antes da tag
 

@@ -47,6 +47,14 @@
 - Mantenha Chrome ou Chromium atualizados no host
 - Nunca passe secrets em argv quando houver alternativa via stdin
 - Trate `--ignore-robots` como escolha explícita de alto risco
-- Mantenha `BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY` fora de history e logs
+- Armazene material de encryption com `browser-automation-cli config set encryption_key <secret>` (somente config XDG; nunca invente env vars de produto como `BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY`)
+- Mantenha encryption keys e valores de cookie fora de history e logs duráveis
 - Prefira pipelines `--json` que descartem secrets de stderr em logs duráveis
 - Não aponte a CLI a páginas não confiáveis sem expectativas de isolamento
+
+## Boas Práticas MITM
+- Faça bind e use MITM apenas em `127.0.0.1` (proxy local one-shot; não exponha em LAN ou interfaces públicas)
+- Mantenha a CA local sob XDG data (`mitm/ca`) e proteja instalações no trust-store do host
+- Não exponha o proxy MITM além da máquina do operador
+- Trate capturas, exports HAR e material privado da CA como sensíveis
+- Prefira orçamentos curtos de `--seconds` em `mitm start` e limpe artefatos de captura após a análise

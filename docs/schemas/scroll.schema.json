@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/scroll.schema.json",
+  "title": "scroll command input",
+  "type": "object",
+  "description": "Scroll window or element by pixel deltas",
+  "properties": {
+    "delta_x": {
+      "type": "number"
+    },
+    "delta_y": {
+      "type": "number"
+    },
+    "target": {
+      "description": "Optional CSS/@eN",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

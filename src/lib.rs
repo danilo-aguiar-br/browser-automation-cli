@@ -2,7 +2,7 @@
 //!
 //! One-shot Chrome CDP automation library and CLI for AI agents.
 //!
-//! Lifecycle is always **NASCE → EXECUTA → FINALIZE → MORRE** in a single process.
+//! Lifecycle is always **BORN → EXECUTE → FINALIZE → DIE** in a single process.
 //! There is no daemon, no npm runtime, and no remote telemetry.
 //!
 //! ## Overview
@@ -117,6 +117,14 @@ pub mod error;
 pub mod i18n;
 /// Install path helpers for doctor and packaging checks.
 pub mod install;
+/// Local Firecrawl-parity scrape/crawl/map/search/parse (HTTP + files).
+pub mod scrape_local;
+/// Local MITM capture, CA, and HAR export (one-shot).
+pub mod mitm_local;
+/// Workflow journal DAG (petgraph + SQLite), one-shot run/resume.
+pub mod workflow_local;
+/// XDG Base Directory paths and config file (no `.env` at runtime).
+pub mod xdg;
 /// Cooperative cancel and FINALIZE ledger.
 pub mod lifecycle;
 /// Native CDP stack (browser, network, snapshot, heap).
@@ -146,7 +154,7 @@ use crate::lifecycle::Lifecycle;
 ///
 /// ```mermaid
 /// flowchart LR
-///   NASCE --> EXECUTA --> FINALIZE --> MORRE
+///   BORN → EXECUTE → FINALIZE → DIE
 /// ```
 ///
 /// # Returns

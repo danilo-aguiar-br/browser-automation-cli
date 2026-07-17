@@ -1,14 +1,17 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/goto.schema.json",
   "title": "goto command input",
   "type": "object",
-  "required": ["url"],
+  "description": "Navigate to URL and wait for load (one-shot)",
   "properties": {
     "url": {
-      "type": "string",
-      "description": "Absolute URL or about:blank"
+      "description": "Absolute URL or about:blank",
+      "type": "string"
     }
   },
+  "required": [
+    "url"
+  ],
   "additionalProperties": false
 }

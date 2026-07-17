@@ -26,8 +26,10 @@ fn commands_json_closed_pipe_maps_to_141_or_success() {
     let status = child.wait().expect("wait");
     let code = status.code().unwrap_or(-1);
     // 141 = BrokenPipe, 0 = finished before close, 13 = SIGPIPE if not handled
+    // 141 = BrokenPipe, 0 = finished before close, 13 = SIGPIPE if not handled
+    // (128+13 collapses to the same 141 when shells report signal+128).
     assert!(
-        code == 141 || code == 0 || code == 13 || code == 128 + 13,
+        matches!(code, 0 | 13 | 141),
         "unexpected exit {code}"
     );
 }

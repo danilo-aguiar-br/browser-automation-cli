@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/assert.schema.json",
+  "title": "assert command input",
+  "type": "object",
+  "description": "Assertion helpers (url/text/console)",
+  "properties": {
+    "kind": {
+      "enum": [
+        "url",
+        "text",
+        "console"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "additionalProperties": false
+}

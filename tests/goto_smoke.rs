@@ -74,7 +74,7 @@ fn view_without_prior_session_is_one_shot_launch() {
         return;
     }
     // Each command is one-shot: view launches its own headless Chrome, takes
-    // a snapshot of the initial page, then FINALIZE/MORRE.
+    // a snapshot of the initial page, then FINALIZE/DIE.
     let output = Command::new(BIN)
         .args(["view", "--json"])
         .output()

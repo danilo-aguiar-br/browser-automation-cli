@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/grab.schema.json",
+  "title": "grab command input",
+  "type": "object",
+  "description": "Screenshot (png/jpeg/webp)",
+  "properties": {
+    "element": {
+      "description": "CSS selector or @eN",
+      "type": "string"
+    },
+    "format": {
+      "enum": [
+        "png",
+        "jpeg",
+        "webp"
+      ],
+      "type": "string"
+    },
+    "full_page": {
+      "type": "boolean"
+    },
+    "path": {
+      "type": "string"
+    },
+    "quality": {
+      "type": "integer"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

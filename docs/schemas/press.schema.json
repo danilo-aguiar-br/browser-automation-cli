@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/press.schema.json",
+  "title": "press command input",
+  "type": "object",
+  "description": "Click element by CSS selector or @eN",
+  "properties": {
+    "dblclick": {
+      "type": "boolean"
+    },
+    "include_snapshot": {
+      "type": "boolean"
+    },
+    "target": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target"
+  ],
+  "additionalProperties": false
+}

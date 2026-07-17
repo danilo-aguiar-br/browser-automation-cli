@@ -326,7 +326,7 @@ pub async fn save_state(
         }
     };
 
-    if let Ok(key) = std::env::var("BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY") {
+    if let Some(key) = crate::xdg::encryption_key() {
         let encrypted = encrypt_data(json_str.as_bytes(), &key)?;
         save_path.push_str(".enc");
         fs::write(&save_path, &encrypted)
@@ -365,7 +365,7 @@ pub async fn save_auto_state_transactional(
 
     let base_name = format!("{}-{}", session_name, session_id_str);
     let final_json_path = dir.join(format!("{}.json", base_name));
-    let final_path = if std::env::var("BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY").is_ok() {
+    let final_path = if crate::xdg::encryption_key().is_some() {
         PathBuf::from(format!("{}.enc", final_json_path.to_string_lossy()))
     } else {
         final_json_path
@@ -426,8 +426,8 @@ pub async fn save_auto_state_transactional(
 
 fn read_state_json(path: &str) -> Result<String, String> {
     if is_encrypted_state(std::path::Path::new(path)) {
-        let key = std::env::var("BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY").map_err(|_| {
-            "Encrypted state file requires BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY".to_string()
+        let key = crate::xdg::encryption_key().ok_or_else(|| {
+            "Encrypted state file requires config set encryption_key (XDG config)".to_string()
         })?;
         let data =
             fs::read(path).map_err(|e| format!("Failed to read state from {}: {}", path, e))?;
@@ -438,7 +438,7 @@ fn read_state_json(path: &str) -> Result<String, String> {
         match fs::read_to_string(path) {
             Ok(s) => Ok(s),
             Err(e) => {
-                if let Ok(key) = std::env::var("BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY") {
+                if let Some(key) = crate::xdg::encryption_key() {
                     let enc_path = format!("{}.enc", path);
                     if let Ok(data) = fs::read(&enc_path) {
                         let decrypted = decrypt_data(&data, &key)?;
@@ -600,8 +600,8 @@ pub fn state_list() -> Result<Value, String> {
 pub fn state_show(path: &str) -> Result<Value, String> {
     let encrypted = is_encrypted_state(std::path::Path::new(path));
     let json_str = if encrypted {
-        let key = std::env::var("BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY").map_err(|_| {
-            "Encrypted state file requires BROWSER_AUTOMATION_CLI_ENCRYPTION_KEY".to_string()
+        let key = crate::xdg::encryption_key().ok_or_else(|| {
+            "Encrypted state file requires config set encryption_key (XDG config)".to_string()
         })?;
         let data = fs::read(path).map_err(|e| format!("Failed to read state file: {}", e))?;
         let decrypted = decrypt_data(&data, &key)?;
@@ -824,20 +824,21 @@ pub fn dispatch_state_command(cmd: &Value) -> Option<Result<Value, String>> {
     }
 }
 
-/// Return the browser-automation-cli state root (`~/.browser-automation-cli`, falling back to
-/// `<tempdir>/browser-automation-cli` when the home directory can't be resolved).
+/// Return the browser-automation-cli state root (XDG state via `crate::xdg`).
+///
 /// This is the parent of `sessions/`, auth storage, and the encryption key.
+/// Optional namespace is read from the XDG config file (`namespace = "..."`), not from env.
 pub fn get_state_dir() -> PathBuf {
-    let base = if let Some(home) = dirs::home_dir() {
-        home.join(".browser-automation-cli")
-    } else {
-        std::env::temp_dir().join("browser-automation-cli")
-    };
+    let base = crate::xdg::state_dir().unwrap_or_else(|_| {
+        std::env::temp_dir().join("browser-automation-cli").join("state")
+    });
 
-    if let Ok(namespace) = std::env::var("BROWSER_AUTOMATION_CLI_NAMESPACE") {
-        let namespace = sanitize_session_component(&namespace);
-        if !namespace.is_empty() {
-            return base.join("namespaces").join(namespace).join("state");
+    if let Ok(cfg) = crate::xdg::load_config() {
+        if let Some(namespace) = cfg.namespace {
+            let namespace = sanitize_session_component(&namespace);
+            if !namespace.is_empty() {
+                return base.join("namespaces").join(namespace);
+            }
         }
     }
 
@@ -970,18 +971,26 @@ mod tests {
 
     #[test]
     fn test_get_state_dir_namespace_scopes_sessions() {
-        let _guard = crate::test_utils::EnvGuard::new(&["BROWSER_AUTOMATION_CLI_NAMESPACE"]);
-        _guard.set("BROWSER_AUTOMATION_CLI_NAMESPACE", "Worktree: One");
+        // Namespace is XDG-config only (no product env vars).
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let guard = crate::test_utils::EnvGuard::new(&["HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"]);
+        guard.set("HOME", home.to_str().unwrap());
+        guard.set("XDG_CONFIG_HOME", home.join("config").to_str().unwrap());
+        guard.set("XDG_STATE_HOME", home.join("state").to_str().unwrap());
 
-        let dir = get_state_dir();
-        let expected_state_suffix = PathBuf::from(".browser-automation-cli")
-            .join("namespaces")
-            .join("worktree-one")
-            .join("state");
-        let expected_sessions_suffix = expected_state_suffix.join("sessions");
+        let mut cfg = crate::xdg::ProductConfig::default();
+        cfg.namespace = Some("Worktree: One".into());
+        crate::xdg::write_config(&cfg).expect("write config under temp XDG");
 
-        assert!(dir.ends_with(expected_state_suffix));
-        assert!(get_sessions_dir().ends_with(expected_sessions_suffix));
+        let state = get_state_dir();
+        assert!(
+            state.to_string_lossy().contains("namespaces")
+                && state.to_string_lossy().contains("worktree-one"),
+            "state dir should scope under namespaces/worktree-one, got {}",
+            state.display()
+        );
+        assert!(get_sessions_dir().ends_with("sessions"));
     }
 
     #[test]

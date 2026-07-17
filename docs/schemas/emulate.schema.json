@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/emulate.schema.json",
+  "title": "emulate command input",
+  "type": "object",
+  "description": "Emulate UA locale timezone network geo media CPU viewport headers",
+  "properties": {
+    "color_scheme": {
+      "type": "string"
+    },
+    "cpu_throttling_rate": {
+      "type": "number"
+    },
+    "extra_headers": {
+      "type": "string"
+    },
+    "latitude": {
+      "type": "number"
+    },
+    "locale": {
+      "type": "string"
+    },
+    "longitude": {
+      "type": "number"
+    },
+    "media": {
+      "type": "string"
+    },
+    "network_conditions": {
+      "type": "string"
+    },
+    "offline": {
+      "type": "boolean"
+    },
+    "timezone": {
+      "type": "string"
+    },
+    "user_agent": {
+      "type": "string"
+    },
+    "viewport": {
+      "type": "string"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

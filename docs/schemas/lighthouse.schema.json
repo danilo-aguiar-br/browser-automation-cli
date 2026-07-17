@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/lighthouse.schema.json",
+  "title": "lighthouse command input",
+  "type": "object",
+  "description": "External lighthouse audit with JSON scores",
+  "properties": {
+    "device": {
+      "type": "string"
+    },
+    "lighthouse_path": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string"
+    },
+    "out_dir": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "additionalProperties": false
+}

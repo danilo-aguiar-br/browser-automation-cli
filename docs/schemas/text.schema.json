@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/text.schema.json",
+  "title": "text command input",
+  "type": "object",
+  "description": "Extract visible text from target (PRD §7)",
+  "properties": {
+    "target": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target"
+  ],
+  "additionalProperties": false
+}

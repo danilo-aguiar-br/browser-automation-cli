@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/hover.schema.json",
+  "title": "hover command input",
+  "type": "object",
+  "description": "Hover element by CSS selector or @eN",
+  "properties": {
+    "target": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target"
+  ],
+  "additionalProperties": false
+}

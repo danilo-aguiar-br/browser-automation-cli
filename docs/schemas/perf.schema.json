@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/perf.schema.json",
+  "title": "perf command input",
+  "type": "object",
+  "description": "Performance start|stop|insight",
+  "properties": {
+    "action": {
+      "enum": [
+        "start",
+        "stop",
+        "insight"
+      ],
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "reload": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

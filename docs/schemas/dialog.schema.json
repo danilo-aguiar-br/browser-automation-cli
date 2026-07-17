@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/dialog.schema.json",
+  "title": "dialog command input",
+  "type": "object",
+  "description": "Accept or dismiss open dialog",
+  "properties": {
+    "action": {
+      "enum": [
+        "accept",
+        "dismiss"
+      ],
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

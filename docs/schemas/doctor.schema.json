@@ -1,27 +1,26 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/doctor.schema.json",
-  "title": "doctor command data",
+  "title": "doctor command input",
   "type": "object",
-  "required": ["ok", "schema_version", "checks"],
+  "description": "Diagnose local Chrome install and one-shot readiness",
   "properties": {
-    "ok": { "type": "boolean" },
-    "schema_version": { "type": "integer" },
-    "checks": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "status", "message"],
-        "properties": {
-          "id": { "type": "string" },
-          "status": { "type": "string" },
-          "message": { "type": "string" }
-        },
-        "additionalProperties": true
-      }
+    "fix": {
+      "description": "Apply safe repairs when possible",
+      "type": "boolean"
     },
-    "ffmpeg_present": { "type": "boolean" },
-    "lighthouse_present": { "type": "boolean" }
+    "json": {
+      "type": "boolean"
+    },
+    "offline": {
+      "description": "Skip network probes",
+      "type": "boolean"
+    },
+    "quick": {
+      "description": "Skip live launch test",
+      "type": "boolean"
+    }
   },
-  "additionalProperties": true
+  "required": [],
+  "additionalProperties": false
 }

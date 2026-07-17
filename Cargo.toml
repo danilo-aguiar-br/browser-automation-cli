@@ -1,11 +1,11 @@
 [package]
 name = "browser-automation-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.88.0"
 authors = ["Danilo Aguiar <daniloaguiarbr@proton.me>"]
 license = "MIT OR Apache-2.0"
-description = "One-shot browser automation CLI for AI agents via Chrome CDP. NASCE EXECUTA FINALIZE MORRE. No daemon, no npm, no telemetry."
+description = "One-shot browser automation CLI for AI agents via Chrome CDP. BORN EXECUTE FINALIZE DIE. No daemon, no npm, no telemetry."
 readme = "README.md"
 keywords = ["browser", "automation", "ai", "cdp", "chrome"]
 categories = ["command-line-utilities", "web-programming"]
@@ -30,7 +30,6 @@ exclude = [
     ".vscode/",
     "logs/",
     "memory/",
-    "skills/",
 ]
 
 [package.metadata.docs.rs]
@@ -83,6 +82,12 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 robotstxt = "0.3"
 aquamarine = "0.6"
+directories = "5"
+scraper = "0.22"
+petgraph = "0.7"
+rusqlite = { version = "0.32", features = ["bundled"] }
+rcgen = "0.14.8"
+hudsucker = "0.25.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -101,7 +106,7 @@ serde_json = "1.0"
 
 [profile.release]
 opt-level = 3
-lto = true
+lto = "fat"
 codegen-units = 1
 strip = true
 panic = "abort"

@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/write.schema.json",
+  "title": "write command input",
+  "type": "object",
+  "description": "Smart fill: text, select option, checkbox/radio true|false",
+  "properties": {
+    "include_snapshot": {
+      "type": "boolean"
+    },
+    "target": {
+      "type": "string"
+    },
+    "value": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "value"
+  ],
+  "additionalProperties": false
+}

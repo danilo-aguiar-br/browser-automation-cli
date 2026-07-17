@@ -3,7 +3,7 @@
 //!
 //! Chrome one-shot: `Browser::launch` only.
 //! Lightpanda / attach path: `Browser::connect` only.
-//! PROIBIDO: second `tokio-tungstenite` attach to the same browser.
+//! FORBIDDEN: second `tokio-tungstenite` attach to the same browser.
 
 use std::borrow::Cow;
 use std::sync::Arc;

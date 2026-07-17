@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/screencast.schema.json",
+  "title": "screencast command input",
+  "type": "object",
+  "description": "Screencast start|stop (requires --experimental-screencast)",
+  "properties": {
+    "action": {
+      "enum": [
+        "start",
+        "stop"
+      ],
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

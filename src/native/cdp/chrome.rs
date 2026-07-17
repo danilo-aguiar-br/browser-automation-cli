@@ -1,8 +1,8 @@
 //! Chrome discovery + launch option args for chromiumoxide one-shot.
 #![allow(missing_docs)]
 //!
-//! PROIBIDO: dual spawn via Child/Command for Chrome production path.
-//! PROIBIDO: BrowserFetcher embutido no MVP (system Chrome only).
+//! FORBIDDEN: dual spawn via Child/Command for Chrome production path.
+//! FORBIDDEN: BrowserFetcher embedded no MVP (system Chrome only).
 //! Launch ownership: `oxide::launch_with_oxide` → `Browser::launch`.
 
 use std::io::Write;

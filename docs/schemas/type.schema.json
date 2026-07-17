@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/type.schema.json",
+  "title": "type command input",
+  "type": "object",
+  "description": "Type text into a target",
+  "properties": {
+    "clear": {
+      "type": "boolean"
+    },
+    "submit": {
+      "description": "Optional key after type (e.g. Enter)",
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "text"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/cookie.schema.json",
+  "title": "cookie command input",
+  "type": "object",
+  "description": "Cookie list/set/clear for the one-shot browser process",
+  "properties": {
+    "action": {
+      "enum": [
+        "list",
+        "set",
+        "clear"
+      ],
+      "type": "string"
+    },
+    "json": {
+      "description": "JSON array for set",
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

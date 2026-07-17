@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/wait.schema.json",
+  "title": "wait command input",
+  "type": "object",
+  "description": "Wait ms and/or text and/or CSS selector and/or load state",
+  "properties": {
+    "include_snapshot": {
+      "type": "boolean"
+    },
+    "ms": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "selector": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "load",
+        "domcontentloaded",
+        "networkidle",
+        "none"
+      ],
+      "type": "string"
+    },
+    "text": {
+      "description": "Repeatable --text values; any match wins (OR)",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "wait_timeout_ms": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

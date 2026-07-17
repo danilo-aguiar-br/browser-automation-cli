@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/net.schema.json",
+  "title": "net command input",
+  "type": "object",
+  "description": "List or get captured network requests (needs --capture-network)",
+  "properties": {
+    "action": {
+      "enum": [
+        "list",
+        "get"
+      ],
+      "type": "string"
+    },
+    "id": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "request_path": {
+      "type": "string"
+    },
+    "response_path": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

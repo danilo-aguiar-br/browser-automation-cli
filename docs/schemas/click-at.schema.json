@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/click-at.schema.json",
+  "title": "click-at command input",
+  "type": "object",
+  "description": "Click at page CSS coordinates (requires --experimental-vision)",
+  "properties": {
+    "dblclick": {
+      "type": "boolean"
+    },
+    "include_snapshot": {
+      "type": "boolean"
+    },
+    "x": {
+      "type": "number"
+    },
+    "y": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y"
+  ],
+  "additionalProperties": false
+}

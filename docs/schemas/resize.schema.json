@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/resize.schema.json",
+  "title": "resize command input",
+  "type": "object",
+  "description": "Resize viewport",
+  "properties": {
+    "height": {
+      "type": "integer"
+    },
+    "mobile": {
+      "type": "boolean"
+    },
+    "scale": {
+      "type": "number"
+    },
+    "width": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "width",
+    "height"
+  ],
+  "additionalProperties": false
+}

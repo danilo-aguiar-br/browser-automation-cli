@@ -1,0 +1,661 @@
+//! One-shot local MITM capture helpers (PRD §5E).
+//!
+//! This module:
+//! - Generates/loads a local CA under XDG data (`mitm/ca`)
+//! - Stores invocation captures under XDG state (`mitm/`)
+//! - Exports HAR JSON without Python mitmproxy
+//!
+//! Full TLS intercept proxy (hudsucker) can attach to the same capture store.
+//! CDP Network remains complementary and can feed the same HAR exporter.
+
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use rcgen::{CertificateParams, KeyPair};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+
+use crate::error::{CliError, ErrorKind};
+use crate::xdg;
+
+/// One captured HTTP(S) exchange (agent-facing, secrets redacted by default).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapturedExchange {
+    /// Monotonic id within the capture.
+    pub id: u64,
+    /// Request method.
+    pub method: String,
+    /// Absolute URL.
+    pub url: String,
+    /// HTTP status if known.
+    pub status: Option<u16>,
+    /// Resource / content type hint.
+    pub content_type: Option<String>,
+    /// Request headers (redacted).
+    pub request_headers: BTreeMapString,
+    /// Response headers (redacted).
+    pub response_headers: BTreeMapString,
+    /// Truncated request body.
+    pub request_body: Option<String>,
+    /// Truncated response body.
+    pub response_body: Option<String>,
+    /// Host extracted from URL.
+    pub host: Option<String>,
+    /// Wall-clock unix millis.
+    pub started_ms: u64,
+}
+
+/// Stable map type alias for headers.
+pub type BTreeMapString = std::collections::BTreeMap<String, String>;
+
+/// In-memory + disk-backed capture for one process.
+#[derive(Debug, Default)]
+pub struct MitmCapture {
+    /// Captured exchanges.
+    pub items: Vec<CapturedExchange>,
+    /// Next id.
+    next_id: u64,
+    /// Optional path for persistence.
+    path: Option<PathBuf>,
+    /// Redact Authorization/Cookie by default.
+    redact: bool,
+}
+
+impl MitmCapture {
+    /// Create a new capture optionally bound to a path.
+    pub fn new(path: Option<PathBuf>, redact: bool) -> Self {
+        Self {
+            items: Vec::new(),
+            next_id: 0,
+            path,
+            redact,
+        }
+    }
+
+    /// Append an exchange.
+    pub fn push(&mut self, mut ex: CapturedExchange) {
+        if self.redact {
+            redact_headers(&mut ex.request_headers);
+            redact_headers(&mut ex.response_headers);
+        }
+        ex.id = self.next_id;
+        self.next_id += 1;
+        self.items.push(ex);
+    }
+
+    /// Persist JSON snapshot.
+    pub fn save(&self) -> Result<PathBuf, CliError> {
+        let path = self.path.clone().ok_or_else(|| {
+            CliError::new(ErrorKind::Config, "mitm capture path not set")
+        })?;
+        if let Some(parent) = path.parent() {
+            xdg::ensure_dir(parent)?;
+        }
+        let body = serde_json::to_vec_pretty(&json!({
+            "schema_version": 1,
+            "count": self.items.len(),
+            "items": self.items,
+        }))
+        .map_err(|e| CliError::new(ErrorKind::Data, format!("serialize mitm capture: {e}")))?;
+        atomic_write(&path, &body)?;
+        Ok(path)
+    }
+
+    /// Load from disk.
+    pub fn load(path: &Path, redact: bool) -> Result<Self, CliError> {
+        if !path.exists() {
+            return Ok(Self::new(Some(path.to_path_buf()), redact));
+        }
+        let raw = fs::read_to_string(path).map_err(|e| {
+            CliError::new(ErrorKind::Io, format!("read mitm capture: {e}"))
+        })?;
+        let v: Value = serde_json::from_str(&raw).map_err(|e| {
+            CliError::new(ErrorKind::Data, format!("parse mitm capture: {e}"))
+        })?;
+        let items: Vec<CapturedExchange> = serde_json::from_value(
+            v.get("items").cloned().unwrap_or_else(|| json!([])),
+        )
+        .map_err(|e| CliError::new(ErrorKind::Data, format!("mitm items: {e}")))?;
+        let next_id = items.iter().map(|i| i.id).max().map(|m| m + 1).unwrap_or(0);
+        Ok(Self {
+            items,
+            next_id,
+            path: Some(path.to_path_buf()),
+            redact,
+        })
+    }
+}
+
+fn redact_headers(h: &mut BTreeMapString) {
+    const SENSITIVE: &[&str] = &[
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "proxy-authorization",
+        "x-api-key",
+    ];
+    for (k, v) in h.iter_mut() {
+        if SENSITIVE.iter().any(|s| k.eq_ignore_ascii_case(s)) {
+            *v = "[REDACTED]".into();
+        }
+    }
+}
+
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
+    let tmp = path.with_extension("tmp");
+    {
+        let mut f = fs::File::create(&tmp)
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("mitm tmp: {e}")))?;
+        f.write_all(bytes)
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("mitm write: {e}")))?;
+        f.sync_all()
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("mitm fsync: {e}")))?;
+    }
+    fs::rename(&tmp, path)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("mitm rename: {e}")))?;
+    Ok(())
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Ensure CA key/cert exist under XDG; return paths.
+pub fn ensure_ca() -> Result<Value, CliError> {
+    let ca_dir = xdg::mitm_ca_dir()?;
+    xdg::ensure_dir(&ca_dir)?;
+    let cert_path = ca_dir.join("ca.pem");
+    let key_path = ca_dir.join("ca.key.pem");
+    if !cert_path.exists() || !key_path.exists() {
+        let mut params = CertificateParams::new(vec!["browser-automation-cli MITM CA".into()])
+            .map_err(|e| CliError::new(ErrorKind::Software, format!("rcgen params: {e}")))?;
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let key_pair = KeyPair::generate()
+            .map_err(|e| CliError::new(ErrorKind::Software, format!("rcgen key: {e}")))?;
+        let cert = params.self_signed(&key_pair).map_err(|e| {
+            CliError::new(ErrorKind::Software, format!("rcgen self-signed: {e}"))
+        })?;
+        atomic_write(&cert_path, cert.pem().as_bytes())?;
+        atomic_write(&key_path, key_pair.serialize_pem().as_bytes())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600));
+            let _ = fs::set_permissions(&cert_path, fs::Permissions::from_mode(0o600));
+        }
+    }
+    Ok(json!({
+        "ca_dir": ca_dir.display().to_string(),
+        "cert_path": cert_path.display().to_string(),
+        "key_path": key_path.display().to_string(),
+        "bind": "127.0.0.1",
+        "note": "CA ready for local one-shot MITM; never bind 0.0.0.0",
+    }))
+}
+
+/// Default capture file for this user (latest).
+pub fn default_capture_path() -> Result<PathBuf, CliError> {
+    Ok(xdg::mitm_capture_dir()?.join("capture.json"))
+}
+
+/// Status of MITM readiness + capture counts.
+pub fn status() -> Result<Value, CliError> {
+    let ca = ensure_ca()?;
+    let path = default_capture_path()?;
+    let cap = MitmCapture::load(&path, true)?;
+    Ok(json!({
+        "ok": true,
+        "ca": ca,
+        "capture_path": path.display().to_string(),
+        "count": cap.items.len(),
+        "bind_policy": "127.0.0.1 only",
+        "proxy_running": false,
+        "note": "one-shot: use `mitm start --seconds N` (hudsucker on 127.0.0.1 only)",
+    }))
+}
+
+/// List captured requests.
+pub fn list(host_filter: Option<&str>, limit: usize) -> Result<Value, CliError> {
+    let path = default_capture_path()?;
+    let cap = MitmCapture::load(&path, true)?;
+    let limit = limit.max(1).min(10_000);
+    let items: Vec<Value> = cap
+        .items
+        .iter()
+        .filter(|e| {
+            host_filter
+                .map(|h| e.host.as_deref() == Some(h) || e.url.contains(h))
+                .unwrap_or(true)
+        })
+        .take(limit)
+        .map(|e| {
+            json!({
+                "id": e.id,
+                "method": e.method,
+                "url": e.url,
+                "status": e.status,
+                "host": e.host,
+                "content_type": e.content_type,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "count": items.len(),
+        "items": items,
+        "capture_path": path.display().to_string(),
+    }))
+}
+
+/// Get one exchange by id.
+pub fn get(id: u64) -> Result<Value, CliError> {
+    let path = default_capture_path()?;
+    let cap = MitmCapture::load(&path, true)?;
+    let item = cap
+        .items
+        .iter()
+        .find(|e| e.id == id)
+        .ok_or_else(|| CliError::new(ErrorKind::NoInput, format!("mitm id not found: {id}")))?;
+    Ok(serde_json::to_value(item)
+        .map_err(|e| CliError::new(ErrorKind::Data, format!("mitm get: {e}")))?)
+}
+
+/// Export HAR 1.2 JSON (hand-built; no Python).
+pub fn export_har(out: &Path) -> Result<Value, CliError> {
+    let path = default_capture_path()?;
+    let cap = MitmCapture::load(&path, true)?;
+    let entries: Vec<Value> = cap
+        .items
+        .iter()
+        .map(|e| {
+            let req_headers: Vec<Value> = e
+                .request_headers
+                .iter()
+                .map(|(n, v)| json!({"name": n, "value": v}))
+                .collect();
+            let res_headers: Vec<Value> = e
+                .response_headers
+                .iter()
+                .map(|(n, v)| json!({"name": n, "value": v}))
+                .collect();
+            json!({
+                "startedDateTime": chrono_like(e.started_ms),
+                "time": 0,
+                "request": {
+                    "method": e.method,
+                    "url": e.url,
+                    "httpVersion": "HTTP/1.1",
+                    "headers": req_headers,
+                    "queryString": [],
+                    "cookies": [],
+                    "headersSize": -1,
+                    "bodySize": e.request_body.as_ref().map(|b| b.len() as i64).unwrap_or(0),
+                    "postData": e.request_body.as_ref().map(|b| json!({
+                        "mimeType": "application/octet-stream",
+                        "text": b,
+                    })),
+                },
+                "response": {
+                    "status": e.status.unwrap_or(0),
+                    "statusText": "",
+                    "httpVersion": "HTTP/1.1",
+                    "headers": res_headers,
+                    "cookies": [],
+                    "content": {
+                        "size": e.response_body.as_ref().map(|b| b.len()).unwrap_or(0),
+                        "mimeType": e.content_type.clone().unwrap_or_else(|| "application/octet-stream".into()),
+                        "text": e.response_body.clone().unwrap_or_default(),
+                    },
+                    "redirectURL": "",
+                    "headersSize": -1,
+                    "bodySize": e.response_body.as_ref().map(|b| b.len() as i64).unwrap_or(-1),
+                },
+                "cache": {},
+                "timings": { "send": 0, "wait": 0, "receive": 0 },
+            })
+        })
+        .collect();
+
+    let har = json!({
+        "log": {
+            "version": "1.2",
+            "creator": {
+                "name": "browser-automation-cli",
+                "version": env!("CARGO_PKG_VERSION"),
+            },
+            "entries": entries,
+        }
+    });
+    let bytes = serde_json::to_vec_pretty(&har)
+        .map_err(|e| CliError::new(ErrorKind::Data, format!("har json: {e}")))?;
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            xdg::ensure_dir(parent)?;
+        }
+    }
+    atomic_write(out, &bytes)?;
+    Ok(json!({
+        "path": out.display().to_string(),
+        "entries": entries.len(),
+        "format": "HAR 1.2",
+    }))
+}
+
+fn chrono_like(ms: u64) -> String {
+    // ISO-ish without full chrono dependency API — use time crate if available.
+    let secs = (ms / 1000) as i64;
+    time::OffsetDateTime::from_unix_timestamp(secs)
+        .map(|t| {
+            t.format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_else(|_| format!("{ms}"))
+        })
+        .unwrap_or_else(|_| format!("{ms}"))
+}
+
+/// List unique hosts.
+pub fn domains() -> Result<Value, CliError> {
+    let path = default_capture_path()?;
+    let cap = MitmCapture::load(&path, true)?;
+    let mut hosts = std::collections::BTreeSet::new();
+    for e in &cap.items {
+        if let Some(h) = &e.host {
+            hosts.insert(h.clone());
+        }
+    }
+    let list: Vec<String> = hosts.into_iter().collect();
+    let count = list.len();
+    Ok(json!({ "hosts": list, "count": count }))
+}
+
+/// Discover REST/GraphQL-ish endpoints from capture.
+pub fn apis(kind: Option<&str>) -> Result<Value, CliError> {
+    let path = default_capture_path()?;
+    let cap = MitmCapture::load(&path, true)?;
+    let mut out = Vec::new();
+    for e in &cap.items {
+        let url_l = e.url.to_ascii_lowercase();
+        let is_gql = url_l.contains("graphql")
+            || e.request_body
+                .as_deref()
+                .map(|b| b.contains("\"query\"") || b.contains("query "))
+                .unwrap_or(false);
+        let is_rest = url_l.contains("/api")
+            || url_l.contains("/v1")
+            || url_l.contains("/v2")
+            || e.content_type
+                .as_deref()
+                .map(|c| c.contains("json"))
+                .unwrap_or(false);
+        let k = if is_gql {
+            "graphql"
+        } else if is_rest {
+            "rest"
+        } else {
+            "other"
+        };
+        if let Some(filter) = kind {
+            if filter != k {
+                continue;
+            }
+        }
+        out.push(json!({
+            "id": e.id,
+            "kind": k,
+            "method": e.method,
+            "url": e.url,
+            "status": e.status,
+        }));
+    }
+    Ok(json!({ "count": out.len(), "apis": out }))
+}
+
+/// Import CDP-style network events (array of {method,url,status,...}) into capture.
+pub fn import_cdp_network(events: &[Value]) -> Result<Value, CliError> {
+    let path = default_capture_path()?;
+    let mut cap = MitmCapture::load(&path, true)?;
+    let mut n = 0u64;
+    for ev in events {
+        let method = ev
+            .get("method")
+            .or_else(|| ev.get("request_method"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("GET")
+            .to_string();
+        let url = ev
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if url.is_empty() {
+            continue;
+        }
+        let host = url::Url::parse(&url)
+            .ok()
+            .and_then(|u| u.host_str().map(|s| s.to_string()));
+        let status = ev
+            .get("status")
+            .or_else(|| ev.get("status_code"))
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u16);
+        let mut req_h = BTreeMapString::new();
+        if let Some(obj) = ev.get("request_headers").and_then(|h| h.as_object()) {
+            for (k, v) in obj {
+                if let Some(s) = v.as_str() {
+                    req_h.insert(k.clone(), s.to_string());
+                }
+            }
+        }
+        let mut res_h = BTreeMapString::new();
+        if let Some(obj) = ev.get("response_headers").and_then(|h| h.as_object()) {
+            for (k, v) in obj {
+                if let Some(s) = v.as_str() {
+                    res_h.insert(k.clone(), s.to_string());
+                }
+            }
+        }
+        cap.push(CapturedExchange {
+            id: 0,
+            method,
+            url,
+            status,
+            content_type: ev
+                .get("mimeType")
+                .or_else(|| ev.get("content_type"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            request_headers: req_h,
+            response_headers: res_h,
+            request_body: None,
+            response_body: None,
+            host,
+            started_ms: now_ms(),
+        });
+        n += 1;
+    }
+    let saved = cap.save()?;
+    Ok(json!({ "imported": n, "path": saved.display().to_string(), "total": cap.items.len() }))
+}
+
+/// Shared capture for optional in-process proxy (thread-safe).
+pub type SharedCapture = Arc<Mutex<MitmCapture>>;
+
+/// Create shared capture bound to default path.
+pub fn shared_capture() -> Result<SharedCapture, CliError> {
+    let path = default_capture_path()?;
+    Ok(Arc::new(Mutex::new(MitmCapture::new(Some(path), true))))
+}
+
+/// One-shot MITM proxy on `127.0.0.1:0` using hudsucker + local CA.
+///
+/// Runs until `seconds` elapse, then shuts down and persists the capture.
+/// Never binds `0.0.0.0`.
+pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
+    use hudsucker::{
+        certificate_authority::RcgenAuthority,
+        hyper::{Request, Response},
+        rustls::crypto::aws_lc_rs,
+        tokio_tungstenite::tungstenite::Message,
+        Body, HttpContext, HttpHandler, Proxy, RequestOrResponse, WebSocketContext, WebSocketHandler,
+    };
+    use hudsucker::rcgen::{Issuer, KeyPair};
+    use std::net::SocketAddr;
+    use std::sync::atomic::{AtomicU16, Ordering};
+
+    let ca_meta = ensure_ca()?;
+    let cert_path = ca_meta
+        .get("cert_path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CliError::new(ErrorKind::Config, "CA cert path missing"))?;
+    let key_path = ca_meta
+        .get("key_path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CliError::new(ErrorKind::Config, "CA key path missing"))?;
+    let ca_cert = fs::read_to_string(cert_path)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("read CA cert: {e}")))?;
+    let ca_key = fs::read_to_string(key_path)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("read CA key: {e}")))?;
+    let key_pair = KeyPair::from_pem(&ca_key)
+        .map_err(|e| CliError::new(ErrorKind::Software, format!("parse CA key: {e}")))?;
+    let issuer = Issuer::from_ca_cert_pem(&ca_cert, key_pair)
+        .map_err(|e| CliError::new(ErrorKind::Software, format!("parse CA cert: {e}")))?;
+    let ca = RcgenAuthority::new(issuer, 1_000, aws_lc_rs::default_provider());
+
+    let capture = shared_capture()?;
+    let capture_h = capture.clone();
+
+    #[derive(Clone)]
+    struct CaptureHandler {
+        cap: SharedCapture,
+    }
+
+    impl HttpHandler for CaptureHandler {
+        async fn handle_request(
+            &mut self,
+            _ctx: &HttpContext,
+            req: Request<Body>,
+        ) -> RequestOrResponse {
+            let method = req.method().to_string();
+            let url = req.uri().to_string();
+            let host = req.uri().host().map(|s| s.to_string());
+            let mut headers = BTreeMapString::new();
+            for (k, v) in req.headers() {
+                if let Ok(val) = v.to_str() {
+                    headers.insert(k.to_string(), val.to_string());
+                }
+            }
+            if let Ok(mut g) = self.cap.lock() {
+                g.push(CapturedExchange {
+                    id: 0,
+                    method,
+                    url,
+                    status: None,
+                    content_type: None,
+                    request_headers: headers,
+                    response_headers: BTreeMapString::new(),
+                    request_body: None,
+                    response_body: None,
+                    host,
+                    started_ms: now_ms(),
+                });
+            }
+            req.into()
+        }
+
+        async fn handle_response(
+            &mut self,
+            _ctx: &HttpContext,
+            res: Response<Body>,
+        ) -> Response<Body> {
+            let status = res.status().as_u16();
+            if let Ok(mut g) = self.cap.lock() {
+                if let Some(last) = g.items.last_mut() {
+                    last.status = Some(status);
+                }
+            }
+            res
+        }
+    }
+
+    impl WebSocketHandler for CaptureHandler {
+        async fn handle_message(
+            &mut self,
+            _ctx: &WebSocketContext,
+            msg: Message,
+        ) -> Option<Message> {
+            Some(msg)
+        }
+    }
+
+    let handler = CaptureHandler { cap: capture_h };
+    let bound_port = Arc::new(AtomicU16::new(0));
+    let bound_port_w = bound_port.clone();
+
+    // Bind ephemeral: ask OS for port 0 via std listener, then rebuild with that port.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("bind 127.0.0.1:0: {e}")))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("local_addr: {e}")))?
+        .port();
+    drop(listener);
+    bound_port_w.store(port, Ordering::SeqCst);
+
+    let seconds = seconds.max(1).min(600);
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    let proxy = Proxy::builder()
+        .with_addr(SocketAddr::from(([127, 0, 0, 1], port)))
+        .with_ca(ca)
+        .with_rustls_connector(aws_lc_rs::default_provider())
+        .with_http_handler(handler.clone())
+        .with_websocket_handler(handler)
+        .with_graceful_shutdown(async move {
+            let _ = rx.await;
+        })
+        .build()
+        .map_err(|e| CliError::new(ErrorKind::Software, format!("proxy build: {e}")))?;
+
+    let proxy_task = tokio::spawn(async move {
+        if let Err(e) = proxy.start().await {
+            tracing::error!(error = %e, "mitm proxy exited with error");
+        }
+    });
+
+    tokio::time::sleep(std::time::Duration::from_secs(seconds)).await;
+    let _ = tx.send(());
+    let _ = proxy_task.await;
+
+    let saved = if let Ok(g) = capture.lock() {
+        g.save().ok()
+    } else {
+        None
+    };
+    let count = capture.lock().map(|g| g.items.len()).unwrap_or(0);
+
+    Ok(json!({
+        "ok": true,
+        "bind": format!("127.0.0.1:{port}"),
+        "seconds": seconds,
+        "proxy_running": false,
+        "capture_count": count,
+        "capture_path": saved.map(|p| p.display().to_string()),
+        "note": "one-shot MITM finished; configure Chrome --proxy-server=http://127.0.0.1:PORT during the window",
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_auth() {
+        let mut h = BTreeMapString::new();
+        h.insert("Authorization".into(), "Bearer secret".into());
+        redact_headers(&mut h);
+        assert_eq!(h.get("Authorization").map(|s| s.as_str()), Some("[REDACTED]"));
+    }
+}

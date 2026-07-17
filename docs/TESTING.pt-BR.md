@@ -4,40 +4,98 @@
 
 > Rode a suite certa para o risco, não todo path de browser por default.
 
+
 ## Por que Testes Categorizados
 - Testes de runtime de browser são mais lentos e dependentes do host
 - Testes de schema e inventário pegam drift de contrato sem Chrome
 - Manter categorias explícitas protege a velocidade de iteração local
+- Validação local substitui qualquer afirmação de CI hospedada no GitHub Actions
+
 
 ## Categorias de Teste
-- Testes unitários e de library em `src/`
+- Testes unitários e de library em `src/` (`cargo test --lib`)
 - Smokes de CLI como `tests/doctor_cli.rs` e `tests/goto_smoke.rs`
 - Gates de envelope e schema como `tests/envelope_schema.rs` e `tests/parity_toolref_schema.rs`
-- Testes de inventário e matriz de paridade
-- Testes de robots e comportamento de pipe
-- Cobertura e2e opcional de eventos CDP quando Chrome está disponível
+- Testes de inventário e matriz de paridade (`tests/parity_inventory.rs`, `tests/parity_matrix.rs`)
+- Testes de robots e comportamento de pipe (`tests/robots_http.rs`, `tests/pipe_broken.rs`)
+- Helpers de golden i18n e cold-start (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
+- Cobertura e2e opcional de eventos CDP quando Chrome está disponível (`tests/e2e_cdp_events.rs`)
+- Script e2e completo das 52 tools: `scripts/e2e_all_52_tools.sh`
+- Fixture vendored de tool-ref: `tests/fixtures/tool-reference.md`
+
 
 ## Como Rodar
 ```bash
 timeout 300 cargo test --locked
+timeout 300 cargo test --lib --locked
 timeout 120 cargo clippy --all-targets --locked -- -D warnings
 cargo fmt --check
 ```
 - Rode um arquivo com `cargo test --test doctor_cli --locked`
 - Use `-- --nocapture` só durante debug
+- Prefira library e gates de schema primeiro ao iterar contratos
+
+
+## E2E 52 Tools
+```bash
+cargo build --release --locked
+bash scripts/e2e_all_52_tools.sh
+```
+- Exige binário release em `target/release/browser-automation-cli` (ou defina `BIN`)
+- Exercita tools de paridade DevTools na página fixture em `scripts/fixtures/e2e_page/`
+- Escreve relatório em workdir temp e imprime contagens PASS/FAIL/SKIP
+- Evidência do mantenedor para v0.1.1: 52 PASS / 0 FAIL em host local com Chrome
+
+
+## Mock de Lighthouse
+```bash
+browser-automation-cli --json lighthouse https://example.com \
+  --lighthouse-path ./scripts/mock-lighthouse.sh
+```
+- Use `--lighthouse-path` apontando para `scripts/mock-lighthouse.sh` quando não houver Lighthouse real
+- O mock grava reports HTML/JSON mínimos para paths de smoke
+- Doctor reporta presença de lighthouse como informativo quando o binário está ausente
+
 
 ## Perfis de Validação Local
 - Rode fmt, clippy e testes de contrato sem browser primeiro na sua máquina
 - Testes com browser exigem Chrome ou Chromium instalado localmente
 - A validação roda localmente com cargo na máquina do mantenedor
+- Não há matriz de workflow hospedada do GitHub Actions neste repositório
 - Mantenha publish no crates.io bloqueado sem aprovação explícita do mantenedor
+- Smokes opcionais de pilares após e2e: `run` + scrape, `config path`, `mitm start`, doctor XDG
+
+
+## Auditoria de Schemas e Documentação Bilíngue
+```bash
+cargo build --release --locked
+bash scripts/generate_command_schemas.sh
+bash scripts/generate_command_schemas.sh --check
+bash scripts/audit_bilingual_docs.sh
+```
+- `generate_command_schemas.sh` grava um `docs/schemas/<cmd>.schema.json` por comando do inventário a partir do `schema --cmd` ao vivo (superfície de meta.rs)
+- `--check` falha quando schemas estáticos de comando divergem do binário instalado
+- Envelopes e `run-script-step.schema.json` são preservados e não sobrescritos pelo gerador
+- `audit_bilingual_docs.sh` compara invocações de `browser-automation-cli` dentro de fences de código entre pares EN e `.pt-BR`
+- Exit `0` significa multisets de fences iguais; exit `1` significa drift; exit `2` significa par de arquivo ausente
+
 
 ## Variáveis de Ambiente
 - `RUST_LOG` para tracing mais profundo em testes falhando
-- `BROWSER_AUTOMATION_CLI_DEBUG` para máximo detalhe no stderr da CLI
-- Variáveis de path do Chrome só quando a descoberta precisar de override
+- `NO_COLOR` para desligar cor ANSI nos paths humanos de stderr
+- `BIN` sobrescreve o path do binário no script e2e (somente `scripts/e2e_all_52_tools.sh`)
+- Não existe setting de produto `BROWSER_AUTOMATION_CLI_DEBUG` (nem outras envs de produto)
+- Overrides de path do Chrome só quando a descoberta precisar de mudança no PATH do host
+
 
 ## Troubleshooting
 - Doctor falha em chrome: instale Chromium ou Google Chrome primeiro
 - Timeouts no goto smoke: eleve o timeout do processo ou inspecione política de rede
 - Falhas de schema gate: atualize código e `docs/schemas/` na mesma mudança
+- Drift de schema de comando: reexecute `bash scripts/generate_command_schemas.sh` após mudar `meta.rs`
+- Drift bilíngue de fences: reexecute `bash scripts/audit_bilingual_docs.sh` e alinhe blocos de comando EN e `.pt-BR`
+- Drift de inventário: reconcilie com `commands --json` e `tests/fixtures/tool-reference.md`
+- Script e2e sem binário: build release primeiro ou exporte `BIN=/path/to/browser-automation-cli`
+- Path de lighthouse ausente: passe `--lighthouse-path ./scripts/mock-lighthouse.sh`
+- Problemas de bind MITM: garanta loopback livre e revise `mitm status --json`
+- Confusão de journal de workflow: inspecione `workflow status` e o XDG `workflow_dir` de `config path --json`

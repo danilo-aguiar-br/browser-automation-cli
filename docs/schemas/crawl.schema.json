@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/crawl.schema.json",
+  "title": "crawl command input",
+  "type": "object",
+  "description": "Crawl from a seed URL (HTTP BFS, one-shot)",
+  "properties": {
+    "format": {
+      "type": "string"
+    },
+    "limit": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_depth": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "same_host": {
+      "type": "boolean"
+    },
+    "url": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "additionalProperties": false
+}

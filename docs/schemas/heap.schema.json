@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/heap.schema.json",
+  "title": "heap command input",
+  "type": "object",
+  "description": "Heap snapshot tools (deep ops need --category-memory)",
+  "properties": {
+    "action": {
+      "type": "string"
+    },
+    "base": {
+      "type": "string"
+    },
+    "current": {
+      "type": "string"
+    },
+    "id": {
+      "type": "integer"
+    },
+    "node": {
+      "type": "integer"
+    },
+    "path": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

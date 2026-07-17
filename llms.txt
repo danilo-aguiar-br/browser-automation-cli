@@ -4,10 +4,10 @@
 
 > One-shot Chrome CDP automation CLI for AI agents with no daemon and no telemetry.
 
-browser-automation-cli is a single-process Rust CLI that launches system Chrome or Chromium through CDP, executes agent browser actions, then finalizes and exits.
+browser-automation-cli is a single-process Rust CLI that launches system Chrome or Chromium through CDP, executes agent browser actions, then finalizes and exits. Lifecycle: BORN, EXECUTE, FINALIZE, DIE. Product settings use CLI flags and XDG config only (no product env vars).
 
 ## Primary Documentation
-- [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.md): product landing, install, commands, env vars
+- [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.md): product landing, install, commands, flags, config
 - [HOW_TO_USE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/HOW_TO_USE.md): first command in 60 seconds
 - [AGENTS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/AGENTS.md): agent integration contract
 - [COOKBOOK](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/COOKBOOK.md): practical recipes
@@ -16,7 +16,25 @@ browser-automation-cli is a single-process Rust CLI that launches system Chrome 
 - [MIGRATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/MIGRATION.md): version migration
 - [TESTING](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/TESTING.md): test categories
 - [schemas](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/schemas/README.md): JSON schema index
-- [SKILL en](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skill/browser-automation-cli-en/SKILL.md): imperative skill
+- [SKILL en](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skills/browser-automation-cli-en/SKILL.md): imperative skill
 - [CHANGELOG](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CHANGELOG.md): release history
 - [SECURITY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/SECURITY.md): vulnerability reporting
 - [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): expanded discovery map
+
+## Command Surface (v0.1.1)
+- Discovery: doctor, commands, schema, version, completions
+- Config XDG: config init|path|show|get|set
+- Navigate: goto, back, forward, reload
+- Local scrape: scrape (--format/--engine), batch-scrape, crawl, map, search, parse
+- Interact: view, press, write, type, keys, wait (multi --text OR), hover, drag, fill-form, upload, click-at
+- Observe: extract, text, scroll, attr, assert, grab --path
+- Tabs: page, dialog, cookie
+- Capture: console, net
+- MITM: mitm init-ca|start|status|list|get|har|export|domains|apis
+- Workflow: workflow run|resume|status
+- Advanced: eval, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, run, exec
+
+## Settings Contract
+- Product settings: CLI flags + XDG `config.toml` only
+- No product env vars (`BROWSER_AUTOMATION_CLI_*` must not be invented)
+- OS-only vars outside product settings: `RUST_LOG`, `NO_COLOR`

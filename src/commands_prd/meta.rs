@@ -41,6 +41,14 @@ pub const COMMANDS: &[&str] = &[
     "page",
     "dialog",
     "scrape",
+    "batch-scrape",
+    "crawl",
+    "map",
+    "search",
+    "parse",
+    "mitm",
+    "workflow",
+    "config",
     "emulate",
     "resize",
     "perf",
@@ -263,12 +271,19 @@ fn schema_for(cmd: &str) -> Option<Value> {
             "Wait ms and/or text and/or CSS selector and/or load state",
             json!({
                 "ms": { "type": "integer", "minimum": 0 },
-                "text": { "type": "string" },
+                "text": {
+                    "oneOf": [
+                        { "type": "string" },
+                        { "type": "array", "items": { "type": "string" } }
+                    ],
+                    "description": "Repeatable --text values; any match wins (OR)"
+                },
                 "selector": { "type": "string" },
                 "state": {
                     "type": "string",
                     "enum": ["load", "domcontentloaded", "networkidle", "none"]
                 },
+                "wait_timeout_ms": { "type": "integer", "minimum": 0 },
                 "include_snapshot": { "type": "boolean" }
             }),
             &[],
@@ -431,9 +446,109 @@ fn schema_for(cmd: &str) -> Option<Value> {
             &["action"],
         ),
         "scrape" => schema_object(
-            "Navigate and return body text",
-            json!({ "url": { "type": "string" } }),
+            "Navigate and return body text / formats (local Firecrawl-parity)",
+            json!({
+                "url": { "type": "string" },
+                "format": {
+                    "type": "string",
+                    "enum": ["text", "markdown", "html", "links", "metadata"],
+                    "description": "Default text"
+                },
+                "engine": {
+                    "type": "string",
+                    "enum": ["http", "browser"],
+                    "description": "Default browser (CDP)"
+                },
+                "only_main_content": { "type": "boolean" }
+            }),
             &["url"],
+        ),
+        "batch-scrape" => schema_object(
+            "Scrape many URLs from a file (HTTP engine, one-shot JoinSet)",
+            json!({
+                "urls_file": { "type": "string", "description": "Path to file with one URL per line" },
+                "format": {
+                    "type": "string",
+                    "enum": ["text", "markdown", "html", "links", "metadata"]
+                },
+                "concurrency": { "type": "integer", "minimum": 1 }
+            }),
+            &["urls_file"],
+        ),
+        "crawl" => schema_object(
+            "Crawl from a seed URL (HTTP BFS, one-shot)",
+            json!({
+                "url": { "type": "string" },
+                "limit": { "type": "integer", "minimum": 1 },
+                "max_depth": { "type": "integer", "minimum": 0 },
+                "format": { "type": "string" },
+                "same_host": { "type": "boolean" }
+            }),
+            &["url"],
+        ),
+        "map" => schema_object(
+            "Map site URLs from a seed (HTTP)",
+            json!({
+                "url": { "type": "string" },
+                "limit": { "type": "integer", "minimum": 1 },
+                "max_depth": { "type": "integer", "minimum": 0 }
+            }),
+            &["url"],
+        ),
+        "search" => schema_object(
+            "Local search (HTTP SERP links or URL map)",
+            json!({
+                "query": { "type": "string" },
+                "limit": { "type": "integer", "minimum": 1 }
+            }),
+            &["query"],
+        ),
+        "parse" => schema_object(
+            "Parse a local file (html/md/txt/pdf text extract)",
+            json!({ "path": { "type": "string" } }),
+            &["path"],
+        ),
+        "mitm" => schema_object(
+            "MITM capture / CA / HAR (one-shot local 127.0.0.1)",
+            json!({
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "status", "list", "get", "har", "export",
+                        "domains", "apis", "init-ca", "start"
+                    ]
+                },
+                "id": { "type": "string" },
+                "out": { "type": "string" },
+                "seconds": { "type": "integer", "minimum": 1 },
+                "limit": { "type": "integer", "minimum": 1 }
+            }),
+            &["action"],
+        ),
+        "workflow" => schema_object(
+            "Workflow journal DAG (petgraph + SQLite under XDG state)",
+            json!({
+                "action": { "type": "string", "enum": ["run", "resume", "status"] },
+                "manifest": { "type": "string", "description": "JSON workflow manifest path" },
+                "journal": { "type": "string" },
+                "name": { "type": "string" }
+            }),
+            &["action"],
+        ),
+        "config" => schema_object(
+            "XDG config and path management (no product env at runtime)",
+            json!({
+                "action": {
+                    "type": "string",
+                    "enum": ["path", "init", "show", "set", "get"]
+                },
+                "key": {
+                    "type": "string",
+                    "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color"
+                },
+                "value": { "type": "string" }
+            }),
+            &["action"],
         ),
         "emulate" => schema_object(
             "Emulate UA locale timezone network geo media CPU viewport headers",
