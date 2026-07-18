@@ -1,6 +1,6 @@
 [package]
 name = "browser-automation-cli"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 rust-version = "1.88.0"
 authors = ["Danilo Aguiar <daniloaguiarbr@proton.me>"]
@@ -76,6 +76,7 @@ urlencoding = "2"
 clap = { version = "4", features = ["derive", "wrap_help", "string", "cargo", "color", "suggestions"] }
 clap_complete = "4"
 thiserror = "2"
+human-panic = "2"
 indexmap = { version = "2", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

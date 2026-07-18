@@ -17,11 +17,13 @@
 - CLI smoke tests such as `tests/doctor_cli.rs` and `tests/goto_smoke.rs`
 - Envelope and schema gates such as `tests/envelope_schema.rs` and `tests/parity_toolref_schema.rs`
 - Parity inventory and matrix tests (`tests/parity_inventory.rs`, `tests/parity_matrix.rs`)
+- Run inventory gate: `tests/parity_run_inventory.rs` enforces `RUN_DISPATCHED_CMDS` ∪ intentional exclude (includes `print-pdf`, `select-option`, `pick`)
+- Clap surface gate: `tests/clap_command_debug_assert.rs` runs `Cli::command().debug_assert()`
 - Robots and pipe behaviour tests (`tests/robots_http.rs`, `tests/pipe_broken.rs`)
 - Golden i18n and cold-start helpers (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Optional e2e CDP event coverage when Chrome is available (`tests/e2e_cdp_events.rs`)
 - Full **53-tool** DevTools e2e script (legacy filename): `scripts/e2e_all_52_tools.sh`
-- Live CLI inventory is **59 commands** (`commands --json`) — broader than the 53 tool-ref e2e set
+- Live CLI inventory is **61 agent names** (`commands --json`) — broader than the 53 tool-ref e2e set; includes multi-step-only `select-option` and `pick`
 - Vendored tool-ref fixture: `tests/fixtures/tool-reference.md`
 
 
@@ -29,6 +31,8 @@
 ```bash
 timeout 300 cargo test --locked
 timeout 300 cargo test --lib --locked
+timeout 120 cargo test --test parity_run_inventory --locked
+timeout 120 cargo test --test clap_command_debug_assert --locked
 timeout 120 cargo clippy --all-targets --locked -- -D warnings
 cargo fmt --check
 ```
@@ -45,15 +49,15 @@ bash scripts/e2e_all_52_tools.sh
 - Requires a release binary at `target/release/browser-automation-cli` (build with `cargo build --release --locked` first)
 - Exercises DevTools-parity tools against the local fixture page under `scripts/fixtures/e2e_page/`
 - Writes a report under a temp workdir and prints PASS/FAIL/SKIP counts
-- Maintainer evidence for v0.1.3: 53 PASS / 0 FAIL on a local host with Chrome (residual A001 closed)
+- Maintainer evidence for v0.1.4: 53 PASS / 0 FAIL on a local host with Chrome (residual A001 closed; GAP-001…025 hard-close)
 - The 52-tool suite does not replace residual smokes for commands outside the tool-ref set
 
 
 ## Residual PRD Smokes (beyond 53 tools)
-Run after e2e when validating the full 59-command inventory:
+Run after e2e when validating the full 61-name inventory:
 
 ```bash
-# print-pdf artifact
+# print-pdf artifact (one-shot + run)
 browser-automation-cli --json print-pdf --url https://example.com --path /tmp/page.pdf
 
 # monitor baseline check
@@ -67,21 +71,53 @@ browser-automation-cli --json qr decode --path /tmp/qr.png
 browser-automation-cli --json find-paths 'Cargo.*' .
 browser-automation-cli --json find-paths --glob '**/*.rs' .
 
-
 # sheet-write / sg-scan / sg-rewrite (no Chrome)
 printf 'a,b\n1,2\n' > /tmp/rows.csv
 browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx
 browser-automation-cli --json sg-scan . --limit 20
 browser-automation-cli --json sg-rewrite .
 
-# find-paths --glob
-browser-automation-cli --json find-paths --glob '**/*.rs' .
-
-# run JSON array
+# run JSON array + json-steps stream (GAP-020)
 cat > /tmp/demo.array.json <<'JSON'
 [{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]
 JSON
 browser-automation-cli --timeout 60 --json run --script /tmp/demo.array.json
+browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.array.json
+
+# wait multi-selector / url_contains (GAP-019/024)
+cat > /tmp/wait.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"wait","selector":"h1, body","ms":3000},
+  {"cmd":"wait","url_contains":"example.com","ms":3000}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/wait.json
+
+# pick / select-option (run-only inventory; GAP-023)
+# browser-automation-cli --timeout 60 --json run --script '[{"cmd":"goto","url":"…"},{"cmd":"pick","target":"…","option":"…"}]'
+
+# assert console kinds (GAP-025)
+# browser-automation-cli --capture-console --timeout 60 --json run --script '[{"cmd":"goto","url":"https://example.com"},{"cmd":"assert","kind":"console_empty"}]'
+
+# schema positional (GAP-022)
+browser-automation-cli --json schema run
+browser-automation-cli --json schema --cmd wait
+
+# view --allow-empty (GAP-012)
+browser-automation-cli --json view --allow-empty
+
+# multi-format scrape + batch/crawl browser engine (GAP-009/010)
+browser-automation-cli --json scrape https://example.com --format markdown,html,links --engine http
+printf '%s\n' 'https://example.com' > /tmp/urls.txt
+browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format text --engine http --concurrency 1
+# browser-automation-cli --timeout 120 --json batch-scrape --urls-file /tmp/urls.txt --format text --engine browser --concurrency 1
+
+# MITM capture-url + har --out (GAP-011)
+browser-automation-cli --json mitm init-ca
+# browser-automation-cli --json mitm capture-url https://example.com --seconds 15 --har /tmp/cap.har
+# browser-automation-cli --json mitm har --out /tmp/capture.har
+# browser-automation-cli --json mitm redact --secrets
 
 # config list-keys + redis honesty (no rediss)
 browser-automation-cli --json config list-keys
@@ -99,8 +135,27 @@ browser-automation-cli --json parse tests/fixtures/hello.docx --redact-pii
 # extract --llm fail-closed without XDG key
 browser-automation-cli --json extract https://example.com --llm --question 'What is the title?'
 # expect usage envelope requiring: config set openrouter_api_key
+
+# clap JSON usage error (GAP-002)
+browser-automation-cli --json not-a-real-command 2>/dev/null | jaq -e '.ok == false' || true
+
+# dialog soft path
+browser-automation-cli --json dialog accept --if-present
+# console dump always []
+browser-automation-cli --capture-console --json console dump --path /tmp/console.json
+# beforeunload flag help surface
+browser-automation-cli goto --help | rg handle-before-unload
+# page isolated context
+browser-automation-cli page new --help | rg isolated-context
+# print-pdf in run
+# cat > /tmp/pdf.run.json <<'JSON'
+# [{"cmd":"goto","url":"https://example.com"},{"cmd":"print-pdf","path":"/tmp/page-from-run.pdf"}]
+# JSON
+# browser-automation-cli --timeout 60 --json run --script /tmp/pdf.run.json
+# schema already covered
 ```
 - Also useful: browser format scrape, `config path`, `mitm start`, doctor XDG, i18n `--lang pt-BR`
+- Contract tests to cite in evidence: `parity_run_inventory`, `clap_command_debug_assert`
 
 
 ## Lighthouse Mock
@@ -120,7 +175,7 @@ browser-automation-cli --json lighthouse https://example.com \
 - Browser-backed tests require Chrome or Chromium installed locally
 - Validation runs locally with cargo and e2e scripts on the maintainer machine
 - Keep crates.io publish blocked without explicit maintainer approval
-- Optional pillar smokes after e2e: `run` + scrape, residual PRD commands above, `config path`, `mitm start`, doctor XDG
+- Optional pillar smokes after e2e: `run` + `--json-steps`, residual PRD commands above, `config path`, `mitm capture-url`, doctor XDG
 
 
 ## Documentation Schema and Bilingual Audit
@@ -150,7 +205,9 @@ bash scripts/audit_bilingual_docs.sh
 - Schema gate failures: update both code and `docs/schemas/` in the same change
 - Command schema drift: re-run `bash scripts/generate_command_schemas.sh` after changing `meta.rs`
 - Bilingual fence drift: re-run `bash scripts/audit_bilingual_docs.sh` and align EN and `.pt-BR` command blocks
-- Inventory drift: refresh against `commands --json` (59) and `tests/fixtures/tool-reference.md` (53 tools)
+- Inventory drift: refresh against `commands --json` (61) and `tests/fixtures/tool-reference.md` (53 tools)
+- Run inventory drift: refresh `RUN_DISPATCHED_CMDS` and re-run `cargo test --test parity_run_inventory`
+- Clap assert failures: fix `GlobalOpts` / subcommand definitions then re-run `cargo test --test clap_command_debug_assert`
 - E2E script missing binary: run `cargo build --release --locked` first so `target/release/browser-automation-cli` exists
 - Lighthouse path missing: pass `--lighthouse-path ./scripts/mock-lighthouse.sh` or set XDG `lighthouse_path`
 - LLM extract fail-closed: expected without `config set openrouter_api_key`

@@ -18,7 +18,7 @@
 //! assert_eq!(err.kind().as_str(), "unavailable");
 //! ```
 
-use std::fmt;
+use thiserror::Error;
 
 /// High-level failure category mapped to a process exit code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +86,8 @@ impl ErrorKind {
 }
 
 /// Typed CLI error with optional remediation hint.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
+#[error("{message}")]
 pub struct CliError {
     kind: ErrorKind,
     message: String,
@@ -152,10 +153,3 @@ impl CliError {
     }
 }
 
-impl fmt::Display for CliError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for CliError {}

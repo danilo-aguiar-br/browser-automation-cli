@@ -78,6 +78,8 @@ pub struct OneShotSession {
     network_preserved: Vec<Vec<Value>>,
     /// Extension ids loaded via --load-extension in this session (for uninstall effect).
     loaded_extension_ids: Vec<String>,
+    /// Named BrowserContext ids (tool-ref isolatedContext string names; GAP-004).
+    named_contexts: HashMap<String, String>,
 }
 
 impl OneShotSession {
@@ -87,9 +89,27 @@ impl OneShotSession {
     }
 
     pub async fn launch_headless_with_capture(capture: CaptureOpts) -> Result<Self, CliError> {
+        Self::launch_headless_with_options(capture, None).await
+    }
+
+    /// Launch headless Chrome optionally routed through a local MITM proxy (GAP-011).
+    pub async fn launch_headless_with_proxy(
+        capture: CaptureOpts,
+        proxy_server: &str,
+    ) -> Result<Self, CliError> {
+        Self::launch_headless_with_options(capture, Some(proxy_server)).await
+    }
+
+    async fn launch_headless_with_options(
+        capture: CaptureOpts,
+        proxy_server: Option<&str>,
+    ) -> Result<Self, CliError> {
         let options = LaunchOptions {
             headless: true,
             hide_scrollbars: true,
+            proxy: proxy_server.map(|s| s.to_string()),
+            // Trust MITM CA via ignore certs for one-shot local intercept (PRD §5E).
+            ignore_https_errors: proxy_server.is_some(),
             ..LaunchOptions::default()
         };
         let manager = BrowserManager::launch(options, Some("chrome"))
@@ -128,6 +148,7 @@ impl OneShotSession {
             console_preserved: Vec::new(),
             network_preserved: Vec::new(),
             loaded_extension_ids: Vec::new(),
+            named_contexts: HashMap::new(),
         };
         session.enable_capture_domains().await?;
         Ok(session)
@@ -194,6 +215,7 @@ impl OneShotSession {
             console_preserved: Vec::new(),
             network_preserved: Vec::new(),
             loaded_extension_ids: Vec::new(),
+            named_contexts: HashMap::new(),
         };
         // Best-effort: record extension path basenames; real ids come from list after launch.
         session.loaded_extension_ids = extensions
@@ -423,7 +445,7 @@ impl OneShotSession {
         url: &str,
         robots: crate::robots::RobotsPolicy,
     ) -> Result<Value, CliError> {
-        self.goto_with_options(url, robots, None, false, None).await
+        self.goto_with_options(url, robots, None, None, None).await
     }
 
     /// Navigate with tool-ref options: init script, beforeunload, navigation timeout.
@@ -431,14 +453,15 @@ impl OneShotSession {
     /// `init_script` is registered for the next document only and removed in `finally`
     /// (parity with tool-ref navigate_page; GAP-A006).
     ///
-    /// `handle_before_unload` arms CDP dialog auto-accept during navigation only
-    /// (GAP-A009). It does **not** inject a permanent `beforeunload` listener.
+    /// `handle_before_unload` arms CDP dialog auto-accept/dismiss during navigation only
+    /// (GAP-A009 / GAP-003). It does **not** inject a permanent `beforeunload` listener.
+    /// Pass `Some("accept")`, `Some("dismiss")`, or `None` (off).
     pub async fn goto_with_options(
         &mut self,
         url: &str,
         robots: crate::robots::RobotsPolicy,
         init_script: Option<&str>,
-        handle_before_unload: bool,
+        handle_before_unload: Option<&str>,
         navigation_timeout_ms: Option<u64>,
     ) -> Result<Value, CliError> {
         crate::robots::enforce_robots(url, robots, "browser-automation-cli").await?;
@@ -461,11 +484,11 @@ impl OneShotSession {
             }
         }
 
-        // GAP-A009: auto-handle beforeunload dialogs via CDP, never inject preventDefault.
-        let dialog_action = if handle_before_unload {
-            Some("accept")
-        } else {
-            None
+        // GAP-A009 / GAP-003: auto-handle beforeunload via CDP accept|dismiss.
+        let dialog_action = match handle_before_unload {
+            Some(a) if a.eq_ignore_ascii_case("accept") => Some("accept"),
+            Some(a) if a.eq_ignore_ascii_case("dismiss") => Some("dismiss"),
+            _ => None,
         };
 
         let nav_result = self
@@ -1550,6 +1573,75 @@ impl OneShotSession {
         }))
     }
 
+    /// GAP-025: assert the captured console buffer is empty (any level).
+    pub async fn assert_console_empty(&mut self) -> Result<Value, CliError> {
+        if !self.capture.console {
+            return Err(CliError::with_suggestion(
+                ErrorKind::Usage,
+                "assert console_empty requires --capture-console on the same invocation",
+                "browser-automation-cli --capture-console run --script audit.jsonl",
+            ));
+        }
+        self.drain_events();
+        let count = self.console_log.len() as u64;
+        if count > 0 {
+            return Err(CliError::with_suggestion(
+                ErrorKind::Data,
+                format!("assert console_empty failed: count={count}"),
+                "Clear console noise on the page or use assert kind=console with level/max",
+            ));
+        }
+        Ok(json!({
+            "assert": "console_empty",
+            "ok": true,
+            "count": 0,
+        }))
+    }
+
+    /// GAP-025: assert no console message text matches `pattern` (substring, case-insensitive).
+    pub async fn assert_console_no_match(&mut self, pattern: &str) -> Result<Value, CliError> {
+        if !self.capture.console {
+            return Err(CliError::with_suggestion(
+                ErrorKind::Usage,
+                "assert console_no_match requires --capture-console on the same invocation",
+                "browser-automation-cli --capture-console run --script audit.jsonl",
+            ));
+        }
+        self.drain_events();
+        let pat = pattern.to_ascii_lowercase();
+        let hits: Vec<Value> = self
+            .console_log
+            .iter()
+            .filter(|m| {
+                let text = m
+                    .get("text")
+                    .or_else(|| m.get("message"))
+                    .or_else(|| m.get("args"))
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                text.contains(&pat)
+            })
+            .cloned()
+            .collect();
+        if !hits.is_empty() {
+            return Err(CliError::with_suggestion(
+                ErrorKind::Data,
+                format!(
+                    "assert console_no_match failed: pattern={pattern:?} hits={}",
+                    hits.len()
+                ),
+                "Fix the page error or adjust the pattern",
+            ));
+        }
+        Ok(json!({
+            "assert": "console_no_match",
+            "ok": true,
+            "pattern": pattern,
+            "hits": 0,
+        }))
+    }
+
     pub fn console_list(
         &mut self,
         page_idx: Option<usize>,
@@ -1658,15 +1750,13 @@ impl OneShotSession {
     }
 
     pub fn console_dump(&mut self, path: &Path) -> Result<Value, CliError> {
-        let data = self.console_list(None, None, None, true, None)?;
-        // Dump full buffer, not just first page
+        // Ensure capture is armed (same contract as list/clear).
+        let _ = self.console_list(None, None, None, true, None)?;
+        // GAP-021: always write a valid JSON array (empty buffer → `[]`, never 0-byte file).
         let messages = self.console_log.clone();
-        let _ = data;
-        let mut body = String::new();
-        for m in &messages {
-            body.push_str(&serde_json::to_string(m).unwrap_or_default());
-            body.push('\n');
-        }
+        let body = serde_json::to_vec_pretty(&messages).map_err(|e| {
+            CliError::new(ErrorKind::Data, format!("console dump serialize: {e}"))
+        })?;
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent).map_err(|e| {
@@ -1674,11 +1764,12 @@ impl OneShotSession {
                 })?;
             }
         }
-        std::fs::write(path, body.as_bytes())
+        std::fs::write(path, body)
             .map_err(|e| CliError::new(ErrorKind::Io, format!("console dump write: {e}")))?;
         Ok(json!({
             "path": path.to_string_lossy(),
             "count": messages.len(),
+            "format": "json_array",
         }))
     }
 
@@ -1984,7 +2075,7 @@ impl OneShotSession {
         &mut self,
         ignore_cache: bool,
         init_script: Option<&str>,
-        handle_before_unload: bool,
+        handle_before_unload: Option<&str>,
     ) -> Result<Value, CliError> {
         self.drain_events();
         self.preserve_capture_snapshot();
@@ -1997,10 +2088,10 @@ impl OneShotSession {
             }
         }
 
-        let dialog_action = if handle_before_unload {
-            Some("accept")
-        } else {
-            None
+        let dialog_action = match handle_before_unload {
+            Some(a) if a.eq_ignore_ascii_case("accept") => Some("accept"),
+            Some(a) if a.eq_ignore_ascii_case("dismiss") => Some("dismiss"),
+            _ => None,
         };
 
         let reload_result = self
@@ -2028,7 +2119,7 @@ impl OneShotSession {
 
     /// Reload current page via CDP `Page.reload` (GAP-A005).
     pub async fn reload(&mut self, ignore_cache: bool) -> Result<Value, CliError> {
-        self.reload_with_options(ignore_cache, None, false).await
+        self.reload_with_options(ignore_cache, None, None).await
     }
 
     async fn reload_with_dialog_pump(
@@ -2126,33 +2217,44 @@ impl OneShotSession {
         }))
     }
 
+    /// Create a page. `isolated_context`: `None` = shared; `Some(name)` = named isolated
+    /// BrowserContext (tool-ref isolatedContext string; GAP-004). Same name reuses context.
     pub async fn page_new(
         &mut self,
         url: Option<&str>,
         background: bool,
-        isolated_context: bool,
+        isolated_context: Option<&str>,
     ) -> Result<Value, CliError> {
         self.drain_events();
         let mut isolation_note = None;
         let mut isolation_limitation = None;
-        let ctx_id = if isolated_context {
-            match self.manager.create_browser_context().await {
-                Ok(id) => {
-                    isolation_note = Some(
-                        "isolated BrowserContext created for cookie/storage isolation within this one-shot process"
-                            .to_string(),
-                    );
-                    Some(id)
-                }
-                Err(e) => {
-                    // Some Chromium builds reject Browser.createBrowserContext (-32601).
-                    // Fall back to shared context with an explicit limitation for agents.
-                    isolation_limitation =
-                        Some("isolated_context_unsupported_on_this_browser".to_string());
-                    isolation_note = Some(format!(
-                        "isolatedContext requested but Browser.createBrowserContext unavailable ({e}); tab uses shared browser context"
-                    ));
-                    None
+        let isolated_name = isolated_context
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        let ctx_id = if let Some(ref name) = isolated_name {
+            if let Some(existing) = self.named_contexts.get(name).cloned() {
+                isolation_note = Some(format!(
+                    "reused named BrowserContext `{name}` for cookie/storage sharing"
+                ));
+                Some(existing)
+            } else {
+                match self.manager.create_browser_context().await {
+                    Ok(id) => {
+                        self.named_contexts.insert(name.clone(), id.clone());
+                        isolation_note = Some(format!(
+                            "created named BrowserContext `{name}` for cookie/storage isolation within this one-shot process"
+                        ));
+                        Some(id)
+                    }
+                    Err(e) => {
+                        isolation_limitation =
+                            Some("isolated_context_unsupported_on_this_browser".to_string());
+                        isolation_note = Some(format!(
+                            "isolatedContext `{name}` requested but Browser.createBrowserContext unavailable ({e}); tab uses shared browser context"
+                        ));
+                        None
+                    }
                 }
             }
         } else {
@@ -2171,7 +2273,14 @@ impl OneShotSession {
         }
         if let Some(obj) = data.as_object_mut() {
             obj.insert("background".into(), json!(background));
-            obj.insert("isolated_context".into(), json!(isolated_context));
+            obj.insert(
+                "isolated_context".into(),
+                json!(isolated_name.as_deref()),
+            );
+            obj.insert(
+                "isolated".into(),
+                json!(isolated_name.is_some()),
+            );
             if let Some(n) = isolation_note {
                 obj.insert("note".into(), json!(n));
             }
@@ -2235,7 +2344,11 @@ impl OneShotSession {
             .await
     }
 
-    /// Wait until any of `texts` appears (OR), and/or selector/state/ms.
+    /// Wait until any of `texts` appears (OR), and/or selector/state/ms/url.
+    ///
+    /// GAP-019: CSS multi-selectors (`#a, #b`) and selector lists are OR-matched.
+    /// GAP-024: optional `url` (exact) / `url_contains` / `navigation` (load lifecycle).
+    #[allow(clippy::too_many_arguments)]
     pub async fn wait_for_any(
         &mut self,
         ms: Option<u64>,
@@ -2244,10 +2357,60 @@ impl OneShotSession {
         state: Option<&str>,
         include_snapshot: bool,
     ) -> Result<Value, CliError> {
+        self.wait_for_any_ex(ms, texts, selector, &[], state, None, None, false, include_snapshot)
+            .await
+    }
+
+    /// Full wait surface used by multi-step `run` (GAP-019/024).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn wait_for_any_ex(
+        &mut self,
+        ms: Option<u64>,
+        texts: &[String],
+        selector: Option<&str>,
+        selectors: &[String],
+        state: Option<&str>,
+        url_exact: Option<&str>,
+        url_contains: Option<&str>,
+        navigation: bool,
+        include_snapshot: bool,
+    ) -> Result<Value, CliError> {
         let mut waited = Vec::new();
         let has_text = !texts.is_empty();
+        let has_url = url_exact.is_some() || url_contains.is_some();
 
-        if let Some(st) = state {
+        // Build OR list of CSS selectors (GAP-019).
+        let mut sel_list: Vec<String> = Vec::new();
+        if let Some(s) = selector {
+            let s = s.trim();
+            if !s.is_empty() {
+                sel_list.push(s.to_string());
+                // Also try comma-split parts so a flaky compound still OR-matches.
+                if s.contains(',') {
+                    for part in s.split(',') {
+                        let p = part.trim();
+                        if !p.is_empty() && !sel_list.iter().any(|x| x == p) {
+                            sel_list.push(p.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        for s in selectors {
+            let p = s.trim();
+            if !p.is_empty() && !sel_list.iter().any(|x| x == p) {
+                sel_list.push(p.to_string());
+            }
+        }
+        let has_sel = !sel_list.is_empty();
+
+        let effective_state = if navigation && state.is_none() {
+            Some("load")
+        } else {
+            state
+        };
+
+        if let Some(st) = effective_state {
             let until = WaitUntil::parse_token(st);
             let session_id = self
                 .manager
@@ -2261,34 +2424,32 @@ impl OneShotSession {
                     CliError::with_suggestion(
                         ErrorKind::Timeout,
                         format!("wait state {st} failed: {e}"),
-                        "Use --state load|domcontentloaded|networkidle|none",
+                        "Use --state load|domcontentloaded|networkidle|none or navigation:true",
                     )
                 })?;
             waited.push(json!({"kind": "state", "state": st}));
         }
 
+        let only_ms = !has_text && !has_sel && !has_url && effective_state.is_none();
         if let Some(m) = ms {
-            if m > 0 && !has_text && selector.is_none() && state.is_none() {
+            if m > 0 && only_ms {
                 let data = self.wait_ms(m).await?;
                 return self.attach_snapshot_if(include_snapshot, data).await;
             }
-            if m > 0 && !has_text && selector.is_none() && state.is_some() {
-                // pure ms after state already done above
-                if m > 0 {
-                    let _ = self.wait_ms(m).await?;
-                    waited.push(json!({"kind": "ms", "ms": m}));
-                }
+            if m > 0 && !has_text && !has_sel && !has_url && effective_state.is_some() {
+                let _ = self.wait_ms(m).await?;
+                waited.push(json!({"kind": "ms", "ms": m}));
                 let data = json!({ "waited": waited, "ok": true });
                 return self.attach_snapshot_if(include_snapshot, data).await;
             }
         }
 
-        if !has_text && selector.is_none() && state.is_some() {
+        if !has_text && !has_sel && !has_url && effective_state.is_some() {
             let data = json!({ "waited": waited, "ok": true });
             return self.attach_snapshot_if(include_snapshot, data).await;
         }
 
-        if !has_text && selector.is_none() && state.is_none() {
+        if !has_text && !has_sel && !has_url && effective_state.is_none() {
             let data = self.wait_ms(ms.unwrap_or(0)).await?;
             return self.attach_snapshot_if(include_snapshot, data).await;
         }
@@ -2297,22 +2458,74 @@ impl OneShotSession {
             + std::time::Duration::from_millis(ms.unwrap_or(10_000).max(1));
         loop {
             self.drain_events();
-            if let Some(sel) = selector {
+
+            // GAP-024: URL conditions
+            if has_url {
+                let href = self
+                    .manager
+                    .evaluate("location.href", None)
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                    .unwrap_or_default();
+                if let Some(exact) = url_exact {
+                    if href == exact {
+                        waited.push(json!({"kind": "url", "url": exact, "match": "exact"}));
+                        let data = json!({ "waited": waited, "ok": true, "href": href });
+                        return self.attach_snapshot_if(include_snapshot, data).await;
+                    }
+                }
+                if let Some(sub) = url_contains {
+                    if href.contains(sub) {
+                        waited.push(json!({
+                            "kind": "url_contains",
+                            "url_contains": sub,
+                            "href": href
+                        }));
+                        let data = json!({ "waited": waited, "ok": true, "href": href });
+                        return self.attach_snapshot_if(include_snapshot, data).await;
+                    }
+                }
+            }
+
+            // GAP-019: selector OR list (compound + split parts)
+            if has_sel {
                 let session_id = self
                     .manager
                     .active_session_id()
                     .map_err(|e| CliError::new(ErrorKind::Browser, e))?
                     .to_string();
-                if element::get_element_count(&self.manager.client, &session_id, sel)
-                    .await
-                    .unwrap_or(0)
-                    > 0
-                {
-                    waited.push(json!({"kind": "selector", "selector": sel}));
-                    let data = json!({ "waited": waited, "ok": true });
-                    return self.attach_snapshot_if(include_snapshot, data).await;
+                for sel in &sel_list {
+                    match element::get_element_count(&self.manager.client, &session_id, sel).await {
+                        Ok(n) if n > 0 => {
+                            waited.push(json!({
+                                "kind": "selector",
+                                "selector": sel,
+                                "matched_selector": sel,
+                                "count": n
+                            }));
+                            let data = json!({
+                                "waited": waited,
+                                "ok": true,
+                                "matched_selector": sel
+                            });
+                            return self.attach_snapshot_if(include_snapshot, data).await;
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            // Invalid selector should not be a silent timeout.
+                            if e.contains("SyntaxError") || e.contains(" DomException") || e.contains("is not a valid") {
+                                return Err(CliError::with_suggestion(
+                                    ErrorKind::Usage,
+                                    format!("wait selector invalid: {sel}: {e}"),
+                                    "Use a valid CSS selector, or an array of selectors for OR match",
+                                ));
+                            }
+                        }
+                    }
                 }
             }
+
             if has_text {
                 let body = self
                     .manager
@@ -2330,11 +2543,91 @@ impl OneShotSession {
                 return Err(CliError::with_suggestion(
                     ErrorKind::Timeout,
                     "wait condition not met before deadline",
-                    "Increase --ms, set --state, or ensure page content is present",
+                    "Increase ms/timeout, use url_contains after navigation, or a single reliable selector",
                 ));
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
+    }
+
+    /// Pick a custom option (HIG badge/popover / role=option). GAP-023.
+    pub async fn pick_option(
+        &mut self,
+        target: &str,
+        option: &str,
+        include_snapshot: bool,
+    ) -> Result<Value, CliError> {
+        // 1) open trigger
+        let _ = self.press(target, false, false).await?;
+        // brief settle for popover
+        let _ = self.wait_ms(150).await?;
+        // 2) try role=option by accessible name, then CSS, then text match click
+        let option_escaped = option.replace('\\', "\\\\").replace('\'', "\\'");
+        let js = format!(
+            r#"(function(){{
+  const want = '{option_escaped}';
+  const byRole = Array.from(document.querySelectorAll('[role="option"], [role="menuitem"], [role="listbox"] [role="option"]'));
+  for (const el of byRole) {{
+    const t = (el.textContent || '').trim();
+    if (t === want || t.includes(want)) {{ el.click(); return {{ok:true, via:'role', text:t}}; }}
+  }}
+  try {{
+    const css = document.querySelector(want);
+    if (css) {{ css.click(); return {{ok:true, via:'css'}}; }}
+  }} catch (_) {{}}
+  const all = Array.from(document.querySelectorAll('button, a, li, span, div, label'));
+  for (const el of all) {{
+    const t = (el.textContent || '').trim();
+    if (t === want || t.includes(want)) {{
+      el.click();
+      return {{ok:true, via:'text', text:t}};
+    }}
+  }}
+  return {{ok:false, error:'option not found: ' + want}};
+}})()"#
+        );
+        let result = self.eval(&js, None, None, None).await?;
+        let ok = result
+            .pointer("/result/ok")
+            .or_else(|| result.get("ok"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        // Also inspect raw evaluate value shapes
+        let ok = ok
+            || result
+                .get("value")
+                .and_then(|v| v.get("ok"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            || result
+                .pointer("/result/value/ok")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        if !ok {
+            // Try direct click on option as selector fallback
+            if let Ok(data) = self.press(option, false, false).await {
+                let out = json!({
+                    "pick": true,
+                    "target": target,
+                    "option": option,
+                    "via": "click_fallback",
+                    "data": data,
+                });
+                return self.attach_snapshot_if(include_snapshot, out).await;
+            }
+            return Err(CliError::with_suggestion(
+                ErrorKind::Data,
+                format!("pick option not found: target={target} option={option}"),
+                "Pass option text visible in the popover, a CSS selector, or role=option label",
+            ));
+        }
+        let out = json!({
+            "pick": true,
+            "target": target,
+            "option": option,
+            "result": result,
+        });
+        self.attach_snapshot_if(include_snapshot, out).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3747,7 +4040,7 @@ pub async fn run_goto_with_robots(
     capture: CaptureOpts,
     robots: crate::robots::RobotsPolicy,
 ) -> Result<Value, CliError> {
-    run_goto_with_options(life, url, capture, robots, None, false, None).await
+    run_goto_with_options(life, url, capture, robots, None, None, None).await
 }
 
 /// One-shot goto with tool-ref navigation options (init script, beforeunload, timeout).
@@ -3758,7 +4051,7 @@ pub async fn run_goto_with_options(
     capture: CaptureOpts,
     robots: crate::robots::RobotsPolicy,
     init_script: Option<&str>,
-    handle_before_unload: bool,
+    handle_before_unload: Option<&str>,
     navigation_timeout_ms: Option<u64>,
 ) -> Result<Value, CliError> {
     let mut session = launch_marked(life, capture).await?;

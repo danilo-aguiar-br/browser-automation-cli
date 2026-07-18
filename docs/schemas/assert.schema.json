@@ -12,7 +12,9 @@
       "enum": [
         "url",
         "text",
-        "console"
+        "console",
+        "console_empty",
+        "console_no_match"
       ],
       "type": "string"
     },
@@ -21,6 +23,10 @@
     },
     "max": {
       "type": "integer"
+    },
+    "pattern": {
+      "description": "For console_no_match (GAP-025)",
+      "type": "string"
     },
     "target": {
       "type": "string"

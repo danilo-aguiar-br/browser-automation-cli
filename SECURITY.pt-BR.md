@@ -61,3 +61,5 @@
 - Não exponha o proxy MITM além da máquina do operador
 - Trate capturas, exports HAR e material privado da CA como sensíveis
 - Prefira orçamentos curtos de `--seconds` em `mitm start` e limpe artefatos de captura após a análise
+- Prefira `mitm capture-url` one-shot em vez de deixar proxy aberto além do necessário
+

@@ -87,7 +87,9 @@ browser-automation-cli completions powershell
 - Workflow journals live under XDG state (`workflows`)
 - Encryption key is set with `config set encryption_key <value>`
 - Full config keys (16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
+- Product settings are flags and XDG `config` only — never product environment variables
 - Product settings use flags and XDG CLI only (`config path|init|show|set|get|list-keys`)
+- Full command inventory and agent patterns: [docs/HOW_TO_USE.md](HOW_TO_USE.md)
 - Redis cache: `cache_backend redis` + `cache_redis_url redis://…` only (`rediss://` fail-closed)
 - Product logging: `--verbose` / `--debug` / `-q` or XDG `log_level`
 - Color: `config set color`; Chrome path: `config set chrome_path`

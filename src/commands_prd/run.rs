@@ -9,6 +9,162 @@ use crate::error::{CliError, ErrorKind};
 use crate::lifecycle::Lifecycle;
 use crate::robots::RobotsPolicy;
 
+/// Commands dispatched by `run`/`exec` (GAP-001 / GAP-017 single source of truth).
+pub const RUN_DISPATCHED_CMDS: &[&str] = &[
+    "goto",
+    "wait",
+    "hover",
+    "drag",
+    "fill-form",
+    "fill_form",
+    "select-option",
+    "select_option",
+    "pick",
+    "upload",
+    "back",
+    "forward",
+    "reload",
+    "view",
+    "press",
+    "write",
+    "keys",
+    "type",
+    "click-at",
+    "click_at",
+    "eval",
+    "grab",
+    "print-pdf",
+    "print_pdf",
+    "extract",
+    "text",
+    "scroll",
+    "cookie",
+    "attr",
+    "assert",
+    "console",
+    "net",
+    "page",
+    "dialog",
+    "scrape",
+    "emulate",
+    "resize",
+    "perf",
+    "lighthouse",
+    "screencast",
+    "heap",
+    "extension",
+    "devtools3p-list",
+    "devtools3p-exec",
+    "devtools3p_list",
+    "devtools3p_exec",
+    "webmcp-list",
+    "webmcp-exec",
+    "webmcp_list",
+    "webmcp_exec",
+];
+
+/// Top-level browser-adjacent commands intentionally excluded from `run` (GAP-007 / GAP-017).
+/// Each entry is `(cmd, reason)`.
+pub const INTENTIONAL_RUN_EXCLUDE: &[(&str, &str)] = &[
+    (
+        "extension-install",
+        "install requires Chrome relaunch with --load-extension; use top-level extension install",
+    ),
+    (
+        "extension-uninstall",
+        "uninstall is top-level one-shot; use extension uninstall outside run",
+    ),
+    (
+        "doctor",
+        "meta command; not a browser step",
+    ),
+    (
+        "commands",
+        "meta discovery; not a browser step",
+    ),
+    (
+        "schema",
+        "meta discovery; not a browser step",
+    ),
+    (
+        "version",
+        "meta; not a browser step",
+    ),
+    (
+        "config",
+        "XDG config; not a browser step",
+    ),
+    (
+        "completions",
+        "shell completions; not a browser step",
+    ),
+    (
+        "mitm",
+        "MITM is a separate one-shot surface; use mitm capture-url or --mitm with browser cmds",
+    ),
+    (
+        "workflow",
+        "workflow journal is top-level; not an in-session browser step",
+    ),
+    (
+        "batch-scrape",
+        "batch-scrape is top-level HTTP/browser pool; use scrape steps or top-level batch-scrape",
+    ),
+    (
+        "crawl",
+        "crawl is top-level; use top-level crawl or multi-step goto/scrape",
+    ),
+    (
+        "map",
+        "map is top-level discovery; not an in-session step",
+    ),
+    (
+        "search",
+        "search is top-level; not an in-session step",
+    ),
+    (
+        "parse",
+        "path-light parse; not a browser session step",
+    ),
+    (
+        "qr",
+        "path-light QR; not a browser session step",
+    ),
+    (
+        "find-paths",
+        "path-light discovery; not a browser session step",
+    ),
+    (
+        "sg-scan",
+        "path-light structural scan; not a browser session step",
+    ),
+    (
+        "sg-rewrite",
+        "path-light rewrite; not a browser session step",
+    ),
+    (
+        "sheet-write",
+        "path-light sheet; not a browser session step",
+    ),
+    (
+        "monitor",
+        "monitor check is top-level one-shot",
+    ),
+    (
+        "run",
+        "nested run is not supported",
+    ),
+    (
+        "exec",
+        "nested exec is not supported",
+    ),
+];
+
+/// Human-readable list of dispatched cmds for suggestions (GAP-017).
+pub fn run_supported_suggestion() -> String {
+    format!("Supported: {}", RUN_DISPATCHED_CMDS.join(" "))
+}
+
 /// Parse a `run` script body as NDJSON objects and/or a top-level JSON array (GAP-A003).
 pub fn parse_run_script(text: &str) -> Result<Vec<Value>, CliError> {
     let trimmed = text.trim();
@@ -94,18 +250,31 @@ fn normalize_step_values(items: Vec<Value>, ctx: &str) -> Result<Vec<Value>, Cli
 
 /// True when the step requests auto-handling of beforeunload dialogs (GAP-A009).
 /// Accepts bool `true` or string `"accept"` / `"dismiss"` (dismiss still arms the handler).
-fn step_wants_beforeunload_handle(step: &Value) -> bool {
+/// GAP-003: tool-ref handleBeforeUnload is accept|dismiss (off when absent/false).
+fn step_beforeunload_action(step: &Value) -> Option<&'static str> {
     let v = step
         .get("handle_before_unload")
         .or_else(|| step.get("handleBeforeUnload"));
     match v {
-        Some(Value::Bool(b)) => *b,
+        Some(Value::Bool(true)) => Some("accept"),
+        Some(Value::Bool(false)) => None,
         Some(Value::String(s)) => {
             let s = s.trim().to_ascii_lowercase();
-            s == "accept" || s == "dismiss" || s == "true" || s == "1"
+            match s.as_str() {
+                "accept" | "true" | "1" | "yes" => Some("accept"),
+                "dismiss" | "cancel" => Some("dismiss"),
+                "off" | "false" | "0" | "no" | "none" => None,
+                _ => Some("accept"),
+            }
         }
-        _ => false,
+        _ => None,
     }
+}
+
+/// Backward-compatible bool form (true when any auto-handle is requested).
+#[allow(dead_code)]
+fn step_wants_beforeunload_handle(step: &Value) -> bool {
+    step_beforeunload_action(step).is_some()
 }
 
 #[cfg(test)]
@@ -150,6 +319,8 @@ pub struct RunFlags {
     pub category_extensions: bool,
     pub category_third_party: bool,
     pub category_webmcp: bool,
+    /// GAP-020: emit one NDJSON line per step on stdout during run.
+    pub json_steps: bool,
 }
 
 impl RunFlags {
@@ -161,6 +332,7 @@ impl RunFlags {
         category_extensions: bool,
         category_third_party: bool,
         category_webmcp: bool,
+        json_steps: bool,
     ) -> Self {
         Self {
             experimental_vision,
@@ -169,6 +341,7 @@ impl RunFlags {
             category_extensions,
             category_third_party,
             category_webmcp,
+            json_steps,
         }
     }
 }
@@ -217,12 +390,21 @@ pub async fn run_script_with_flags(
         let step_res = execute_step(&mut session, cmd, step, robots, flags).await;
         match step_res {
             Ok(data) => {
-                results.push(json!({
+                let row = json!({
                     "index": idx,
+                    "step": idx,
                     "cmd": cmd,
                     "ok": true,
-                    "data": data,
-                }));
+                    "data": data.clone(),
+                    "result": data,
+                });
+                // GAP-020: stream NDJSON per step when --json-steps is set.
+                if flags.json_steps {
+                    if let Ok(line) = serde_json::to_string(&row) {
+                        println!("{line}");
+                    }
+                }
+                results.push(row);
             }
             Err(e) => {
                 let _ = session.shutdown().await;
@@ -231,8 +413,9 @@ pub async fn run_script_with_flags(
                     ledger.chrome_pid = None;
                 }
                 // Fail-fast keeps partial steps so agents retain context (GAP-006/016).
-                results.push(json!({
+                let row = json!({
                     "index": idx,
+                    "step": idx,
                     "cmd": cmd,
                     "ok": false,
                     "error": {
@@ -240,7 +423,13 @@ pub async fn run_script_with_flags(
                         "message": e.message(),
                         "suggestion": e.suggestion(),
                     }
-                }));
+                });
+                if flags.json_steps {
+                    if let Ok(line) = serde_json::to_string(&row) {
+                        println!("{line}");
+                    }
+                }
+                results.push(row);
                 return Ok(json!({
                     "total": steps.len(),
                     "failed_index": idx,
@@ -265,7 +454,9 @@ pub async fn run_script_with_flags(
     }
     close?;
 
+    // GAP-020: final envelope always includes per-step results for --json agents.
     Ok(json!({
+        "ok": true,
         "total": results.len(),
         "steps": results,
     }))
@@ -326,7 +517,7 @@ async fn execute_step(
                 .get("init_script")
                 .or_else(|| step.get("initScript"))
                 .and_then(|v| v.as_str());
-            let beforeunload = step_wants_beforeunload_handle(step);
+            let beforeunload = step_beforeunload_action(step);
             let nav_timeout_ms = step
                 .get("navigation_timeout_ms")
                 .or_else(|| step.get("timeout"))
@@ -336,7 +527,11 @@ async fn execute_step(
                 .await
         }
         "wait" => {
-            let ms = step.get("ms").and_then(|v| v.as_u64());
+            let ms = step
+                .get("ms")
+                .or_else(|| step.get("timeout_ms"))
+                .or_else(|| step.get("timeoutMs"))
+                .and_then(|v| v.as_u64());
             let texts: Vec<String> = match step.get("text") {
                 Some(Value::Array(arr)) => arr
                     .iter()
@@ -345,21 +540,68 @@ async fn execute_step(
                 Some(Value::String(s)) => vec![s.clone()],
                 _ => Vec::new(),
             };
+            // GAP-019: selector string and/or array of selectors (OR).
             let selector = step
                 .get("selector")
                 .or_else(|| step.get("sel"))
                 .and_then(|v| v.as_str());
+            let selectors: Vec<String> = match step.get("selectors") {
+                Some(Value::Array(arr)) => arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect(),
+                Some(Value::String(s)) => vec![s.clone()],
+                _ => match step.get("selector").or_else(|| step.get("sel")) {
+                    Some(Value::Array(arr)) => arr
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect(),
+                    _ => Vec::new(),
+                },
+            };
             let state = step.get("state").and_then(|v| v.as_str());
+            // GAP-024: wait for URL / navigation complete.
+            let url_exact = step
+                .get("url")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty());
+            let url_contains = step
+                .get("url_contains")
+                .or_else(|| step.get("urlContains"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty());
+            let navigation = step
+                .get("navigation")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let include_snapshot = step
                 .get("include_snapshot")
                 .or_else(|| step.get("includeSnapshot"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            if texts.is_empty() && selector.is_none() && state.is_none() && !include_snapshot {
+            let has_sel = selector.is_some() || !selectors.is_empty();
+            let has_url = url_exact.is_some() || url_contains.is_some();
+            if texts.is_empty()
+                && !has_sel
+                && state.is_none()
+                && !has_url
+                && !navigation
+                && !include_snapshot
+            {
                 session.wait_ms(ms.unwrap_or(0)).await
             } else {
                 session
-                    .wait_for_any(ms, &texts, selector, state, include_snapshot)
+                    .wait_for_any_ex(
+                        ms,
+                        &texts,
+                        selector,
+                        &selectors,
+                        state,
+                        url_exact,
+                        url_contains,
+                        navigation,
+                        include_snapshot,
+                    )
                     .await
             }
         }
@@ -439,6 +681,38 @@ async fn execute_step(
                 .unwrap_or(false);
             session.fill_form(&fields, include_snapshot).await
         }
+        "select-option" | "select_option" | "pick" => {
+            // GAP-023: custom select / badge / popover / role=option.
+            let target = step
+                .get("target")
+                .or_else(|| step.get("ref"))
+                .or_else(|| step.get("selector"))
+                .or_else(|| step.get("trigger"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    CliError::new(
+                        ErrorKind::Usage,
+                        "select-option/pick requires target (trigger)",
+                    )
+                })?;
+            let option = step
+                .get("option")
+                .or_else(|| step.get("value"))
+                .or_else(|| step.get("text"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    CliError::new(
+                        ErrorKind::Usage,
+                        "select-option/pick requires option (text, selector, or role label)",
+                    )
+                })?;
+            let include_snapshot = step
+                .get("include_snapshot")
+                .or_else(|| step.get("includeSnapshot"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            session.pick_option(target, option, include_snapshot).await
+        }
         "upload" => {
             let target = step
                 .get("target")
@@ -473,7 +747,7 @@ async fn execute_step(
                 .or_else(|| step.get("initScript"))
                 .and_then(|v| v.as_str());
             // GAP-A009: never inject preventDefault; CDP dialog pump handles beforeunload.
-            let beforeunload = step_wants_beforeunload_handle(step);
+            let beforeunload = step_beforeunload_action(step);
             session
                 .reload_with_options(ignore_cache, init, beforeunload)
                 .await
@@ -483,7 +757,44 @@ async fn execute_step(
                 .get("verbose")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            session.view(verbose).await
+            let allow_empty = step
+                .get("allow_empty")
+                .or_else(|| step.get("allowEmpty"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let mut data = session.view(verbose).await?;
+            let ref_count = data
+                .get("ref_count")
+                .or_else(|| data.pointer("/snapshot/ref_count"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or_else(|| {
+                    data.get("tree")
+                        .and_then(|v| v.as_str())
+                        .map(|t| if t.contains("(empty") { 0 } else { 1 })
+                        .unwrap_or(1)
+                });
+            let info = session.page_info().await.unwrap_or_else(|_| json!({}));
+            let url_now = info
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("about:blank");
+            let empty = ref_count == 0
+                || url_now == "about:blank"
+                || data
+                    .get("tree")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|t| t.contains("empty page"));
+            if empty && !allow_empty {
+                return Err(CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    "view returned empty page (no refs); refuse silent success",
+                    "Navigate with goto first, or pass allow_empty:true for blank snapshots",
+                ));
+            }
+            if let Some(obj) = data.as_object_mut() {
+                obj.insert("empty".into(), json!(empty));
+            }
+            Ok(data)
         }
         "press" | "click" => {
             let target = step
@@ -872,12 +1183,18 @@ async fn execute_step(
                         .get("background")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    let isolated = step
+                    // GAP-004: tool-ref isolatedContext is a name string; bool true → auto name.
+                    let isolated_name: Option<String> = match step
                         .get("isolated_context")
                         .or_else(|| step.get("isolatedContext"))
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    session.page_new(url, background, isolated).await
+                    {
+                        Some(Value::String(s)) if !s.trim().is_empty() => Some(s.clone()),
+                        Some(Value::Bool(true)) => Some("default-isolated".into()),
+                        _ => None,
+                    };
+                    session
+                        .page_new(url, background, isolated_name.as_deref())
+                        .await
                 }
                 "select" => {
                     // Prefer 0-based index; pageId tool-ref alias; tab_id 1-based from page list.
@@ -943,13 +1260,41 @@ async fn execute_step(
                 .and_then(|v| v.as_str())
                 .unwrap_or("accept");
             let text = step.get("text").and_then(|v| v.as_str());
-            match action {
+            let if_present = step
+                .get("if_present")
+                .or_else(|| step.get("ifPresent"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let result = match action {
                 "accept" => session.dialog(true, text).await,
                 "dismiss" => session.dialog(false, None).await,
-                other => Err(CliError::new(
-                    ErrorKind::Usage,
-                    format!("unknown dialog action: {other}"),
-                )),
+                other => {
+                    return Err(CliError::new(
+                        ErrorKind::Usage,
+                        format!("unknown dialog action: {other}"),
+                    ))
+                }
+            };
+            match result {
+                Ok(v) => Ok(v),
+                Err(e) if if_present => {
+                    let msg = e.message().to_ascii_lowercase();
+                    if msg.contains("no dialog")
+                        || msg.contains("not showing")
+                        || msg.contains("-32602")
+                        || msg.contains("dialog failed")
+                    {
+                        Ok(json!({
+                            "dialog": action,
+                            "dialog_shown": false,
+                            "if_present": true,
+                            "ok": true,
+                        }))
+                    } else {
+                        Err(e)
+                    }
+                }
+                Err(e) => Err(e),
             }
         }
         "emulate" => {
@@ -1257,6 +1602,56 @@ async fn execute_step(
             // Prefer browser engine inside `run` (session already live).
             session.scrape(url, robots).await
         }
+        "print-pdf" | "print_pdf" => {
+            // GAP-001: Page.printToPDF inside multi-step run (same process as goto/view).
+            if let Some(url) = step.get("url").and_then(|v| v.as_str()) {
+                let init = step
+                    .get("init_script")
+                    .or_else(|| step.get("initScript"))
+                    .and_then(|v| v.as_str());
+                let beforeunload = step_beforeunload_action(step);
+                let nav_timeout_ms = step
+                    .get("navigation_timeout_ms")
+                    .or_else(|| step.get("timeout_ms"))
+                    .and_then(|v| v.as_u64());
+                let _ = session
+                    .goto_with_options(url, robots, init, beforeunload, nav_timeout_ms)
+                    .await?;
+            } else {
+                // GAP-013: refuse blank about:blank PDF unless allow_empty.
+                let allow_empty = step
+                    .get("allow_empty")
+                    .or_else(|| step.get("allowEmpty"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let info = session.page_info().await.unwrap_or_else(|_| json!({}));
+                let url_now = info
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("about:blank");
+                if !allow_empty
+                    && (url_now.is_empty()
+                        || url_now == "about:blank"
+                        || url_now.starts_with("chrome://"))
+                {
+                    return Err(CliError::with_suggestion(
+                        ErrorKind::Usage,
+                        "print-pdf requires a navigated page or step url (blank page refused)",
+                        "Add {\"cmd\":\"goto\",\"url\":\"…\"} before print-pdf, or pass \"url\" on the step, or allow_empty:true",
+                    ));
+                }
+            }
+            let path = step
+                .get("path")
+                .and_then(|v| v.as_str())
+                .map(Path::new);
+            let mut pdf = session.print_pdf(path).await?;
+            // GAP-020: optional landscape/scale when provided (passed through if session supports).
+            if let Some(land) = step.get("landscape").and_then(|v| v.as_bool()) {
+                pdf["landscape"] = json!(land);
+            }
+            Ok(pdf)
+        }
         "lighthouse" => {
             let url = step
                 .get("url")
@@ -1329,7 +1724,7 @@ async fn execute_step(
         other => Err(CliError::with_suggestion(
             ErrorKind::Usage,
             format!("unknown script cmd: {other}"),
-            "Supported: goto wait hover drag fill-form upload back forward reload view press write keys type click-at eval grab extract text scroll cookie attr assert console net page dialog scrape emulate resize perf lighthouse screencast heap extension devtools3p-list devtools3p-exec webmcp-list webmcp-exec",
+            run_supported_suggestion(),
         )),
     }
 }
@@ -1511,6 +1906,25 @@ async fn execute_assert(session: &mut OneShotSession, step: &Value) -> Result<Va
                 let max = step.get("max").and_then(|v| v.as_u64()).unwrap_or(0);
                 return session.assert_console(level, max).await;
             }
+            // GAP-025
+            "console_empty" | "console-empty" => {
+                return session.assert_console_empty().await;
+            }
+            "console_no_match" | "console-no-match" => {
+                let pattern = step
+                    .get("pattern")
+                    .or_else(|| step.get("text"))
+                    .or_else(|| step.get("value"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        CliError::with_suggestion(
+                            ErrorKind::Usage,
+                            "assert console_no_match requires pattern",
+                            "Use {\"cmd\":\"assert\",\"kind\":\"console_no_match\",\"pattern\":\"TypeError\"}",
+                        )
+                    })?;
+                return session.assert_console_no_match(pattern).await;
+            }
             other => {
                 return Err(CliError::new(
                     ErrorKind::Usage,
@@ -1543,8 +1957,8 @@ async fn execute_assert(session: &mut OneShotSession, step: &Value) -> Result<Va
     }
     Err(CliError::with_suggestion(
         ErrorKind::Usage,
-        "assert requires kind=url|text|console or url/text/url_contains fields",
-        "Example: {\"cmd\":\"assert\",\"kind\":\"url\",\"value\":\"example.com\"}",
+        "assert requires kind=url|text|console|console_empty|console_no_match or url/text/url_contains fields",
+        "Example: {\"cmd\":\"assert\",\"kind\":\"console_empty\"} or kind=url value=example.com",
     ))
 }
 

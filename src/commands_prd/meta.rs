@@ -22,6 +22,8 @@ pub const COMMANDS: &[&str] = &[
     "hover",
     "drag",
     "fill-form",
+    "select-option",
+    "pick",
     "upload",
     "back",
     "forward",
@@ -80,6 +82,8 @@ pub const PARITY_DEFAULT_ON_REQUIRED: &[&str] = &[
     "hover",
     "drag",
     "fill-form",
+    "select-option",
+    "pick",
     "upload",
     "back",
     "forward",
@@ -222,7 +226,11 @@ fn schema_for(cmd: &str) -> Option<Value> {
             json!({
                 "url": { "type": "string", "description": "Absolute URL or about:blank" },
                 "init_script": { "type": "string", "description": "JS to evaluate before navigation (tool-ref initScript)" },
-                "handle_before_unload": { "type": "boolean", "description": "Auto-accept beforeunload dialogs via CDP (never injects preventDefault; tool-ref parity)" },
+                "handle_before_unload": {
+                    "type": "string",
+                    "enum": ["accept", "dismiss"],
+                    "description": "Auto-handle beforeunload via CDP: accept | dismiss (GAP-003; CLI flag alone defaults to accept; never injects preventDefault)"
+                },
                 "navigation_timeout_ms": { "type": "integer", "description": "Navigation timeout override in milliseconds" }
             }),
             &["url"],
@@ -281,7 +289,7 @@ fn schema_for(cmd: &str) -> Option<Value> {
             &["text"],
         ),
         "wait" => schema_object(
-            "Wait ms and/or text and/or CSS selector and/or load state",
+            "Wait ms and/or text and/or CSS selector (comma OR / array) and/or URL and/or load state (GAP-019/024)",
             json!({
                 "ms": { "type": "integer", "minimum": 0 },
                 "text": {
@@ -291,7 +299,16 @@ fn schema_for(cmd: &str) -> Option<Value> {
                     ],
                     "description": "Repeatable --text values; any match wins (OR)"
                 },
-                "selector": { "type": "string" },
+                "selector": {
+                    "oneOf": [
+                        { "type": "string", "description": "CSS selector; comma-separated OR supported (GAP-019)" },
+                        { "type": "array", "items": { "type": "string" } }
+                    ]
+                },
+                "selectors": { "type": "array", "items": { "type": "string" }, "description": "OR list of CSS selectors" },
+                "url": { "type": "string", "description": "Exact location.href match (GAP-024)" },
+                "url_contains": { "type": "string", "description": "Substring match on location.href (GAP-024)" },
+                "navigation": { "type": "boolean", "description": "Wait for load lifecycle (GAP-024)" },
                 "state": {
                     "type": "string",
                     "enum": ["load", "domcontentloaded", "networkidle", "none"]
@@ -323,6 +340,16 @@ fn schema_for(cmd: &str) -> Option<Value> {
                 }
             }),
             &["json"],
+        ),
+        "select-option" | "select_option" | "pick" => schema_object(
+            "Pick option from custom select / badge popover / role=option (GAP-023)",
+            json!({
+                "target": { "type": "string", "description": "Trigger control (badge/button)" },
+                "option": { "type": "string", "description": "Option text, CSS selector, or role label" },
+                "value": { "type": "string" },
+                "include_snapshot": { "type": "boolean" }
+            }),
+            &["target", "option"],
         ),
         "upload" => schema_object(
             "Upload a regular file to a file input",
@@ -444,7 +471,8 @@ fn schema_for(cmd: &str) -> Option<Value> {
         "assert" => schema_object(
             "Assertion helpers (url/text/console)",
             json!({
-                "kind": { "type": "string", "enum": ["url", "text", "console"] },
+                "kind": { "type": "string", "enum": ["url", "text", "console", "console_empty", "console_no_match"] },
+                "pattern": { "type": "string", "description": "For console_no_match (GAP-025)" },
                 "value": { "type": "string" },
                 "url": { "type": "string" },
                 "url_contains": { "type": "string" },
@@ -477,14 +505,21 @@ fn schema_for(cmd: &str) -> Option<Value> {
             &["action"],
         ),
         "page" => schema_object(
-            "Page info or multi-tab list|new|select|close",
+            "Page info or multi-tab list|new|select|close|tab-id",
             json!({
                 "action": {
                     "type": "string",
-                    "enum": ["info", "list", "new", "select", "close"]
+                    "enum": ["info", "list", "new", "select", "close", "tab-id"]
                 },
                 "url": { "type": "string" },
-                "index": { "type": "integer", "minimum": 0 }
+                "index": { "type": "integer", "minimum": 0 },
+                "background": { "type": "boolean", "description": "Open new tab without focusing (page new)" },
+                "isolated_context": {
+                    "type": "string",
+                    "description": "Named isolated browser context for page new (tool-ref isolatedContext; GAP-004; flag alone = default-isolated)"
+                },
+                "page_id": { "type": "integer", "minimum": 0, "description": "Tool-ref pageId alias for index (select/close)" },
+                "bring_to_front": { "type": "boolean", "description": "Bring selected tab to front (page select; default true)" }
             }),
             &[],
         ),
@@ -492,7 +527,11 @@ fn schema_for(cmd: &str) -> Option<Value> {
             "Accept or dismiss open dialog",
             json!({
                 "action": { "type": "string", "enum": ["accept", "dismiss"] },
-                "text": { "type": "string" }
+                "text": { "type": "string", "description": "Optional prompt response text (accept only)" },
+                "if_present": {
+                    "type": "boolean",
+                    "description": "Soft-ok when no dialog is showing (GAP-006); envelope dialog_shown:false"
+                }
             }),
             &["action"],
         ),
@@ -501,12 +540,33 @@ fn schema_for(cmd: &str) -> Option<Value> {
             json!({
                 "url": { "type": "string" },
                 "format": {
-                    "type": "string",
-                    "enum": [
-                        "text", "markdown", "html", "raw-html", "links", "metadata",
-                        "screenshot", "summary", "product", "branding"
+                    "oneOf": [
+                        {
+                            "type": "string",
+                            "enum": [
+                                "text", "markdown", "html", "raw-html", "links", "metadata",
+                                "screenshot", "summary", "product", "branding"
+                            ]
+                        },
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "text", "markdown", "html", "raw-html", "links", "metadata",
+                                    "screenshot", "summary", "product", "branding"
+                                ]
+                            }
+                        }
                     ],
-                    "description": "Default text; browser engine also applies format via outerHTML"
+                    "description": "Single format, CSV multi-format, or array (GAP-009); browser applies via outerHTML"
+                },
+                "formats": {
+                    "description": "Alias of format for multi-value (GAP-018)",
+                    "oneOf": [
+                        { "type": "string" },
+                        { "type": "array", "items": { "type": "string" } }
+                    ]
                 },
                 "engine": {
                     "type": "string",
@@ -522,25 +582,37 @@ fn schema_for(cmd: &str) -> Option<Value> {
             &["url"],
         ),
         "batch-scrape" => schema_object(
-            "Scrape many URLs from a file (HTTP engine, one-shot JoinSet)",
+            "Scrape many URLs from a file (HTTP or browser engine, one-shot)",
             json!({
                 "urls_file": { "type": "string", "description": "Path to file with one URL per line" },
                 "format": {
                     "type": "string",
-                    "enum": ["text", "markdown", "html", "links", "metadata"]
+                    "enum": ["text", "markdown", "html", "links", "metadata", "raw-html", "screenshot", "summary", "product", "branding"],
+                    "description": "Single format or CSV multi-format when supported"
+                },
+                "engine": {
+                    "type": "string",
+                    "enum": ["http", "browser"],
+                    "description": "Default http; browser uses CDP per URL (GAP-010)"
                 },
                 "concurrency": { "type": "integer", "minimum": 1 }
             }),
             &["urls_file"],
         ),
         "crawl" => schema_object(
-            "Crawl from a seed URL (HTTP BFS, one-shot)",
+            "Crawl from a seed URL (HTTP BFS or browser, one-shot)",
             json!({
                 "url": { "type": "string" },
                 "limit": { "type": "integer", "minimum": 1 },
+                "max_pages": { "type": "integer", "minimum": 1, "description": "Alias of limit" },
                 "max_depth": { "type": "integer", "minimum": 0 },
                 "format": { "type": "string" },
-                "same_host": { "type": "boolean" }
+                "same_host": { "type": "boolean" },
+                "engine": {
+                    "type": "string",
+                    "enum": ["http", "browser"],
+                    "description": "Default http; browser engine for JS-rendered crawl (GAP-010)"
+                }
             }),
             &["url"],
         ),

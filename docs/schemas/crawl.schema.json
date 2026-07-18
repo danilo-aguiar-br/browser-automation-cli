@@ -3,8 +3,16 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/crawl.schema.json",
   "title": "crawl command input",
   "type": "object",
-  "description": "Crawl from a seed URL (HTTP BFS, one-shot)",
+  "description": "Crawl from a seed URL (HTTP BFS or browser, one-shot)",
   "properties": {
+    "engine": {
+      "description": "Default http; browser engine for JS-rendered crawl (GAP-010)",
+      "enum": [
+        "http",
+        "browser"
+      ],
+      "type": "string"
+    },
     "format": {
       "type": "string"
     },
@@ -14,6 +22,11 @@
     },
     "max_depth": {
       "minimum": 0,
+      "type": "integer"
+    },
+    "max_pages": {
+      "description": "Alias of limit",
+      "minimum": 1,
       "type": "integer"
     },
     "same_host": {

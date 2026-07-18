@@ -197,8 +197,24 @@ pub fn run() -> ExitCode {
         Ok(c) => c,
         Err(e) => {
             // clap: DisplayHelp/DisplayVersion → exit 0; usage errors → 2
+            // GAP-002: when `--json` is on argv, emit agent envelope on stdout (not human clap only).
             let code = e.exit_code();
-            let _ = e.print();
+            let wants_json = std::env::args_os().any(|a| a == "--json");
+            let is_help_or_version = matches!(
+                e.kind(),
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+            );
+            if wants_json && !is_help_or_version && code != 0 {
+                let msg = e.to_string();
+                let err = crate::error::CliError::with_suggestion(
+                    crate::error::ErrorKind::Usage,
+                    msg.lines().next().unwrap_or("invalid arguments").to_string(),
+                    "Check --help or schema --cmd <name>; pass valid argv",
+                );
+                let _ = crate::envelope::print_error_json(&err);
+            } else {
+                let _ = e.print();
+            }
             life.finalize();
             return ExitCode::from(code as u8);
         }

@@ -9,6 +9,43 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-07-18
+
+### Adicionado
+- `run --json-steps` (global `--json-steps`): stream de uma linha NDJSON por passo (`step`, `cmd`, `ok`, `result`) para observabilidade agent-first (GAP-020)
+- `wait` suporta multi-seletor CSS OR (`#a, #b`), arrays `selectors`, `url` / `url_contains` / `navigation` (GAP-019, GAP-024)
+- Comandos multi-passo `select-option` / `pick` para badge/popover HIG / `role=option` (GAP-023)
+- Kinds de assert `console_empty` e `console_no_match` (GAP-025)
+- `schema <cmd>` posicional além de `schema --cmd` (GAP-022)
+- `BeforeUnloadAction` accept|dismiss em `goto` / `reload` (GAP-003)
+- MITM `capture-url` one-shot compose + flags globais `--mitm*` (GAP-011)
+- `print-pdf` no multi-passo `run` + gate de inventário do run (GAP-001, GAP-017)
+- Scrape multi-formato e batch/crawl `--engine browser` (GAP-009, GAP-010)
+
+### Corrigido
+- `console dump` sempre grava um array JSON válido (`[]` quando vazio; nunca 0-byte) (GAP-021)
+- Envelope final de `run --json` inclui `ok` + `steps[].data` completo (GAP-020)
+- Erros de usage do Clap emitem envelope JSON quando `--json` está no argv (GAP-002)
+- `view` em about:blank vazio recusa sucesso silencioso salvo `--allow-empty` (GAP-012)
+- `print-pdf` recusa PDF em branco sem conteúdo navegado (GAP-013)
+- Caminho soft de diálogo com `--if-present` (GAP-006)
+- Flags de privacy no launch do Chrome; sem `metrics-recording-only` (GAP-016)
+
+### Alterado
+- Versão `0.1.4`
+- Teste `parity_run_inventory` impõe `RUN_DISPATCHED_CMDS` ∪ exclusões intencionais
+- Auditoria de superfície Clap (`rules_rust_cli_com_clap`): `GlobalOpts` usa `Args` + flatten; `ArgAction::SetTrue` explícito; `value_hint` em paths/URLs; help headings; exemplos `after_help`; alias `-v`; metadata `author`
+- `CliError` deriva `thiserror::Error`; o binário instala `human-panic` para relatórios de panic em release
+- Gate de integração `tests/clap_command_debug_assert.rs` roda `Cli::command().debug_assert()`
+
+
+### Documentação
+- Docs públicos bilíngues (README, INTEGRATIONS, llms*, HOW_TO_USE, AGENTS, COOKBOOK, MIGRATION, TESTING, SECURITY, CONTRIBUTING) sincronizados com a superfície v0.1.4
+- Inventário documentado como 61 nomes de agente via `commands --json` (inclui `select-option` e `pick` só em run/schema; clap top-level lista 59 sem eles como subcomandos standalone)
+- Skills EN/PT reescritas como playbooks imperativos com fórmulas para os 61 comandos (somente XDG + flags; sem catálogo de env de produto)
+- `docs/schemas` regenerados; fragmentos live de `schema` para `batch-scrape`/`crawl`/`scrape` documentam `--engine browser` e multi-formato
+- Banner em `gaps.md` marca GAP-001…025 Closed e preserva o histórico da auditoria pré-fix
+
 ## [0.1.3] - 2026-07-17
 
 

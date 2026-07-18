@@ -33,30 +33,30 @@
 - Refs de acessibilidade `@eN` só valem dentro daquele processo
 - Envelopes `--json` estáveis para agentes programáticos
 - Caminho de install é Rust puro via cargo
-- v0.1.3 entrega hard-close residual-zero, honestidade Redis/Lighthouse, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob`, `run` NDJSON|array JSON e a superfície completa 0.1.2
+- v0.1.4 entrega `--json-steps`, `wait` url/navigation/multi-seletor, `select-option`/`pick`, assert `console_*`, `schema <cmd>` posicional, MITM `capture-url`, scrape multi-formato, batch/crawl `--engine browser`, `print-pdf` no `run`, e a superfície completa 0.1.3
 
 ## Superpoderes
 - Navegação e ciclo de página: `goto`, `back`, `forward`, `reload`, `page`
-- Input: `press`, `write`, `type`, `keys`, `hover`, `drag`, `fill-form`, `upload`
+- Input: `press`, `write`, `type`, `keys`, `hover`, `drag`, `fill-form`, `select-option`/`pick` (run/schema), `upload`
 - Observação: `view`, `grab`, `extract`, `text`, `attr`, `scroll`, `assert`
-- Wait: múltiplos `--text` resolvem como OR (qualquer texto desbloqueia)
-- Scrape: `scrape` com `--format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding` e `--engine http|browser` (engine browser aplica formatos via outerHTML)
-- Superfície local scrape/crawl/map/search/parse: `batch-scrape`, `crawl`, `map`, `search` (limpa redirects SERP `uddg=`), `parse` (PDF/DOCX/xlsx/ods + `--redact-pii`)
+- Wait: múltiplos `--text` resolvem como OR; multi-seletor CSS OR (`#a, #b` / `selectors`); `url` / `url_contains` / `navigation`
+- Scrape: `scrape` com `--format` multi/CSV `text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding` e `--engine http|browser` (engine browser aplica formatos via outerHTML)
+- Superfície local scrape/crawl/map/search/parse: `batch-scrape` (`--engine http|browser`), `crawl` (`--engine http|browser`), `map`, `search` (limpa redirects SERP `uddg=`), `parse` (PDF/DOCX/xlsx/ods + `--redact-pii`)
 - Extract LLM: `extract --llm --question --schema-json` (XDG `openrouter_api_key`, `llm_base_url`, `llm_model`)
 - Captura: `console` e `net` com flags globais opcionais
 - Profundidade DevTools: `eval`, `emulate`, `resize`, `perf`, `lighthouse` (resolve flag → XDG `lighthouse_path` → PATH; envelope `binary_source` real|mock), `heap`
-- Impressão PDF: `print-pdf` one-shot CDP `Page.printToPDF`
+- Impressão PDF: `print-pdf` one-shot CDP `Page.printToPDF` (também no multi-passo `run`)
 - Monitor: `monitor check --url --baseline [--write-baseline]`
 - Utilitários (sem Chrome): `qr encode|decode`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
-- Aliases de assert: `url_contains` / `text_contains`; `attr` faz fallback para properties DOM
+- Aliases de assert: `url_contains` / `text_contains`; kinds `console_empty` / `console_no_match`; `attr` faz fallback para properties DOM
 - Aliases de scroll em `run`: `dy`/`dx` para `delta_y`/`delta_x`
 - Categorias opcionais: memory, extensions, third-party, webmcp
 - Experimental: vision `click-at`, screencast com export via ffmpeg
-- MITM one-shot: `mitm start` escuta só em `127.0.0.1` (hudsucker)
+- MITM one-shot: `mitm start` / `mitm capture-url` escuta só em `127.0.0.1` (hudsucker); flags globais `--mitm*`
 - Workflow DAG: `workflow run|resume|status` com journal SQLite (resume pula ok)
 - Config XDG: `config path|init|show|set|get|list-keys` para config.toml
-- Descoberta: `doctor` (browsers_dir, origem lighthouse, `cache_redis`), `commands` (59 nomes), `schema --cmd` (goto/eval/type/scroll/assert expandidos), `completions`
-- Fail-fast multi-passo: `run` devolve `data.steps` parciais em envelopes de erro
+- Descoberta: `doctor` (browsers_dir, origem lighthouse, `cache_redis`), `commands` (61 nomes), `schema <cmd>` ou `schema --cmd` (goto/eval/type/scroll/assert expandidos), `completions`
+- Fail-fast multi-passo: `run` devolve `data.steps` parciais em envelopes de erro; `--json-steps` streama NDJSON por passo
 - Ciclo de vida: FINALIZE faz scavenge de órfãos Chromium em `/tmp` owned; e2e residual é residual-zero honesto
 - Cache: XDG `cache_backend` (`sqlite|memory|redis`) e `cache_redis_url`; `rediss://` fail-closed
 
@@ -88,7 +88,7 @@ cargo install browser-automation-cli --locked
 - Passe sempre `--json` em pipelines de agente
 - Mantenha diagnósticos humanos no stderr com `-q` ao pipar
 - Use `--timeout` para orçamento wall-clock do processo em segundos
-- Use `run --script` (linhas NDJSON ou um array JSON de passos) para sessões multi-passo que compartilham refs `@eN`
+- Use `run --script` (linhas NDJSON ou um array JSON de passos) para sessões multi-passo que compartilham refs `@eN`; adicione `--json-steps` para stream por passo
 - Prefira flags de CLI em chamadas one-off; use `config` para defaults XDG duráveis
 - Detalhe de logging: `--verbose` / `--debug` / `-q`, ou `config set log_level`
 - Localize sugestões humanas com `--lang pt-BR` ou `config set lang pt-BR`
@@ -98,6 +98,9 @@ cargo install browser-automation-cli --locked
 browser-automation-cli config set openrouter_api_key sk-or-...
 browser-automation-cli --json goto https://example.com
 browser-automation-cli --json wait --text Hello --text Welcome --ms 5000
+browser-automation-cli --json schema wait
+browser-automation-cli --json-steps run --script '[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]'
+browser-automation-cli --json mitm capture-url https://example.com --seconds 30
 browser-automation-cli --json scrape https://example.com --format markdown --engine http
 browser-automation-cli --json scrape https://example.com --format markdown --engine browser
 browser-automation-cli --json scrape https://example.com --format markdown --engine http --webhook-url https://example.com/hook
@@ -122,19 +125,19 @@ browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://exampl
 - Descoberta: `doctor`, `commands`, `schema`, `version`, `completions`
 - Config: `config path`, `config init`, `config show`, `config set`, `config get`, `config list-keys`
 - Navegação: `goto`, `back`, `forward`, `reload`
-- Snapshot e input: `view`, `press`, `write`, `type`, `keys`, `wait`, `hover`, `drag`, `fill-form`, `upload`
+- Snapshot e input: `view`, `press`, `write`, `type`, `keys`, `wait`, `hover`, `drag`, `fill-form`, `select-option`, `pick`, `upload`
 - Conteúdo: `extract`, `text`, `scroll`, `attr`, `assert`, `grab`
 - Scrape e discovery: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
 - PDF e monitor: `print-pdf`, `monitor`
 - Utilitários: `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
 - Abas e diálogos: `page`, `dialog`, `cookie`
 - Captura: `console`, `net`
-- MITM: `mitm status|list|get|har|export|domains|apis|init-ca|start`
+- MITM: `mitm status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
 - Workflow: `workflow run|resume|status`
 - Avançado: `eval`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`
 - Categorias: `extension`, `devtools3p`, `webmcp`
 - Multi-passo: `run`, `exec`
-- Inventário: 59 nomes de comando de topo (`commands --json`), incluindo paridade DevTools (53 tools e2e) mais `print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`, superfície de scrape, MITM, workflow e config
+- Inventário: 61 nomes de comando de topo (`commands --json`), incluindo paridade DevTools (53 tools e2e) mais `select-option`, `pick`, `print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`, superfície de scrape, MITM, workflow e config
 
 ## Configuração
 - Prefira flags de CLI para chamadas one-off de agente
@@ -145,7 +148,7 @@ browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://exampl
 - Binário Chrome: path do shell ou XDG `config set chrome_path`
 - Binário Lighthouse: flag `--lighthouse-path`, XDG `config set lighthouse_path`, ou PATH (envelope reporta `binary_source`)
 - Cache: `config set cache_backend sqlite|memory|redis` e opcional `cache_redis_url` (somente `redis://`; `rediss://` fail-closed)
-- Chaves de config: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
+- Chaves de config (16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - `config init` cria o layout XDG e o config.toml padrão
 - `config path` imprime paths resolvidos de config, data, cache, state e browsers_dir
 - `config list-keys` lista cada chave suportada com defaults
@@ -178,7 +181,7 @@ browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://exampl
 
 ## Padrões de Integração
 - Claude Code, Codex, Cursor e agentes de shell disparam um processo por ação
-- Planos multi-passo de agentes devem usar `run --script` (NDJSON ou array JSON) em vez de encadear processos separados
+- Planos multi-passo de agentes devem usar `run --script` (NDJSON ou array JSON; opcional `--json-steps`) em vez de encadear processos separados
 - Parseie stdout com `jaq` e ignore stderr salvo em diagnóstico
 - Persista defaults duráveis com `config set` sob XDG
 - Veja [INTEGRATIONS.pt-BR.md](INTEGRATIONS.pt-BR.md) e [docs/AGENTS.pt-BR.md](docs/AGENTS.pt-BR.md)
@@ -188,7 +191,7 @@ browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://exampl
 - Prefira `doctor --offline --quick` para checagens de install sem rede
 - Reutilize scripts multi-passo para evitar launches repetidos do Chrome
 - Prefira `scrape --engine http` quando CDP não for necessário
-- Use concorrência de `batch-scrape` para fetches HTTP paralelos
+- Use concorrência de `batch-scrape` para fetches paralelos (`--engine http` default; `--engine browser` por URL)
 
 ## Requisitos de Memória
 - Espere memória do processo Chrome muito acima do binário da CLI
@@ -205,25 +208,25 @@ browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://exampl
 - Exit 2 usage: confira flags com `browser-automation-cli help <cmd>`
 - Refs `@eN` inválidas entre comandos: mantenha passos dentro de um `run`; refs não atravessam processos
 - Network vazio: passe `--capture-network` no mesmo processo que navega
-- Wait multi-text: repita `--text` para semântica OR (qualquer texto listado desbloqueia)
-- Bind MITM: `mitm start` escuta só em `127.0.0.1` com porta efêmera
+- Wait multi-text: repita `--text` para semântica OR; multi-seletor CSS OR e `url`/`url_contains`/`navigation` no `run`
+- Bind MITM: `mitm start` / `mitm capture-url` escuta só em `127.0.0.1` com porta efêmera; flags globais `--mitm*`
 - Workflow resume: `workflow resume` pula passos já `ok` no journal
 - Formatos scrape browser: `--engine browser` aplica `--format` (markdown/html/links/metadata/raw-html/screenshot/summary/product/branding) via outerHTML
 - Aliases de scroll: em scripts `run` use `dy`/`dx` como aliases de `delta_y`/`delta_x`
-- Descoberta de schema: `schema --cmd goto|eval|type|scroll|assert` expõe flags tool-ref expandidas
+- Descoberta de schema: `schema <cmd>` ou `schema --cmd goto|eval|type|scroll|assert` expõe flags tool-ref expandidas
 - Lang: `--lang pt-BR` ou `config set lang pt-BR` localiza sugestões humanas
-- Fail-fast com steps parciais: envelopes de erro de `run` podem incluir `data.steps` parciais
+- Fail-fast com steps parciais: envelopes de erro de `run` podem incluir `data.steps` parciais; `--json-steps` streama NDJSON por passo
 - Path do Lighthouse: flag, `config set lighthouse_path`, ou PATH; envelope `binary_source` é `real` ou `mock` (mock é honestidade de e2e, não produção)
 - Redirects de search: `search` limpa wrappers `uddg=` para URLs de destino
 - Parse de documentos: `parse` suporta PDF/DOCX/xlsx/ods e `--redact-pii`
 - Extract LLM: exige XDG `openrouter_api_key` (opcionais `llm_base_url`, `llm_model`)
 - Print PDF: `print-pdf --url <url> --path <file>` one-shot CDP
 - Baseline de monitor: `monitor check --url <url> --baseline <file> [--write-baseline]`
-- Aliases de assert: `url_contains` / `text_contains`; `attr` usa fallback de property DOM quando o atributo HTML é null
-- Tamanho do inventário: `commands --json` lista 59 nomes de topo (e2e cobre 53 tools de paridade DevTools)
+- Aliases de assert: `url_contains` / `text_contains`; kinds `console_empty` / `console_no_match`; `attr` usa fallback de property DOM quando o atributo HTML é null
+- Tamanho do inventário: `commands --json` lista 61 nomes de topo (e2e cobre 53 tools de paridade DevTools); `select-option` e `pick` via run/schema
 - `file://` + `scrape --engine http`: erro Usage — use engine browser ou `parse` para arquivos locais
 - `reload --ignore-cache`: CDP `Page.reload` com `ignoreCache` (não é no-op em JS)
-- Formatos de script `run`: NDJSON um objeto por linha, ou um único array JSON de passos
+- Formatos de script `run`: NDJSON um objeto por linha, ou um único array JSON de passos; `print-pdf` e `select-option`/`pick` no multi-passo
 - Cache Redis: defina `cache_backend redis` e `cache_redis_url`; nunca use `rediss://`
 - Residual /tmp: FINALIZE faz scavenge de singletons Chromium owned; assert residual e2e é residual-zero
 - Utils de planilha/lint: `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths --glob` para globs shell

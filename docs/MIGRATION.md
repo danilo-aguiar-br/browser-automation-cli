@@ -154,6 +154,80 @@ Hard-close residual-zero, Redis/Lighthouse honesty, and PRD write/lint surface l
 ### Config keys (full list in 0.1.3)
 - `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 
+
+## 0.1.3 → 0.1.4
+Hard-close GAP-001…025 for agent-first observability, wait/assert depth, MITM compose, and clap honesty:
+
+### Run observability (GAP-020)
+- Global `--json-steps`: stream one NDJSON line per step (`step`, `cmd`, `ok`, `result`)
+- `run --json` final envelope includes `ok` and full `steps[].data`
+- Fail-fast still returns partial `data.steps` on error envelopes
+
+### Wait multi-selector and URL (GAP-019, GAP-024)
+- CSS multi-selector OR: `#a, #b` and `selectors` arrays in run
+- Run wait fields: `url` (exact), `url_contains`, `navigation: true` (boolean — not a string like `"load"`)
+- Successful multi-selector wait may include `matched_selector` in result data
+- Existing multi `--text` OR remains
+
+### Select / pick multi-step (GAP-023)
+- New inventory names: `select-option`, `pick` (HIG badge/popover / `role=option`)
+- Available in `run` / `exec` / schema discovery with `target` + `option`
+- Not standalone clap subcommands (clap top-level help lists 59 without them)
+
+### Assert console kinds (GAP-025)
+- Run kinds: `console_empty`, `console_no_match` (requires `--capture-console`)
+- CLI: `assert console-empty`, `assert console-no-match --pattern <re>`
+
+### Schema positional (GAP-022)
+- `schema <cmd>` positional in addition to `schema --cmd <cmd>`
+
+### Navigation / dialog / view / PDF honesty (GAP-003, GAP-006, GAP-012, GAP-013, GAP-001, GAP-017)
+- `BeforeUnloadAction` accept|dismiss on `goto` / `reload` (`--handle-before-unload`; run `handle_before_unload`)
+- Dialog soft path: `dialog accept --if-present` / run `if_present:true`
+- `view` refuses empty about:blank unless `--allow-empty` / `allow_empty:true` (GAP-012 only — not print-pdf)
+- `print-pdf` in multi-step `run`; refuses blank PDF without navigated content or step/CLI `url` (GAP-013)
+- `parity_run_inventory` enforces `print-pdf` in `RUN_DISPATCHED_CMDS`
+
+### Isolated context (GAP-004)
+- `page new --isolated-context` (flag alone → `default-isolated`) or `--isolated-context <name>`
+- Run: `{"cmd":"page","action":"new","isolated_context":true}` or named string
+
+### Extension install/uninstall outside run (GAP-007)
+- `extension install` / `extension uninstall` intentionally excluded from `run` dispatch
+- Use top-level `extension` commands; discover via `schema extension` / `commands --json`
+
+### Assert dual surface (GAP-014)
+- CLI subcommands: `assert url|text|console|console-empty|console-no-match`
+- Run kinds: `url` / `text` / `console` / `console_empty` / `console_no_match` (+ aliases)
+
+### MITM capture-url and globals (GAP-011)
+- Full MITM surface: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
+- `mitm capture-url <url> [--seconds N] [--har path] [--hosts …]` one-shot compose
+- Global flags: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
+- `mitm har --out <path>` required for HAR export path
+
+### Scrape multi-format and batch/crawl browser engine (GAP-009, GAP-010, GAP-018)
+- `scrape --format` accepts CSV or repeatable multi-format in one invocation
+- Alias `--formats` accepted where supported (GAP-018)
+- `batch-scrape --engine http|browser` (default http)
+- `crawl --engine http|browser` (default http)
+
+### Clap / console / privacy (GAP-002, GAP-021, GAP-016)
+- Clap usage errors emit JSON envelope when `--json` is on argv
+- `console dump` always writes a valid JSON array (`[]` when empty)
+- Chrome privacy launch flags; no `metrics-recording-only`
+
+### Inventory and contract gates
+- Live inventory is **61** agent names via `commands --json` (includes `select-option`, `pick`)
+- Carry-forward honesty (closed earlier, still required in 0.1.4): lighthouse `binary_source` real|mock (GAP-008); `extract --llm` fail-closed on XDG keys only (GAP-015)
+- Clap top-level help lists **59** without `select-option`/`pick` as standalone
+- DevTools tool-ref e2e remains **53 tools**
+- Gates: `tests/parity_run_inventory.rs`, `tests/clap_command_debug_assert.rs`
+- Clap surface audit: `GlobalOpts` uses `Args` + flatten; explicit `ArgAction::SetTrue`; `value_hint`; help headings; `after_help` examples; `-v` alias
+
+### Config keys (unchanged full list of 16 in 0.1.4)
+- `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
+
 ## Step-by-Step Migration
 ### From any older tree to 0.1.1
 - Install or rebuild the binary for at least `0.1.1`
@@ -188,8 +262,6 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Confirm inventory with `commands --json` (59) and regenerate schemas if packaging docs
 - Re-run local validation with cargo and e2e scripts: `cargo test --lib`, e2e 52-tool script, residual smokes you care about
 
-
-
 ### From 0.1.2 to 0.1.3
 - Rebuild/install `0.1.3`
 - Update agents: `run --script` may use a JSON array of steps as well as NDJSON
@@ -200,6 +272,26 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Expect lighthouse envelopes to include `binary_source`
 - Confirm inventory with `commands --json` (59) and regenerate schemas if packaging docs
 - Re-run local validation: `cargo test --lib`, e2e 53-tool script, residual PRD smokes
+
+### From 0.1.3 to 0.1.4
+- Rebuild/install `0.1.4`
+- Prefer progressive agent feedback with global `--json-steps` on `run`
+- Expect `run --json` success envelopes to include full `steps[].data` and `ok`
+- Update wait scripts for multi-selector OR and `url` / `url_contains` / `navigation: true` (boolean)
+- Use `page new --isolated-context` / run `isolated_context` for named isolated contexts (GAP-004)
+- Keep `extension install|uninstall` as top-level only (not inside `run`) (GAP-007)
+- Prefer dual assert surfaces: CLI `assert console-empty` and run `kind: console_empty` (GAP-014)
+- Prefer scrape `--format` multi/CSV or alias `--formats` (GAP-018)
+- Use `select-option` / `pick` only inside `run` / `exec` (not as standalone clap cmds)
+- Adopt assert console kinds: `console_empty` / `console_no_match` (CLI `console-empty` / `console-no-match`)
+- Prefer `schema run` positional; `schema --cmd run` still works
+- For MITM one-shot navigate+capture: `mitm capture-url <url>`; export with `mitm har --out <path>`
+- Optional global MITM flags when routing Chrome: `--mitm`, `--mitm-har`, `--mitm-redact-secrets`, …
+- Pass multi-format scrape: `--format markdown,html,links`
+- Prefer `batch-scrape --engine browser` / `crawl --engine browser` when JS render is required (default remains http)
+- Handle empty `view` / blank `print-pdf` honestly (`--allow-empty` only when intentional)
+- Confirm inventory with `commands --json` (61) and regenerate schemas if packaging docs
+- Re-run local validation: `cargo test --lib`, `parity_run_inventory`, `clap_command_debug_assert`, e2e 53-tool script, residual smokes
 
 ## JSON Schema Changes
 - Before: free-form prose or ad-hoc JSON without `schema_version`
@@ -213,12 +305,13 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 ```
 - Error envelopes also carry `kind` and `exit_code` for programmatic branching
 - Fail-fast multi-step errors may include partial `data` (for example `data.steps`)
-- Live per-command input fragments come from `schema --cmd`
+- Live per-command input fragments come from `schema <cmd>` or `schema --cmd`
 - Static snapshots under `docs/schemas/` are a convenience index and may lag the binary
 - v0.1.1 static additions include `config`, `mitm`, `workflow`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, and `wait`
 - v0.1.2 static additions include `print-pdf`, `monitor`, `qr`, `find-paths` (regenerate with the generator)
 - v0.1.3 static additions include `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths` gains `glob`; config keys include cache/log_to_file
-- Prefer live `schema --cmd` after upgrades to confirm the installed binary
+- v0.1.4: wait/assert/schema/run fragments expand for multi-selector, url wait, console asserts, json-steps; inventory adds `select-option`/`pick` as run/schema names
+- Prefer live `schema <cmd>` after upgrades to confirm the installed binary
 
 
 ## Compatibility Notes
@@ -229,11 +322,14 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Agents that controlled product verbosity outside flags/`log_level` must migrate to `--verbose` / `--debug` / `config set log_level`
 - Subprocess integration remains the only supported agent path
 - Exit codes stay sysexits-style: `0`, `2`, `65`, `66`, `69`, `70`, `74`, `78`, `124`, `130`, `141`
+- Agents that assumed `batch-scrape` was HTTP-only must accept optional `--engine browser` in 0.1.4
+- Agents that treated `select-option`/`pick` as clap subcommands must use `run`/`exec` steps instead
 
 
 ## Rollback
 - Pin to the previous local commit or installed binary path
 - Keep scripts compatible with the success envelope fields `ok` and `schema_version`
+- If rolling back from `0.1.4` to `0.1.3`, remove use of `--json-steps`, wait `url`/`url_contains`/`navigation`, multi-selector wait arrays, `select-option`/`pick` steps, assert `console_empty`/`console_no_match`, `schema <cmd>` positional-only flows, `mitm capture-url` / `graphql` / `ws` / `block` / `allow` / `redact`, global `--mitm*` flags, multi-format scrape assumptions, `batch-scrape`/`crawl` `--engine browser`, `view --allow-empty`, and clap-JSON-usage-error assumptions
 - If rolling back from `0.1.3` to `0.1.2`, remove use of `sheet-write`, `sg-scan`, `sg-rewrite`, `find-paths --glob`, JSON-array-only `run` scripts, cache XDG keys, and `binary_source` assumptions
 - If rolling back from `0.1.2` to `0.1.1`, remove use of `print-pdf`, `monitor`, `qr`, `find-paths`, `parse --redact-pii`, `extract --llm`, and the new config keys
 - If rolling back from `0.1.2`, also drop assumptions that browser scrape formats, scroll `dy`/`dx`, assert contains aliases, fail-fast `data.steps`, scrape `--webhook-url`, or flags/XDG logging always apply

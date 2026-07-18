@@ -12,7 +12,12 @@
       ],
       "type": "string"
     },
+    "if_present": {
+      "description": "Soft-ok when no dialog is showing (GAP-006); envelope dialog_shown:false",
+      "type": "boolean"
+    },
     "text": {
+      "description": "Optional prompt response text (accept only)",
       "type": "string"
     }
   },

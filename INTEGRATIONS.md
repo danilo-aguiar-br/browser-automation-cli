@@ -7,7 +7,7 @@
 ## Coverage Snapshot
 - Works with any agent that can spawn a subprocess and read stdout plus stderr
 - Primary surfaces: Claude Code, Codex, Cursor, local shell, editor agents
-- Discovery helpers: `commands --json`, `schema --cmd`, `doctor --json`
+- Discovery helpers: `commands --json`, `schema <cmd>` / `schema --cmd`, `doctor --json`
 - Integration path is local subprocess only
 - Product settings are flags plus XDG config only
 
@@ -16,19 +16,20 @@
 - Avoid inventing aliases such as `click` or `screenshot` in agent prompts (use `grab` for screenshots; scrape may accept a `screenshot` format token)
 - Use `grab --path <file>` (not a bare positional path)
 - Use repeatable `wait --text` for OR semantics across multiple strings
-- Use `scrape --format` / `scrape --engine` for local scrape formats
+- Use `scrape --format` / `scrape --engine` for local scrape formats (multi-format CSV or repeatable)
 - Browser scrape applies `--format` via outerHTML (markdown/html/links/metadata/raw-html/screenshot/summary/product/branding)
 - `0.1.0` ships the default-on DevTools parity surface plus category gates
 - `0.1.1` adds XDG `config`, local MITM, workflow journal, and local scrape/crawl/map/search/parse surface (`batch-scrape`, `crawl`, `map`, `search`, `parse`, expanded `scrape`)
 - `0.1.2` closes agent-first gaps and adds `print-pdf`, `monitor`, `qr`, `find-paths`, parse document types, extract LLM, and expanded config keys
-- `0.1.3` hard-closes residual-zero and agent contracts: NDJSON|JSON-array `run`, CDP reload/beforeunload/init_script, Redis/Lighthouse honesty, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 top-level commands; 53 e2e DevTools tools)
+- `0.1.3` hard-closes residual-zero and agent contracts: NDJSON|JSON-array `run`, CDP reload/beforeunload/init_script, Redis/Lighthouse honesty, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 clap top-level; 53 e2e DevTools tools)
+- `0.1.4` hard-closes GAP-001…025: `--json-steps`, wait multi/url, `select-option`/`pick` run cmds, assert console kinds, `schema <cmd>` positional, MITM `capture-url` + global `--mitm*`, multi-format scrape, batch/crawl `--engine browser`, clap JSON usage errors (61 agent names via `commands --json`)
 - Experimental tools require `--experimental-vision` or `--experimental-screencast`
 
 ## Summary Table
 
 | Surface | Integration style | Required flags | Notes |
 |---------|-------------------|----------------|-------|
-| Claude Code | subprocess | `--json` | multi-step via `run --script` (NDJSON or JSON array) |
+| Claude Code | subprocess | `--json` | multi-step via `run --script` (NDJSON or JSON array); optional `--json-steps` |
 | Codex | subprocess | `--json -q` | quiet stderr for cleaner transcripts |
 | Cursor | shell tool | `--json` | keep timeouts explicit |
 | Local shell | script | `--json` | parse with `jaq` |
@@ -43,6 +44,7 @@ browser-automation-cli doctor --offline --quick --json
 browser-automation-cli --json goto https://example.com
 browser-automation-cli --json view
 browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]'
+browser-automation-cli --json --json-steps run --script '[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]'
 ```
 
 ## Codex
@@ -96,3 +98,18 @@ echo "$out" | jaq -e '.ok == true'
   - FINALIZE scavenges owned Chromium `/tmp` orphans; residual e2e residual-zero
   - Config: `config list-keys`; keys add `log_to_file`, `cache_backend`, `cache_redis_url`
   - Command inventory is 59 top-level names (`commands --json`), including `sheet-write`, `sg-scan`, `sg-rewrite`
+- `0.1.4`:
+  - Global `--json-steps`: stream one NDJSON line per `run` step (`step`, `cmd`, `ok`, `result`)
+  - `run --json` final envelope includes `ok` + full `steps[].data`
+  - `wait`: CSS multi-selector OR (`#a, #b`), selectors arrays; run fields `url` / `url_contains` / `navigation`
+  - `select-option` / `pick` multi-step cmds (inventory + run/schema; not standalone clap)
+  - Assert kinds `console_empty` / `console_no_match` (CLI `assert console-empty` / `assert console-no-match --pattern`)
+  - `schema <cmd>` positional in addition to `schema --cmd <cmd>`
+  - `goto` / `reload` `BeforeUnloadAction` accept|dismiss; dialog soft path `--if-present`
+  - MITM: full surface `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
+  - Global MITM flags: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
+  - Scrape multi-format (CSV/repeatable `--format`); `batch-scrape` / `crawl` `--engine browser`
+  - `view --allow-empty`; `print-pdf` in multi-step `run`; blank PDF refused without navigated content
+  - Clap usage errors emit JSON when `--json` is on argv; `console dump` always valid JSON array
+  - Inventory: 61 agent names via `commands --json` (includes `select-option`, `pick`); clap top-level 59 without them as standalone
+  - Contract gates: `tests/parity_run_inventory.rs`, `tests/clap_command_debug_assert.rs`

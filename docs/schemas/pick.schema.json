@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/pick.schema.json",
+  "title": "pick command input",
+  "type": "object",
+  "description": "Pick option from custom select / badge popover / role=option (GAP-023)",
+  "properties": {
+    "include_snapshot": {
+      "type": "boolean"
+    },
+    "option": {
+      "description": "Option text, CSS selector, or role label",
+      "type": "string"
+    },
+    "target": {
+      "description": "Trigger control (badge/button)",
+      "type": "string"
+    },
+    "value": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "option"
+  ],
+  "additionalProperties": false
+}

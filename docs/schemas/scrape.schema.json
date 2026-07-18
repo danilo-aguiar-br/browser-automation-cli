@@ -14,20 +14,56 @@
       "type": "string"
     },
     "format": {
-      "description": "Default text; browser engine also applies format via outerHTML",
-      "enum": [
-        "text",
-        "markdown",
-        "html",
-        "raw-html",
-        "links",
-        "metadata",
-        "screenshot",
-        "summary",
-        "product",
-        "branding"
-      ],
-      "type": "string"
+      "description": "Single format, CSV multi-format, or array (GAP-009); browser applies via outerHTML",
+      "oneOf": [
+        {
+          "enum": [
+            "text",
+            "markdown",
+            "html",
+            "raw-html",
+            "links",
+            "metadata",
+            "screenshot",
+            "summary",
+            "product",
+            "branding"
+          ],
+          "type": "string"
+        },
+        {
+          "items": {
+            "enum": [
+              "text",
+              "markdown",
+              "html",
+              "raw-html",
+              "links",
+              "metadata",
+              "screenshot",
+              "summary",
+              "product",
+              "branding"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "formats": {
+      "description": "Alias of format for multi-value (GAP-018)",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
     },
     "only_main_content": {
       "type": "boolean"

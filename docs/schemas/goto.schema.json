@@ -6,8 +6,12 @@
   "description": "Navigate to URL and wait for load (one-shot)",
   "properties": {
     "handle_before_unload": {
-      "description": "Auto-accept beforeunload dialogs via CDP (never injects preventDefault; tool-ref parity)",
-      "type": "boolean"
+      "description": "Auto-handle beforeunload via CDP: accept | dismiss (GAP-003; CLI flag alone defaults to accept; never injects preventDefault)",
+      "enum": [
+        "accept",
+        "dismiss"
+      ],
+      "type": "string"
     },
     "init_script": {
       "description": "JS to evaluate before navigation (tool-ref initScript)",

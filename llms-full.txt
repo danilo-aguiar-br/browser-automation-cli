@@ -6,7 +6,7 @@
 
 browser-automation-cli is a single-process Rust CLI that launches system Chrome or Chromium through CDP, executes agent browser actions, then finalizes and exits. Multi-step work must use `run --script` inside one process so `@eN` refs remain valid. Lifecycle: BORN, EXECUTE, FINALIZE, DIE.
 
-Product settings are commands, flags, and XDG via `config path|init|show|set|get` only. Logging uses `--verbose`/`--debug`/`-q` or `config set log_level`. Color uses `config set color true|false`. Chrome and Lighthouse use shell path or `config set chrome_path|lighthouse_path`.
+Product settings are commands, flags, and XDG via `config path|init|show|set|get|list-keys` only. Logging uses `--verbose`/`--debug`/`-q` or `config set log_level`. Color uses `config set color true|false`. Chrome and Lighthouse use shell path or `config set chrome_path|lighthouse_path`.
 
 ## Primary Documentation
 - [README](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/README.md): product landing, install, commands, flags, config, FAQ
@@ -27,26 +27,31 @@ Product settings are commands, flags, and XDG via `config path|init|show|set|get
 - [CODE_OF_CONDUCT](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CODE_OF_CONDUCT.md): Contributor Covenant 2.1
 - [LICENSE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/LICENSE): dual license pointer
 
-## Command Surface (v0.1.3)
-- Full inventory (59 top-level names via `commands --json`): doctor, commands, schema, version, goto, view, press, click-at, write, keys, type, wait, hover, drag, fill-form, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, extract, text, scroll, cookie, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, search, parse, qr, find-paths, sg-scan, sg-rewrite, sheet-write, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions
-- Discovery: doctor (browsers_dir, lighthouse source, cache_redis), commands, schema --cmd (goto/eval/type/scroll/assert expanded), version, completions
+## Command Surface (v0.1.4)
+- Full inventory (61 agent names via `commands --json`): doctor, commands, schema, version, goto, view, press, click-at, write, keys, type, wait, hover, drag, fill-form, select-option, pick, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, extract, text, scroll, cookie, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, search, parse, qr, find-paths, sg-scan, sg-rewrite, sheet-write, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions
+- Note: `select-option` and `pick` are multi-step / schema surface (run/exec inventory); they are not standalone clap subcommands (clap top-level help lists 59 without them)
+- Discovery: doctor (browsers_dir, lighthouse source, cache_redis), commands, schema `<cmd>` or schema --cmd (goto/eval/type/scroll/assert/wait expanded), version, completions
 - Config XDG: config init|path|show|get|set|list-keys
-  - Keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, log_to_file, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url
-- Navigate: goto, back, forward, reload (CDP Page.reload + ignoreCache; init_script removed after nav; handle_before_unload via CDP dialog)
+  - Keys (16): lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, log_to_file, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url
+- Navigate: goto (--init-script, --handle-before-unload accept|dismiss, --navigation-timeout-ms), back, forward, reload (CDP Page.reload + ignoreCache; init_script removed after nav)
 - Local scrape/crawl/map/search/parse:
-  - scrape --format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding --engine http|browser (browser applies formats via outerHTML; file:// + http → Usage)
-  - batch-scrape, crawl, map, search (cleans uddg= SERP redirects), parse (PDF/DOCX/xlsx/ods + --redact-pii)
-- Interact: view, press, write, type, keys, wait (repeatable --text OR), hover, drag, fill-form, upload, click-at
-- Observe: extract (--llm/--question/--schema-json; XDG openrouter_api_key, llm_base_url, llm_model), text, scroll (run dy/dx aliases for delta_y/delta_x), attr (DOM property fallback), assert (url_contains/text_contains), grab --path
-- PDF / monitor / utils (some without Chrome): print-pdf (CDP Page.printToPDF), monitor check --url --baseline [--write-baseline], qr encode|decode, find-paths (--glob), sheet-write (CSV/JSON→XLSX), sg-scan, sg-rewrite
-- Tabs: page (incl. tab-id), dialog, cookie
-- Capture: console, net
-- MITM local one-shot: mitm init-ca|start|status|list|get|har|export|domains|apis (127.0.0.1 only; CA under XDG)
+  - scrape --format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding (CSV or repeatable multi-format) --engine http|browser (browser applies formats via outerHTML; file:// + http → Usage)
+  - batch-scrape --urls-file --engine http|browser --concurrency, crawl --engine http|browser, map, search (cleans uddg= SERP redirects), parse (PDF/DOCX/xlsx/ods + --redact-pii)
+- Interact: view (--allow-empty for blank about:blank), press, write, type, keys, wait (repeatable --text OR; CSS multi-selector OR; run url/url_contains/navigation), hover, drag, fill-form, upload, click-at
+- Multi-step only: select-option / pick with target + option (HIG badge/popover / role=option)
+- Observe: extract (--llm/--question/--schema-json; XDG openrouter_api_key, llm_base_url, llm_model), text, scroll (run dy/dx aliases), attr (DOM property fallback), assert (url_contains/text_contains; kind console_empty / console_no_match), grab --path
+- PDF / monitor / utils (some without Chrome): print-pdf (CDP Page.printToPDF; one-shot + run; refuse blank without content), monitor check --url --baseline [--write-baseline], qr encode|decode, find-paths (--glob), sheet-write (CSV/JSON→XLSX), sg-scan, sg-rewrite
+- Tabs: page (incl. tab-id), dialog accept|dismiss (--if-present soft path), cookie
+- Capture: console (dump always writes valid JSON array `[]` when empty), net
+- MITM local one-shot: mitm status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact (127.0.0.1 only; CA under XDG data; captures under XDG state)
+- Global MITM flags: --mitm, --mitm-ca-dir, --mitm-har, --mitm-hosts, --mitm-ws, --mitm-max-body-bytes, --mitm-no-media-bodies, --mitm-redact-secrets
 - Workflow journal: workflow run|resume|status (SQLite journal under XDG state)
-- Advanced: eval, emulate, resize, perf, lighthouse (flag→XDG lighthouse_path→PATH; binary_source real|mock), screencast, heap, extension, devtools3p, webmcp, run (NDJSON or JSON array of steps; fail-fast may return partial data.steps), exec
+- Advanced: eval, emulate, resize, perf, lighthouse (flag→XDG lighthouse_path→PATH; binary_source real|mock), screencast, heap, extension, devtools3p, webmcp
+- Multi-step: run (NDJSON or JSON array of steps; --json final envelope ok + steps[].data; --json-steps streams NDJSON per step; fail-fast may return partial data.steps), exec
 - Lifecycle: BORN, EXECUTE, FINALIZE scavenges owned Chromium /tmp orphans, DIE
 - Lang: --lang pt-BR or config set lang localizes human suggestions
 - e2e: 53 DevTools parity tools residual-zero
+- Clap: GlobalOpts Args+flatten; clap usage errors emit JSON when --json on argv; tests/clap_command_debug_assert.rs + parity_run_inventory
 
 ## Settings Contract
 - Product settings: commands, flags, XDG via `config path|init|show|set|get|list-keys` only
@@ -59,5 +64,8 @@ Product settings are commands, flags, and XDG via `config path|init|show|set|get
 ## Contract Basics
 - Success envelope: `{"schema_version":1,"ok":true,"data":...}`
 - Error envelope with `--json`: `{"schema_version":1,"ok":false,"error":{...}}` (multi-step fail-fast may include partial `data.steps`)
+- Clap usage errors with `--json` on argv also emit JSON error envelopes (GAP-002)
+- `run --json` success includes `ok` and full `steps[].data` (GAP-020)
+- `run --json-steps` streams one NDJSON line per step: `step`, `cmd`, `ok`, `result`
 - Exit codes include 0, 2, 65, 66, 69, 70, 74, 78, 124, 130, 141, 255
-- Live schema fragments: `browser-automation-cli schema --cmd <name> --json`
+- Live schema fragments: `browser-automation-cli schema <name> --json` or `schema --cmd <name> --json`

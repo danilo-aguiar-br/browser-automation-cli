@@ -13,6 +13,7 @@
 - Local scrape / crawl / map / search / parse surface ships as first-class subcommands
 - Artifact helpers (`print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) and XDG LLM keys extend agent workflows without daemons
 - Durable defaults live in flags and XDG `config path|init|show|set|get`
+- v0.1.4 hard-closes agent contracts: `--json-steps`, wait multi/url, pick/select-option, assert console, schema positional, MITM capture-url, clap JSON usage errors
 
 
 ## Economy
@@ -20,7 +21,8 @@
 - Pay Chrome launch cost only when the task needs a real page
 - Prefer HTTP `scrape` / `batch-scrape` / `crawl` / `map` when content alone is enough
 - Collapse multi-step flows into one `run` process when refs matter
-- Reuse `schema --cmd` once per session instead of re-deriving argv by guesswork
+- Stream progressive feedback with `--json-steps` instead of re-spawning for status
+- Reuse `schema <cmd>` once per session instead of re-deriving argv by guesswork
 
 
 ## Sovereignty
@@ -57,24 +59,42 @@
 - Always pass `--json` for machine parsing
 - Read success and error envelopes from stdout
 - Keep stderr for human or debug logs only
-- Use `commands --json` to discover the live inventory (**59 commands**)
-- Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, and DevTools-parity tools (59 total; e2e 53 tools)
-- Use `schema --cmd <name> --json` before generating argv for unfamiliar commands
+- Use `commands --json` to discover the live inventory (**61 agent names**)
+- Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, select-option, pick, and DevTools-parity tools (61 total; e2e 53 tools)
+- Note: `select-option` and `pick` are multi-step/schema surface only (not standalone clap subcommands; clap top-level lists 59 without them)
+- Use `schema <name> --json` or `schema --cmd <name> --json` before generating argv for unfamiliar commands
 - Prefer flags for one-off control
 - Use `config init|set|get|path|show|list-keys` for durable XDG defaults
 - Full config keys (16) via `config list-keys`: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Resolve paths with `config path --json`
 - For multi-step work that needs shared `@eN` refs, use one `run --script` process (NDJSON **or** JSON array of steps)
+- Final `run --json` envelope includes `ok` and full `steps[].data`
+- Stream per-step NDJSON with global `--json-steps` (`step`, `cmd`, `ok`, `result`)
 - Wait with OR text: `wait --text A --text B`
+- Wait multi-selector CSS OR and run fields `url` / `url_contains` / `navigation: true` (boolean); may return `matched_selector`
+- Pick option menus: `{"cmd":"pick","target":"…","option":"…"}` or `select-option`
 - Scroll aliases in NDJSON: `{"cmd":"scroll","dy":1500}`
 - Assert aliases: `{"cmd":"assert","url_contains":"example.com"}` / `text_contains`
+- Assert console: `{"cmd":"assert","kind":"console_empty"}` or `console_no_match` + `pattern` (needs `--capture-console`)
+- CLI assert: `assert console-empty` / `assert console-no-match --pattern …`
 - On `run` fail-fast errors, inspect partial `data.steps` when present
-- Scrape with `--format text|markdown|html|links|metadata|summary|product|branding|raw-html|screenshot` and `--engine http|browser`
+- Scrape with multi-format `--format text|markdown|html|links|metadata|summary|product|branding|raw-html|screenshot` and `--engine http|browser`
+- Batch/crawl: optional `--engine browser` (default http)
 - Optional operator webhook on scrape: `--webhook-url` (one-shot POST, not product telemetry)
 - Capture screenshots with `grab --path <file>` (not a positional path)
-- Print PDF with `print-pdf --url … --path …`
+- Print PDF with `print-pdf --url … --path …` (also inside `run`)
+- View blank pages: pass `--allow-empty` only when intentional
 - LLM extract fails closed without XDG `openrouter_api_key`
 - Localize human suggestions with `--lang pt-BR` or `config set lang pt-BR`
+- Clap usage errors emit JSON when `--json` is already on argv (GAP-002)
+- Beforeunload (GAP-003): `goto`/`reload --handle-before-unload accept|dismiss`; run field `handle_before_unload`
+- Isolated context (GAP-004): `page new --isolated-context [name]` (flag alone → `default-isolated`); run `isolated_context` string or `true`
+- Extension install/uninstall intentionally outside `run` (GAP-007); discover via `schema`/`commands`
+- Assert dual surface (GAP-014): CLI `assert url|text|console|console-empty|console-no-match` vs run kinds
+- `console dump` always writes a valid JSON array (`[]` when empty) (GAP-021)
+- Wait multi-selector success may include `matched_selector`; run `navigation` is boolean `true`
+- Scrape multi-format alias `--formats` where supported (GAP-018)
+- `print-pdf` refuses blank without navigated content/`url` (GAP-013)
 
 
 ## Crate Integrations
@@ -103,27 +123,31 @@ fn main() {
 
 
 ## Surface Discovery for Agents
-- Inventory: `browser-automation-cli commands --json` (59 commands)
-- Input fragments: `browser-automation-cli schema --cmd <name> --json`
+- Inventory: `browser-automation-cli commands --json` (61 agent names)
+- Input fragments: `browser-automation-cli schema <name> --json` or `schema --cmd <name> --json`
 - Config paths: `browser-automation-cli config path --json`
 - Config keys: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
-- MITM: `mitm status|init-ca|start|list|get|har|export|domains|apis`
+- MITM: `mitm status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
+- Global MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
 - Workflow: `workflow run|resume|status`
 - Local scrape surface: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
 - Artifacts and local IO: `print-pdf`, `monitor check`, `qr encode|decode`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
+- Multi-step only: `select-option`, `pick`
 - LLM extract: `extract --llm --question …` (XDG keys only)
 - Health: `doctor --json` (reports Chrome discovery, XDG browsers_dir, lighthouse source, and `cache_redis` when configured)
 - Cache: XDG `cache_backend` (`sqlite|memory|redis`) and `cache_redis_url` (`redis://` only; `rediss://` fail-closed)
 - Lighthouse: flag → XDG `lighthouse_path` → PATH; envelope `binary_source` is `real` or `mock`
 
 
-## Full Command Inventory (59)
-- Live source of truth: `browser-automation-cli commands --json` (59 top-level names)
+## Full Command Inventory (61)
+- Live source of truth: `browser-automation-cli commands --json` (61 agent-facing names)
+- Clap top-level help lists 59 without `select-option` and `pick` as standalone
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53)
-- Full top-level command list (every name is a real subcommand):
+- Full agent command list:
   - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
+  - Multi-step / schema only: `select-option`, `pick`
   - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-step: `run`, `exec`
@@ -132,7 +156,7 @@ fn main() {
   - Infra: `config`, `mitm`, `workflow`
   - Emulation/perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
-- Discover argv with `schema --cmd <name> --json` for any name above
+- Discover argv with `schema <name> --json` for any name above
 
 ## Lifecycle
 - Slogan (English): BORN EXECUTE FINALIZE DIE
@@ -141,16 +165,19 @@ fn main() {
 - Do not expect session or `@eN` refs to survive process exit
 
 
-## Technical Contract
+## Technical Contract (v0.1.4)
 ### REQUIRED
 - Pass `--json` for programmatic consumption
 - Treat one process as one Chrome lifecycle (BORN EXECUTE FINALIZE DIE)
 - Use `run --script` for multi-step work that needs shared `@eN` refs (NDJSON or JSON array)
+- Prefer `--json-steps` when the agent needs progressive step feedback (stream per-step NDJSON)
+- Prefer schema positional: `schema <cmd> --json` (also `schema --cmd <cmd> --json`)
+- Use dialog soft path when optional: `dialog accept --if-present` / `dialog dismiss --if-present`
 - Check process exit code before trusting stdout
 - Branch on envelope field `ok`
 - Keep category and experimental gates explicit when needed
 - Configure durable product settings via `config` / flags only
-- Discover unknown commands with `commands --json` and `schema --cmd`
+- Discover unknown commands with `commands --json` and `schema <cmd>` or `schema --cmd`
 
 ### FORBIDDEN
 - Do not keep a daemon between agent turns
@@ -159,8 +186,12 @@ fn main() {
 - Do not parse stderr as the primary success channel
 - Do not enable robots bypass without the dual-flag policy
 - Use only flags and `config` for product settings
+- Do not invent product environment variables for config (flags + XDG `config` only)
 - Do not pass a positional path to `grab`; use `--path`
 - Do not invent a `--device` preset on `emulate`; use `--user-agent`, `--viewport`, `--network-conditions`
+- Do not treat `select-option` / `pick` as clap standalone subcommands; use `run` / `exec` steps
+- Do not assume silent success for empty `view` on about:blank without `--allow-empty`
+- Do not assume `print-pdf` accepts blank about:blank; navigate or pass `url` first (GAP-013)
 
 ### Correct Pattern
 ```bash
@@ -179,6 +210,15 @@ browser-automation-cli -q --json find-paths --glob '**/*.rs' .
 browser-automation-cli -q --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx
 browser-automation-cli -q --json sg-scan . --limit 50
 browser-automation-cli -q --json config list-keys
+browser-automation-cli -q --json schema run
+browser-automation-cli -q --json --json-steps run --script '[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]'
+browser-automation-cli -q --json mitm capture-url https://example.com --seconds 20
+browser-automation-cli -q --capture-console --json assert console-empty
+browser-automation-cli -q --timeout 60 --json goto https://example.com --handle-before-unload accept
+browser-automation-cli -q --json page new --isolated-context
+browser-automation-cli -q --json dialog accept --if-present
+browser-automation-cli -q --capture-console --json console dump --path /tmp/console.json
+browser-automation-cli -q --json schema pick
 ```
 
 
@@ -187,8 +227,11 @@ browser-automation-cli -q --json config list-keys
 - Error: `{"schema_version":1,"ok":false,"error":{...}}`
 - Error objects include `kind`, `message`, and `exit_code` when `--json` is set
 - Multi-step fail-fast errors may also include partial `data.steps`
+- `run --json` success includes `ok` and full `steps[].data`
+- `--json-steps` streams one NDJSON object per step: `step`, `cmd`, `ok`, `result`
+- Clap usage errors with `--json` on argv emit JSON error envelopes
 - Schema index: [docs/schemas/README.md](schemas/README.md)
-- Live input fragments always come from `schema --cmd`; static files may lag
+- Live input fragments always come from `schema <cmd>` / `schema --cmd`; static files may lag
 
 
 ## Exit Codes

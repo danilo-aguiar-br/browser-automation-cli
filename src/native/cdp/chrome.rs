@@ -125,7 +125,15 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
         "--disable-sync".to_string(),
         format!("--disable-features={}", disable_features.join(",")),
         format!("--enable-features={}", enable_features.join(",")),
-        "--metrics-recording-only".to_string(),
+        // GAP-016 / PRD §5F: do not enable metrics subsystem (even "recording-only").
+        // Prefer hard-disable of metrics/crash reporter where Chromium honors flags.
+        "--disable-metrics".to_string(),
+        "--disable-metrics-reporting".to_string(),
+        "--disable-breakpad".to_string(),
+        "--disable-crash-reporter".to_string(),
+        "--disable-domain-reliability".to_string(),
+        "--disable-client-side-phishing-detection".to_string(),
+        "--disable-component-extensions-with-background-pages".to_string(),
     ];
 
     if options.webgpu {

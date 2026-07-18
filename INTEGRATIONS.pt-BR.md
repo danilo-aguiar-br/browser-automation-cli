@@ -7,7 +7,7 @@
 ## Snapshot de Cobertura
 - Funciona com qualquer agente que dispare subprocesso e leia stdout mais stderr
 - Superfícies primárias: Claude Code, Codex, Cursor, shell local, agentes de editor
-- Helpers de descoberta: `commands --json`, `schema --cmd`, `doctor --json`
+- Helpers de descoberta: `commands --json`, `schema <cmd>` ou `schema --cmd`, `doctor --json`
 - O caminho de integração é apenas subprocesso local
 - Settings de produto são flags mais config XDG apenas
 
@@ -22,13 +22,14 @@
 - `0.1.1` adiciona `config` XDG, MITM local, journal de workflow e superfície local scrape/crawl/map/search/parse (`batch-scrape`, `crawl`, `map`, `search`, `parse`, `scrape` expandido)
 - `0.1.2` fecha gaps agent-first e adiciona `print-pdf`, `monitor`, `qr`, `find-paths`, tipos de documento no parse, extract LLM e chaves de config expandidas
 - `0.1.3` fecha residual-zero e contratos de agente: `run` NDJSON|array JSON, reload/beforeunload/init_script CDP, honestidade Redis/Lighthouse, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 comandos de topo; 53 tools DevTools e2e)
+- `0.1.4` fecha gaps agent-first: `--json-steps`, `wait` url/navigation/multi-seletor, `select-option`/`pick` (run/schema), assert `console_*`, `schema <cmd>` posicional, MITM `capture-url` + `--mitm*`, scrape multi-formato, batch/crawl `--engine browser`, `print-pdf` no `run` (61 comandos de topo; 53 tools DevTools e2e)
 - Ferramentas experimentais exigem `--experimental-vision` ou `--experimental-screencast`
 
 ## Tabela Resumo
 
 | Superfície | Estilo de integração | Flags exigidas | Notas |
 |------------|----------------------|----------------|-------|
-| Claude Code | subprocesso | `--json` | multi-passo via `run --script` (NDJSON ou array JSON) |
+| Claude Code | subprocesso | `--json` | multi-passo via `run --script` (NDJSON ou array JSON; opcional `--json-steps`) |
 | Codex | subprocesso | `--json -q` | stderr quieto para transcripts limpos |
 | Cursor | shell tool | `--json` | deixe timeouts explícitos |
 | Shell local | script | `--json` | parse com `jaq` |
@@ -96,3 +97,15 @@ echo "$out" | jaq -e '.ok == true'
   - FINALIZE faz scavenge de órfãos Chromium em `/tmp` owned; e2e residual residual-zero
   - Config: `config list-keys`; chaves novas `log_to_file`, `cache_backend`, `cache_redis_url`
   - Inventário de comandos com 59 nomes de topo (`commands --json`), incluindo `sheet-write`, `sg-scan`, `sg-rewrite`
+- `0.1.4`:
+  - Global `--json-steps`: stream NDJSON por passo (`step`, `cmd`, `ok`, `result`) durante `run`
+  - `wait` multi-seletor CSS OR (`#a, #b`), arrays `selectors`, `url` / `url_contains` / `navigation`
+  - Multi-passo `select-option` / `pick` (badge/popover / `role=option`; descobertos via `schema` e inventário run)
+  - Assert `console_empty` / `console_no_match` (CLI `assert console-empty` / `assert console-no-match`)
+  - `schema <cmd>` posicional além de `schema --cmd`
+  - `goto`/`reload` `--handle-before-unload accept|dismiss` (`BeforeUnloadAction`)
+  - MITM `capture-url` one-shot + flags globais `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
+  - MITM subcomandos: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
+  - Scrape multi-formato (`--format` repetível/CSV); `batch-scrape` e `crawl` aceitam `--engine browser` (default http)
+  - `print-pdf` no multi-passo `run`; diálogo soft com `--if-present` (GAP-006)
+  - Inventário de comandos com 61 nomes de topo (`commands --json`), incluindo `select-option` e `pick`

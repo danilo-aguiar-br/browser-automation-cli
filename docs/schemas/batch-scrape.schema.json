@@ -3,19 +3,33 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/batch-scrape.schema.json",
   "title": "batch-scrape command input",
   "type": "object",
-  "description": "Scrape many URLs from a file (HTTP engine, one-shot JoinSet)",
+  "description": "Scrape many URLs from a file (HTTP or browser engine, one-shot)",
   "properties": {
     "concurrency": {
       "minimum": 1,
       "type": "integer"
     },
+    "engine": {
+      "description": "Default http; browser uses CDP per URL (GAP-010)",
+      "enum": [
+        "http",
+        "browser"
+      ],
+      "type": "string"
+    },
     "format": {
+      "description": "Single format or CSV multi-format when supported",
       "enum": [
         "text",
         "markdown",
         "html",
         "links",
-        "metadata"
+        "metadata",
+        "raw-html",
+        "screenshot",
+        "summary",
+        "product",
+        "branding"
       ],
       "type": "string"
     },

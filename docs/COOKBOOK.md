@@ -129,9 +129,19 @@ browser-automation-cli --timeout 60 --json run --script /tmp/grab.browser-automa
 ## How To Print a Page to PDF
 ```bash
 browser-automation-cli --json print-pdf --url https://example.com --path /tmp/page.pdf
+
+# Inside multi-step run (GAP-001 / GAP-017)
+cat > /tmp/pdf.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"print-pdf","path":"/tmp/page-from-run.pdf"}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/pdf.run.json
 ```
 - Uses CDP `Page.printToPDF` in a one-shot process
 - Pass `--url` to navigate before print, or print the current page inside a `run` script after `goto`
+- Blank about:blank PDF is refused without navigated content or a step/CLI `url` (GAP-013); navigate with `goto` first (do not use view-only `allow_empty` here)
 
 
 ## How To Monitor Page Change Against a Baseline
@@ -156,6 +166,173 @@ browser-automation-cli --timeout 60 --json run --script /tmp/wait-or.browser-aut
 ```
 - Repeatable `--text` resolves when any listed value appears
 - Combine with `ms` or `selector` or page `state` as needed
+
+
+## How To Wait for Multi-selector or URL (v0.1.4)
+```bash
+cat > /tmp/wait-multi.browser-automation.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"wait","selector":"h1, body","ms":5000},
+  {"cmd":"wait","url_contains":"example.com","ms":5000},
+  {"cmd":"wait","url":"https://example.com/","ms":5000},
+  {"cmd":"wait","navigation":true,"ms":5000}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/wait-multi.browser-automation.json
+
+# CLI multi-selector CSS OR:
+browser-automation-cli --timeout 60 --json wait --selector 'h1, body' --ms 5000
+```
+- CSS multi-selector OR: `#a, #b` or `selectors` arrays in run
+- Run fields: `url` (exact), `url_contains`, `navigation: true` (boolean load lifecycle — not a string like `"load"`)
+- Successful multi-selector wait may include `matched_selector` in result data
+- Still combines with multi-text OR and `ms`
+
+
+## How To Stream Run Steps With --json-steps
+```bash
+cat > /tmp/steps.array.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"wait","ms":200},
+  {"cmd":"view"}
+]
+JSON
+browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/steps.array.json
+```
+- Global `--json-steps` streams one NDJSON line per step: `step`, `cmd`, `ok`, `result`
+- Final `--json` envelope still includes `ok` and full `steps[].data`
+- Useful for agent progressive feedback without re-spawning Chrome
+
+
+## How To Pick / Select-option in Run
+```bash
+cat > /tmp/pick.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"pick","target":"[role=combobox]","option":"Option label"},
+  {"cmd":"select-option","target":"select#country","option":"BR"}
+]
+JSON
+# browser-automation-cli --timeout 90 --json run --script /tmp/pick.run.json
+```
+- `pick` / `select-option` are multi-step / schema inventory only (not standalone clap subcommands)
+- Require `target` (trigger) and `option` (text, selector, or role label)
+- Discover argv with `schema pick` or `schema select-option`
+
+
+## How To Assert Console Empty or No Match
+```bash
+cat > /tmp/assert-console.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"assert","kind":"console_empty"},
+  {"cmd":"assert","kind":"console_no_match","pattern":"TypeError"}
+]
+JSON
+browser-automation-cli --capture-console --timeout 60 --json run --script /tmp/assert-console.run.json
+
+# CLI forms (GAP-025):
+# browser-automation-cli --capture-console --json assert console-empty
+# browser-automation-cli --capture-console --json assert console-no-match --pattern TypeError
+```
+- Requires `--capture-console` on the same process
+- Run kinds: `console_empty` / `console_no_match`; CLI: `console-empty` / `console-no-match`
+
+
+## How To Use Schema Positional
+```bash
+browser-automation-cli --json schema run
+browser-automation-cli --json schema wait
+browser-automation-cli --json schema --cmd assert
+```
+- `schema <cmd>` positional and `schema --cmd <cmd>` are both valid (GAP-022)
+- Prefer positional for agent UX
+
+
+## How To View With --allow-empty
+```bash
+browser-automation-cli --json view --allow-empty
+
+cat > /tmp/view-empty.run.json <<'JSON'
+[
+  {"cmd":"view","allow_empty":true}
+]
+JSON
+browser-automation-cli --timeout 30 --json run --script /tmp/view-empty.run.json
+```
+- Empty about:blank refuses silent success unless `--allow-empty` / `allow_empty:true` (GAP-012)
+- Prefer navigating with `goto` before `view` in normal flows
+
+
+## How To Handle Beforeunload (GAP-003)
+```bash
+# Accept or dismiss beforeunload during navigation
+browser-automation-cli --timeout 60 --json goto https://example.com --handle-before-unload accept
+browser-automation-cli --timeout 60 --json goto https://example.com --handle-before-unload dismiss
+browser-automation-cli --timeout 60 --json reload --handle-before-unload accept
+browser-automation-cli --timeout 60 --json reload --ignore-cache --handle-before-unload dismiss
+
+# Run step field handle_before_unload
+cat > /tmp/beforeunload.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com","handle_before_unload":"accept"},
+  {"cmd":"reload","ignore_cache":true,"handle_before_unload":"dismiss"}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/beforeunload.run.json
+```
+- Values: `accept` or `dismiss` (CLI `--handle-before-unload`; run field `handle_before_unload`)
+- Arms CDP dialog auto-accept/dismiss during that navigation only
+- Goto options also include `--init-script` and `--navigation-timeout-ms`
+
+
+## How To Open Isolated Context (GAP-004)
+```bash
+# Flag alone → default-isolated; optional name after the flag
+browser-automation-cli --timeout 60 --json page new --isolated-context
+browser-automation-cli --timeout 60 --json page new --isolated-context my-ctx --url https://example.com
+
+# Run: isolated_context string or true
+cat > /tmp/page-iso.run.json <<'JSON'
+[
+  {"cmd":"page","action":"new","isolated_context":true},
+  {"cmd":"page","action":"new","isolated_context":"agent-ctx","url":"https://example.com"}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/page-iso.run.json
+```
+- `page new --isolated-context` with no value uses `default-isolated`
+- Run accepts `isolated_context: true` (→ `default-isolated`) or a named string
+- Shared context when the field/flag is omitted
+
+
+## How To fill-form in Run
+```bash
+cat > /tmp/fill-form.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"fill-form","fields":[{"target":"input","value":"hello"},{"target":"textarea","value":"world"}]}
+]
+JSON
+# browser-automation-cli --timeout 90 --json run --script /tmp/fill-form.run.json
+
+# CLI form (fields JSON via fill-form --json):
+# browser-automation-cli --json fill-form --json '[{"target":"input","value":"hello"}]'
+```
+- Run accepts `fields` array (or `json` string/array) of `{target|uid|selector|ref, value|text}`
+- Prefer one process with `goto` so selectors stay valid
+
+
+## How To console dump Empty Array (GAP-021)
+```bash
+browser-automation-cli --capture-console --json console dump --path /tmp/console.json
+# Always a valid JSON array — [] when empty
+jaq -e 'type == "array"' /tmp/console.json
+```
+- `console dump` always writes a valid JSON array (`[]` when empty)
+- Enable `--capture-console` on the same process that produces messages when you need non-empty dumps
 
 
 ## How To List Network Requests
@@ -216,6 +393,17 @@ browser-automation-cli --json scrape https://example.com --format markdown --eng
 - Engine `http` uses reqwest and skips Chrome
 
 
+## How To Scrape Multi-format
+```bash
+browser-automation-cli --json scrape https://example.com --format markdown,html,links --engine http
+browser-automation-cli --timeout 60 --json scrape https://example.com --format markdown --format links --engine browser
+browser-automation-cli --json scrape https://example.com --formats markdown,links --engine http
+```
+- CSV or repeatable `--format` returns multiple format fields in one invocation (GAP-009)
+- Alias `--formats` is accepted where supported (GAP-018)
+- Envelope includes per-format output when more than one format is requested
+
+
 ## How To Scrape With the Browser Engine and Formats
 ```bash
 browser-automation-cli --timeout 60 --json scrape https://example.com --format markdown --engine browser
@@ -243,18 +431,20 @@ https://example.com
 https://example.org
 URLS
 browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 2
+browser-automation-cli --timeout 120 --json batch-scrape --urls-file /tmp/urls.txt --format markdown --engine browser --concurrency 1
 ```
-- HTTP engine only for batch-scrape
+- Default engine is HTTP; pass `--engine browser` for CDP per URL (GAP-010)
 - Create the URLs file before invoking the command
 
 
 ## How To Crawl With Same-host
 ```bash
 browser-automation-cli --json crawl https://example.com --limit 20 --max-depth 2 --format text --same-host
+browser-automation-cli --timeout 120 --json crawl https://example.com --limit 5 --max-depth 1 --engine browser --same-host
 ```
 - `--same-host` is a boolean flag with no value
 - Do not write `--same-host true`
-- HTTP BFS crawl stays on the seed host when the flag is set
+- Default engine is HTTP BFS; pass `--engine browser` when JS rendering is required
 
 
 ## How To Map a Site
@@ -337,11 +527,28 @@ browser-automation-cli --json mitm start --seconds 30
 browser-automation-cli --json mitm status
 browser-automation-cli --json mitm list --limit 100
 browser-automation-cli --json mitm har --out /tmp/capture.har
+browser-automation-cli --json mitm redact --secrets
+browser-automation-cli --json mitm domains
+browser-automation-cli --json mitm apis
+browser-automation-cli --json mitm graphql
+browser-automation-cli --json mitm ws
 ```
 - Binds only on 127.0.0.1 with an ephemeral port
 - CA material lives under XDG data (`mitm/ca`)
 - `start` keeps the one-shot proxy alive for `--seconds` then exits
 - Export HAR with required `--out`
+
+
+## How To MITM capture-url One-shot
+```bash
+browser-automation-cli --json mitm init-ca
+browser-automation-cli --json mitm capture-url https://example.com --seconds 30 --har /tmp/cap.har
+browser-automation-cli --json mitm list
+browser-automation-cli --json mitm har --out /tmp/capture.har
+```
+- One-shot compose: local proxy + Chrome + navigate URL + capture (GAP-011)
+- Optional `--hosts` allowlist for TLS intercept
+- Global route-through-MITM flags also exist: `--mitm`, `--mitm-har`, `--mitm-redact-secrets`, …
 
 
 ## How To Workflow Run, Resume, and Status
@@ -460,6 +667,7 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.array.json
 - `run --script` accepts NDJSON **or** a top-level JSON array of step objects
 - Same process lifecycle: BORN EXECUTE FINALIZE DIE
 - Fail-fast errors may still include partial `data.steps`
+- Final envelope includes full `steps[].data` when `--json` is set
 
 
 ## How To Read Lighthouse binary_source
@@ -498,10 +706,20 @@ cat > /tmp/interact.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 90 --json run --script /tmp/interact.browser-automation.jsonl
 
-# dialog auto-handling, reload cache bypass, exec step surface
+# dialog accept/dismiss subcommands (not --action); soft path when optional
 browser-automation-cli --timeout 60 --json reload --ignore-cache
-browser-automation-cli --json dialog --action accept
+browser-automation-cli --json dialog accept --if-present
+browser-automation-cli --json dialog dismiss --if-present
 browser-automation-cli --json exec --help >/dev/null
+
+# dialog inside run (NDJSON shape uses action + optional if_present)
+cat > /tmp/dialog.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"dialog","action":"accept","if_present":true}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/dialog.run.json
 
 # category-gated surfaces (explicit flags)
 browser-automation-cli --category-extensions --json extension list
@@ -513,30 +731,33 @@ browser-automation-cli --json perf --help >/dev/null
 browser-automation-cli --json resize --help >/dev/null
 browser-automation-cli completions bash >/dev/null
 ```
-- Every top-level name appears in `commands --json` (59)
-- Prefer `schema --cmd <name>` before inventing argv for gated surfaces
+- Every agent name appears in `commands --json` (61)
+- `select-option` / `pick` appear in inventory and run/schema only
+- Prefer `schema <name>` before inventing argv for gated surfaces
 
 
 ## How To Discover Command Schemas
 ```bash
 browser-automation-cli commands --json
-browser-automation-cli schema --cmd goto --json
+browser-automation-cli schema goto --json
 browser-automation-cli schema --cmd scrape --json
-browser-automation-cli schema --cmd print-pdf --json
-browser-automation-cli schema --cmd monitor --json
-browser-automation-cli schema --cmd qr --json
-browser-automation-cli schema --cmd find-paths --json
-browser-automation-cli schema --cmd sheet-write --json
-browser-automation-cli schema --cmd sg-scan --json
-browser-automation-cli schema --cmd sg-rewrite --json
-browser-automation-cli schema --cmd run --json
-browser-automation-cli schema --cmd batch-scrape --json
-browser-automation-cli schema --cmd config --json
-browser-automation-cli schema --cmd mitm --json
-browser-automation-cli schema --cmd workflow --json
+browser-automation-cli schema print-pdf --json
+browser-automation-cli schema monitor --json
+browser-automation-cli schema qr --json
+browser-automation-cli schema find-paths --json
+browser-automation-cli schema sheet-write --json
+browser-automation-cli schema sg-scan --json
+browser-automation-cli schema sg-rewrite --json
+browser-automation-cli schema run --json
+browser-automation-cli schema pick --json
+browser-automation-cli schema select-option --json
+browser-automation-cli schema batch-scrape --json
+browser-automation-cli schema config --json
+browser-automation-cli schema mitm --json
+browser-automation-cli schema workflow --json
 ```
-- `commands` lists the agent-facing surface (59 commands)
-- `schema --cmd` prints a JSON Schema fragment for one command
+- `commands` lists the agent-facing surface (61 names)
+- `schema <cmd>` or `schema --cmd` prints a JSON Schema fragment for one command
 - Useful for tool registration in agent frameworks
 
 
@@ -588,6 +809,7 @@ browser-automation-cli --capture-console --timeout 60 --json run --script /tmp/c
 ```
 - Enable `--capture-console` on the same process that produces messages
 - Filter types with `--types log,warning,error,info,debug` on the CLI form
+- `console dump` always writes a valid JSON array (`[]` when empty)
 
 
 ## How To Assert URL or Text
@@ -605,13 +827,15 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
 - URL assert supports exact match or contains semantics (`contains` or `url_contains`)
 - Text assert can target a selector via `target` or use `text_contains`
 
-## Full Command Inventory (59)
-- Live source of truth: `browser-automation-cli commands --json` (59 top-level names)
+## Full Command Inventory (61)
+- Live source of truth: `browser-automation-cli commands --json` (61 agent-facing names)
+- Clap top-level help lists 59 without `select-option` and `pick` as standalone subcommands
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53)
-- Full top-level command list (every name is a real subcommand):
+- Full agent command list:
   - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
+  - Multi-step / schema only: `select-option`, `pick`
   - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-step: `run`, `exec`
@@ -620,5 +844,4 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
   - Infra: `config`, `mitm`, `workflow`
   - Emulation/perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
-- Discover argv with `schema --cmd <name> --json` for any name above
-
+- Discover argv with `schema <name> --json` for any name above

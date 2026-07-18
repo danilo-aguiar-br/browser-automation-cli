@@ -52,7 +52,7 @@ browser-automation-cli doctor --offline --quick --json
 - Atualize skill packages em `skills/` quando a superfície de comandos mudar
 - Documente settings de produto só como flags mais `config` XDG
 - Não invente nem documente variáveis de ambiente de produto para settings
-- Ao adicionar comandos, atualize README Commands, INTEGRATIONS New Flags, llms.txt / llms-full Command Surface (EN+pt-BR), receitas COOKBOOK, skills, MIGRATION e contagens de inventário (59 de topo / 53 tools e2e em 0.1.3)
+- Ao adicionar comandos, atualize README Commands, INTEGRATIONS New Flags, llms.txt / llms-full Command Surface (EN+pt-BR), receitas COOKBOOK, skills, MIGRATION e contagens de inventário (61 de topo / 53 tools e2e em 0.1.4)
 
 ## Reportar Bugs
 - Abra issue no GitHub com `browser-automation-cli --version`

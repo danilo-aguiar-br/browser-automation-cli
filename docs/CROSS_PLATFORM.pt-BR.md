@@ -86,8 +86,9 @@ browser-automation-cli completions powershell
 - Material de CA do MITM fica sob XDG data (`mitm/ca`); capturas sob XDG state (`mitm/`)
 - Journals de workflow ficam sob XDG state (`workflows`)
 - Chave de cifragem é definida com `config set encryption_key <value>`
-- Chaves completas de config (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
-- Settings de produto usam só flags e CLI XDG (`config path|init|show|set|get`)
+- Chaves completas de config (16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
+- Settings de produto usam **só** flags e CLI XDG (`config path|init|show|set|get|list-keys`) — **nunca** variáveis de ambiente de produto
+- Cache Redis: `cache_backend redis` + `cache_redis_url redis://…` apenas (`rediss://` fail-closed)
 - Logging de produto: `--verbose` / `--debug` / `-q` ou XDG `log_level`
 - Cor: `config set color`; path do Chrome: `config set chrome_path`
 

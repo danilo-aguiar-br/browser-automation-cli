@@ -107,7 +107,7 @@ fn goto_view_press_envelope_fields_when_chrome() {
     let script = dir.path().join("steps.jsonl");
     std::fs::write(
         &script,
-        r#"{"cmd":"goto","url":"about:blank"}
+        r#"{"cmd":"goto","url":"data:text/html,<html><body><h1>envelope</h1><p>ok</p></body></html>"}
 {"cmd":"wait","ms":50}
 {"cmd":"view"}
 {"cmd":"scroll","delta_y":10}

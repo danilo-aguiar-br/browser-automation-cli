@@ -58,6 +58,11 @@
 ## MITM Best Practices
 - Bind and use MITM only on `127.0.0.1` (one-shot local proxy; do not expose it on LAN or public interfaces)
 - Keep the local CA under XDG data (`mitm/ca`) and protect host trust-store installs
+- Prefer `mitm init-ca` and leave CA material under the XDG data path reported by `config path`
+- Prefer short one-shots: `mitm start --seconds N` or `mitm capture-url <url> --seconds N [--har path]`
+- Export HAR with `mitm har --out <path>` (required) or global `--mitm-har` on FINALIZE when `--mitm` is active
+- Redact secrets on export: `mitm redact --secrets` and/or global `--mitm-redact-secrets` (Authorization/Cookie redaction)
 - Do not expose the MITM proxy beyond the operator machine
 - Treat captures, HAR exports, and CA private material as sensitive
-- Prefer short `--seconds` budgets for `mitm start` and clean up capture artifacts after analysis
+- Clean up capture artifacts under XDG state (`mitm/`) after analysis
+- Related MITM surface: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`

@@ -3,7 +3,7 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/page.schema.json",
   "title": "page command input",
   "type": "object",
-  "description": "Page info or multi-tab list|new|select|close",
+  "description": "Page info or multi-tab list|new|select|close|tab-id",
   "properties": {
     "action": {
       "enum": [
@@ -11,11 +11,29 @@
         "list",
         "new",
         "select",
-        "close"
+        "close",
+        "tab-id"
       ],
       "type": "string"
     },
+    "background": {
+      "description": "Open new tab without focusing (page new)",
+      "type": "boolean"
+    },
+    "bring_to_front": {
+      "description": "Bring selected tab to front (page select; default true)",
+      "type": "boolean"
+    },
     "index": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "isolated_context": {
+      "description": "Named isolated browser context for page new (tool-ref isolatedContext; GAP-004; flag alone = default-isolated)",
+      "type": "string"
+    },
+    "page_id": {
+      "description": "Tool-ref pageId alias for index (select/close)",
       "minimum": 0,
       "type": "integer"
     },

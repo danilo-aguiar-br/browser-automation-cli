@@ -73,10 +73,10 @@ fn view_without_prior_session_is_one_shot_launch() {
         eprintln!("skip: no system Chrome/Chromium for view smoke");
         return;
     }
-    // Each command is one-shot: view launches its own headless Chrome, takes
-    // a snapshot of the initial page, then FINALIZE/DIE.
+    // GAP-012: blank about:blank is refused unless --allow-empty.
+    // Each command is one-shot: view launches its own headless Chrome then FINALIZE/DIE.
     let output = Command::new(BIN)
-        .args(["view", "--json"])
+        .args(["view", "--json", "--allow-empty"])
         .output()
         .expect("spawn");
     let stdout = String::from_utf8_lossy(&output.stdout);

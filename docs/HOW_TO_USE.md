@@ -28,21 +28,21 @@ browser-automation-cli --json view
 
 ## Core Commands
 - Navigate with `goto`, `back`, `forward`, `reload`
-- Snapshot the page with `view`
+- Snapshot the page with `view` (empty about:blank refuses silent success unless `--allow-empty`)
 - Click with `press` using a CSS selector or an `@eN` ref
 - Fill inputs with `write` and multi-field forms with `fill-form`
-- Wait with `wait --ms`, repeatable `--text` (OR), `--selector`, and optional `--state`
+- Wait with `wait --ms`, repeatable `--text` (OR), `--selector` (CSS multi-selector OR), and optional `--state`
 - Capture a screenshot with `grab --path /tmp/page.png` (flag, not a positional path)
-- Print the page to PDF with `print-pdf --url <url> --path /tmp/page.pdf`
-- Scrape page content with `scrape` when you need text, markdown, html, links, metadata, or related formats
+- Print the page to PDF with `print-pdf --url <url> --path /tmp/page.pdf` (also valid inside `run`)
+- Scrape page content with multi-format `scrape --format markdown,html,links` when you need several shapes at once
 - Parse local files with `parse` (html/md/txt/pdf/docx/xlsx/ods; optional `--redact-pii`)
 - Encode or decode QR codes with `qr encode|decode` (no Chrome)
 - Discover filesystem paths with `find-paths` (regex pattern and/or `--glob '**/*.rs'`; no Chrome)
 - Write XLSX from CSV/JSON with `sheet-write <input> -o <out.xlsx>` (no Chrome)
 - Structural lint with `sg-scan [paths…]` and dry-run rewrite with `sg-rewrite [paths…]` (`--apply` to write)
 - Check page change against a baseline with `monitor check`
-- List the live inventory (59 commands) with `commands --json`
-- Discover argv shapes with `schema --cmd <name> --json`
+- List the live inventory (61 agent names) with `commands --json`
+- Discover argv shapes with `schema <name> --json` or `schema --cmd <name> --json`
 - Print the product version with `version`
 - Resolve XDG keys with `config list-keys --json`
 
@@ -53,6 +53,7 @@ browser-automation-cli --json wait --text "Example Domain" --ms 3000
 browser-automation-cli --json grab --path /tmp/page.png --full-page
 browser-automation-cli --timeout 60 --json scrape https://example.com --format markdown --engine browser
 browser-automation-cli --json print-pdf --url https://example.com --path /tmp/page.pdf
+browser-automation-cli --json schema run
 ```
 
 
@@ -63,6 +64,9 @@ browser-automation-cli --json print-pdf --url https://example.com --path /tmp/pa
 - There is no product daemon mode
 - On fail-fast error, the error envelope may include partial `data.steps` for recovery
 - Script body accepts **NDJSON** (one JSON object per line) **or** a top-level **JSON array** of step objects
+- Final `--json` envelope includes `ok` and full `steps[].data`
+- Global `--json-steps` streams one NDJSON line per step (`step`, `cmd`, `ok`, `result`)
+- Multi-step only cmds: `select-option` / `pick` with `target` + `option` (not standalone clap)
 
 ```bash
 cat > /tmp/demo.browser-automation.jsonl <<'JSONL'
@@ -84,10 +88,16 @@ cat > /tmp/demo.browser-automation.array.json <<'JSON'
 ]
 JSON
 browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automation.array.json
+
+# Progressive step stream (GAP-020)
+browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.browser-automation.array.json
 ```
-- NDJSON lines and array elements use a `cmd` field matching a real subcommand name
+- NDJSON lines and array elements use a `cmd` field matching a real subcommand or run inventory name
 - Scroll accepts `dy`/`dx` as aliases for `delta_y`/`delta_x`
-- Assert accepts `url_contains` / `text_contains` aliases
+- Assert accepts `url_contains` / `text_contains` aliases and console kinds
+- Wait accepts multi-selector OR and run fields `url` / `url_contains` / `navigation: true` (boolean); multi-selector success may include `matched_selector`
+- Fill multi-field forms in run: `{"cmd":"fill-form","fields":[{"target":"…","value":"…"}]}`
+- Beforeunload in run: `handle_before_unload` on `goto` / `reload`; isolated page: `{"cmd":"page","action":"new","isolated_context":true}`
 - Global flags such as `--timeout` and `--step-timeout` apply to the whole script
 - Prefer HTTP scrape paths when you only need content and not live refs
 
@@ -95,19 +105,24 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automa
 ## Advanced Patterns
 - Capture network in-process: `--capture-network` then `net list --json`
 - Capture console in-process: `--capture-console` then `console list --json`
+- Assert console clean: `assert console-empty` / `assert console-no-match --pattern TypeError` (needs capture)
 - Emulate without a named device profile:
   - `emulate --user-agent "Mozilla/5.0 ..."`
   - `emulate --viewport 390x844x3,mobile,touch`
   - `emulate --network-conditions "Slow 3G"`
 - Wait for any of several texts (OR semantics): `wait --text A --text B --ms 5000`
-- Scrape formats: `--format text|markdown|html|links|metadata|summary|product|branding|raw-html|screenshot`
+- Scrape formats: `--format text|markdown|html|links|metadata|summary|product|branding|raw-html|screenshot` (CSV or repeatable multi-format; alias `--formats`)
 - Scrape engines: `--engine http` (reqwest + scraper) or `--engine browser` (CDP; formats apply to captured HTML)
 - Optional operator webhook POST of scrape result data: `scrape ... --webhook-url https://127.0.0.1:9000/hook` (one-shot operator destination, not product telemetry)
 - Prefer main content heuristics: `scrape ... --only-main-content`
-- Batch scrape from a URL list: `batch-scrape --urls-file urls.txt --format text --concurrency 2`
-- Discover sites with `crawl`, `map`, `search`, and local files with `parse`
+- Batch scrape from a URL list: `batch-scrape --urls-file urls.txt --format text --concurrency 2` (default `--engine http`; use `--engine browser` for JS-rendered pages)
+- Discover sites with `crawl` (`--engine http|browser`), `map`, `search`, and local files with `parse`
 - LLM extract (fail-closed without keys): set XDG `openrouter_api_key`, optional `llm_base_url` / `llm_model`, then `extract <url> --llm --question '...'`
 - MITM one-shot proxy: `mitm start --seconds 30` (binds `127.0.0.1`)
+- MITM compose navigate+capture: `mitm capture-url https://example.com --seconds 30 --har /tmp/cap.har`
+- MITM HAR export: `mitm har --out /tmp/capture.har` (required `--out`)
+- MITM full surface: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
+- Global MITM flags: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
 - Workflow DAG journal: `workflow run|resume|status` (SQLite under XDG state)
 - Deep heap tools require `--category-memory`
 - Extension tools require `--category-extensions`
@@ -122,6 +137,18 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automa
 - Verbosity: `--verbose` (info), `--debug` (max), `-q`/`--quiet`, or `config set log_level debug`
 - Color: `config set color true|false` (truthy values: `true`, `1`, `yes`)
 - Chrome path: `config set chrome_path /path/to/chrome` when PATH discovery is not enough
+- Dialog soft path: `dialog accept --if-present` / `dialog dismiss --if-present` when a dialog may be absent
+- Beforeunload (GAP-003): `goto --handle-before-unload accept|dismiss` and `reload --handle-before-unload accept|dismiss`; run field `handle_before_unload`
+- Goto options: `--init-script`, `--handle-before-unload`, `--navigation-timeout-ms`
+- Reload ignore cache (GAP-005): `reload --ignore-cache`
+- Isolated context (GAP-004): `page new --isolated-context` (flag alone → `default-isolated`) or `page new --isolated-context <name>`; run `isolated_context` string or `true`
+- Wait multi-selector CSS OR: `wait --selector '#a, #b'`; run fields `url`, `url_contains`, `navigation: true`; success may include `matched_selector` in result data
+- Clap usage errors with `--json` emit JSON error envelopes (GAP-002)
+- `console dump --path …` always writes a valid JSON array (`[]` when empty) (GAP-021)
+- `print-pdf` refuses blank PDF without navigated content or `url` (GAP-013)
+- Extension `install` / `uninstall` intentionally outside `run` (GAP-007); discover via `schema` / `commands`
+- Assert dual surface (GAP-014): CLI `assert url|text|console|console-empty|console-no-match` vs run kinds (`url` / `text` / `console` / `console_empty` / `console_no_match`)
+- Scrape multi-format (GAP-018): `--format` multi/CSV and alias `--formats` where supported
 
 
 ## Configuration (XDG)
@@ -171,16 +198,21 @@ browser-automation-cli --json scrape https://example.com --format markdown --eng
 browser-automation-cli --timeout 60 --json scrape https://example.com --format markdown --engine browser
 browser-automation-cli --timeout 60 --json scrape https://example.com --format links --engine browser
 
+# Multi-format in one invocation (GAP-009)
+browser-automation-cli --json scrape https://example.com --format markdown,html,links --engine http
+
 # Optional one-shot operator webhook POST of scrape result data (not product telemetry)
 browser-automation-cli --json scrape https://example.com --format markdown --engine http \
   --webhook-url https://127.0.0.1:9000/hook
 
-# Many URLs (HTTP engine, one-shot)
+# Many URLs: default HTTP engine; optional browser engine per URL (GAP-010)
 printf '%s\n' 'https://example.com' 'https://example.org' > /tmp/urls.txt
 browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 2
+browser-automation-cli --timeout 120 --json batch-scrape --urls-file /tmp/urls.txt --format markdown --engine browser --concurrency 1
 
 # Crawl / map / search / parse local files
 browser-automation-cli --json crawl https://example.com --same-host --limit 20 --max-depth 2 --format text
+browser-automation-cli --timeout 120 --json crawl https://example.com --same-host --limit 5 --engine browser
 browser-automation-cli --json map https://example.com --limit 50 --max-depth 2
 browser-automation-cli --json search "example domain" --limit 10
 browser-automation-cli --json parse tests/fixtures/hello.pdf
@@ -204,7 +236,9 @@ browser-automation-cli --json sg-rewrite .
 ```
 - `scrape` defaults: `--format text`, `--engine browser`
 - Browser engine respects `--format` (not silent text-only)
-- `batch-scrape` always uses the HTTP engine
+- Multi-format returns per-format fields in the envelope when more than one format is requested
+- `batch-scrape` defaults to HTTP engine; pass `--engine browser` for CDP per URL
+- `crawl` defaults to HTTP BFS; pass `--engine browser` when JS rendering is required
 - `crawl` stays on the seed host when you pass `--same-host`
 - `parse` extracts text from local `html`, `md`, `txt`, `pdf`, `docx`, `xlsx`, and `ods` paths
 - `--redact-pii` redacts common PII patterns in parse output
@@ -240,7 +274,11 @@ browser-automation-cli --json mitm init-ca
 browser-automation-cli --json mitm start --seconds 30
 browser-automation-cli --json mitm status
 browser-automation-cli --json mitm list
-browser-automation-cli --json mitm har
+browser-automation-cli --json mitm har --out /tmp/capture.har
+browser-automation-cli --json mitm capture-url https://example.com --seconds 30 --har /tmp/cap.har
+browser-automation-cli --json mitm redact --secrets
+browser-automation-cli --json mitm graphql
+browser-automation-cli --json mitm ws
 
 cat > /tmp/wf.json <<'JSON'
 {
@@ -257,6 +295,8 @@ browser-automation-cli --json workflow status --name demo
 ```
 - MITM binds loopback only (`127.0.0.1`) with an ephemeral port
 - MITM CA lives under XDG data; captures live under XDG state
+- `mitm har` requires `--out <path>`
+- `mitm capture-url` one-shot: proxy + Chrome + navigate + capture
 - Workflow journals live under XDG state (SQLite)
 - Resume skips steps already marked `ok` in the journal
 - Offline workflow steps are data-plane only
@@ -304,15 +344,36 @@ browser-automation-cli --json workflow status --name demo
 - Cause: HTTP engine is network-only (GAP-A004)
 - Fix: use `--engine browser` for file pages, or `parse` for local files
 
+### Empty view on about:blank
+- Symptom: exit non-zero / usage when `view` runs without navigation
+- Cause: empty about:blank refuses silent success (GAP-012)
+- Fix: navigate with `goto` first, or pass `--allow-empty` only when intentional
+
 ### Wrong schema or command name
 - Symptom: exit `2`, message `unknown command for schema: ...` or clap `unrecognized subcommand`
 - Cause: typo or invented subcommand / schema name
-- Fix: run `commands --json`, then `schema --cmd <name> --json` with a listed name
+- Fix: run `commands --json`, then `schema <name> --json` with a listed name
+- Note: `select-option` and `pick` are run/schema inventory only (not clap standalone)
 
 ### Grab path mistaken as positional
 - Symptom: clap usage error around unexpected arguments
 - Cause: screenshot destination was passed positionally
 - Fix: use `grab --path /tmp/page.png` (and optional `--full-page`)
+
+### Clap usage errors under --json (GAP-002)
+- Symptom: usage failures still need machine parsing
+- Cause: invalid argv with `--json` already on the command line
+- Fix: read the JSON error envelope on stdout (`ok: false`); do not scrape clap prose alone
+
+### Blank print-pdf (GAP-013)
+- Symptom: exit non-zero when printing without page content
+- Cause: `print-pdf` refuses blank about:blank without navigated content or a `url`
+- Fix: pass `--url` / step `url`, or `goto` first in the same `run` process
+
+### Wait navigation is boolean
+- Symptom: wait step ignored or rejected when using a string like `"load"`
+- Cause: run field `navigation` is boolean `true`, not a string lifecycle name
+- Fix: use `{"cmd":"wait","navigation":true}`
 
 
 ## Integration With Shell Scripts
@@ -321,6 +382,7 @@ browser-automation-cli --json workflow status --name demo
 - Pipe stdout into `jaq` / `jq` for field extraction
 - Keep diagnostics on stderr with `--quiet` when you only want envelopes
 - On `run` errors, inspect partial `data.steps` when present
+- Use `--json-steps` when progressive step lines are easier to stream than a single final envelope
 
 ```bash
 browser-automation-cli --timeout 60 --json goto https://example.com \
@@ -342,8 +404,8 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 - Pass `--json` on every programmatic call
 - Parse only stdout envelopes; treat stderr as diagnostics
 - Branch on envelope field `ok` and process exit code
-- Discover inventory with `commands --json` (59 commands)
-- Discover argv with `schema --cmd <name> --json`
+- Discover inventory with `commands --json` (61 agent names)
+- Discover argv with `schema <name> --json` or `schema --cmd <name> --json`
 - Collapse multi-step browser work into one `run --script` process when refs matter
 - Prefer flags for one-off control; use `config` for durable XDG defaults
 - Do not invent a daemon between agent turns
@@ -396,13 +458,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - See crate-oriented notes in [docs/AGENTS.md](AGENTS.md) and [INTEGRATIONS.md](../INTEGRATIONS.md)
 
 
-## Full Command Inventory (59)
-- Live source of truth: `browser-automation-cli commands --json` (59 top-level names)
+## Full Command Inventory (61)
+- Live source of truth: `browser-automation-cli commands --json` (61 agent-facing names)
+- Clap top-level help lists 59 without `select-option` and `pick` as standalone subcommands
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53)
-- Full top-level command list (every name is a real subcommand):
+- Full agent command list:
   - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
+  - Multi-step / schema only: `select-option`, `pick`
   - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-step: `run`, `exec`
@@ -411,7 +475,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   - Infra: `config`, `mitm`, `workflow`
   - Emulation/perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
-- Discover argv with `schema --cmd <name> --json` for any name above
+- Discover argv with `schema <name> --json` for any name above
 
 ## Next Steps
 - Recipes and longer flows: [docs/COOKBOOK.md](COOKBOOK.md)

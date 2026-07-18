@@ -3,7 +3,7 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/wait.schema.json",
   "title": "wait command input",
   "type": "object",
-  "description": "Wait ms and/or text and/or CSS selector and/or load state",
+  "description": "Wait ms and/or text and/or CSS selector (comma OR / array) and/or URL and/or load state (GAP-019/024)",
   "properties": {
     "include_snapshot": {
       "type": "boolean"
@@ -12,8 +12,30 @@
       "minimum": 0,
       "type": "integer"
     },
+    "navigation": {
+      "description": "Wait for load lifecycle (GAP-024)",
+      "type": "boolean"
+    },
     "selector": {
-      "type": "string"
+      "oneOf": [
+        {
+          "description": "CSS selector; comma-separated OR supported (GAP-019)",
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "selectors": {
+      "description": "OR list of CSS selectors",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
     },
     "state": {
       "enum": [
@@ -37,6 +59,14 @@
           "type": "array"
         }
       ]
+    },
+    "url": {
+      "description": "Exact location.href match (GAP-024)",
+      "type": "string"
+    },
+    "url_contains": {
+      "description": "Substring match on location.href (GAP-024)",
+      "type": "string"
     },
     "wait_timeout_ms": {
       "minimum": 0,

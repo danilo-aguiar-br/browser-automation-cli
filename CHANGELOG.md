@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-07-18
+
+### Added
+- `run --json-steps` (global `--json-steps`): stream one NDJSON line per step (`step`, `cmd`, `ok`, `result`) for agent-first observability (GAP-020)
+- `wait` supports CSS multi-selector OR (`#a, #b`), `selectors` arrays, `url` / `url_contains` / `navigation` (GAP-019, GAP-024)
+- `select-option` / `pick` multi-step cmds for HIG badge/popover / `role=option` (GAP-023)
+- Assert kinds `console_empty` and `console_no_match` (GAP-025)
+- `schema <cmd>` positional in addition to `schema --cmd` (GAP-022)
+- `BeforeUnloadAction` accept|dismiss on `goto` / `reload` (GAP-003)
+- MITM `capture-url` one-shot compose + global `--mitm*` flags (GAP-011)
+- `print-pdf` in multi-step `run` + run inventory gate (GAP-001, GAP-017)
+- Scrape multi-format and batch/crawl `--engine browser` (GAP-009, GAP-010)
+
+### Fixed
+- `console dump` always writes a valid JSON array (`[]` when empty; never 0-byte) (GAP-021)
+- `run --json` final envelope includes `ok` + full `steps[].data` (GAP-020)
+- Clap usage errors emit JSON envelope when `--json` is on argv (GAP-002)
+- `view` empty about:blank refuses silent success unless `--allow-empty` (GAP-012)
+- `print-pdf` refuses blank PDF without navigated content (GAP-013)
+- Dialog soft path with `--if-present` (GAP-006)
+- Chrome privacy launch flags; no `metrics-recording-only` (GAP-016)
+
+### Changed
+- Version `0.1.4`
+- `parity_run_inventory` test enforces `RUN_DISPATCHED_CMDS` ∪ intentional exclude
+- Clap surface audit (`rules_rust_cli_com_clap`): `GlobalOpts` uses `Args` + flatten; explicit `ArgAction::SetTrue`; `value_hint` on paths/URLs; help headings; `after_help` examples; `-v` alias; `author` metadata
+- `CliError` derives `thiserror::Error`; binary installs `human-panic` for release panic reports
+- Integration gate `tests/clap_command_debug_assert.rs` runs `Cli::command().debug_assert()`
+
+### Documentation
+- Public bilingual docs (README, INTEGRATIONS, llms*, HOW_TO_USE, AGENTS, COOKBOOK, MIGRATION, TESTING, SECURITY, CONTRIBUTING) synchronized to v0.1.4 surface
+- Inventory documented as 61 agent names via `commands --json` (includes run/schema-only `select-option` and `pick`; clap top-level lists 59 without them as standalone)
+- Skills EN/PT rewritten as imperative playbooks with formulas for all 61 commands (XDG + flags only; no product env catalogs)
+- `docs/schemas` regenerated; live `schema` fragments for `batch-scrape`/`crawl`/`scrape` document `--engine browser` and multi-format
+- `gaps.md` banner marks GAP-001…025 Closed while keeping pre-fix audit history
+
 ## [0.1.3] - 2026-07-17
 
 
