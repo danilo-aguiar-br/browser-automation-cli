@@ -21,13 +21,14 @@
 - `0.1.0` ships the default-on DevTools parity surface plus category gates
 - `0.1.1` adds XDG `config`, local MITM, workflow journal, and local scrape/crawl/map/search/parse surface (`batch-scrape`, `crawl`, `map`, `search`, `parse`, expanded `scrape`)
 - `0.1.2` closes agent-first gaps and adds `print-pdf`, `monitor`, `qr`, `find-paths`, parse document types, extract LLM, and expanded config keys
+- `0.1.3` hard-closes residual-zero and agent contracts: NDJSON|JSON-array `run`, CDP reload/beforeunload/init_script, Redis/Lighthouse honesty, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 top-level commands; 53 e2e DevTools tools)
 - Experimental tools require `--experimental-vision` or `--experimental-screencast`
 
 ## Summary Table
 
 | Surface | Integration style | Required flags | Notes |
 |---------|-------------------|----------------|-------|
-| Claude Code | subprocess | `--json` | multi-step via `run --script` |
+| Claude Code | subprocess | `--json` | multi-step via `run --script` (NDJSON or JSON array) |
 | Codex | subprocess | `--json -q` | quiet stderr for cleaner transcripts |
 | Cursor | shell tool | `--json` | keep timeouts explicit |
 | Local shell | script | `--json` | parse with `jaq` |
@@ -35,12 +36,13 @@
 
 ## Claude Code
 - Spawn one CLI process per atomic action
-- Use `run --script` when `@eN` refs must survive multiple steps
+- Use `run --script` (NDJSON or JSON array) when `@eN` refs must survive multiple steps
 - Prefer XDG `config set` for durable defaults
 ```bash
 browser-automation-cli doctor --offline --quick --json
 browser-automation-cli --json goto https://example.com
 browser-automation-cli --json view
+browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]'
 ```
 
 ## Codex
@@ -83,3 +85,14 @@ echo "$out" | jaq -e '.ok == true'
   - `assert` aliases `url_contains`/`text_contains`; `attr` DOM property fallback
   - Config keys: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
   - Command inventory is 56 top-level names (`commands --json`), including `print-pdf`, `monitor`, `qr`, `find-paths`
+- `0.1.3`:
+  - `run --script` accepts NDJSON or a JSON array of steps; fail-fast may return partial `data.steps`
+  - `reload --ignore-cache` uses CDP `Page.reload` + `ignoreCache`
+  - `init_script` is removed after navigation/reload; `handle_before_unload` auto-accepts via CDP dialog (no preventDefault inject)
+  - `scrape --engine http` rejects `file://` with Usage + browser/parse suggestion
+  - `find-paths --glob`; `sheet-write` CSV/JSON→XLSX; `sg-scan` / `sg-rewrite` structural lint (dry-run default)
+  - Lighthouse resolve flag → XDG `lighthouse_path` → PATH; envelope `binary_source` real|mock; doctor reports source
+  - Redis: XDG `cache_backend` / `cache_redis_url`; `rediss://` fail-closed; doctor `cache_redis`
+  - FINALIZE scavenges owned Chromium `/tmp` orphans; residual e2e residual-zero
+  - Config: `config list-keys`; keys add `log_to_file`, `cache_backend`, `cache_redis_url`
+  - Command inventory is 59 top-level names (`commands --json`), including `sheet-write`, `sg-scan`, `sg-rewrite`

@@ -50,6 +50,9 @@ pub const COMMANDS: &[&str] = &[
     "parse",
     "qr",
     "find-paths",
+    "sg-scan",
+    "sg-rewrite",
+    "sheet-write",
     "mitm",
     "workflow",
     "config",
@@ -117,6 +120,7 @@ pub const DEVTOOLS_TOOL_MAP: &[(&str, &str)] = &[
     ("list_pages", "page list"),
     ("select_page", "page select"),
     ("close_page", "page close"),
+    ("get_tab_id", "page tab-id"),
     ("wait_for", "wait"),
     ("emulate", "emulate"),
     ("resize_page", "resize"),
@@ -218,7 +222,7 @@ fn schema_for(cmd: &str) -> Option<Value> {
             json!({
                 "url": { "type": "string", "description": "Absolute URL or about:blank" },
                 "init_script": { "type": "string", "description": "JS to evaluate before navigation (tool-ref initScript)" },
-                "handle_before_unload": { "type": "boolean", "description": "Accept beforeunload dialogs automatically" },
+                "handle_before_unload": { "type": "boolean", "description": "Auto-accept beforeunload dialogs via CDP (never injects preventDefault; tool-ref parity)" },
                 "navigation_timeout_ms": { "type": "integer", "description": "Navigation timeout override in milliseconds" }
             }),
             &["url"],
@@ -376,8 +380,8 @@ fn schema_for(cmd: &str) -> Option<Value> {
             &["action", "url", "baseline"],
         ),
         "run" => schema_object(
-            "Execute NDJSON multi-step script in one process",
-            json!({ "script": { "type": "string", "description": "Path to .jsonl script" } }),
+            "Execute multi-step script in one process; script file is NDJSON (one object per line) or a top-level JSON array of step objects",
+            json!({ "script": { "type": "string", "description": "Path to script file (.jsonl NDJSON or .json array of steps)" } }),
             &["script"],
         ),
         "exec" => schema_object(
@@ -585,9 +589,35 @@ fn schema_for(cmd: &str) -> Option<Value> {
                 "no_ignore": { "type": "boolean" },
                 "max_depth": { "type": "integer" },
                 "type": { "type": "string", "enum": ["f", "d"] },
+                "limit": { "type": "integer" },
+                "glob": { "type": "string", "description": "Shell-style glob e.g. **/*.rs" }
+            }),
+            &[],
+        ),
+        "sg-scan" => schema_object(
+            "Structural lint scan for forbidden product patterns (one-shot; no Chrome)",
+            json!({
+                "paths": { "type": "array", "items": { "type": "string" } },
                 "limit": { "type": "integer" }
             }),
             &[],
+        ),
+        "sg-rewrite" => schema_object(
+            "Structural rewrite dry-run/apply for safe patterns only (one-shot; no Chrome)",
+            json!({
+                "paths": { "type": "array", "items": { "type": "string" } },
+                "apply": { "type": "boolean" }
+            }),
+            &[],
+        ),
+        "sheet-write" => schema_object(
+            "Write XLSX from CSV/JSON (write-only; no Chrome)",
+            json!({
+                "input": { "type": "string" },
+                "out": { "type": "string" },
+                "sheet": { "type": "string" }
+            }),
+            &["input", "out"],
         ),
         "mitm" => schema_object(
             "MITM capture / CA / HAR (one-shot local 127.0.0.1)",
@@ -621,11 +651,11 @@ fn schema_for(cmd: &str) -> Option<Value> {
             json!({
                 "action": {
                     "type": "string",
-                    "enum": ["path", "init", "show", "set", "get"]
+                    "enum": ["path", "init", "show", "set", "get", "list-keys"]
                 },
                 "key": {
                     "type": "string",
-                    "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|chrome_path|lighthouse_path|openrouter_api_key|llm_base_url|llm_model"
+                    "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|log_to_file|chrome_path|lighthouse_path|openrouter_api_key|llm_base_url|llm_model|cache_backend|cache_redis_url"
                 },
                 "value": { "type": "string" }
             }),
@@ -794,5 +824,76 @@ mod tests {
         for c in COMMANDS {
             assert!(seen.insert(*c), "duplicate command: {c}");
         }
+    }
+
+    #[test]
+    fn config_schema_includes_list_keys_and_cache_keys() {
+        let frag = schema_for("config").expect("config schema");
+        let action_enum = frag
+            .pointer("/properties/action/enum")
+            .and_then(|v| v.as_array())
+            .expect("action.enum");
+        let actions: Vec<&str> = action_enum.iter().filter_map(|v| v.as_str()).collect();
+        assert!(
+            actions.contains(&"list-keys"),
+            "config action enum must include list-keys: {actions:?}"
+        );
+        for required in ["path", "init", "show", "set", "get", "list-keys"] {
+            assert!(
+                actions.contains(&required),
+                "missing config action {required} in {actions:?}"
+            );
+        }
+        let key_desc = frag
+            .pointer("/properties/key/description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        for key in [
+            "lang",
+            "timeout",
+            "artifacts_dir",
+            "ignore_robots",
+            "namespace",
+            "encryption_key",
+            "color",
+            "log_level",
+            "log_to_file",
+            "chrome_path",
+            "lighthouse_path",
+            "openrouter_api_key",
+            "llm_base_url",
+            "llm_model",
+            "cache_backend",
+            "cache_redis_url",
+        ] {
+            assert!(
+                key_desc.contains(key),
+                "config key description missing {key}: {key_desc}"
+            );
+        }
+    }
+
+    #[test]
+    fn run_schema_documents_ndjson_and_array() {
+        let frag = schema_for("run").expect("run schema");
+        let desc = frag
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let script_desc = frag
+            .pointer("/properties/script/description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            desc.to_ascii_lowercase().contains("array")
+                || script_desc.to_ascii_lowercase().contains("array"),
+            "run schema must document JSON array scripts: desc={desc} script={script_desc}"
+        );
+        assert!(
+            desc.to_ascii_lowercase().contains("ndjson")
+                || script_desc.to_ascii_lowercase().contains("ndjson")
+                || script_desc.contains("jsonl"),
+            "run schema must document NDJSON scripts: desc={desc} script={script_desc}"
+        );
     }
 }

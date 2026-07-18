@@ -37,11 +37,14 @@ browser-automation-cli --json view
 - Scrape page content with `scrape` when you need text, markdown, html, links, metadata, or related formats
 - Parse local files with `parse` (html/md/txt/pdf/docx/xlsx/ods; optional `--redact-pii`)
 - Encode or decode QR codes with `qr encode|decode` (no Chrome)
-- Discover filesystem paths with `find-paths` (no Chrome)
+- Discover filesystem paths with `find-paths` (regex pattern and/or `--glob '**/*.rs'`; no Chrome)
+- Write XLSX from CSV/JSON with `sheet-write <input> -o <out.xlsx>` (no Chrome)
+- Structural lint with `sg-scan [paths…]` and dry-run rewrite with `sg-rewrite [paths…]` (`--apply` to write)
 - Check page change against a baseline with `monitor check`
-- List the live inventory (56 commands) with `commands --json`
+- List the live inventory (59 commands) with `commands --json`
 - Discover argv shapes with `schema --cmd <name> --json`
 - Print the product version with `version`
+- Resolve XDG keys with `config list-keys --json`
 
 ```bash
 browser-automation-cli --timeout 60 --json goto https://example.com
@@ -59,6 +62,7 @@ browser-automation-cli --json print-pdf --url https://example.com --path /tmp/pa
 - One process is one lifecycle: BORN EXECUTE FINALIZE DIE
 - There is no product daemon mode
 - On fail-fast error, the error envelope may include partial `data.steps` for recovery
+- Script body accepts **NDJSON** (one JSON object per line) **or** a top-level **JSON array** of step objects
 
 ```bash
 cat > /tmp/demo.browser-automation.jsonl <<'JSONL'
@@ -71,8 +75,17 @@ cat > /tmp/demo.browser-automation.jsonl <<'JSONL'
 {"cmd":"grab","path":"/tmp/example.png"}
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automation.jsonl
+
+# Same steps as a JSON array (GAP-A003)
+cat > /tmp/demo.browser-automation.array.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"view"}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automation.array.json
 ```
-- NDJSON lines use a `cmd` field matching a real subcommand name
+- NDJSON lines and array elements use a `cmd` field matching a real subcommand name
 - Scroll accepts `dy`/`dx` as aliases for `delta_y`/`delta_x`
 - Assert accepts `url_contains` / `text_contains` aliases
 - Global flags such as `--timeout` and `--step-timeout` apply to the whole script
@@ -99,7 +112,12 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automa
 - Deep heap tools require `--category-memory`
 - Extension tools require `--category-extensions`
 - Coordinate clicks require `--experimental-vision`
-- Lighthouse with a mock path: `lighthouse https://example.com --lighthouse-path mock --json`
+- Lighthouse binary resolve order: flag `--lighthouse-path` → XDG `lighthouse_path` → PATH
+- Lighthouse envelope reports `binary_source` as `real` or `mock` (mock is honesty for e2e/smoke, not production)
+- Lighthouse with a mock path: `lighthouse https://example.com --lighthouse-path ./scripts/mock-lighthouse.sh --json`
+- Cache backend via XDG only: `config set cache_backend sqlite|memory|redis` and optional `config set cache_redis_url redis://127.0.0.1:6379`
+- `rediss://` is fail-closed (plain TCP only; do not use rediss URLs)
+- Doctor reports Chrome, lighthouse source, and `cache_redis` when Redis cache is configured
 - Localize human suggestions: `--lang pt-BR` or `config set lang pt-BR`
 - Verbosity: `--verbose` (info), `--debug` (max), `-q`/`--quiet`, or `config set log_level debug`
 - Color: `config set color true|false` (truthy values: `true`, `1`, `yes`)
@@ -109,10 +127,10 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automa
 ## Configuration (XDG)
 - Prefer flags for one-off agent calls
 - Prefer XDG config via the `config` command for durable defaults
-- Product settings are flags and XDG CLI only: `config init`, `config path`, `config show`, `config set`, `config get`
+- Product settings are flags and XDG CLI only: `config init`, `config path`, `config show`, `config set`, `config get`, `config list-keys`
 - Resolve live config/data/state paths with `config path --json`
 - Product logging is controlled by `--verbose` / `--debug` / `-q` and XDG `log_level`
-- Supported keys (full list of 13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Supported keys (full list of 16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Color truthy values: `true`, `1`, `yes`
 - Color falsy or other values resolve to off unless set truthy
 
@@ -132,8 +150,14 @@ browser-automation-cli --json config set lighthouse_path ./scripts/mock-lighthou
 browser-automation-cli --json config set openrouter_api_key YOUR_KEY
 browser-automation-cli --json config set llm_base_url https://openrouter.ai/api/v1
 browser-automation-cli --json config set llm_model openai/gpt-4o-mini
+browser-automation-cli --json config set log_to_file false
+browser-automation-cli --json config set cache_backend sqlite
+browser-automation-cli --json config set cache_redis_url redis://127.0.0.1:6379
+browser-automation-cli --json config list-keys
 browser-automation-cli --json config get lang
 ```
+- Use `redis://` only for Redis cache; `rediss://` is rejected fail-closed
+- Discover keys and defaults with `config list-keys --json`
 - Keep robots dual-flag policy explicit when bypassing: `--ignore-robots` plus `--i-accept-robots-risk`
 - Config `ignore_robots` alone does not replace the dual-flag requirement on the command line
 
@@ -171,6 +195,12 @@ browser-automation-cli --json monitor check --url https://example.com --baseline
 browser-automation-cli --json qr encode --text 'hello' --format png --path /tmp/qr.png
 browser-automation-cli --json qr decode --path /tmp/qr.png
 browser-automation-cli --json find-paths 'Cargo.*' .
+browser-automation-cli --json find-paths --glob '**/*.rs' .
+browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx --sheet Data
+browser-automation-cli --json sg-scan . --limit 100
+browser-automation-cli --json sg-rewrite .
+# dry-run by default; write only with --apply
+# browser-automation-cli --json sg-rewrite . --apply
 ```
 - `scrape` defaults: `--format text`, `--engine browser`
 - Browser engine respects `--format` (not silent text-only)
@@ -257,12 +287,22 @@ browser-automation-cli --json workflow status --name demo
 ### Unknown config key
 - Symptom: exit `2`, message `unknown config key: ...`
 - Cause: `config set` received a key outside the supported set
-- Fix: use only `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Fix: use only `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 
 ### LLM keys missing
 - Symptom: exit `2`, message `LLM extract requires XDG openrouter_api_key`
 - Cause: `extract --llm` without XDG key
 - Fix: `config set openrouter_api_key YOUR_KEY` (and optional `llm_base_url` / `llm_model`)
+
+### Redis rediss URL rejected
+- Symptom: exit non-zero / config or cache error when `cache_redis_url` uses `rediss://`
+- Cause: Redis client is plain TCP only; `rediss://` is fail-closed (GAP-A007)
+- Fix: use `config set cache_redis_url redis://127.0.0.1:6379` for local Redis
+
+### HTTP scrape rejects file://
+- Symptom: exit `2` usage when `scrape --engine http` receives a `file://` URL
+- Cause: HTTP engine is network-only (GAP-A004)
+- Fix: use `--engine browser` for file pages, or `parse` for local files
 
 ### Wrong schema or command name
 - Symptom: exit `2`, message `unknown command for schema: ...` or clap `unrecognized subcommand`
@@ -302,7 +342,7 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 - Pass `--json` on every programmatic call
 - Parse only stdout envelopes; treat stderr as diagnostics
 - Branch on envelope field `ok` and process exit code
-- Discover inventory with `commands --json` (56 commands)
+- Discover inventory with `commands --json` (59 commands)
 - Discover argv with `schema --cmd <name> --json`
 - Collapse multi-step browser work into one `run --script` process when refs matter
 - Prefer flags for one-off control; use `config` for durable XDG defaults
@@ -355,6 +395,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Use `run --script` when the crate orchestrates multi-step CDP flows
 - See crate-oriented notes in [docs/AGENTS.md](AGENTS.md) and [INTEGRATIONS.md](../INTEGRATIONS.md)
 
+
+## Full Command Inventory (59)
+- Live source of truth: `browser-automation-cli commands --json` (59 top-level names)
+- DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53)
+- Full top-level command list (every name is a real subcommand):
+  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
+  - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
+  - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
+  - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
+  - Multi-step: `run`, `exec`
+  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - Local IO (no Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+  - Infra: `config`, `mitm`, `workflow`
+  - Emulation/perf: `emulate`, `resize`, `perf`, `heap`
+  - Category gates: `extension`, `devtools3p`, `webmcp`
+- Discover argv with `schema --cmd <name> --json` for any name above
 
 ## Next Steps
 - Recipes and longer flows: [docs/COOKBOOK.md](COOKBOOK.md)

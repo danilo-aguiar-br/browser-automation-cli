@@ -13,13 +13,53 @@ use scraper::{Html, Selector};
 use serde_json::{json, Value};
 use url::Url;
 
+use crate::cache::{self, HttpCache};
 use crate::error::{CliError, ErrorKind};
 use crate::robots::RobotsPolicy;
-use crate::xdg;
 
 /// Identifiable product User-Agent for HTTP scrapes (PRD politeness).
 pub const HTTP_USER_AGENT: &str =
-    "browser-automation-cli/0.1 (+https://github.com/danilo-aguiar-br/browser-automation-cli; local-scrape)";
+    "browser-automation-cli/0.1.3 (+https://github.com/danilo-aguiar-br/browser-automation-cli; local-scrape)";
+
+/// Reject `file://`, bare paths, and other non-HTTP(S) targets for the HTTP engine (GAP-A004).
+pub fn reject_non_http_scheme_for_http_engine(url: &str) -> Result<(), CliError> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err(CliError::with_suggestion(
+            ErrorKind::Usage,
+            "empty URL for scrape --engine http",
+            "Pass an absolute http(s) URL",
+        ));
+    }
+    // Bare local path (not a URL).
+    if !trimmed.contains("://") {
+        return Err(CliError::with_suggestion(
+            ErrorKind::Usage,
+            format!("HTTP engine cannot fetch local path: {trimmed}"),
+            "Use: browser-automation-cli parse <path>   or   scrape file:///… --engine browser",
+        ));
+    }
+    match Url::parse(trimmed) {
+        Ok(u) => match u.scheme() {
+            "http" | "https" => Ok(()),
+            "file" => Err(CliError::with_suggestion(
+                ErrorKind::Usage,
+                format!("HTTP engine cannot fetch file:// URL: {trimmed}"),
+                "Use: browser-automation-cli scrape <url> --engine browser   or   parse <path>",
+            )),
+            other => Err(CliError::with_suggestion(
+                ErrorKind::Usage,
+                format!("HTTP engine does not support scheme `{other}`"),
+                "Pass an absolute http(s) URL, or use --engine browser / parse for local files",
+            )),
+        },
+        Err(e) => Err(CliError::with_suggestion(
+            ErrorKind::Usage,
+            format!("invalid URL for HTTP scrape: {e}"),
+            "Pass an absolute http(s) URL",
+        )),
+    }
+}
 
 /// Output formats for local scrape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,7 +136,25 @@ pub async fn scrape_http(
     robots: RobotsPolicy,
     opts: &ScrapeOpts,
 ) -> Result<Value, CliError> {
+    // GAP-A004: reject non-HTTP(S) schemes early with an agent-usable suggestion.
+    reject_non_http_scheme_for_http_engine(url)?;
+
     crate::robots::enforce_robots(url, robots, HTTP_USER_AGENT).await?;
+
+    // GAP-011: layered XDG cache for GET scrape (hit skips network).
+    let cache_key = cache::CacheKey::http_get(url);
+    if let Ok(cache) = cache::default_cache() {
+        if let Ok(Some(entry)) = HttpCache::get(cache.as_ref(), &cache_key) {
+            if let Ok(html) = String::from_utf8(entry.body) {
+                let mut payload = build_scrape_payload(url, 200, &html, opts, robots);
+                if let Some(obj) = payload.as_object_mut() {
+                    obj.insert("cache_hit".into(), json!(true));
+                }
+                return Ok(payload);
+            }
+        }
+    }
+
     let client = reqwest::Client::builder()
         .user_agent(HTTP_USER_AGENT)
         .timeout(Duration::from_secs(30))
@@ -104,17 +162,35 @@ pub async fn scrape_http(
         .build()
         .map_err(|e| CliError::new(ErrorKind::Software, format!("http client: {e}")))?;
 
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| CliError::new(ErrorKind::Unavailable, format!("GET {url}: {e}")))?;
-    let status = resp.status().as_u16();
-    let final_url = resp.url().to_string();
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| CliError::new(ErrorKind::Io, format!("read body: {e}")))?;
+    // GAP-013: retry transient HTTP failures with named policy.
+    let cfg = crate::retry::RetryConfig::http();
+    let mut attempt = 0u32;
+    let (status, final_url, bytes) = loop {
+        attempt += 1;
+        match client.get(url).send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let final_url = resp.url().to_string();
+                match resp.bytes().await {
+                    Ok(bytes) => break (status, final_url, bytes),
+                    Err(e) => {
+                        let err = format!("read body: {e}");
+                        if attempt >= cfg.max_attempts || !crate::retry::is_retryable_message(&err)
+                        {
+                            return Err(CliError::new(ErrorKind::Io, err));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                let err = format!("GET {url}: {e}");
+                if attempt >= cfg.max_attempts || !crate::retry::is_retryable_message(&err) {
+                    return Err(CliError::new(ErrorKind::Unavailable, err));
+                }
+            }
+        }
+        tokio::time::sleep(cfg.delay_for_attempt(attempt.saturating_sub(1))).await;
+    };
     if bytes.len() > opts.max_body_bytes {
         return Err(CliError::new(
             ErrorKind::Data,
@@ -126,9 +202,23 @@ pub async fn scrape_http(
         ));
     }
     let html = String::from_utf8_lossy(&bytes).into_owned();
-    Ok(build_scrape_payload(
-        &final_url, status, &html, opts, robots,
-    ))
+    if let Ok(cache) = cache::default_cache() {
+        let _ = HttpCache::put(
+            cache.as_ref(),
+            &cache_key,
+            cache::CacheEntry {
+                body: html.as_bytes().to_vec(),
+                content_type: Some("text/html".into()),
+                expires_unix: cache::expires_after(Duration::from_secs(3600)),
+            },
+        );
+    }
+    let mut payload = build_scrape_payload(&final_url, status, &html, opts, robots);
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("cache_hit".into(), json!(false));
+        obj.insert("http_attempts".into(), json!(attempt));
+    }
+    Ok(payload)
 }
 
 /// Build agent envelope data from HTML.
@@ -749,7 +839,33 @@ pub fn parse_file_opts(path: &Path, redact: bool) -> Result<Value, CliError> {
         text = redact_pii(&text);
         redacted = true;
     }
-    let _ = xdg::cache_dir().map(|d| d.join("parse"));
+    // GAP-023/011: store parse result under XDG HTTP/parse cache when available.
+    let mut cache_hit = false;
+    let mtime = std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let cache_key = cache::CacheKey::file_parse(path, bytes.len() as u64, mtime);
+    if let Ok(c) = cache::default_cache() {
+        if let Ok(Some(entry)) = HttpCache::get(c.as_ref(), &cache_key) {
+            if let Ok(cached_text) = String::from_utf8(entry.body) {
+                text = cached_text;
+                cache_hit = true;
+            }
+        } else {
+            let _ = HttpCache::put(
+                c.as_ref(),
+                &cache_key,
+                cache::CacheEntry {
+                    body: text.as_bytes().to_vec(),
+                    content_type: Some(format!("text/{kind}")),
+                    expires_unix: cache::expires_after(std::time::Duration::from_secs(86_400)),
+                },
+            );
+        }
+    }
     let mut out = json!({
         "path": path.display().to_string(),
         "kind": kind,
@@ -758,6 +874,7 @@ pub fn parse_file_opts(path: &Path, redact: bool) -> Result<Value, CliError> {
         "chars": text.chars().count(),
         "engine": engine,
         "redacted": redacted,
+        "cache_hit": cache_hit,
     });
     if let Some(obj) = out.as_object_mut() {
         if let Some(extra_obj) = extra.as_object() {

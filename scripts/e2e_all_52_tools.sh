@@ -8,6 +8,17 @@ BIN="${BIN:-$ROOT/target/release/browser-automation-cli}"
 STAMP="$(date +%s%N)"
 WORKDIR="${TMPDIR:-/tmp}/ba-e2e-52-${STAMP}"
 mkdir -p "$WORKDIR"/{art,frames,lh,logs}
+# GAP-021: remove workdir on success; keep on fail when KEEP_ON_FAIL=1
+KEEP_ON_FAIL="${KEEP_ON_FAIL:-0}"
+cleanup_workdir() {
+  local code=$?
+  if [[ "$code" -eq 0 && "$KEEP_ON_FAIL" != "1" ]]; then
+    rm -rf "$WORKDIR" 2>/dev/null || true
+  elif [[ "$code" -ne 0 ]]; then
+    find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ba-e2e-52-*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+  fi
+}
+trap cleanup_workdir EXIT
 REPORT="$WORKDIR/report.tsv"
 : >"$REPORT"
 
@@ -122,6 +133,7 @@ cat >"$SCRIPT_A" <<EOF
 {"cmd":"emulate","user_agent":"E2E-UA/1.0","locale":"pt-BR","timezone":"America/Sao_Paulo"}
 {"cmd":"resize","width":1024,"height":768}
 {"cmd":"page","action":"list"}
+{"cmd":"page","action":"tab-id"}
 {"cmd":"page","action":"new","url":"$PAGE_URL"}
 {"cmd":"page","action":"list"}
 {"cmd":"page","action":"select","index":0}
@@ -202,6 +214,7 @@ check_a "get_console_message" "console" "console"
 check_a "emulate" "emulate|user_agent|E2E-UA" "emulate"
 check_a "resize_page" "resize|1024|viewport" "resize"
 check_a "list_pages" "page|pages|tabs" "page"
+check_a "get_tab_id" "tab_id|tab-id|get_tab_id" "page"
 check_a "new_page" "new|page" "page"
 check_a "select_page" "select" "page"
 check_a "close_page" "close" "page"
@@ -420,13 +433,16 @@ else
 fi
 
 # ============================================================
-# Wave F — lighthouse (mock path if needed)
+# Wave F — lighthouse (prefer real PATH binary; else mock; label source)
 # ============================================================
 LH_PATH=""
+LH_SOURCE=""
 if command -v lighthouse >/dev/null 2>&1; then
   LH_PATH="$(command -v lighthouse)"
+  LH_SOURCE="real"
 elif [[ -x "$MOCK_LH" ]]; then
   LH_PATH="$MOCK_LH"
+  LH_SOURCE="mock"
 fi
 if [[ -n "$LH_PATH" ]]; then
   set +e
@@ -435,10 +451,10 @@ if [[ -n "$LH_PATH" ]]; then
   RC_LH=$?
   set -e
   printf '%s\n' "$OUT_LH" >"$WORKDIR/logs/lighthouse.json"
-  if [[ $RC_LH -eq 0 ]] || printf '%s' "$OUT_LH" | rg -q 'score|categories|lighthouse|report'; then
-    record "lighthouse_audit" PASS "path=$LH_PATH exit=$RC_LH"
+  if [[ $RC_LH -eq 0 ]] || printf '%s' "$OUT_LH" | rg -q 'score|categories|lighthouse|report|binary_source'; then
+    record "lighthouse_audit" PASS "source=$LH_SOURCE path=$LH_PATH exit=$RC_LH"
   else
-    record "lighthouse_audit" FAIL "exit=$RC_LH"
+    record "lighthouse_audit" FAIL "source=$LH_SOURCE exit=$RC_LH"
   fi
 else
   record "lighthouse_audit" FAIL "no lighthouse binary and no mock"
@@ -567,11 +583,11 @@ else
 fi
 
 # ============================================================
-# Inventory completeness: all 52 official tools must appear in report
+# Inventory completeness: official tools must appear in report (53 incl. get_tab_id)
 # ============================================================
 EXPECTED=(
   click drag fill fill_form handle_dialog hover press_key type_text upload_file click_at
-  close_page list_pages navigate_page new_page select_page wait_for
+  close_page list_pages navigate_page new_page select_page wait_for get_tab_id
   emulate resize_page
   performance_analyze_insight performance_start_trace performance_stop_trace
   get_network_request list_network_requests
@@ -600,6 +616,52 @@ TOTAL=$((PASS + FAIL + SKIP))
 log "TOTAL=$TOTAL PASS=$PASS FAIL=$FAIL SKIP=$SKIP MISSING_MARKER=$MISSING"
 log "Report: $REPORT"
 log "Logs:   $WORKDIR/logs/"
+
+# ============================================================
+# GAP-017: dedicated residual assert (CLI marker only — never host Chrome)
+# ============================================================
+set +e
+OUT_RES="$(timeout 90 "$BIN" --json goto about:blank 2>&1)"
+RC_RES=$?
+set -e
+printf '%s\n' "$OUT_RES" >"$WORKDIR/logs/residual_goto.json"
+MARKER_COUNT="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'browser-automation-cli-chrome-*' 2>/dev/null | wc -l | tr -d ' ')"
+# GAP-A001: count only real Chrome argv with our user-data-dir marker.
+# Never use `ps | rg pattern` — the scanner argv self-matches and false-fails.
+LIVE_MARKER_PROCS=0
+# Under `set -o pipefail`, empty grep matches must not abort the harness.
+if command -v pgrep >/dev/null 2>&1; then
+  # -a: full cmdline; -f: match against full command line.
+  # Filter to chromium/chrome binaries that own our marker profile.
+  LIVE_MARKER_PROCS="$(
+    {
+      pgrep -af -- 'browser-automation-cli-chrome-' 2>/dev/null \
+        | grep -E '[Cc]hrom(e|ium)|msedge|brave|opera' \
+        | grep -F -- '--user-data-dir=' \
+        | grep -vE 'pgrep|grep|e2e_all_52|rg ' \
+        || true
+    } | wc -l | tr -d ' '
+  )"
+  LIVE_MARKER_PROCS="${LIVE_MARKER_PROCS:-0}"
+elif command -v ps >/dev/null 2>&1; then
+  LIVE_MARKER_PROCS="$(
+    {
+      ps -eo args= 2>/dev/null \
+        | grep -F 'browser-automation-cli-chrome-' \
+        | grep -E '[Cc]hrom(e|ium)|msedge|brave|opera' \
+        | grep -F -- '--user-data-dir=' \
+        | grep -vE 'pgrep|grep|e2e_all_52|rg ' \
+        || true
+    } | wc -l | tr -d ' '
+  )"
+  LIVE_MARKER_PROCS="${LIVE_MARKER_PROCS:-0}"
+fi
+if [[ "$RC_RES" -eq 0 && "$MARKER_COUNT" -eq 0 && "$LIVE_MARKER_PROCS" -eq 0 ]]; then
+  record "residual_one_shot" PASS "markers=0 live_marker_procs=0"
+else
+  # record() already increments FAIL — do not double-count (GAP-A001).
+  record "residual_one_shot" FAIL "goto_rc=$RC_RES markers=$MARKER_COUNT live=$LIVE_MARKER_PROCS"
+fi
 
 # Print table
 if command -v bat >/dev/null 2>&1; then

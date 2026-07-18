@@ -37,11 +37,14 @@ browser-automation-cli --json view
 - Extraia conteúdo com `scrape` quando precisar de text, markdown, html, links, metadata ou formatos relacionados
 - Parseie arquivos locais com `parse` (html/md/txt/pdf/docx/xlsx/ods; opcional `--redact-pii`)
 - Codifique ou decodifique QR com `qr encode|decode` (sem Chrome)
-- Descubra paths no filesystem com `find-paths` (sem Chrome)
+- Descubra paths no filesystem com `find-paths` (pattern regex e/ou `--glob '**/*.rs'`; sem Chrome)
+- Escreva XLSX a partir de CSV/JSON com `sheet-write <input> -o <out.xlsx>` (sem Chrome)
+- Lint estrutural com `sg-scan [paths…]` e rewrite dry-run com `sg-rewrite [paths…]` (`--apply` para gravar)
 - Verifique mudança de página contra baseline com `monitor check`
-- Liste o inventário vivo (56 comandos) com `commands --json`
+- Liste o inventário vivo (59 comandos) com `commands --json`
 - Descubra formatos de argv com `schema --cmd <name> --json`
 - Imprima a versão do produto com `version`
+- Resolva chaves XDG com `config list-keys --json`
 
 ```bash
 browser-automation-cli --timeout 60 --json goto https://example.com
@@ -71,6 +74,15 @@ cat > /tmp/demo.browser-automation.jsonl <<'JSONL'
 {"cmd":"grab","path":"/tmp/example.png"}
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automation.jsonl
+
+# Mesmos passos como array JSON (GAP-A003)
+cat > /tmp/demo.browser-automation.array.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"view"}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automation.array.json
 ```
 - Linhas NDJSON usam o campo `cmd` com o nome real do subcomando
 - Scroll aceita `dy`/`dx` como aliases de `delta_y`/`delta_x`
@@ -99,7 +111,12 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automa
 - Ferramentas profundas de heap exigem `--category-memory`
 - Ferramentas de extension exigem `--category-extensions`
 - Cliques por coordenada exigem `--experimental-vision`
-- Lighthouse com caminho mock: `lighthouse https://example.com --lighthouse-path mock --json`
+- Ordem de resolve do binário Lighthouse: flag `--lighthouse-path` → XDG `lighthouse_path` → PATH
+- Envelope Lighthouse reporta `binary_source` como `real` ou `mock` (mock é honesty para e2e/smoke, não produção)
+- Lighthouse com caminho mock: `lighthouse https://example.com --lighthouse-path ./scripts/mock-lighthouse.sh --json`
+- Cache backend só via XDG: `config set cache_backend sqlite|memory|redis` e opcional `config set cache_redis_url redis://127.0.0.1:6379`
+- `rediss://` é fail-closed (somente TCP plain; não use URLs rediss)
+- Doctor reporta Chrome, origem do lighthouse e `cache_redis` quando cache Redis está configurado
 - Localize sugestões humanas: `--lang pt-BR` ou `config set lang pt-BR`
 - Verbosity: `--verbose` (info), `--debug` (máximo), `-q`/`--quiet` ou `config set log_level debug`
 - Cor: `config set color true|false` (valores truthy: `true`, `1`, `yes`)
@@ -109,10 +126,10 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automa
 ## Configuração (XDG)
 - Prefira flags para chamadas pontuais de agente
 - Prefira config XDG via comando `config` para defaults duráveis
-- Settings de produto são só flags e CLI XDG: `config init`, `config path`, `config show`, `config set`, `config get`
+- Settings de produto são só flags e CLI XDG: `config init`, `config path`, `config show`, `config set`, `config get`, `config list-keys`
 - Resolva paths vivos de config/data/state com `config path --json`
 - Logging de produto é controlado por `--verbose` / `--debug` / `-q` e XDG `log_level`
-- Chaves suportadas (lista completa de 13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Chaves suportadas (lista completa de 16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Valores truthy de color: `true`, `1`, `yes`
 - Valores falsy ou outros resolvem para desligado salvo set truthy
 
@@ -132,8 +149,14 @@ browser-automation-cli --json config set lighthouse_path ./scripts/mock-lighthou
 browser-automation-cli --json config set openrouter_api_key YOUR_KEY
 browser-automation-cli --json config set llm_base_url https://openrouter.ai/api/v1
 browser-automation-cli --json config set llm_model openai/gpt-4o-mini
+browser-automation-cli --json config set log_to_file false
+browser-automation-cli --json config set cache_backend sqlite
+browser-automation-cli --json config set cache_redis_url redis://127.0.0.1:6379
+browser-automation-cli --json config list-keys
 browser-automation-cli --json config get lang
 ```
+- Use apenas `redis://` para cache Redis; `rediss://` é rejeitado fail-closed
+- Descubra chaves e defaults com `config list-keys --json`
 - Mantenha a política dual-flag de robots explícita ao contornar: `--ignore-robots` mais `--i-accept-robots-risk`
 - O `ignore_robots` da config sozinho não substitui a exigência dual-flag na linha de comando
 
@@ -171,6 +194,12 @@ browser-automation-cli --json monitor check --url https://example.com --baseline
 browser-automation-cli --json qr encode --text 'hello' --format png --path /tmp/qr.png
 browser-automation-cli --json qr decode --path /tmp/qr.png
 browser-automation-cli --json find-paths 'Cargo.*' .
+browser-automation-cli --json find-paths --glob '**/*.rs' .
+browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx --sheet Data
+browser-automation-cli --json sg-scan . --limit 100
+browser-automation-cli --json sg-rewrite .
+# dry-run por padrão; grave só com --apply
+# browser-automation-cli --json sg-rewrite . --apply
 ```
 - Defaults de `scrape`: `--format text`, `--engine browser`
 - A engine browser respeita `--format` (não fica só em text silencioso)
@@ -257,7 +286,7 @@ browser-automation-cli --json workflow status --name demo
 ### Chave de config desconhecida
 - Sintoma: exit `2`, mensagem `unknown config key: ...`
 - Causa: `config set` recebeu chave fora do conjunto suportado
-- Correção: use só `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Correção: use só `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 
 ### Chaves LLM ausentes
 - Sintoma: exit `2`, mensagem `LLM extract requires XDG openrouter_api_key`
@@ -302,7 +331,7 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 - Passe `--json` em toda chamada programática
 - Parseie só envelopes do stdout; trate stderr como diagnóstico
 - Ramifique no campo `ok` do envelope e no exit code do processo
-- Descubra inventário com `commands --json` (56 comandos)
+- Descubra inventário com `commands --json` (59 comandos)
 - Descubra argv com `schema --cmd <name> --json`
 - Colapse trabalho browser multi-passo em um processo `run --script` quando refs importam
 - Prefira flags para controle pontual; use `config` para defaults XDG duráveis
@@ -355,6 +384,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Use `run --script` quando o crate orquestra fluxos CDP multi-passo
 - Veja notas orientadas a crates em [docs/AGENTS.pt-BR.md](AGENTS.pt-BR.md) e [INTEGRATIONS.pt-BR.md](../INTEGRATIONS.pt-BR.md)
 
+
+## Inventário Completo de Comandos (59)
+- Fonte viva: `browser-automation-cli commands --json` (59 nomes de topo)
+- O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53)
+- Lista completa de comandos de topo (cada nome é um subcomando real):
+  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
+  - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
+  - Observação: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
+  - Captura: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
+  - Multi-passo: `run`, `exec`
+  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - IO local (sem Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+  - Infra: `config`, `mitm`, `workflow`
+  - Emulação/perf: `emulate`, `resize`, `perf`, `heap`
+  - Portões de categoria: `extension`, `devtools3p`, `webmcp`
+- Descubra argv com `schema --cmd <name> --json` para qualquer nome acima
 
 ## Próximos Passos
 - Receitas e fluxos mais longos: [docs/COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md)

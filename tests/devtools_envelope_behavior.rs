@@ -60,7 +60,7 @@ fn offline_meta_envelopes() {
 }
 
 #[test]
-fn commands_map_covers_all_52_official_tools() {
+fn commands_map_covers_all_official_tools() {
     let assert = cargo_bin_cmd!("browser-automation-cli")
         .args(["commands", "--json"])
         .assert()
@@ -70,7 +70,16 @@ fn commands_map_covers_all_52_official_tools() {
     let map = v["data"]["devtools_tool_map"]
         .as_array()
         .expect("devtools_tool_map");
-    assert_eq!(map.len(), 52, "official tool-ref count is 52");
+    assert_eq!(
+        map.len(),
+        53,
+        "official tool-ref count is 53 (includes get_tab_id)"
+    );
+    let tools: Vec<&str> = map.iter().filter_map(|e| e["tool"].as_str()).collect();
+    assert!(
+        tools.contains(&"get_tab_id"),
+        "devtools_tool_map must include get_tab_id"
+    );
     for entry in map {
         assert!(entry["tool"].as_str().is_some());
         assert!(entry["cli"].as_str().is_some());

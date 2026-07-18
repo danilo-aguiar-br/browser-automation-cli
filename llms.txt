@@ -20,25 +20,28 @@ browser-automation-cli is a single-process Rust CLI that launches system Chrome 
 - [CHANGELOG](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CHANGELOG.md): release history
 - [SECURITY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/SECURITY.md): vulnerability reporting
 - [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): expanded discovery map
+- [llms-full pt-BR](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.pt-BR.txt): mapa expandido em português
 
-## Command Surface (v0.1.2)
-- Discovery: doctor, commands, schema, version, completions (56 top-level names via `commands --json`)
-- Config XDG: config init|path|show|get|set
-- Navigate: goto, back, forward, reload
-- Local scrape/crawl/map/search/parse: scrape (--format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding, --engine http|browser), batch-scrape, crawl, map, search (uddg clean), parse (PDF/DOCX/xlsx/ods, --redact-pii)
+## Command Surface (v0.1.3)
+- Discovery: doctor (browsers_dir, lighthouse source, cache_redis), commands, schema, version, completions (59 top-level names via `commands --json`; 53 DevTools e2e tools)
+- Config XDG: config init|path|show|get|set|list-keys
+- Navigate: goto, back, forward, reload (CDP Page.reload + ignoreCache; init_script removed after nav)
+- Local scrape/crawl/map/search/parse: scrape (--format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding, --engine http|browser; file:// + http → Usage), batch-scrape, crawl, map, search (uddg clean), parse (PDF/DOCX/xlsx/ods, --redact-pii)
 - Interact: view, press, write, type, keys, wait (multi --text OR), hover, drag, fill-form, upload, click-at
 - Observe: extract (--llm/--question/--schema-json), text, scroll (dy/dx aliases in run), attr (property fallback), assert (url_contains/text_contains), grab --path
-- PDF/monitor/utils: print-pdf, monitor check, qr encode|decode, find-paths
-- Tabs: page, dialog, cookie
+- PDF/monitor/utils: print-pdf, monitor check, qr encode|decode, find-paths (--glob), sheet-write, sg-scan, sg-rewrite
+- Tabs: page (incl. tab-id), dialog, cookie
 - Capture: console, net
 - MITM: mitm init-ca|start|status|list|get|har|export|domains|apis
 - Workflow: workflow run|resume|status
-- Advanced: eval, emulate, resize, perf, lighthouse (lighthouse_path), screencast, heap, extension, devtools3p, webmcp, run (partial data.steps on fail-fast), exec
+- Advanced: eval, emulate, resize, perf, lighthouse (flag→XDG→PATH; binary_source real|mock), screencast, heap, extension, devtools3p, webmcp, run (NDJSON or JSON array; partial data.steps on fail-fast), exec
+- Lifecycle: BORN, EXECUTE, FINALIZE (scavenge owned Chromium /tmp orphans), DIE
 
 ## Settings Contract
-- Product settings: CLI flags + XDG via `config path|init|show|set|get` only
-- Config keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model
-- Logging: `--verbose`/`--debug`/`-q` or `config set log_level`
+- Product settings: CLI flags + XDG via `config path|init|show|set|get|list-keys` only
+- Config keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, log_to_file, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url
+- Logging: `--verbose`/`--debug`/`-q` or `config set log_level` / `log_to_file`
 - Color: `config set color true|false`
-- Chrome / Lighthouse: shell path or `config set chrome_path|lighthouse_path`
+- Chrome / Lighthouse: shell path or `config set chrome_path|lighthouse_path` (lighthouse also flag)
+- Cache Redis: `config set cache_backend redis` + `cache_redis_url` (`redis://` only; `rediss://` fail-closed)
 - Lang: `--lang pt-BR` or `config set lang` localizes suggestions

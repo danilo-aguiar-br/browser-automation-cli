@@ -78,12 +78,12 @@ fn covered_in_matrix(official: &str, matrix: &BTreeSet<String>) -> bool {
 }
 
 #[test]
-fn official_tools_count_is_52() {
+fn official_tools_count_is_53() {
     let tools = official_tools();
     assert_eq!(
         tools.len(),
-        52,
-        "expected 52 official tools in tool-reference, got {}",
+        53,
+        "expected 53 official tools in tool-reference, got {}",
         tools.len()
     );
 }

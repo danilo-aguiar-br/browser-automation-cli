@@ -72,6 +72,12 @@ pub struct OneShotSession {
     heap_snapshot_finished: bool,
     /// Tracing.tracingComplete observed after perf stop.
     tracing_complete: bool,
+    /// Ring of console buffers from prior navigations in this process (max 3).
+    console_preserved: Vec<Vec<Value>>,
+    /// Ring of network buffers from prior navigations in this process (max 3).
+    network_preserved: Vec<Vec<Value>>,
+    /// Extension ids loaded via --load-extension in this session (for uninstall effect).
+    loaded_extension_ids: Vec<String>,
 }
 
 impl OneShotSession {
@@ -119,6 +125,9 @@ impl OneShotSession {
             dialog_open: false,
             heap_snapshot_finished: false,
             tracing_complete: false,
+            console_preserved: Vec::new(),
+            network_preserved: Vec::new(),
+            loaded_extension_ids: Vec::new(),
         };
         session.enable_capture_domains().await?;
         Ok(session)
@@ -147,7 +156,7 @@ impl OneShotSession {
         let options = LaunchOptions {
             headless: false,
             hide_scrollbars: true,
-            extensions: Some(extensions),
+            extensions: Some(extensions.clone()),
             ..LaunchOptions::default()
         };
         let manager = BrowserManager::launch(options, Some("chrome"))
@@ -182,8 +191,32 @@ impl OneShotSession {
             dialog_open: false,
             heap_snapshot_finished: false,
             tracing_complete: false,
+            console_preserved: Vec::new(),
+            network_preserved: Vec::new(),
+            loaded_extension_ids: Vec::new(),
         };
+        // Best-effort: record extension path basenames; real ids come from list after launch.
+        session.loaded_extension_ids = extensions
+            .iter()
+            .filter_map(|p| {
+                Path::new(p)
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+            })
+            .collect();
         session.enable_capture_domains().await?;
+        // Populate loaded ids from live targets when available.
+        if let Ok(list) = session.extension_list().await {
+            if let Some(arr) = list.get("extensions").and_then(|v| v.as_array()) {
+                for t in arr {
+                    if let Some(id) = t.get("id").and_then(|v| v.as_str()) {
+                        if !id.is_empty() && !session.loaded_extension_ids.iter().any(|x| x == id) {
+                            session.loaded_extension_ids.push(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
         Ok(session)
     }
 
@@ -378,6 +411,8 @@ impl OneShotSession {
             "Page.javascriptDialogClosed" => {
                 self.dialog_open = false;
             }
+            // GAP-A012: unknown / extra CDP events (e.g. *ExtraInfo on modern Chrome) are
+            // intentionally ignored so network/console capture is not aborted.
             _ => {}
         }
     }
@@ -388,18 +423,62 @@ impl OneShotSession {
         url: &str,
         robots: crate::robots::RobotsPolicy,
     ) -> Result<Value, CliError> {
+        self.goto_with_options(url, robots, None, false, None).await
+    }
+
+    /// Navigate with tool-ref options: init script, beforeunload, navigation timeout.
+    ///
+    /// `init_script` is registered for the next document only and removed in `finally`
+    /// (parity with tool-ref navigate_page; GAP-A006).
+    ///
+    /// `handle_before_unload` arms CDP dialog auto-accept during navigation only
+    /// (GAP-A009). It does **not** inject a permanent `beforeunload` listener.
+    pub async fn goto_with_options(
+        &mut self,
+        url: &str,
+        robots: crate::robots::RobotsPolicy,
+        init_script: Option<&str>,
+        handle_before_unload: bool,
+        navigation_timeout_ms: Option<u64>,
+    ) -> Result<Value, CliError> {
         crate::robots::enforce_robots(url, robots, "browser-automation-cli").await?;
         self.ref_map.clear();
-        self.manager
-            .navigate(url, WaitUntil::Load)
-            .await
-            .map_err(|e| {
+
+        // Snapshot console/net before navigation so include_preserved can keep history.
+        self.preserve_capture_snapshot();
+
+        let mut init_script_id: Option<String> = None;
+        if let Some(js) = init_script {
+            let id = self.manager.add_script_to_evaluate(js).await.map_err(|e| {
                 CliError::with_suggestion(
                     ErrorKind::Browser,
-                    format!("Navigation failed: {e}"),
-                    "Check URL scheme and network; try about:blank for smoke",
+                    format!("init_script registration failed: {e}"),
+                    "Pass valid JavaScript for --init-script",
                 )
             })?;
+            if !id.is_empty() {
+                init_script_id = Some(id);
+            }
+        }
+
+        // GAP-A009: auto-handle beforeunload dialogs via CDP, never inject preventDefault.
+        let dialog_action = if handle_before_unload {
+            Some("accept")
+        } else {
+            None
+        };
+
+        let nav_result = self
+            .navigate_with_dialog_pump(url, navigation_timeout_ms, dialog_action)
+            .await;
+
+        // GAP-A006: always remove one-shot init script after the navigation attempt.
+        if let Some(id) = init_script_id.as_deref() {
+            let _ = self.manager.remove_script_to_evaluate(id).await;
+        }
+
+        nav_result?;
+
         // Give console/network a brief window after load.
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         self.drain_events();
@@ -413,8 +492,126 @@ impl OneShotSession {
             "url": page_url,
             "title": title,
             "robots_policy": robots.as_str(),
+            "init_script_applied": init_script.is_some(),
+            "handle_before_unload": handle_before_unload,
+            "navigation_timeout_ms": navigation_timeout_ms,
         });
         Ok(self.with_capture_fields(data))
+    }
+
+    /// Navigate while optionally auto-accepting/dismissing JS dialogs (beforeunload).
+    ///
+    /// Dialog pump runs on a cloned CDP client so it does not borrow `manager` across
+    /// the navigate future (GAP-A009).
+    async fn navigate_with_dialog_pump(
+        &mut self,
+        url: &str,
+        navigation_timeout_ms: Option<u64>,
+        dialog_action: Option<&str>,
+    ) -> Result<(), CliError> {
+        let dialog_task = if let Some(action) = dialog_action {
+            let accept = !action.eq_ignore_ascii_case("dismiss");
+            let client = std::sync::Arc::clone(&self.manager.client);
+            let session_id = self
+                .manager
+                .active_session_id()
+                .map_err(|e| CliError::new(ErrorKind::Browser, e))?
+                .to_string();
+            Some(tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+                    let _ = client
+                        .send_command(
+                            "Page.handleJavaScriptDialog",
+                            Some(json!({ "accept": accept })),
+                            Some(&session_id),
+                        )
+                        .await;
+                }
+            }))
+        } else {
+            None
+        };
+
+        let nav_fut = self.manager.navigate(url, WaitUntil::Load);
+        let nav_res = if let Some(ms) = navigation_timeout_ms {
+            match tokio::time::timeout(std::time::Duration::from_millis(ms), nav_fut).await {
+                Ok(r) => r,
+                Err(_) => {
+                    if let Some(t) = dialog_task {
+                        t.abort();
+                    }
+                    return Err(CliError::with_suggestion(
+                        ErrorKind::Unavailable,
+                        format!("Navigation timed out after {ms}ms"),
+                        "Increase --navigation-timeout-ms or check network",
+                    ));
+                }
+            }
+        } else {
+            nav_fut.await
+        };
+
+        if let Some(t) = dialog_task {
+            t.abort();
+        }
+        self.dialog_open = false;
+
+        nav_res.map(|_| ()).map_err(|e| {
+            CliError::with_suggestion(
+                ErrorKind::Browser,
+                format!("Navigation failed: {e}"),
+                "Check URL scheme and network; try about:blank for smoke",
+            )
+        })
+    }
+
+    /// Temp Chrome profile path for ledger residual wipe.
+    pub fn temp_user_data_dir(&self) -> Option<std::path::PathBuf> {
+        self.manager.temp_user_data_dir().map(|p| p.to_path_buf())
+    }
+
+    /// Register a CDP init script for subsequent navigations in this process.
+    pub async fn add_init_script(&self, source: &str) -> Result<String, CliError> {
+        self.manager
+            .add_script_to_evaluate(source)
+            .await
+            .map_err(|e| {
+                CliError::with_suggestion(
+                    ErrorKind::Browser,
+                    format!("init_script registration failed: {e}"),
+                    "Pass valid JavaScript for --init-script",
+                )
+            })
+    }
+
+    /// Active stable tab id (`t1`, …) for tool-ref get_tab_id.
+    pub fn active_tab_id_string(&self) -> Option<String> {
+        self.manager
+            .active_tab_id()
+            .map(crate::native::browser::format_tab_id)
+    }
+
+    /// Mark current capture buffers as a navigation boundary for include_preserved.
+    fn preserve_capture_snapshot(&mut self) {
+        self.drain_events();
+        if !self.console_log.is_empty() {
+            self.console_preserved.push(self.console_log.clone());
+            if self.console_preserved.len() > 3 {
+                let drop_n = self.console_preserved.len() - 3;
+                self.console_preserved.drain(0..drop_n);
+            }
+        }
+        if !self.network_log.is_empty() {
+            self.network_preserved.push(self.network_log.clone());
+            if self.network_preserved.len() > 3 {
+                let drop_n = self.network_preserved.len() - 3;
+                self.network_preserved.drain(0..drop_n);
+            }
+        }
+        // Current navigation starts a fresh "live" buffer; preserved holds prior rings.
+        self.console_log.clear();
+        self.network_log.clear();
     }
 
     /// Navigate and capture body text + outerHTML for multi-format reformat.
@@ -774,6 +971,73 @@ impl OneShotSession {
             "cleared": clear,
             "submit": submit,
             "focus_only": focus_only || target.is_none(),
+        }))
+    }
+
+    /// Evaluate JS in an extension service worker by id prefix (GAP-003).
+    pub async fn eval_service_worker(
+        &mut self,
+        service_worker_id: &str,
+        expression: &str,
+    ) -> Result<Value, CliError> {
+        self.pump_events().await;
+        let listed = self.extension_list().await?;
+        let targets = listed
+            .get("extensions")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let match_t = targets.iter().find(|t| {
+            t.get("id")
+                .and_then(|v| v.as_str())
+                .map(|s| s == service_worker_id || s.starts_with(service_worker_id))
+                .unwrap_or(false)
+                && t.get("type").and_then(|v| v.as_str()) == Some("service_worker")
+        });
+        let Some(t) = match_t else {
+            return Err(CliError::with_suggestion(
+                ErrorKind::NoInput,
+                format!("service_worker not found for id: {service_worker_id}"),
+                "Use extension list; pass --service-worker-id from a loaded extension",
+            ));
+        };
+        let target_id = t
+            .get("targetId")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| CliError::new(ErrorKind::Browser, "missing targetId"))?
+            .to_string();
+        let attach = self
+            .manager
+            .client
+            .send_command(
+                "Target.attachToTarget",
+                Some(json!({ "targetId": target_id, "flatten": true })),
+                None,
+            )
+            .await
+            .map_err(|e| CliError::new(ErrorKind::Browser, format!("attach SW: {e}")))?;
+        let session_id = attach
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let result = self
+            .manager
+            .client
+            .send_command(
+                "Runtime.evaluate",
+                Some(json!({
+                    "expression": expression,
+                    "returnByValue": true,
+                    "awaitPromise": true,
+                })),
+                session_id.as_deref(),
+            )
+            .await
+            .map_err(|e| CliError::new(ErrorKind::Browser, format!("SW evaluate: {e}")))?;
+        Ok(json!({
+            "result": result.get("result").cloned().unwrap_or(result),
+            "service_worker_id": service_worker_id,
+            "targetId": target_id,
         }))
     }
 
@@ -1302,8 +1566,21 @@ impl OneShotSession {
             ));
         }
         self.drain_events();
-        let mut messages: Vec<Value> = self.console_log.clone();
-        let _ = include_preserved; // one-shot: log is process-local; flag accepted for tool-ref parity
+        let mut messages: Vec<Value> = Vec::new();
+        let mut include_mode = "current_navigation";
+        if include_preserved {
+            for ring in &self.console_preserved {
+                messages.extend(ring.iter().cloned());
+            }
+            messages.extend(self.console_log.iter().cloned());
+            include_mode = if self.console_preserved.is_empty() {
+                "process_local_only"
+            } else {
+                "preserved_ring"
+            };
+        } else {
+            messages.extend(self.console_log.iter().cloned());
+        }
         if let Some(types_csv) = types {
             let wanted: Vec<String> = types_csv
                 .split(',')
@@ -1342,6 +1619,8 @@ impl OneShotSession {
             "total": total,
             "page_idx": page,
             "page_size": size,
+            "include_preserved": include_preserved,
+            "include_preserved_mode": include_mode,
         }))
     }
 
@@ -1418,8 +1697,21 @@ impl OneShotSession {
             ));
         }
         self.drain_events();
-        let mut requests: Vec<Value> = self.network_log.clone();
-        let _ = include_preserved; // process-local buffer; accepted for tool-ref parity
+        let mut requests: Vec<Value> = Vec::new();
+        let mut include_mode = "current_navigation";
+        if include_preserved {
+            for ring in &self.network_preserved {
+                requests.extend(ring.iter().cloned());
+            }
+            requests.extend(self.network_log.iter().cloned());
+            include_mode = if self.network_preserved.is_empty() {
+                "process_local_only"
+            } else {
+                "preserved_ring"
+            };
+        } else {
+            requests.extend(self.network_log.iter().cloned());
+        }
         if let Some(types_csv) = resource_types {
             let wanted: Vec<String> = types_csv
                 .split(',')
@@ -1451,6 +1743,8 @@ impl OneShotSession {
             "total": total,
             "page_idx": page,
             "page_size": size,
+            "include_preserved": include_preserved,
+            "include_preserved_mode": include_mode,
         }))
     }
 
@@ -1681,17 +1975,43 @@ impl OneShotSession {
         self.history_nav("forward").await
     }
 
-    pub async fn reload(&mut self, ignore_cache: bool) -> Result<Value, CliError> {
+    /// Reload via CDP `Page.reload` with optional `ignoreCache` (GAP-A005).
+    ///
+    /// Optional `init_script` is registered for this reload only and removed after
+    /// (GAP-A006). `handle_before_unload` arms dialog auto-accept during reload
+    /// without injecting a permanent beforeunload listener (GAP-A009).
+    pub async fn reload_with_options(
+        &mut self,
+        ignore_cache: bool,
+        init_script: Option<&str>,
+        handle_before_unload: bool,
+    ) -> Result<Value, CliError> {
         self.drain_events();
-        let script = if ignore_cache {
-            "location.reload(true); 'ok'"
+        self.preserve_capture_snapshot();
+
+        let mut init_script_id: Option<String> = None;
+        if let Some(js) = init_script {
+            let id = self.add_init_script(js).await?;
+            if !id.is_empty() {
+                init_script_id = Some(id);
+            }
+        }
+
+        let dialog_action = if handle_before_unload {
+            Some("accept")
         } else {
-            "location.reload(); 'ok'"
+            None
         };
-        self.manager
-            .evaluate(script, None)
-            .await
-            .map_err(|e| CliError::new(ErrorKind::Browser, format!("reload failed: {e}")))?;
+
+        let reload_result = self
+            .reload_with_dialog_pump(ignore_cache, dialog_action)
+            .await;
+
+        if let Some(id) = init_script_id.as_deref() {
+            let _ = self.manager.remove_script_to_evaluate(id).await;
+        }
+
+        reload_result?;
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         self.drain_events();
         let url = self.manager.get_url().await.unwrap_or_default();
@@ -1699,9 +2019,65 @@ impl OneShotSession {
         Ok(json!({
             "reloaded": true,
             "ignore_cache": ignore_cache,
+            "init_script_applied": init_script.is_some(),
+            "handle_before_unload": handle_before_unload,
             "url": url,
             "title": title,
         }))
+    }
+
+    /// Reload current page via CDP `Page.reload` (GAP-A005).
+    pub async fn reload(&mut self, ignore_cache: bool) -> Result<Value, CliError> {
+        self.reload_with_options(ignore_cache, None, false).await
+    }
+
+    async fn reload_with_dialog_pump(
+        &mut self,
+        ignore_cache: bool,
+        dialog_action: Option<&str>,
+    ) -> Result<(), CliError> {
+        let session_id = self
+            .manager
+            .active_session_id()
+            .map_err(|e| CliError::new(ErrorKind::Browser, e))?
+            .to_string();
+        let client = std::sync::Arc::clone(&self.manager.client);
+
+        let dialog_task = if let Some(action) = dialog_action {
+            let accept = !action.eq_ignore_ascii_case("dismiss");
+            let client_d = std::sync::Arc::clone(&client);
+            let sid = session_id.clone();
+            Some(tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+                    let _ = client_d
+                        .send_command(
+                            "Page.handleJavaScriptDialog",
+                            Some(json!({ "accept": accept })),
+                            Some(&sid),
+                        )
+                        .await;
+                }
+            }))
+        } else {
+            None
+        };
+
+        let res = client
+            .send_command(
+                "Page.reload",
+                Some(json!({ "ignoreCache": ignore_cache })),
+                Some(&session_id),
+            )
+            .await
+            .map(|_| ())
+            .map_err(|e| CliError::new(ErrorKind::Browser, format!("reload failed: {e}")));
+
+        if let Some(t) = dialog_task {
+            t.abort();
+        }
+        self.dialog_open = false;
+        res
     }
 
     async fn history_nav(&mut self, direction: &str) -> Result<Value, CliError> {
@@ -2703,6 +3079,62 @@ impl OneShotSession {
         Ok(json!({ "extensions": extensions, "count": extensions.len() }))
     }
 
+    /// Unload extension targets in this process (GAP-007).
+    pub async fn extension_uninstall(&mut self, id: &str) -> Result<Value, CliError> {
+        self.pump_events().await;
+        let listed = self.extension_list().await?;
+        let targets = listed
+            .get("extensions")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let matches: Vec<Value> = targets
+            .into_iter()
+            .filter(|t| {
+                t.get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s == id || s.starts_with(id) || id.contains(s))
+                    .unwrap_or(false)
+            })
+            .collect();
+        if matches.is_empty() {
+            // Cross-process / not loaded: honest metadata effect.
+            self.loaded_extension_ids
+                .retain(|x| x != id && !id.contains(x));
+            return Ok(json!({
+                "uninstalled": id,
+                "effect": "metadata_only",
+                "persistent": false,
+                "ok": true,
+                "note": "no matching extension target in this process; omitted from next load path",
+            }));
+        }
+        let mut closed = Vec::new();
+        for t in &matches {
+            if let Some(target_id) = t.get("targetId").and_then(|v| v.as_str()) {
+                let _ = self
+                    .manager
+                    .client
+                    .send_command(
+                        "Target.closeTarget",
+                        Some(json!({ "targetId": target_id })),
+                        None,
+                    )
+                    .await;
+                closed.push(target_id.to_string());
+            }
+        }
+        self.loaded_extension_ids
+            .retain(|x| x != id && !id.contains(x));
+        Ok(json!({
+            "uninstalled": id,
+            "effect": "unloaded",
+            "closed_targets": closed,
+            "persistent": false,
+            "ok": true,
+        }))
+    }
+
     /// Reload extension service worker target by id prefix (one-shot CDP).
     pub async fn extension_reload(&mut self, id: &str) -> Result<Value, CliError> {
         self.pump_events().await;
@@ -3182,10 +3614,47 @@ fn normalize_eval_expression(
     Ok(expression.to_string())
 }
 
-fn mark_launched(life: &Lifecycle, pid: Option<u32>) {
+fn mark_launched(life: &Lifecycle, pid: Option<u32>, profile: Option<std::path::PathBuf>) {
+    let launch_t = std::time::SystemTime::now();
     if let Ok(mut ledger) = life.ledger.lock() {
         ledger.chrome_launched = true;
         ledger.chrome_pid = pid;
+        if let Some(ref dir) = profile {
+            // Track Singleton side-channel under the profile when present.
+            for name in ["SingletonLock", "SingletonCookie", "SingletonSocket"] {
+                let p = dir.join(name);
+                if p.exists() {
+                    ledger.side_channels.push(p);
+                }
+            }
+            ledger.profile_dir = Some(dir.clone());
+        }
+        #[cfg(windows)]
+        if let Some(p) = pid {
+            if ledger.windows_job_handle == 0 {
+                ledger.windows_job_handle = crate::win_job::create_and_assign(p);
+            }
+        }
+    }
+    // GAP-020: discover owned /tmp/org.chromium.* created for this launch only.
+    // Brief settle so Chrome can create Singleton side-channels.
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    let extras = crate::residual::discover_owned_chromium_tmp_side_channels(
+        profile.as_deref(),
+        pid,
+        launch_t,
+    );
+    for p in extras {
+        crate::lifecycle::mark_side_channel(life, p);
+    }
+    // Re-scan profile Singleton* after settle.
+    if let Some(ref dir) = profile {
+        for name in ["SingletonLock", "SingletonCookie", "SingletonSocket"] {
+            let p = dir.join(name);
+            if p.exists() {
+                crate::lifecycle::mark_side_channel(life, p);
+            }
+        }
     }
 }
 
@@ -3193,13 +3662,15 @@ fn mark_closed(life: &Lifecycle) {
     if let Ok(mut ledger) = life.ledger.lock() {
         ledger.chrome_launched = false;
         ledger.chrome_pid = None;
+        // Primary close already wiped profile via BrowserManager::close; clear ledger.
         ledger.profile_dir = None;
+        ledger.side_channels.clear();
     }
 }
 
 async fn launch_marked(life: &Lifecycle, capture: CaptureOpts) -> Result<OneShotSession, CliError> {
     let session = OneShotSession::launch_headless_with_capture(capture).await?;
-    mark_launched(life, session.chrome_pid());
+    mark_launched(life, session.chrome_pid(), session.temp_user_data_dir());
     Ok(session)
 }
 
@@ -3276,8 +3747,30 @@ pub async fn run_goto_with_robots(
     capture: CaptureOpts,
     robots: crate::robots::RobotsPolicy,
 ) -> Result<Value, CliError> {
+    run_goto_with_options(life, url, capture, robots, None, false, None).await
+}
+
+/// One-shot goto with tool-ref navigation options (init script, beforeunload, timeout).
+#[allow(clippy::too_many_arguments)]
+pub async fn run_goto_with_options(
+    life: &Lifecycle,
+    url: &str,
+    capture: CaptureOpts,
+    robots: crate::robots::RobotsPolicy,
+    init_script: Option<&str>,
+    handle_before_unload: bool,
+    navigation_timeout_ms: Option<u64>,
+) -> Result<Value, CliError> {
     let mut session = launch_marked(life, capture).await?;
-    let work = session.goto(url, robots).await;
+    let work = session
+        .goto_with_options(
+            url,
+            robots,
+            init_script,
+            handle_before_unload,
+            navigation_timeout_ms,
+        )
+        .await;
     finish(life, session, work).await
 }
 

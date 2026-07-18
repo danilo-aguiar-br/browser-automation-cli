@@ -11,7 +11,7 @@
 - Multi-step scripts preserve accessibility refs without a daemon
 - Category gates keep experimental surfaces opt-in
 - Local scrape / crawl / map / search / parse surface ships as first-class subcommands
-- Artifact helpers (`print-pdf`, `monitor`, `qr`, `find-paths`) and XDG LLM keys extend agent workflows without daemons
+- Artifact helpers (`print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) and XDG LLM keys extend agent workflows without daemons
 - Durable defaults live in flags and XDG `config path|init|show|set|get`
 
 
@@ -57,14 +57,14 @@
 - Always pass `--json` for machine parsing
 - Read success and error envelopes from stdout
 - Keep stderr for human or debug logs only
-- Use `commands --json` to discover the live inventory (**56 commands**)
-- Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, extract, and DevTools-parity tools
+- Use `commands --json` to discover the live inventory (**59 commands**)
+- Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, and DevTools-parity tools (59 total; e2e 53 tools)
 - Use `schema --cmd <name> --json` before generating argv for unfamiliar commands
 - Prefer flags for one-off control
-- Use `config init|set|get|path|show` for durable XDG defaults
-- Full config keys (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Use `config init|set|get|path|show|list-keys` for durable XDG defaults
+- Full config keys (16) via `config list-keys`: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Resolve paths with `config path --json`
-- For multi-step work that needs shared `@eN` refs, use one `run --script` process
+- For multi-step work that needs shared `@eN` refs, use one `run --script` process (NDJSON **or** JSON array of steps)
 - Wait with OR text: `wait --text A --text B`
 - Scroll aliases in NDJSON: `{"cmd":"scroll","dy":1500}`
 - Assert aliases: `{"cmd":"assert","url_contains":"example.com"}` / `text_contains`
@@ -103,17 +103,36 @@ fn main() {
 
 
 ## Surface Discovery for Agents
-- Inventory: `browser-automation-cli commands --json` (56 commands)
+- Inventory: `browser-automation-cli commands --json` (59 commands)
 - Input fragments: `browser-automation-cli schema --cmd <name> --json`
 - Config paths: `browser-automation-cli config path --json`
-- Config keys: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Config keys: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - MITM: `mitm status|init-ca|start|list|get|har|export|domains|apis`
 - Workflow: `workflow run|resume|status`
 - Local scrape surface: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
-- Artifacts and local IO: `print-pdf`, `monitor check`, `qr encode|decode`, `find-paths`
+- Artifacts and local IO: `print-pdf`, `monitor check`, `qr encode|decode`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
 - LLM extract: `extract --llm --question …` (XDG keys only)
-- Health: `doctor --json` (reports Chrome discovery and XDG browsers_dir)
+- Health: `doctor --json` (reports Chrome discovery, XDG browsers_dir, lighthouse source, and `cache_redis` when configured)
+- Cache: XDG `cache_backend` (`sqlite|memory|redis`) and `cache_redis_url` (`redis://` only; `rediss://` fail-closed)
+- Lighthouse: flag → XDG `lighthouse_path` → PATH; envelope `binary_source` is `real` or `mock`
 
+
+## Full Command Inventory (59)
+- Live source of truth: `browser-automation-cli commands --json` (59 top-level names)
+- DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53)
+- Full top-level command list (every name is a real subcommand):
+  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
+  - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
+  - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
+  - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
+  - Multi-step: `run`, `exec`
+  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - Local IO (no Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+  - Infra: `config`, `mitm`, `workflow`
+  - Emulation/perf: `emulate`, `resize`, `perf`, `heap`
+  - Category gates: `extension`, `devtools3p`, `webmcp`
+- Discover argv with `schema --cmd <name> --json` for any name above
 
 ## Lifecycle
 - Slogan (English): BORN EXECUTE FINALIZE DIE
@@ -126,7 +145,7 @@ fn main() {
 ### REQUIRED
 - Pass `--json` for programmatic consumption
 - Treat one process as one Chrome lifecycle (BORN EXECUTE FINALIZE DIE)
-- Use `run --script` for multi-step work that needs shared `@eN` refs
+- Use `run --script` for multi-step work that needs shared `@eN` refs (NDJSON or JSON array)
 - Check process exit code before trusting stdout
 - Branch on envelope field `ok`
 - Keep category and experimental gates explicit when needed
@@ -156,6 +175,10 @@ browser-automation-cli -q --timeout 60 --json scrape https://example.com --forma
 browser-automation-cli -q --json grab --path /tmp/page.png --full-page
 browser-automation-cli -q --json print-pdf --url https://example.com --path /tmp/page.pdf
 browser-automation-cli -q --json find-paths 'Cargo.*' .
+browser-automation-cli -q --json find-paths --glob '**/*.rs' .
+browser-automation-cli -q --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx
+browser-automation-cli -q --json sg-scan . --limit 50
+browser-automation-cli -q --json config list-keys
 ```
 
 

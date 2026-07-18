@@ -105,10 +105,54 @@ High-level GAP fixes and surface growth landed in `0.1.2`:
 - Plus: `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
 
 ### Inventory
-- Live inventory is **56 commands** (`commands --json`)
-- DevTools tool-ref e2e suite remains **52 tools** (`scripts/e2e_all_52_tools.sh`)
+- Live inventory is **59 commands** (`commands --json`)
+- DevTools tool-ref e2e suite remains **53 tools** (`scripts/e2e_all_52_tools.sh`)
 - Static schemas regenerate via `bash scripts/generate_command_schemas.sh`
 
+
+
+## 0.1.2 → 0.1.3
+Hard-close residual-zero, Redis/Lighthouse honesty, and PRD write/lint surface landed in `0.1.3`:
+
+### Residual e2e and scavenger (A001–A002)
+- Residual e2e measurement no longer self-matches; pipefail-safe residual harness
+- FINALIZE scavenges owned Chromium `/tmp` orphans (`scavenge_owned_chromium_tmp_orphans`)
+
+### Run script contract (A003)
+- `run --script` accepts **NDJSON** (one object per line) **or** a top-level **JSON array** of step objects
+- Fail-fast errors still return partial `data.steps` when present
+
+### Navigation / CDP honesty (A004–A006, A009, A012)
+- `scrape --engine http` rejects `file://` with Usage + suggestion (`browser` engine or `parse`)
+- `reload` uses CDP `Page.reload` with `ignoreCache` when `--ignore-cache` is set
+- `init_script` is removed after navigation/reload
+- `handle_before_unload` auto-accepts via CDP dialog pump (no inject `preventDefault`)
+- Unknown CDP events are ignored so network capture continues
+
+### Redis / cache (A007–A008)
+- New XDG keys: `cache_backend`, `cache_redis_url`, plus `log_to_file`
+- `rediss://` is fail-closed (plain TCP only)
+- Doctor reports `cache_redis` when Redis cache is configured
+- Unit RESP mock always-on; optional real redis-server when present on the host
+
+### Lighthouse honesty (A010)
+- Resolve order: flag `--lighthouse-path` → XDG `lighthouse_path` → PATH
+- Envelope reports `binary_source` as `real` or `mock`
+- Doctor reports lighthouse source honestly
+
+### PRD write/lint surface (A011)
+- `find-paths --glob` shell-style glob filter
+- `sheet-write` CSV/JSON → XLSX (no Chrome)
+- `sg-scan` structural lint; `sg-rewrite` dry-run default with `--apply`
+
+### Other 0.1.3 surface
+- `page tab-id` (tool-ref `get_tab_id`) expands e2e to **53** tools
+- `config list-keys` lists supported keys and defaults
+- Live inventory is **59 commands** (`commands --json`)
+- DevTools tool-ref e2e is **53 tools** (`scripts/e2e_all_52_tools.sh` legacy filename)
+
+### Config keys (full list in 0.1.3)
+- `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 
 ## Step-by-Step Migration
 ### From any older tree to 0.1.1
@@ -141,9 +185,21 @@ browser-automation-cli --json config set llm_model openai/gpt-4o-mini
 browser-automation-cli --json extract https://example.com --llm --question 'What is the title?'
 ```
 - Use `--lang pt-BR` or `config set lang pt-BR` for localized human suggestions
-- Confirm inventory with `commands --json` (56) and regenerate schemas if packaging docs
+- Confirm inventory with `commands --json` (59) and regenerate schemas if packaging docs
 - Re-run local validation with cargo and e2e scripts: `cargo test --lib`, e2e 52-tool script, residual smokes you care about
 
+
+
+### From 0.1.2 to 0.1.3
+- Rebuild/install `0.1.3`
+- Update agents: `run --script` may use a JSON array of steps as well as NDJSON
+- Do not pass `file://` to `scrape --engine http`
+- Discover new commands: `sheet-write`, `sg-scan`, `sg-rewrite`, and `find-paths --glob`
+- Configure Redis only via XDG: `config set cache_backend redis` and `config set cache_redis_url redis://…`
+- Never use `rediss://` (fail-closed)
+- Expect lighthouse envelopes to include `binary_source`
+- Confirm inventory with `commands --json` (59) and regenerate schemas if packaging docs
+- Re-run local validation: `cargo test --lib`, e2e 53-tool script, residual PRD smokes
 
 ## JSON Schema Changes
 - Before: free-form prose or ad-hoc JSON without `schema_version`
@@ -161,6 +217,7 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Static snapshots under `docs/schemas/` are a convenience index and may lag the binary
 - v0.1.1 static additions include `config`, `mitm`, `workflow`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, and `wait`
 - v0.1.2 static additions include `print-pdf`, `monitor`, `qr`, `find-paths` (regenerate with the generator)
+- v0.1.3 static additions include `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths` gains `glob`; config keys include cache/log_to_file
 - Prefer live `schema --cmd` after upgrades to confirm the installed binary
 
 
@@ -177,6 +234,7 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 ## Rollback
 - Pin to the previous local commit or installed binary path
 - Keep scripts compatible with the success envelope fields `ok` and `schema_version`
+- If rolling back from `0.1.3` to `0.1.2`, remove use of `sheet-write`, `sg-scan`, `sg-rewrite`, `find-paths --glob`, JSON-array-only `run` scripts, cache XDG keys, and `binary_source` assumptions
 - If rolling back from `0.1.2` to `0.1.1`, remove use of `print-pdf`, `monitor`, `qr`, `find-paths`, `parse --redact-pii`, `extract --llm`, and the new config keys
 - If rolling back from `0.1.2`, also drop assumptions that browser scrape formats, scroll `dy`/`dx`, assert contains aliases, fail-fast `data.steps`, scrape `--webhook-url`, or flags/XDG logging always apply
 - If rolling back from `0.1.1` to `0.1.0`, remove use of config, mitm, workflow, batch-scrape, crawl, map, search, parse

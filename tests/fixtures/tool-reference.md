@@ -1,6 +1,6 @@
 # Chrome DevTools tool-reference (synced from base_conhecimento for inventory gate)
 
-# count=52
+# count=53
 
 ### `click`
 
@@ -105,4 +105,6 @@
 ### `execute_webmcp_tool`
 
 ### `list_webmcp_tools`
+
+### `get_tab_id`
 

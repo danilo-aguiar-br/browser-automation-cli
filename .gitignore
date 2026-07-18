@@ -19,6 +19,7 @@ docs_prd/
 docs_rules/
 /AGENTS.md
 /CLAUDE.md
+/gaps.md
 
 # GraphRAG / enrich queue artifacts
 .enrich-queue.sqlite

@@ -3,10 +3,10 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/run.schema.json",
   "title": "run command input",
   "type": "object",
-  "description": "Execute NDJSON multi-step script in one process",
+  "description": "Execute multi-step script in one process; script file is NDJSON (one object per line) or a top-level JSON array of step objects",
   "properties": {
     "script": {
-      "description": "Path to .jsonl script",
+      "description": "Path to script file (.jsonl NDJSON or .json array of steps)",
       "type": "string"
     }
   },

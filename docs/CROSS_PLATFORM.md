@@ -60,6 +60,7 @@
 - Keep one-shot process cleanup expectations under orchestration restarts
 - Do not assume a host-mounted product settings file outside XDG; use flags and XDG mounts if needed
 - Example shape: package `browser-automation-cli` plus Chromium, then call `doctor --json`
+- Optional: Redis server when testing `cache_backend redis`; Lighthouse binary or mock for audits
 
 
 ## Shell Support
@@ -85,8 +86,9 @@ browser-automation-cli completions powershell
 - MITM CA material lives under XDG data (`mitm/ca`); captures under XDG state (`mitm/`)
 - Workflow journals live under XDG state (`workflows`)
 - Encryption key is set with `config set encryption_key <value>`
-- Full config keys (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
-- Product settings use flags and XDG CLI only (`config path|init|show|set|get`)
+- Full config keys (16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
+- Product settings use flags and XDG CLI only (`config path|init|show|set|get|list-keys`)
+- Redis cache: `cache_backend redis` + `cache_redis_url redis://…` only (`rediss://` fail-closed)
 - Product logging: `--verbose` / `--debug` / `-q` or XDG `log_level`
 - Color: `config set color`; Chrome path: `config set chrome_path`
 

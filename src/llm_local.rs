@@ -65,13 +65,15 @@ pub fn chat_completion(
 
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(60))
-        .user_agent("browser-automation-cli/0.1.2")
+        .user_agent("browser-automation-cli/0.1.3")
         .build()
         .map_err(|e| CliError::new(ErrorKind::Software, format!("llm client: {e}")))?;
 
-    let mut last_err = String::from("llm request failed");
-    let delays_ms = [200u64, 500, 1200];
-    for (attempt, delay) in delays_ms.iter().enumerate() {
+    // GAP-013: named RetryConfig::llm() (budget + jitter), not ad-hoc delay array.
+    let cfg = crate::retry::RetryConfig::llm();
+    let mut attempt_no = 0u32;
+    let result = crate::retry::retry_blocking(cfg, || {
+        attempt_no += 1;
         let resp = client
             .post(&url)
             .header("Authorization", format!("Bearer {key}"))
@@ -88,30 +90,37 @@ pub fn chat_completion(
                     .and_then(|c| c.as_str())
                     .unwrap_or("")
                     .to_string();
-                return Ok(json!({
+                Ok(json!({
                     "llm": true,
                     "model": model,
                     "base_url": base,
                     "answer": answer,
                     "raw": v,
-                    "attempt": attempt + 1,
-                }));
+                    "attempt": attempt_no,
+                }))
             }
             Ok(r) => {
-                last_err = format!("llm HTTP {}", r.status());
-                if r.status().as_u16() < 500 && r.status().as_u16() != 429 {
-                    break;
+                let code = r.status().as_u16();
+                let err = CliError::new(ErrorKind::Unavailable, format!("llm HTTP {code}"));
+                // Permanent client errors (except 429) must not retry.
+                if code < 500 && code != 429 {
+                    return Err(CliError::new(
+                        ErrorKind::Usage,
+                        format!("llm HTTP {code} (non-retryable)"),
+                    ));
                 }
+                Err(err)
             }
-            Err(e) => last_err = format!("llm: {e}"),
+            Err(e) => Err(CliError::new(ErrorKind::Unavailable, format!("llm: {e}"))),
         }
-        std::thread::sleep(Duration::from_millis(*delay));
-    }
-    Err(CliError::with_suggestion(
-        ErrorKind::Unavailable,
-        last_err,
-        "Check XDG openrouter_api_key, llm_base_url, llm_model and network reachability",
-    ))
+    });
+    result.map_err(|e| {
+        CliError::with_suggestion(
+            e.kind(),
+            e.message(),
+            "Check XDG openrouter_api_key, llm_base_url, llm_model and network reachability",
+        )
+    })
 }
 
 /// Build extract+LLM payload from free text and optional question/schema.

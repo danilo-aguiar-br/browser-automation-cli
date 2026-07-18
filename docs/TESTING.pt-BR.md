@@ -20,8 +20,8 @@
 - Testes de robots e comportamento de pipe (`tests/robots_http.rs`, `tests/pipe_broken.rs`)
 - Helpers de golden i18n e cold-start (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Cobertura e2e opcional de eventos CDP quando Chrome está disponível (`tests/e2e_cdp_events.rs`)
-- Script e2e completo das **52 tools** DevTools (ainda): `scripts/e2e_all_52_tools.sh`
-- Inventário vivo da CLI é **56 comandos** (`commands --json`) — mais amplo que o conjunto e2e de 52 tool-ref
+- Script e2e completo das **53 tools** DevTools: `scripts/e2e_all_52_tools.sh`
+- Inventário vivo da CLI é **59 comandos** (`commands --json`) — mais amplo que o conjunto e2e de 53 tool-ref
 - Fixture vendored de tool-ref: `tests/fixtures/tool-reference.md`
 
 
@@ -37,7 +37,7 @@ cargo fmt --check
 - Prefira library e gates de schema primeiro ao iterar contratos
 
 
-## E2E 52 Tools
+## E2E 53 Tools
 ```bash
 cargo build --release --locked
 bash scripts/e2e_all_52_tools.sh
@@ -45,12 +45,12 @@ bash scripts/e2e_all_52_tools.sh
 - Exige binário release em `target/release/browser-automation-cli` (faça `cargo build --release --locked` antes)
 - Exercita tools de paridade DevTools na página fixture em `scripts/fixtures/e2e_page/`
 - Escreve relatório em workdir temp e imprime contagens PASS/FAIL/SKIP
-- Evidência do mantenedor para v0.1.2: 52 PASS / 0 FAIL em host local com Chrome
-- A suite de 52 tools não substitui smokes residuais de comandos fora do conjunto tool-ref
+- Evidência do mantenedor para v0.1.3: 53 PASS / 0 FAIL em host local com Chrome (residual A001 fechado)
+- A suite de 53 tools não substitui smokes residuais de comandos fora do conjunto tool-ref
 
 
-## Smokes Residuais de PRD (além das 52 tools)
-Rode após o e2e ao validar o inventário completo de 56 comandos:
+## Smokes Residuais de PRD (além das 53 tools)
+Rode após o e2e ao validar o inventário completo de 59 comandos:
 
 ```bash
 # print-pdf artifact
@@ -65,6 +65,32 @@ browser-automation-cli --json qr decode --path /tmp/qr.png
 
 # find-paths (no Chrome)
 browser-automation-cli --json find-paths 'Cargo.*' .
+browser-automation-cli --json find-paths --glob '**/*.rs' .
+
+
+# sheet-write / sg-scan / sg-rewrite (no Chrome)
+printf 'a,b\n1,2\n' > /tmp/rows.csv
+browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx
+browser-automation-cli --json sg-scan . --limit 20
+browser-automation-cli --json sg-rewrite .
+
+# find-paths --glob
+browser-automation-cli --json find-paths --glob '**/*.rs' .
+
+# run JSON array
+cat > /tmp/demo.array.json <<'JSON'
+[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/demo.array.json
+
+# config list-keys + redis honesty (no rediss)
+browser-automation-cli --json config list-keys
+# browser-automation-cli --json config set cache_backend redis
+# browser-automation-cli --json config set cache_redis_url redis://127.0.0.1:6379
+
+# lighthouse binary_source (mock)
+browser-automation-cli --json lighthouse https://example.com \
+  --lighthouse-path ./scripts/mock-lighthouse.sh | jaq '.data.binary_source // .'
 
 # parse PDF / DOCX with optional PII redact
 browser-automation-cli --json parse tests/fixtures/hello.pdf
@@ -122,7 +148,7 @@ bash scripts/audit_bilingual_docs.sh
 - Falhas de schema gate: atualize código e `docs/schemas/` na mesma mudança
 - Drift de schema de comando: reexecute `bash scripts/generate_command_schemas.sh` após mudar `meta.rs`
 - Drift bilíngue de fences: reexecute `bash scripts/audit_bilingual_docs.sh` e alinhe blocos de comando EN e `.pt-BR`
-- Drift de inventário: reconcilie com `commands --json` (56) e `tests/fixtures/tool-reference.md` (52 tools)
+- Drift de inventário: reconcilie com `commands --json` (59) e `tests/fixtures/tool-reference.md` (53 tools)
 - Script e2e sem binário: rode `cargo build --release --locked` primeiro para existir `target/release/browser-automation-cli`
 - Path de lighthouse ausente: passe `--lighthouse-path ./scripts/mock-lighthouse.sh` ou defina XDG `lighthouse_path`
 - Extract LLM fail-closed: esperado sem `config set openrouter_api_key`

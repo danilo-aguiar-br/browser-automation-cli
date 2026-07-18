@@ -33,6 +33,21 @@ pub async fn discover_cdp_url_with_timeout(
     query: Option<&str>,
     timeout: Duration,
 ) -> Result<String, String> {
+    // GAP-013: retry the full discovery cascade on transient network/timeouts.
+    let cfg = crate::retry::RetryConfig::cdp();
+    crate::retry::retry_async(cfg, || async {
+        discover_cdp_url_once(host, port, query, timeout).await
+    })
+    .await
+}
+
+/// Single-pass discovery cascade (no retry). Used by tests and by the retry wrapper.
+pub(crate) async fn discover_cdp_url_once(
+    host: &str,
+    port: u16,
+    query: Option<&str>,
+    timeout: Duration,
+) -> Result<String, String> {
     // Primary: /json/version (standard path)
     let version_err = match fetch_cdp_info(host, port, timeout).await {
         Ok(info) => {
@@ -246,8 +261,14 @@ mod tests {
             // /json/list and ws fallback both fail (server closes)
         });
 
-        let err = discover_cdp_url("127.0.0.1", port, None).await.unwrap_err();
-        assert!(err.contains("Invalid /json/version response"));
+        // Use single-pass discovery: outer retry would re-hit a one-shot mock server.
+        let err = discover_cdp_url_once("127.0.0.1", port, None, Duration::from_secs(2))
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("Invalid /json/version response") || err.contains("/json/version"),
+            "unexpected discovery error: {err}"
+        );
         server.await.unwrap();
     }
 

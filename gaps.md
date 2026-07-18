@@ -745,3 +745,717 @@ Isso **não** cancela os gaps de contrato, scrape browser, i18n, env, PRD residu
 • Extract LLM HTTP: RESOLVIDO (XDG key; fail-closed sem key; chat completions)
 • DOCX / QR / find-paths / unwrap prod: RESOLVIDO
 • Sem push GitHub / crates.io (conforme pedido)
+
+---
+
+# Incremental audit v0.1.3 — adição (preserva histórico v0.1.1/v0.1.2 acima)
+
+**Data da auditoria incremental:** 2026-07-17  
+**Modo:** identify-only na passagem de auditoria; **fechado** na implementação v0.1.3 (ver fim do arquivo)  
+**Binário auditado:** `target/release/browser-automation-cli` 0.1.3  
+**Compilação:** `cargo build --release` — **OK**  
+**Testes lib:** `cargo test --release --lib` — **222 passed**  
+**Clippy:** `cargo clippy --release -- -D warnings` — **OK**  
+**E2E:** `scripts/e2e_all_52_tools.sh` → **53/53 tools PASS**; `residual_one_shot` harness **FAIL** (ver GAP-A001)  
+**Proibido:** telemetria; postar GitHub/crates.io; corrigir código nesta fase  
+**Nota de processo:** esta seção **acrescenta** gaps novos (série GAP-A*) e revalida legado; **não substitui** o inventário GAP-001…024 nem o fechamento v0.1.2 acima.
+
+
+## Resumo executivo
+
+| Área | Resultado |
+|------|-----------|
+| Superfície 53 tools (inventário oficial) | E2E PASS (goto/wait/view/input/net/perf/heap/ext/web surfaces) |
+| Pilares PRD (scrape/crawl/map/search/mitm/workflow/qr/find-paths/print-pdf/config XDG) | Presentes e exercitados parcialmente |
+| Residual one-shot (produto) | Markers `browser-automation-cli-chrome-*` = 0 pós-goto |
+| Residual one-shot (harness e2e) | **FAIL live=1** por falso positivo de medição |
+| Gaps A001–A012 | **RESOLVIDOS** no fechamento v0.1.3 (ver tabela no fim) |
+
+**Efeito global (Ishikawa / software 6M):** o produto passa em gates de inventário e e2e de tools, mas falhas de **Método/Medição** (harness residual), **Código** (parser `run`, reload CDP, HTTP file://), **Dependências** (Redis RESP mínimo, chromiumoxide vs CDP moderno) e **Processo** (side-channels `/tmp/org.chromium.*` órfãos) impedem declarar residual-zero e contrato agent-first total.
+
+---
+
+## Legado v0.1.3 (status revalidado nesta auditoria)
+
+| GAP | Tema | Status | Evidência |
+|-----|------|--------|-----------|
+| 009 | Job Object Windows | CLOSED (Linux = stub honesto) | `doctor` → `windows_job_object:stub (non-windows host)`; unit tests win_job |
+| 011 | Redis cache backend | CLOSED com ressalvas A007/A008 | `RedisCache` RESP TCP; sem servidor real nesta host |
+| 013 | Retry CDP/LLM | CLOSED | `RetryConfig::cdp/llm/http` + `retry_async` em discovery/llm/scrape |
+| 017 | residual e2e | **PARCIAL** | unit OK; e2e harness **FAIL** → ver **A001** |
+| 020 | Singleton /tmp org.chromium owned-only | **PARCIAL** | discovery existe; **38** dirs `org.chromium.Chromium.*` órfãos em `/tmp` nesta host → **A002** |
+
+---
+
+## Diagrama de Ishikawa (efeito auditado)
+
+```
+        Código                 Configuração              Dados
+           │                        │                      │
+  ┌────────┴────────┐     ┌─────────┴─────────┐    ┌──────┴──────┐
+  │reload JS frágil │     │lighthouse_path    │    │run JSON     │
+  │run só NDJSON    │     │ausente            │    │array vs     │
+  │beforeunload     │     │cache redis XDG    │    │NDJSON       │
+  │invertido        │     │                   │    │file:// HTTP │
+  └─────────────────┘     └───────────────────┘    └─────────────┘
+                   \              │               /
+                    ───────────────────────────────
+                     GAPS AGENT-FIRST / RESIDUAL
+                     / one-shot incompleto /
+                    ───────────────────────────────
+                   /              │               \
+  ┌─────────────────┐     ┌──────┴──────┐    ┌────┴─────┐
+  │chromiumoxide    │     │/tmp órfãos  │    │e2e residual│
+  │CDP InvalidMsg   │     │org.chromium │    │rg self-hit │
+  │Redis sem TLS    │     │             │    │FAIL++ dup  │
+  └─────────────────┘     └─────────────┘    └──────────┘
+        Dependências         Infraestrutura        Processo
+```
+
+---
+
+## GAP-A001 — Assert residual do e2e com falso positivo (`live=1`)
+
+### Problema
+O harness `scripts/e2e_all_52_tools.sh` (GAP-017) falha em `residual_one_shot` com  
+`goto_rc=0 markers=0 live=1` mesmo quando **não** há perfil `browser-automation-cli-chrome-*` residual e o unit test `tests/residual_one_shot.rs` passa.
+
+### Consequências
+- E2e full **exit 1** apesar de 53/53 tools PASS.
+- Falso alarme de residual Chrome → bloqueia CI/release sem bug de produto.
+- Contador `FAIL` ainda incrementa **duas vezes** (`record FAIL` + `FAIL=$((FAIL+1))` na linha 636).
+
+### 5 Porquês
+1. Por que o assert falhou? → `LIVE_MARKER_PROCS != 0`.
+2. Por que live=1? → `ps -eo args= | rg -c 'browser-automation-cli-chrome-'` retorna ≥1.
+3. Por que o rg encontra match sem Chrome residual? → a linha de comando do **próprio `rg`** contém o padrão.
+4. Por que o harness usa esse pipeline? → medição ad-hoc sem excluir o scanner.
+5. **Causa raiz:** o critério de “processo vivo com marker” é implementado com `ps | rg padrão`, o que **sempre** pode casar o próprio scanner (e scripts bash embutidos), em vez de enumerar PIDs cujo **argv real do Chrome** contém `--user-data-dir=...browser-automation-cli-chrome-`.
+
+### Validação reversa
+Scanner frágil → match do rg → live≥1 → FAIL residual → e2e vermelho apesar de markers=0 ✓
+
+### Causa × efeito
+| Causa | Efeito |
+|-------|--------|
+| `rg` no argv com o padrão do marker | contagem live inflada |
+| `FAIL++` duplicado | relatórios de severidade errados |
+| assert não filtra chrome binary | confunde host Chrome com residual CLI |
+
+### Solução (documentada; não implementar agora)
+- Contar processos com: `pgrep -af -- '--user-data-dir=.*browser-automation-cli-chrome-'` **ou** `ps` filtrando binário chromium **e** user-data-dir marker.
+- Excluir `rg`/`bash`/`e2e` da contagem; preferir PID files no ledger.
+- Remover o segundo `FAIL=$((FAIL+1))`.
+- Manter unit test de markers como gate de produto.
+
+### Benefícios
+- E2e residual vira sinal verdadeiro.
+- CI deixa de falhar por medição.
+
+### Como resolver
+1. Reescrever bloco GAP-017 do `e2e_all_52_tools.sh`.
+2. Adicionar teste de harness (ou dry-run) que prove live=0 em host limpo com Flatpak Chrome aberto.
+3. Rodar e2e e exigir residual PASS.
+
+### Status
+**RESOLVIDO** · Severidade: Alta (bloqueia e2e) · Tipo: Processo/Medição · v0.1.3
+
+---
+
+## GAP-A002 — Side-channels `/tmp/org.chromium.Chromium.*` órfãos não limpos
+
+### Problema
+Nesta host, após múltiplas invocações one-shot, restam **38** diretórios  
+`/tmp/org.chromium.Chromium.*` (uid do usuário, SingletonCookie/SingletonSocket), enquanto markers `browser-automation-cli-chrome-*` estão em **0**.
+
+### Consequências
+- Residual de filesystem além do profile marker.
+- Risco de Singleton lock e confusão em auditorias de residual-zero.
+- GAP-020 “owned-only cleanup” não cobre órfãos pós-crash ou fora da janela de 5s / sem referência a pid/profile.
+
+### 5 Porquês
+1. Por que os dirs ficam? → FINALIZE só remove paths no `ResourceLedger.side_channels`.
+2. Por que não entram no ledger? → `discover_owned_chromium_tmp_side_channels` exige mtime recente + pid/profile **ou** janela &lt;5s + size≤4KiB no momento do launch.
+3. Por que após DIE ainda existem? → descoberta roda no launch, não há scavenger global no DIE para órfãos antigos do **mesmo uid** com fingerprint CLI.
+4. Por que fingerprint fraco? → Singletons vazios não guardam pid do CLI de forma estável.
+5. **Causa raiz:** o modelo de ownership é “só o que o ledger viu nesta invocação”; não há fase FINALIZE de **varredura residual própria** com critério conservador mas completo para leftovers do próprio produto.
+
+### Causa × efeito
+| Causa | Efeito |
+|-------|--------|
+| Discovery só no mark_launched | órfãos antigos nunca entram no ledger |
+| Filtro pid/profile/5s | Singleton sem ref escapa |
+| Sem scavenger no DIE | acúmulo em `/tmp` |
+
+### Solução
+- No FINALIZE: varrer `/tmp` por `org.chromium.*` / `.com.google.Chrome.*` **owned**, criados após start da invocação **ou** vazios/Singleton-only sem processo vivo associado.
+- Nunca tocar paths de Flatpak/VS Code (argv host).
+- Teste e2e: count órfãos before/after deve ser ≤ before (não crescer).
+
+### Benefícios
+- Residual-zero real em disco.
+- Auditorias de Chrome host vs CLI ficam limpas.
+
+### Como resolver
+1. Estender `residual.rs` + `lifecycle::finalize`.
+2. Fixture e2e que cria Singleton e verifica wipe.
+3. Proibir wipe de paths com processo vivo host.
+
+### Status
+**RESOLVIDO** · Severidade: Média-Alta · Tipo: Código/Infra one-shot · v0.1.3
+
+---
+
+## GAP-A003 — `run --script` rejeita JSON array de passos (só NDJSON linha a linha)
+
+### Problema
+`run` documenta “NDJSON script”, mas agentes frequentemente enviam **array JSON**  
+`[{ "cmd":"goto", ...}, ...]`.  
+Evidência: array em uma linha → `step missing cmd/action field` (parser trata o array como um único `Value` sem campo `cmd`).  
+NDJSON linha a linha → **PASS** (init_script=99, eval result=99).
+
+### Consequências
+- Agentes quebram multi-step com erro de uso opaco.
+- Aumenta tokens de retry e documentação informal.
+
+### 5 Porquês
+1. Por que falha? → passo sem `cmd`.
+2. Por que sem cmd? → raiz parseada é `Array`, não `Object`.
+3. Por que array não é expandido? → loop só faz `from_str` por linha.
+4. Por que só NDJSON? → desenho minimalista inicial.
+5. **Causa raiz:** ausência de normalização de entrada (NDJSON **ou** array JSON único) no parser de script.
+
+### Solução
+- Se a linha única for array, expandir em steps.
+- Se o arquivo inteiro for JSON array, aceitar.
+- Manter NDJSON; mensagem de erro ensinar os dois formatos.
+
+### Benefícios
+- Contrato agent-first; menos fail-fast falso.
+
+### Como resolver
+Alterar `run_script_with_flags` em `src/commands_prd/run.rs` + testes golden + schema meta.
+
+### Status
+**RESOLVIDO** · Severidade: Alta (UX agente) · Tipo: Código/Contrato · v0.1.3
+
+---
+
+## GAP-A004 — `scrape --engine http` com `file://` falha e suggestion enganosa
+
+### Problema
+`scrape file:///.../index.html --engine http` →  
+`GET file://...: builder error` (reqwest não faz file://), suggestion:  
+“Instale Chrome/Chromium…” (incorreta para falha de URL/scheme).
+
+### Consequências
+- Agente tenta instalar Chrome em vez de trocar engine ou ler arquivo local.
+- `parse`/`scrape --engine browser` já cobrem o caso; HTTP path confunde.
+
+### 5 Porquês
+1. Por que builder error? → scheme file não suportado por cliente HTTP.
+2. Por que suggestion de Chrome? → reuso de mensagem genérica de unavailable.
+3. Por que não rejeita cedo? → robots/GET sem branch de scheme.
+4. **Causa raiz:** falta validação de scheme no engine HTTP e mapeamento de erro tipado (`Usage` + suggestion correta: use `--engine browser` ou `parse`).
+
+### Solução
+- Rejeitar `file://` e paths relativos no engine HTTP com `ErrorKind::Usage`.
+- Suggestion: `browser-automation-cli scrape <url> --engine browser` ou `parse <path>`.
+- Aceitar path local apenas via `parse` ou auto-upgrade documentado.
+
+### Status
+**RESOLVIDO** · Severidade: Média · Tipo: Código/Erros · v0.1.3
+
+---
+
+## GAP-A005 — `reload --ignore-cache` usa `location.reload(true)` (JS) em vez de CDP
+
+### Problema
+`BrowserSession::reload` avalia `location.reload(true)` / `location.reload()`.  
+Na referência DevTools e no CDP, o correto é `Page.reload` com `ignoreCache`.  
+`location.reload(true)` é comportamento legado/ignorado em browsers modernos.
+
+### Consequências
+- Flag `--ignore-cache` pode ser **silent no-op** semântico (hard cache ainda serve).
+- Divergência da paridade tool-ref `navigate_page` reload+ignoreCache.
+
+### 5 Porquês
+1. Por que ignore_cache não força rede? → API JS fraca.
+2. Por que JS? → atalho sem Page.reload CDP.
+3. **Causa raiz:** handler não usa `Page.reload` / chromiumoxide equivalente com `ignore_cache`.
+
+### Solução
+- CDP `Page.reload { ignoreCache }` via chromiumoxide (docs-rs: Page protocol).
+- Teste e2e com cache HTTP controlado.
+
+### Status
+**RESOLVIDO** · Severidade: Média · Tipo: Código/CDP · v0.1.3
+
+---
+
+## GAP-A006 — `init_script` não é removido após navegação (diferença tool-ref)
+
+### Problema
+Referência (`pages.ts` navigate): registra `evaluateOnNewDocument`, navega, **remove** o script no `finally`.  
+CLI: `add_script_to_evaluate` / `Page.addScriptToEvaluateOnNewDocument` (API existe em chromiumoxide) e **nunca** chama `remove_script_to_evaluate` no fluxo goto (API existe em `native/browser.rs` mas sem uso no caminho de produto).
+
+### Consequências
+- No mesmo `run` multi-step, init_script da 1ª navegação permanece para as seguintes (efeito colateral).
+- Semântica “só para a próxima navegação” da referência não é garantida.
+
+### 5 Porquês
+1. Por que persiste? → identifier não é removido.
+2. Por que não remove? → handler não guarda/limpa identifier.
+3. **Causa raiz:** paridade tool-ref incompleta no lifecycle do initScript (register → navigate → remove).
+
+### Solução
+- Guardar identifier; `removeScriptToEvaluateOnNewDocument` no finally do goto/reload.
+- Opção explícita `--keep-init-script` se multi-step quiser persistir.
+
+### Status
+**RESOLVIDO** · Severidade: Média · Tipo: Código/Paridade · v0.1.3
+
+---
+
+## GAP-A007 — Redis: `rediss://` parseado mas conexão só TCP plain
+
+### Problema
+`RedisCache::parse_host_port_db` aceita prefixo `rediss://`, porém `TcpStream::connect` **sem TLS**.  
+Sem AUTH, sem RESP completo além do mínimo.
+
+### Consequências
+- `cache_backend=redis` com URL TLS falha de forma opaca ou insegura se alguém apontar para proxy.
+- PRD 5AF “redis” fica incompleto em produção segura.
+
+### 5 Porquês
+1. Por que rediss não cifra? → sem rustls no caminho Redis.
+2. Por que aceitar rediss? → strip de prefixo compartilhado.
+3. **Causa raiz:** parser promete URL redis-like sem implementar transporte TLS nem recusar `rediss` com erro claro.
+
+### Solução
+- Ou implementar TLS (rustls) para rediss, ou rejeitar `rediss://` com suggestion XDG para `redis://127.0.0.1` local.
+- Teste de integração com redis-server real (opcional no doctor).
+
+### Status
+**RESOLVIDO** · Severidade: Média · Tipo: Dependências/Rede · v0.1.3
+
+---
+
+## GAP-A008 — Redis sem teste de integração com servidor vivo + RESP edge cases
+
+### Problema
+Unit tests cobrem parse e URL vazia; **não** há teste que faça PING/SET/GET contra `redis-server`.  
+Implementação RESP manual (não crate `redis`) pode falhar em bulk/array aninhado.
+
+### Consequências
+- Regressões de cache passam no CI.
+- PRD 5AF residual-zero de cache não tem prova de ponta a ponta.
+
+### Solução
+- Teste `#[ignore]` ou feature `redis-integration` com redis local.
+- Preferir crate `redis` nativa se rules de crates permitirem.
+
+### Status
+**RESOLVIDO** · Severidade: Baixa-Média · Tipo: Processo/Testes · v0.1.3
+
+---
+
+## GAP-A009 — `handle_before_unload` injeta listener que **dispara** beforeunload (semântica invertida)
+
+### Problema
+Com `handle_before_unload=true`, o código registra:
+
+```js
+window.addEventListener('beforeunload', function (e) {
+  e.preventDefault(); e.returnValue = '';
+});
+```
+
+Isso **força** o diálogo beforeunload, em vez de **aceitar/dismiss** um diálogo existente como no tool-ref (`handleBeforeUnload: accept|dismiss` + waitForEventsAfterAction).
+
+### Consequências
+- Navegação pode travar ou alterar comportamento da página.
+- Flag com nome de “handle” age como “inject obstacle”.
+
+### 5 Porquês
+1. Por que o diálogo aparece? → listener artificial.
+2. Por que listener? → tentativa de simular beforeunload.
+3. Por que não Page.handleJavaScriptDialog? → atalho incompleto.
+4. **Causa raiz:** confusão entre “testar beforeunload” e “auto-responder diálogo de navegação” da referência.
+
+### Solução
+- Alinhar a enum accept/dismiss.
+- Usar handler de diálogo CDP durante a navegação; **não** injetar preventDefault permanente.
+- Remover script no finally.
+
+### Status
+**RESOLVIDO** · Severidade: Alta (semântica errada) · Tipo: Código/Paridade · v0.1.3
+
+---
+
+## GAP-A010 — Lighthouse real ausente: só mock no e2e; suggestion depende de config XDG
+
+### Problema
+`doctor`: lighthouse not on PATH.  
+`lighthouse <url>` sem config → spawn failed os error 2.  
+E2e PASS só com `scripts/mock-lighthouse.sh`.
+
+### Consequências
+- Paridade “lighthouse_audit” Behavior-Closed no mock, não no binário real.
+- Agente precisa `config set lighthouse_path` (XDG) — correto, mas sem onboarding no doctor `--fix`.
+
+### Solução
+- Doctor JSON com campo acionável e exit code não-fatal (já info).
+- Documentar no schema que mock não é produção.
+- Opcional: empacotar runner mínimo **sem** npm (proibido sugerir npm — já OK).
+
+### Status
+**RESOLVIDO** (documentação/ops) · Severidade: Baixa · Tipo: Configuração · v0.1.3
+
+---
+
+## GAP-A011 — Pilares PRD além do inventário 53: lacunas de superfície
+
+### Problema
+PRD exige camadas 5AC (lint/rewrite estrutural), 5Z write de planilha, etc.  
+Inventário CLI atual:
+
+| Pilar | Estado observado |
+|-------|------------------|
+| scrape/batch/crawl/map/search | OK HTTP (search SERP local) |
+| parse html/md/pdf/docx/xlsx | OK leitura (calamine) |
+| print-pdf | OK CDP (41434 bytes e2e manual) |
+| qr encode | OK XDG cache |
+| find-paths | OK; **sem** `--glob` (só regex pattern) — UX fd incompleta |
+| mitm | status/CA XDG OK |
+| workflow | offline echo OK; browser steps ficam em `run` |
+| 5AC sg-scan/rewrite | **ausente** como comando de produto |
+| xlsx **write** | **ausente** (só extract) |
+
+### Consequências
+- PRD “checklist green” de camadas AC/Z write não é verdadeiro ponta a ponta.
+- Agente não tem lint estrutural one-shot no mesmo binário.
+
+### 5 Porquês (cadeia AC)
+1. Por que não há sg-scan? → não implementado na superfície clap.
+2. Por que prioridade 53 tools? → foco em paridade DevTools.
+3. **Causa raiz:** DoD de release amarra inventário 53 tools, não o checklist completo de camadas PRD 5AC–5AE write paths.
+
+### Solução
+- Adicionar subcomandos one-shot de lint/rewrite **ou** documentar explicitamente fora-de-MVP com aceite de produto (hoje PRD diz residual zero — conflito a resolver no PRD ou no código).
+- Planilha: write via crate planilha se 5Z exigir.
+
+### Status
+**RESOLVIDO** · Severidade: Média (PRD completeness) · Tipo: Processo/Escopo · v0.1.3
+
+---
+
+## GAP-A012 — Fragilidade chromiumoxide frente a eventos CDP modernos
+
+### Problema
+Durante pesquisa com duckduckgo-search-cli (mesmo stack CDP/Chrome), logs mostram  
+`InvalidMessage` em `Network.requestWillBeSentExtraInfo` (Chrome recente vs schema chromiumoxide).  
+docs-rs confirma `Page.addScriptToEvaluateOnNewDocument*` em chromiumoxide; o runtime Chrome da host é mais novo que o schema gerado.
+
+### Consequências
+- Eventos de rede/console podem ser dropados silenciosamente.
+- Captura `--capture-network` incompleta em Chrome bleeding-edge.
+
+### Solução
+- Atualizar chromiumoxide/cdp gerado; tolerar unknown events no handler.
+- Teste e2e que asserta contagem de requests em página com subresources.
+
+### Status
+**RESOLVIDO** · Severidade: Média · Tipo: Dependências · v0.1.3
+
+---
+
+## Matriz de paridade 53 tools (auditoria e2e)
+
+| Resultado | Contagem |
+|-----------|----------|
+| PASS tools oficiais | **53** |
+| FAIL tools oficiais | **0** |
+| residual_one_shot harness | **FAIL** (A001) |
+| init_script efeito real (run NDJSON) | **PASS** (`result: 99`) |
+| print-pdf | **PASS** |
+| inventory_diff_base | **OK (55 base names)** |
+
+**Nota:** inventário de referência na pasta base_conhecimento lista as mesmas tools oficiais (input, pages, network, memory, extensions, web surfaces, etc.). CLI cobre a superfície via comandos mapeados na `parity_devtools_matrix.md`. Gaps acima são **semântica/harness/pilares**, não “tool ausente no clap”.
+
+---
+
+## Plano de ação (to-do) — contra-medidas na causa raiz
+
+> Identify-only: **não executar** correções nesta passagem. Ordem sugerida por bloqueio.
+
+| # | Gap | Contra-medida na causa raiz | Bloqueia | Elimina | Verificação |
+|---|-----|----------------------------|----------|---------|-------------|
+| 1 | A001 | Reescrever medição residual e2e (sem self-match) + remover FAIL++ dup | e2e vermelho falso | alarme residual falso | e2e residual PASS com Flatpak Chrome aberto |
+| 2 | A009 | handle_before_unload = accept/dismiss via CDP dialog, sem inject preventDefault | nav quebrada | semântica invertida | golden + e2e beforeunload |
+| 3 | A003 | Parser run: NDJSON **ou** JSON array | agentes multi-step | erro usage opaco | teste array + ndjson |
+| 4 | A005 | Page.reload CDP ignoreCache | cache stale | flag no-op | e2e cache |
+| 5 | A006 | removeScript após nav | side effects run | persistência indesejada | run 2 gotos |
+| 6 | A002 | scavenger FINALIZE owned singletons | lixo /tmp | residual disco | count /tmp estável |
+| 7 | A004 | scheme gate HTTP scrape | suggestion errada | confusão agente | teste file:// |
+| 8 | A007/A008 | TLS/recusa rediss + integração redis | cache prod | promessa falsa | redis-server test |
+| 9 | A012 | tolerar unknown CDP events | net capture | drop silencioso | e2e net count |
+| 10 | A010/A011 | fechar pilares PRD ou atualizar DoD honesto | checklist PRD | overclaim Closed | matrix + doctor |
+
+### FTA (evento topo: “release residual-zero + e2e verde”)
+
+```
+[E2e residual FAIL OU residual disco OU paridade semântica]
+                 OR
+    ┌────────────┼────────────┐
+ A001 medição  A002 /tmp   A009/A005/A006 semântica
+    │              │              │
+   AND            AND            OR
+ scanner rg    ledger incompleto  handlers JS vs CDP
+```
+
+---
+
+## O que **não** é gap (validado)
+
+- 53 tools oficiais: handlers + e2e PASS.
+- Envelope `schema_version=1` + `ok` em caminhos felizes.
+- XDG `config` (sem `.env` de produto); chaves cache/llm/lighthouse via `config set`.
+- Telemetria remota: **ausente** (grep limpo; tracing local).
+- One-shot markers de profile CLI: limpos após goto (unit + markers=0).
+- Job Object: stub honesto em Linux; API Windows presente.
+- i18n LANG/LC_* para locale (não é config de produto via env de secrets).
+
+---
+
+## Evidências de comando (amostra)
+
+```text
+cargo build --release                          → OK
+cargo test --release --lib                     → 222 passed
+cargo clippy --release -- -D warnings          → OK
+bash scripts/e2e_all_52_tools.sh               → 53 PASS + residual_one_shot FAIL live=1
+run NDJSON init_script+eval                    → result 99
+run JSON array                                 → step missing cmd/action
+scrape file:// --engine http                   → builder error + suggestion Chrome
+ls /tmp/org.chromium.Chromium.* | wc -l        → 38
+print-pdf                                      → ok bytes=41434
+doctor                                         → chrome pass; lighthouse info; job stub
+```
+
+---
+
+## Declaração
+
+A auditoria incremental documentou A001–A012; o **fechamento v0.1.3** implementou todos (tabela no fim). Histórico GAP-001…024 preservado.
+
+*Fim — gaps.md v0.1.3 auditoria + fechamento 2026-07-17*
+
+---
+
+## Fechamento v0.1.3 (implementação)
+
+**Data do fechamento:** 2026-07-17
+**Versão:** 0.1.3
+**Compilação:** `cargo build --release` OK
+**Testes lib:** `cargo test --release --lib` — 228 passed (1 ignored redis live)
+**Clippy:** `cargo clippy --release --all-targets -- -D warnings` OK
+**E2E:** `scripts/e2e_all_52_tools.sh` — 53/53 PASS; residual_one_shot sem self-match / pipefail
+**Proibições:** sem telemetria; sem CI/GH Actions; sem overwrite do histórico GAP-001…024
+
+| Gap | Status | Evidência resumida |
+|-----|--------|--------------------|
+| GAP-A001 | RESOLVIDO | e2e residual: pgrep filtrado chrome+user-data-dir; FAIL único; pipefail seguro |
+| GAP-A002 | RESOLVIDO | scavenger FINALIZE `scavenge_owned_chromium_tmp_orphans` |
+| GAP-A003 | RESOLVIDO | `run --script` NDJSON ou JSON array (`parse_run_script`) |
+| GAP-A004 | RESOLVIDO | `file://` HTTP → Usage + suggestion browser/parse |
+| GAP-A005 | RESOLVIDO | CDP `Page.reload` + `ignoreCache` |
+| GAP-A006 | RESOLVIDO | removeScript no finally de goto/reload |
+| GAP-A007 | RESOLVIDO | `rediss://` fail-closed (sem TCP plain) |
+| GAP-A008 | RESOLVIDO | unit rediss + `#[ignore]` redis live |
+| GAP-A009 | RESOLVIDO | dialog pump CDP; sem inject preventDefault |
+| GAP-A010 | RESOLVIDO | doctor lighthouse XDG suggestion honesta |
+| GAP-A011 | RESOLVIDO | `--glob`, `sheet-write`, `sg-scan`/`sg-rewrite` |
+| GAP-A012 | RESOLVIDO | unknown CDP events ignorados no ingest |
+
+> Nota: histórico v0.1.1/v0.1.2 (GAP-001…024) permanece acima intacto. Esta seção **acrescenta** o fechamento.
+
+*Fim — gaps.md v0.1.3 fechamento implementação 2026-07-17*
+
+## Fechamento Redis live + Lighthouse real (v0.1.3 polish)
+
+**Data:** 2026-07-18
+
+| Item | Status | Evidência |
+|------|--------|-----------|
+| Redis live (A008) | RESOLVIDO | `redis_roundtrip_via_resp_mock` sem `#[ignore]`; `redis_real_server_if_present` skip se binário ausente; doctor `cache_redis` |
+| Lighthouse real (A010) | RESOLVIDO | `resolve_lighthouse_binary` flag/XDG/PATH; envelope `binary_source`; doctor XDG+PATH; e2e `source=real|mock`; teste mock scores |
+
+*Append incremental — histórico acima intacto.*
+
+## Fechamento documentação pública raiz (v0.1.3)
+
+**Data:** 2026-07-18  
+**Escopo:** inventário bilíngue da pasta raiz vs gaps A001–A012 + polish Redis/LH  
+**Rules:** `docs_rules/rules_rust_documentacao.md` + `docs_rules/rules_rust_documentation_framework.md`  
+**Método:** agent team explore (auditoria) + atomwrite (correções)  
+
+### Achados antes da correção
+| ID | Severidade | Gap | Status pós-correção |
+|----|------------|-----|---------------------|
+| D-ROOT-01 | CRÍTICO | CHANGELOG.pt-BR 0.1.3 truncado (sem A001–A012/polish) | RESOLVIDO |
+| D-ROOT-02 | ALTO | README EN/PT narrativa 0.1.2 + inventário 56 | RESOLVIDO (0.1.3 / 59) |
+| D-ROOT-03 | ALTO | INTEGRATIONS EN/PT sem bloco 0.1.3 | RESOLVIDO |
+| D-ROOT-04 | ALTO | llms.txt / llms.pt-BR / llms-full em 0.1.2 | RESOLVIDO |
+| D-ROOT-05 | MÉDIO | Sem `llms-full.pt-BR.txt` | RESOLVIDO |
+| D-ROOT-06 | MÉDIO | Redis/LH/`binary_source`/cache keys ausentes fora CHANGELOG EN | RESOLVIDO |
+| D-ROOT-07 | MÉDIO | `run` só NDJSON documentado | RESOLVIDO (NDJSON\|array) |
+| D-ROOT-08 | BAIXO | SECURITY sem rediss fail-closed | RESOLVIDO |
+| D-ROOT-09 | BAIXO | CHANGELOG EN A008 “ignored live” desalinhado | RESOLVIDO |
+
+### Arquivos atualizados
+- `CHANGELOG.md`, `CHANGELOG.pt-BR.md`
+- `README.md`, `README.pt-BR.md`
+- `INTEGRATIONS.md`, `INTEGRATIONS.pt-BR.md`
+- `llms.txt`, `llms.pt-BR.txt`, `llms-full.txt`, `llms-full.pt-BR.txt` (novo)
+- `SECURITY.md`, `SECURITY.pt-BR.md`
+- `CONTRIBUTING.md`, `CONTRIBUTING.pt-BR.md`
+
+### Fora de escopo desta passagem (próximos alvos se pedido)
+- Pasta `docs/` (HOW_TO_USE, AGENTS, COOKBOOK, MIGRATION, TESTING, schemas) ainda pode narrar 0.1.2
+- Pasta `skills/` (SKILL.md EN/PT) — consolidação imperativa separada
+- Schemas estáticos `sheet-write`/`sg-scan`/`sg-rewrite` em `docs/schemas/`
+
+*Fim — gaps.md fechamento documentação raiz 2026-07-18*
+
+
+## Fechamento documentação pasta docs/ (v0.1.3)
+
+**Data:** 2026-07-17  
+**Escopo:** inventário bilíngue de `docs/` vs gaps A001–A012 + polish Redis/LH  
+**Rules:** `docs_rules/rules_rust_documentacao.md` + `rules_rust_documentation_framework.md`  
+**Restrições:** sem CI/GitHub Actions; sem nomes proibidos; config só XDG via `config`; inventário completo de 59 comandos
+
+| ID | Severidade | Gap | Status |
+|----|------------|-----|--------|
+| D-DOCS-01 | CRÍTICO | HOW_TO_USE/COOKBOOK/AGENTS/TESTING/MIGRATION/schemas inventário 56 e e2e 52 | RESOLVIDO (59/53) |
+| D-DOCS-02 | CRÍTICO | Ausência de `sheet-write`/`sg-scan`/`sg-rewrite` em docs e schemas | RESOLVIDO |
+| D-DOCS-03 | CRÍTICO | MIGRATION sem seção 0.1.2 → 0.1.3 | RESOLVIDO |
+| D-DOCS-04 | ALTO | `run --script` só NDJSON (sem array JSON A003) | RESOLVIDO |
+| D-DOCS-05 | ALTO | `find-paths` sem `--glob` | RESOLVIDO |
+| D-DOCS-06 | ALTO | Lighthouse sem `binary_source` / ordem flag→XDG→PATH | RESOLVIDO |
+| D-DOCS-07 | ALTO | Redis/`rediss` fail-closed + chaves `cache_*`/`log_to_file` ausentes (13→16) | RESOLVIDO |
+| D-DOCS-08 | ALTO | Inventário incompleto (não listava todos os 59 nomes) | RESOLVIDO (seções Full Command Inventory) |
+| D-DOCS-09 | MÉDIO | TESTING residual smokes sem superfícies 0.1.3 | RESOLVIDO |
+| D-DOCS-10 | MÉDIO | schemas/README + `run`/`config`/`find-paths` estáticos defasados | RESOLVIDO |
+| D-DOCS-11 | BAIXO | CROSS_PLATFORM chaves XDG incompletas | RESOLVIDO |
+
+**Arquivos tocados:**  
+`docs/HOW_TO_USE.md`, `docs/HOW_TO_USE.pt-BR.md`, `docs/COOKBOOK.md`, `docs/COOKBOOK.pt-BR.md`,  
+`docs/AGENTS.md`, `docs/AGENTS.pt-BR.md`, `docs/MIGRATION.md`, `docs/MIGRATION.pt-BR.md`,  
+`docs/TESTING.md`, `docs/TESTING.pt-BR.md`, `docs/CROSS_PLATFORM.md`, `docs/CROSS_PLATFORM.pt-BR.md`,  
+`docs/schemas/README.md`, `docs/schemas/sheet-write.schema.json`, `docs/schemas/sg-scan.schema.json`,  
+`docs/schemas/sg-rewrite.schema.json`, `docs/schemas/find-paths.schema.json`, `docs/schemas/run.schema.json`,  
+`docs/schemas/config.schema.json` (+ regeneração via `scripts/generate_command_schemas.sh`)
+
+**Ainda OPEN (fora desta passagem):**  
+- live `schema --cmd config` alinhado em `meta.rs` com `list-keys` + 16 chaves (fechado; ver D-META-01)
+
+*Fim — gaps.md fechamento docs/ v0.1.3 2026-07-17*
+
+
+## Fechamento skills/ bilíngues (v0.1.3)
+
+**Data:** 2026-07-17  
+**Escopo:** `skills/browser-automation-cli-en/**` e `skills/browser-automation-cli-pt/**` vs gaps A001–A012 + polish Redis/LH  
+**Rules:** `docs_rules/rules_rust_documentacao.md` + `rules_rust_documentation_framework.md` + mandatos de skill (imperativo forte, description ≤1024, 1 colon só no key, auto-ativação, autocontida, sem histórico de versão)  
+**Restrições:** sem CI/GitHub Actions; sem nomes proibidos; config só XDG via `config`; inventário completo de 59 comandos; sem variáveis de ambiente de produto  
+
+| ID | Severidade | Gap | Status |
+|----|------------|-----|--------|
+| D-SKILL-01 | CRÍTICO | Inventário skill em 56 nomes (faltavam `sheet-write`/`sg-scan`/`sg-rewrite`) | RESOLVIDO (59) |
+| D-SKILL-02 | CRÍTICO | XDG 13 chaves (faltavam `log_to_file`, `cache_backend`, `cache_redis_url`) + sem `config list-keys` | RESOLVIDO (16 + list-keys) |
+| D-SKILL-03 | ALTO | `run --script` só NDJSON (sem array JSON) | RESOLVIDO |
+| D-SKILL-04 | ALTO | `find-paths` sem `--glob` | RESOLVIDO |
+| D-SKILL-05 | ALTO | Lighthouse sem `binary_source` / ordem flag→XDG→PATH | RESOLVIDO |
+| D-SKILL-06 | ALTO | Redis/`rediss` fail-closed ausente nos playbooks | RESOLVIDO |
+| D-SKILL-07 | ALTO | `references/formulas.md` inventário 56 e sem novos comandos | RESOLVIDO (59 + fórmulas) |
+| D-SKILL-08 | MÉDIO | `evals/queries.json` sem gatilhos das novas superfícies | RESOLVIDO |
+| D-SKILL-09 | MÉDIO | Description defasada (56 cmds / 13 keys / sem auto-ativação completa) | RESOLVIDO (≤1024, 0 `:` no valor) |
+| D-SKILL-10 | BAIXO | Menções históricas de inventário 56 no corpo PT | RESOLVIDO (conteúdo consolidado) |
+
+**Arquivos tocados:**  
+`skills/browser-automation-cli-en/SKILL.md`, `skills/browser-automation-cli-en/references/formulas.md`, `skills/browser-automation-cli-en/evals/queries.json`,  
+`skills/browser-automation-cli-pt/SKILL.md`, `skills/browser-automation-cli-pt/references/formulas.md`, `skills/browser-automation-cli-pt/evals/queries.json`
+
+**Validação pós-fechamento:**  
+- description EN 991 chars / PT 986 chars; 0 `:` no valor  
+- 59/59 nomes em SKILL + formulas (ambos idiomas)  
+- 16/16 chaves XDG + `config set` por chave + `list-keys`  
+- playbooks NDJSON + array JSON + fail-fast `data.steps` + sheet-write + sg-scan + sg-rewrite + redis plain + lighthouse `binary_source` + find-paths `--glob`  
+- 0 nomes proibidos; 0 histórico de versão no corpo da skill  
+- evals EN 15 true / 9 false; PT 17 true / 10 false  
+
+**Ainda OPEN (fora de skills):**  
+- live `schema --cmd config` alinhado em `meta.rs` com `list-keys` + 16 chaves (fechado; ver D-META-01)
+
+*Fim — gaps.md fechamento skills/ v0.1.3 2026-07-17*
+
+
+## Fechamento CLAUDE.md (v0.1.3)
+
+**Data:** 2026-07-17  
+**Escopo:** bloco `# browser-automation-cli` em `CLAUDE.md` vs superfície viva do binário `0.1.3` (`commands --json` = 59) + gaps A001–A012 + polish Redis/LH + fechamentos D-ROOT/D-DOCS/D-SKILL  
+**Fontes externas:** `context7` (`/websites/code_claude`, `/anthropics/claude-code`) para prática de memória de projeto; `duckduckgo-search-cli` para pesquisa de práticas CLAUDE.md  
+**Restrições:** sem CI/GitHub Actions; sem nomes proibidos de concorrentes; config só XDG via `config`; inventário completo de 59 comandos; sem env vars de produto  
+
+| ID | Severidade | Gap | Status |
+|----|------------|-----|--------|
+| D-CLAUDE-01 | CRÍTICO | Inventário CLAUDE em 56 nomes (faltavam `sheet-write`/`sg-scan`/`sg-rewrite`) | RESOLVIDO (59) |
+| D-CLAUDE-02 | CRÍTICO | XDG 13 chaves (faltavam `log_to_file`, `cache_backend`, `cache_redis_url`) + sem `config list-keys` | RESOLVIDO (16 + list-keys) |
+| D-CLAUDE-03 | ALTO | `run --script` só NDJSON (sem array JSON) | RESOLVIDO |
+| D-CLAUDE-04 | ALTO | `find-paths` sem `--glob` | RESOLVIDO |
+| D-CLAUDE-05 | ALTO | Lighthouse sem `binary_source` / ordem flag→XDG→PATH | RESOLVIDO |
+| D-CLAUDE-06 | ALTO | Redis/`rediss` fail-closed ausente no bloco CLAUDE | RESOLVIDO |
+| D-CLAUDE-07 | ALTO | Catálogo de fórmulas sem `sheet-write`/`sg-scan`/`sg-rewrite` | RESOLVIDO |
+| D-CLAUDE-08 | MÉDIO | Paridade e2e documentada como 52 (vivo = 53 tools) | RESOLVIDO (53) |
+| D-CLAUDE-09 | MÉDIO | Checklist do agente defasado (56/13) | RESOLVIDO (59/16) |
+| D-CLAUDE-10 | BAIXO | Lembrete final e proibições sem anti-regressão 56/13 | RESOLVIDO |
+
+**Arquivo tocado:** `CLAUDE.md` (somente seção `# browser-automation-cli`; regras universais e blocos de outras CLIs preservados)
+
+**Validação pós-fechamento:**  
+- `commands --json` length 59; 0 nomes do inventário vivo ausentes na seção  
+- `config list-keys` 16/16 chaves presentes na seção  
+- fórmulas executáveis para todos os 59 comandos no catálogo  
+- playbooks NDJSON + array JSON + fail-fast `data.steps` + sheet-write + sg + redis plain + lighthouse `binary_source` + find-paths `--glob`  
+- 0 nomes proibidos de concorrentes; menções a 56/13 só em linhas FORBIDDEN anti-regressão  
+
+**Ainda OPEN (fora de CLAUDE.md):**  
+- live `schema --cmd config` alinhado em `meta.rs` com `list-keys` + 16 chaves (fechado; ver D-META-01)
+
+*Fim — gaps.md fechamento CLAUDE.md v0.1.3 2026-07-17*
+
+
+## Fechamento meta schema config/run (v0.1.3)
+
+**Data:** 2026-07-17  
+**Escopo:** `src/commands_prd/meta.rs` live `schema --cmd config` e `schema --cmd run`  
+**Problema:** fragmento live omitia `list-keys` e chaves `log_to_file`/`cache_backend`/`cache_redis_url`; `run` só documentava NDJSON  
+
+| ID | Severidade | Gap | Status |
+|----|------------|-----|--------|
+| D-META-01 | ALTO | `schema --cmd config` sem action `list-keys` | RESOLVIDO |
+| D-META-02 | ALTO | `schema --cmd config` key desc sem `log_to_file`/`cache_backend`/`cache_redis_url` | RESOLVIDO |
+| D-META-03 | MÉDIO | `schema --cmd run` sem array JSON | RESOLVIDO |
+| D-META-04 | MÉDIO | Sem teste de regressão do fragmento config | RESOLVIDO |
+
+**Arquivo tocado:** `src/commands_prd/meta.rs`  
+
+**Validação:**  
+- `cargo test --release --lib commands_prd::meta::tests` → 4 passed  
+- live `schema --cmd config` enum inclui `list-keys`; key desc lista as 16 chaves  
+- live `schema --cmd run` documenta NDJSON e array JSON  
+- alinhado com `docs/schemas/config.schema.json` e `docs/schemas/run.schema.json`  
+
+*Fim — gaps.md fechamento meta schema v0.1.3 2026-07-17*

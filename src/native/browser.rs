@@ -343,6 +343,11 @@ impl BrowserManager {
         None
     }
 
+    /// Temporary user-data-dir created for this one-shot launch, if any.
+    pub fn temp_user_data_dir(&self) -> Option<&std::path::Path> {
+        self.temp_user_data_dir.as_deref()
+    }
+
     pub async fn launch(options: LaunchOptions, engine: Option<&str>) -> Result<Self, String> {
         let engine = engine.unwrap_or("chrome");
 

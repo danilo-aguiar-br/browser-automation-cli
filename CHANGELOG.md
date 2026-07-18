@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-17
+
+
+### Documentation
+- Public root docs (README, INTEGRATIONS, llms*, SECURITY, CONTRIBUTING) synchronized to v0.1.3 surface (59 commands, Redis/Lighthouse honesty, A001–A012)
+- `CHANGELOG.pt-BR.md` mirrors full 0.1.3 hard-close; added `llms-full.pt-BR.txt`
+### Fixed (Redis live + Lighthouse real polish)
+- Redis cache: always-on RESP mock TCP roundtrip (no `#[ignore]`, no product env); optional real `redis-server` spawn when on PATH; doctor `cache_redis` health from XDG
+- Lighthouse: resolve flag → XDG → PATH; envelope `binary_source`/`binary_present`; doctor reports source; e2e labels `source=real|mock`
+
+### Fixed (hard-close GAP-A001…A012)
+- E2E residual assert no longer self-matches scanners; pipefail-safe empty match (GAP-A001)
+- FINALIZE scavenges owned Chromium tmp orphans (GAP-A002)
+- `run --script` accepts NDJSON or JSON array of steps (GAP-A003)
+- `scrape --engine http` rejects `file://` with Usage + browser/parse suggestion (GAP-A004)
+- `reload` uses CDP `Page.reload` + `ignoreCache` (GAP-A005)
+- `init_script` removed after navigation/reload (GAP-A006)
+- Redis `rediss://` fail-closed (GAP-A007); always-on RESP mock roundtrip + optional live redis when `redis-server` is on PATH (GAP-A008)
+- `handle_before_unload` auto-accepts via CDP without `preventDefault` inject (GAP-A009)
+- Doctor lighthouse reports XDG path suggestion honestly (GAP-A010)
+- Unknown modern CDP events ignored so capture continues (GAP-A012)
+
+### Added (GAP-A011 PRD pillars)
+- `find-paths --glob` shell-style filter
+- `sheet-write` CSV/JSON to XLSX via `rust_xlsxwriter`
+- `sg-scan` / `sg-rewrite` one-shot structural lint (dry-run default)
+
+### Fixed
+- `goto` wires `--init-script`, `--handle-before-unload`, and `--navigation-timeout-ms` (no silent discard) via CDP `Page.addScriptToEvaluateOnNewDocument`
+- Doctor never suggests `npm`; `--fix` / `--offline` are wired; lighthouse fix points to `config set lighthouse_path`
+- `console list` / `net list` `--include-preserved` uses a process-local navigation ring buffer with honest `include_preserved_mode`
+- Lighthouse `--mode snapshot` maps to `--gather-mode=snapshot` (mock echoes argv)
+- `reload --init-script` single-shot rejects blank sessions; multi-step `run` applies init on reload
+- Extension uninstall unloads in-process targets with explicit `effect` (`unloaded` | `metadata_only`)
+- Residual ledger fills `profile_dir` + Singleton side-channels; FINALIZE wipes owned paths only
+- Windows Job Object helpers for residual-zero reap (`win_job`)
+- i18n pt-BR critical suggestions use correct accents (invocação, propósito, obrigatórios, não)
+- Parse path uses XDG HTTP/parse cache (no discarded cache dir)
+
+### Added
+- `page tab-id` (tool-ref `get_tab_id`) — inventory 53 tools
+- `eval --service-worker-id` evaluates in extension service worker targets
+- `config list-keys` for XDG key discovery
+- `RetryConfig` module with backoff/jitter; proptest offline parsers
+- Layered HTTP cache (memory L1 + SQLite L2 under XDG); optional `log_to_file` rotated logs
+- `scripts/inventory_diff_base.sh` local inventory gate; e2e harness cleans `/tmp/ba-e2e-*` on success
+
 ## [0.1.2] - 2026-07-17
 
 ### Fixed

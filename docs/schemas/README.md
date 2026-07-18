@@ -31,14 +31,14 @@ bash scripts/generate_command_schemas.sh --check
 - Generator reads the live inventory from `commands --json` / `schema --cmd`
 - Writes one `docs/schemas/<cmd>.schema.json` per inventory command
 - Does **not** overwrite `envelope-success.schema.json`, `envelope-error.schema.json`, or `run-script-step.schema.json`
-- After adding commands such as `print-pdf`, `monitor`, `qr`, or `find-paths`, re-run the generator
+- After adding commands such as `print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan`, or `sg-rewrite`, re-run the generator
 
 ### Envelopes and non-command contracts
 - `envelope-success.schema.json` — success stdout envelope
 - `envelope-error.schema.json` — error stdout envelope under `--json` (may include partial `data` for fail-fast multi-step)
-- `run-script-step.schema.json` — one NDJSON step for `run --script`
+- `run-script-step.schema.json` — one step for `run --script` (NDJSON line or JSON array element)
 
-### Command input schemas (56 — full inventory)
+### Command input schemas (59 — full inventory)
 
 #### Meta and discovery
 - `doctor.schema.json` — `doctor`
@@ -86,7 +86,7 @@ bash scripts/generate_command_schemas.sh --check
 - `screencast.schema.json` — `screencast`
 
 #### Multi-step
-- `run.schema.json` — `run`
+- `run.schema.json` — `run` (script path; body is NDJSON or JSON array)
 - `exec.schema.json` — `exec`
 
 #### Local scrape / crawl / parse surface
@@ -99,7 +99,10 @@ bash scripts/generate_command_schemas.sh --check
 
 #### Local IO helpers (no Chrome)
 - `qr.schema.json` — `qr` (`encode` / `decode`)
-- `find-paths.schema.json` — `find-paths`
+- `find-paths.schema.json` — `find-paths` (`--glob`)
+- `sheet-write.schema.json` — `sheet-write`
+- `sg-scan.schema.json` — `sg-scan`
+- `sg-rewrite.schema.json` — `sg-rewrite`
 
 #### Config, MITM, workflow
 - `config.schema.json` — `config`
@@ -110,7 +113,7 @@ bash scripts/generate_command_schemas.sh --check
 - `emulate.schema.json` — `emulate`
 - `resize.schema.json` — `resize`
 - `perf.schema.json` — `perf`
-- `lighthouse.schema.json` — `lighthouse`
+- `lighthouse.schema.json` — `lighthouse` (input; envelope may include `binary_source` real|mock)
 - `heap.schema.json` — `heap`
 
 #### Category-gated surfaces
@@ -121,8 +124,8 @@ bash scripts/generate_command_schemas.sh --check
 ### Live CLI vs static snapshots
 - Always treat `schema --cmd <name> --json` as authoritative for the installed binary
 - After upgrading the CLI, re-run `scripts/generate_command_schemas.sh`
-- Use `commands --json` to confirm inventory membership after upgrades (56 commands)
-- DevTools e2e suite remains 52 tools; inventory schemas cover the full 56-command surface
+- Use `commands --json` to confirm inventory membership after upgrades (59 commands)
+- DevTools e2e suite remains 53 tools; inventory schemas cover the full 59-command surface
 - Bilingual fence audit: `bash scripts/audit_bilingual_docs.sh`
 
 
@@ -150,14 +153,14 @@ bash scripts/generate_command_schemas.sh --check
 - O gerador lê o inventário vivo de `commands --json` / `schema --cmd`
 - Grava um `docs/schemas/<cmd>.schema.json` por comando do inventário
 - **Não** sobrescreve `envelope-success.schema.json`, `envelope-error.schema.json` ou `run-script-step.schema.json`
-- Após adicionar comandos como `print-pdf`, `monitor`, `qr` ou `find-paths`, reexecute o gerador
+- Após adicionar comandos como `print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan` ou `sg-rewrite`, reexecute o gerador
 
 ### Envelopes e contratos fora de comando
 - `envelope-success.schema.json` — envelope de sucesso no stdout
 - `envelope-error.schema.json` — envelope de erro no stdout com `--json` (pode incluir `data` parcial em fail-fast multi-passo)
-- `run-script-step.schema.json` — um passo NDJSON para `run --script`
+- `run-script-step.schema.json` — um passo para `run --script` (linha NDJSON ou elemento de array JSON)
 
-### Schemas de input de comando (56 — inventário completo)
+### Schemas de input de comando (59 — inventário completo)
 
 #### Meta e descoberta
 - `doctor.schema.json` — `doctor`
@@ -205,7 +208,7 @@ bash scripts/generate_command_schemas.sh --check
 - `screencast.schema.json` — `screencast`
 
 #### Multi-passo
-- `run.schema.json` — `run`
+- `run.schema.json` — `run` (script path; body is NDJSON or JSON array)
 - `exec.schema.json` — `exec`
 
 #### Superfície local de scrape / crawl / parse
@@ -218,7 +221,10 @@ bash scripts/generate_command_schemas.sh --check
 
 #### Helpers de IO local (sem Chrome)
 - `qr.schema.json` — `qr` (`encode` / `decode`)
-- `find-paths.schema.json` — `find-paths`
+- `find-paths.schema.json` — `find-paths` (`--glob`)
+- `sheet-write.schema.json` — `sheet-write`
+- `sg-scan.schema.json` — `sg-scan`
+- `sg-rewrite.schema.json` — `sg-rewrite`
 
 #### Config, MITM, workflow
 - `config.schema.json` — `config`
@@ -229,7 +235,7 @@ bash scripts/generate_command_schemas.sh --check
 - `emulate.schema.json` — `emulate`
 - `resize.schema.json` — `resize`
 - `perf.schema.json` — `perf`
-- `lighthouse.schema.json` — `lighthouse`
+- `lighthouse.schema.json` — `lighthouse` (input; envelope may include `binary_source` real|mock)
 - `heap.schema.json` — `heap`
 
 #### Superfícies com gate de categoria
@@ -240,8 +246,8 @@ bash scripts/generate_command_schemas.sh --check
 ### CLI ao vivo vs snapshots estáticos
 - Trate sempre `schema --cmd <name> --json` como autoritativo para o binário instalado
 - Após atualizar a CLI, reexecute `scripts/generate_command_schemas.sh`
-- Use `commands --json` para confirmar inventário após upgrades (56 comandos)
-- A suite e2e DevTools permanece com 52 tools; os schemas de inventário cobrem a superfície completa de 56 comandos
+- Use `commands --json` para confirmar inventário após upgrades (59 comandos)
+- A suite e2e DevTools permanece com 53 tools; os schemas de inventário cobrem a superfície completa de 59 comandos
 - Auditoria bilíngue de fences: `bash scripts/audit_bilingual_docs.sh`
 
 

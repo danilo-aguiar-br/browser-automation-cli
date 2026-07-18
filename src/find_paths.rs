@@ -27,6 +27,8 @@ pub struct FindPathsOpts {
     pub entry_type: Option<String>,
     /// Max results (0 = unlimited).
     pub limit: usize,
+    /// Optional glob pattern (fd-like; GAP-A011 / §5AE). Matched against full path.
+    pub glob: Option<String>,
 }
 
 impl Default for FindPathsOpts {
@@ -40,6 +42,7 @@ impl Default for FindPathsOpts {
             max_depth: None,
             entry_type: None,
             limit: 10_000,
+            glob: None,
         }
     }
 }
@@ -107,6 +110,11 @@ pub fn find_paths(opts: &FindPathsOpts) -> Result<Value, CliError> {
                     continue;
                 }
             }
+            if let Some(ref g) = opts.glob {
+                if !glob_match(g, path) {
+                    continue;
+                }
+            }
             paths.push(path.display().to_string());
             if opts.limit > 0 && paths.len() >= opts.limit {
                 break;
@@ -120,9 +128,66 @@ pub fn find_paths(opts: &FindPathsOpts) -> Result<Value, CliError> {
         "count": paths.len(),
         "paths": paths,
         "pattern": opts.pattern,
+        "glob": opts.glob,
         "engine": "ignore",
         "chrome": false,
     }))
+}
+
+/// Match a path against a shell-style glob (GAP-A011). Uses `globset` when available via
+/// a lightweight converter for `*`, `?`, and `**`.
+fn glob_match(pattern: &str, path: &Path) -> bool {
+    let path_s = path.to_string_lossy();
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    // Prefer full-path match; also try basename for patterns without `/`.
+    if glob_match_str(pattern, &path_s) {
+        return true;
+    }
+    if !pattern.contains('/') {
+        return glob_match_str(pattern, name);
+    }
+    false
+}
+
+fn glob_match_str(pattern: &str, text: &str) -> bool {
+    // Convert simple glob → regex (case-insensitive).
+    let mut re = String::from("(?i)^");
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '*' if i + 1 < chars.len() && chars[i + 1] == '*' => {
+                re.push_str(".*");
+                i += 2;
+                if i < chars.len() && chars[i] == '/' {
+                    i += 1;
+                }
+            }
+            '*' => {
+                re.push_str("[^/]*");
+                i += 1;
+            }
+            '?' => {
+                re.push_str("[^/]");
+                i += 1;
+            }
+            '.' | '+' | '(' | ')' | '|' | '^' | '$' | '{' | '}' | '[' | ']' | '\\' => {
+                re.push('\\');
+                re.push(chars[i]);
+                i += 1;
+            }
+            c => {
+                re.push(c);
+                i += 1;
+            }
+        }
+    }
+    re.push('$');
+    RegexBuilder::new(&re)
+        .case_insensitive(true)
+        .build()
+        .map(|r| r.is_match(text))
+        .unwrap_or(false)
 }
 
 /// Normalize roots from CLI paths.

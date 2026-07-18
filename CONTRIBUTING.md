@@ -52,7 +52,7 @@ browser-automation-cli doctor --offline --quick --json
 - Refresh skill packages under `skills/` when command surface changes
 - Keep product settings documented as flags plus `config` XDG only
 - Do not invent or document product environment variables for settings
-- When adding commands, update README Commands, INTEGRATIONS New Flags, llms-full Command Surface, COOKBOOK recipes, skills, and MIGRATION
+- When adding commands, update README Commands, INTEGRATIONS New Flags, llms.txt / llms-full Command Surface (EN+pt-BR), COOKBOOK recipes, skills, MIGRATION, and inventory counts (59 top-level / 53 e2e tools as of 0.1.3)
 
 ## Report Bugs
 - Open a GitHub issue with `browser-automation-cli --version`

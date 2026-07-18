@@ -8,7 +8,7 @@
 ## Nota de Latência
 - O launch do Chrome domina o cold start em comandos com engine browser
 - Prefira um script `run` a muitos launches separados quando os passos compartilham estado
-- Scrape HTTP, crawl, map, search, parse, qr e find-paths evitam Chrome quando só precisa de conteúdo ou IO local
+- Scrape HTTP, crawl, map, search, parse, qr, find-paths, sheet-write, sg-scan e sg-rewrite evitam Chrome quando só precisa de conteúdo ou IO local
 - Cada processo é BORN, EXECUTE, FINALIZE, DIE sem browser compartilhado entre invocações
 
 
@@ -43,7 +43,7 @@ browser-automation-cli --json config get encryption_key
 browser-automation-cli --json config get color
 ```
 - `config init` cria dirs XDG e o `config.toml` default
-- Chaves suportadas (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Chaves suportadas (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Flags sempre sobrescrevem o arquivo de config naquela invocação
 - Settings de produto usam só flags e `config path|init|show|set|get`
 
@@ -314,8 +314,10 @@ browser-automation-cli --json qr decode --path /tmp/qr.png
 ## Como Encontrar Paths no Disco
 ```bash
 browser-automation-cli --json find-paths 'Cargo.*' .
+browser-automation-cli --json find-paths --glob '**/*.rs' .
 ```
 - Descoberta de paths estilo fd sob o nome do binário `browser-automation-cli`
+- Use `--glob` para filtros estilo shell (GAP-A011)
 - Sem launch de Chrome
 
 
@@ -403,6 +405,113 @@ browser-automation-cli completions fish
 - Redirecione stdout para o diretório de completions do shell conforme necessário
 
 
+
+## Como Escrever Planilhas (sheet-write)
+```bash
+printf 'name,score\nalice,10\nbob,9\n' > /tmp/rows.csv
+browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx --sheet Data
+```
+- Escreve um XLSX simples a partir de CSV ou JSON array-of-objects
+- Sem Chrome
+- Use `--sheet` para nomear a planilha (padrão `Sheet1`)
+
+
+## Como Fazer Lint Estrutural Com sg-scan
+```bash
+browser-automation-cli --json sg-scan . --limit 100
+```
+- Lint estrutural one-shot para padrões proibidos de produto
+- Sem Chrome
+- `--limit 0` significa findings ilimitados
+
+
+## Como Dry-run e Aplicar sg-rewrite
+```bash
+browser-automation-cli --json sg-rewrite .
+browser-automation-cli --json sg-rewrite . --apply
+```
+- Padrão é relatório dry-run
+- Passe `--apply` para gravar correções known-safe
+- Sem Chrome
+
+
+## Como Encontrar Paths Com --glob
+```bash
+browser-automation-cli --json find-paths --glob '**/*.rs' .
+browser-automation-cli --json find-paths 'Cargo.*' . --extension rs
+```
+- `--glob` é filtro glob estilo shell (GAP-A011)
+- Pattern regex e `--glob` combinam com outros filtros
+- Sem Chrome
+
+
+## Como Rodar Script em Array JSON
+```bash
+cat > /tmp/demo.array.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"view"}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/demo.array.json
+```
+- `run --script` aceita NDJSON **ou** um array JSON de objetos de passo
+- Mesmo ciclo de vida: BORN EXECUTE FINALIZE DIE
+- Erros fail-fast ainda podem incluir `data.steps` parcial
+
+
+## Como Ler binary_source do Lighthouse
+```bash
+browser-automation-cli --timeout 60 --json lighthouse https://example.com \
+  --lighthouse-path ./scripts/mock-lighthouse.sh \
+  | jaq '.data.binary_source // .binary_source // .'
+```
+- Ordem de resolve: flag `--lighthouse-path` → XDG `lighthouse_path` → PATH
+- Envelope reporta `binary_source` como `real` ou `mock`
+- Mock é honesty para e2e/smoke, não auditoria de produção
+
+
+## Como Configurar Cache Redis Com Honesty
+```bash
+browser-automation-cli --json config set cache_backend redis
+browser-automation-cli --json config set cache_redis_url redis://127.0.0.1:6379
+browser-automation-cli doctor --offline --quick --json
+```
+- Cache só via XDG com `config set` / `config get` / `config list-keys`
+- Use apenas `redis://`; `rediss://` é fail-closed (cliente TCP plain)
+- Doctor reporta `cache_redis` quando cache Redis está configurado
+
+
+## Como Cobrir Demais Comandos de Interação e Página
+```bash
+cat > /tmp/interact.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"keys","keys":"Tab"}
+{"cmd":"type","text":"hello"}
+{"cmd":"hover","target":"a"}
+{"cmd":"text"}
+{"cmd":"attr","selector":"a","name":"href"}
+{"cmd":"page","action":"list"}
+JSONL
+browser-automation-cli --timeout 90 --json run --script /tmp/interact.browser-automation.jsonl
+
+browser-automation-cli --timeout 60 --json reload --ignore-cache
+browser-automation-cli --json dialog --action accept
+browser-automation-cli --json exec --help >/dev/null
+
+browser-automation-cli --category-extensions --json extension list
+browser-automation-cli --category-third-party --json devtools3p list
+browser-automation-cli --category-webmcp --json webmcp list
+browser-automation-cli --experimental-screencast --json screencast --help >/dev/null
+browser-automation-cli --category-memory --json heap --help >/dev/null
+browser-automation-cli --json perf --help >/dev/null
+browser-automation-cli --json resize --help >/dev/null
+browser-automation-cli completions bash >/dev/null
+```
+- Cada nome de topo aparece em `commands --json` (59)
+- Prefira `schema --cmd <name>` antes de inventar argv em superfícies com gate
+
+
 ## Como Descobrir Schemas de Comando
 ```bash
 browser-automation-cli commands --json
@@ -412,12 +521,16 @@ browser-automation-cli schema --cmd print-pdf --json
 browser-automation-cli schema --cmd monitor --json
 browser-automation-cli schema --cmd qr --json
 browser-automation-cli schema --cmd find-paths --json
+browser-automation-cli schema --cmd sheet-write --json
+browser-automation-cli schema --cmd sg-scan --json
+browser-automation-cli schema --cmd sg-rewrite --json
+browser-automation-cli schema --cmd run --json
 browser-automation-cli schema --cmd batch-scrape --json
 browser-automation-cli schema --cmd config --json
 browser-automation-cli schema --cmd mitm --json
 browser-automation-cli schema --cmd workflow --json
 ```
-- `commands` lista a superfície voltada a agentes (56 comandos)
+- `commands` lista a superfície voltada a agentes (59 comandos)
 - `schema --cmd` imprime um fragmento JSON Schema de um comando
 - Útil para registro de tools em frameworks de agentes
 
@@ -486,3 +599,21 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
 - Assert falha o processo quando a condição não é atendida
 - Assert de URL suporta match exato ou semântica contains (`contains` ou `url_contains`)
 - Assert de texto pode mirar seletor via `target` ou usar `text_contains`
+
+## Inventário Completo de Comandos (59)
+- Fonte viva: `browser-automation-cli commands --json` (59 nomes de topo)
+- O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53)
+- Lista completa de comandos de topo (cada nome é um subcomando real):
+  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
+  - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
+  - Observação: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
+  - Captura: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
+  - Multi-passo: `run`, `exec`
+  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - IO local (sem Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+  - Infra: `config`, `mitm`, `workflow`
+  - Emulação/perf: `emulate`, `resize`, `perf`, `heap`
+  - Portões de categoria: `extension`, `devtools3p`, `webmcp`
+- Descubra argv com `schema --cmd <name> --json` para qualquer nome acima
+

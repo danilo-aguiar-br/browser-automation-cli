@@ -7,8 +7,8 @@ mod run;
 use std::path::Path;
 
 use crate::browser::{
-    block_on_browser_timeout, run_goto_with_robots, run_keys, run_press, run_scrape, run_type,
-    run_view, run_write, CaptureOpts, OneShotSession,
+    block_on_browser_timeout, run_keys, run_press, run_scrape, run_type, run_view, run_write,
+    CaptureOpts, OneShotSession,
 };
 use crate::cli::{
     AssertKind, Cli, Commands, CompletionShell, ConfigAction, ConsoleAction, CookieAction,
@@ -306,6 +306,7 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             args,
             dialog_action,
             file_path,
+            service_worker_id,
         } => {
             match handle_eval(
                 life,
@@ -313,6 +314,7 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
                 args.as_deref(),
                 dialog_action.as_deref(),
                 file_path.as_deref(),
+                service_worker_id.as_deref(),
                 capture,
                 timeout_secs,
                 json,
@@ -542,6 +544,7 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             max_depth,
             entry_type,
             limit,
+            glob,
         } => match handle_find_paths(
             pattern.as_deref(),
             &paths,
@@ -551,11 +554,26 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             max_depth,
             entry_type.as_deref(),
             limit,
+            glob.as_deref(),
             json,
         ) {
             Ok(()) => 0,
             Err(e) => emit_err(&e, json),
         },
+        Commands::SgScan { paths, limit } => match handle_sg_scan(&paths, limit, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::SgRewrite { paths, apply } => match handle_sg_rewrite(&paths, apply, json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::SheetWrite { input, out, sheet } => {
+            match handle_sheet_write(&input, &out, &sheet, json) {
+                Ok(()) => 0,
+                Err(e) => emit_err(&e, json),
+            }
+        }
         Commands::Mitm { action } => match handle_mitm(action, json) {
             Ok(()) => 0,
             Err(e) => emit_err(&e, json),
@@ -803,11 +821,18 @@ fn handle_goto(
     handle_before_unload: bool,
     navigation_timeout_ms: Option<u64>,
 ) -> Result<(), CliError> {
-    let _ = (init_script, handle_before_unload, navigation_timeout_ms);
-    // init_script / beforeunload applied inside session when multi-step run is used;
-    // single-shot goto keeps robots path; flags accepted for tool-ref CLI parity.
+    let init = init_script.map(|s| s.to_string());
+    let url_owned = url.to_string();
     let data = block_on_browser_timeout(
-        run_goto_with_robots(life, url, capture, robots),
+        crate::browser::run_goto_with_options(
+            life,
+            &url_owned,
+            capture,
+            robots,
+            init.as_deref(),
+            handle_before_unload,
+            navigation_timeout_ms,
+        ),
         timeout_secs,
     )?;
     emit_ok(data, json, |d| {
@@ -1257,23 +1282,20 @@ fn handle_reload(
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
-    let init = init_script.map(|s| s.to_string());
+    // Single-shot reload without a prior URL cannot apply init_script meaningfully.
+    // Require multi-step `run` (session already on a document) OR reject blank-only.
+    if init_script.is_some() {
+        return Err(CliError::with_suggestion(
+            ErrorKind::Usage,
+            "reload --init-script requires multi-step `run` with a prior goto in the same process",
+            "Use: browser-automation-cli run --script steps.jsonl  (goto then reload --init-script …)",
+        ));
+    }
     let data = with_session_blank(life, capture, timeout_secs, move |mut session| async move {
-        if let Some(ref js) = init {
-            let _ = session.eval(js, None, Some("accept"), None).await;
-        }
-        if handle_before_unload {
-            // Best-effort: auto-accept any beforeunload via dialog handler
-            let _ = session
-                .eval(
-                    "window.addEventListener('beforeunload', e => { e.returnValue=''; });",
-                    None,
-                    Some("accept"),
-                    None,
-                )
-                .await;
-        }
-        let v = session.reload(ignore_cache).await?;
+        // GAP-A009/A005/A006: CDP Page.reload + dialog pump; no preventDefault inject.
+        let v = session
+            .reload_with_options(ignore_cache, None, handle_before_unload)
+            .await?;
         Ok((session, v))
     })?;
     emit_ok(data, json, |_| {
@@ -1288,6 +1310,7 @@ fn handle_eval(
     args: Option<&str>,
     dialog_action: Option<&str>,
     file_path: Option<&Path>,
+    service_worker_id: Option<&str>,
     capture: CaptureOpts,
     timeout_secs: u64,
     json: bool,
@@ -1296,24 +1319,32 @@ fn handle_eval(
     let args_owned = args.map(|s| s.to_string());
     let dialog_owned = dialog_action.map(|s| s.to_string());
     let path_owned = file_path.map(|p| p.to_path_buf());
+    let sw_owned = service_worker_id.map(|s| s.to_string());
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
             if let Ok(mut ledger) = life.ledger.lock() {
                 ledger.chrome_launched = true;
                 ledger.chrome_pid = session.chrome_pid();
+                if let Some(dir) = session.temp_user_data_dir() {
+                    ledger.profile_dir = Some(dir);
+                }
             }
-            let _ = session
-                .goto("about:blank", crate::robots::RobotsPolicy::Honor)
-                .await?;
-            let r = session
-                .eval(
-                    &expr,
-                    args_owned.as_deref(),
-                    dialog_owned.as_deref(),
-                    path_owned.as_deref(),
-                )
-                .await;
+            let r = if let Some(ref sw) = sw_owned {
+                session.eval_service_worker(sw, &expr).await
+            } else {
+                let _ = session
+                    .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+                    .await?;
+                session
+                    .eval(
+                        &expr,
+                        args_owned.as_deref(),
+                        dialog_owned.as_deref(),
+                        path_owned.as_deref(),
+                    )
+                    .await
+            };
             let close = session.shutdown().await;
             if let Ok(mut ledger) = life.ledger.lock() {
                 ledger.chrome_launched = false;
@@ -1930,11 +1961,26 @@ fn handle_page(
                 session.page_select(idx, bring_to_front).await?
             }
             PageAction::Close { index, page_id } => session.page_close(index.or(page_id)).await?,
+            PageAction::TabId => {
+                let tab = session.active_tab_id_string().ok_or_else(|| {
+                    CliError::with_suggestion(
+                        ErrorKind::Browser,
+                        "no active tab id",
+                        "Open a page first (goto / page new)",
+                    )
+                })?;
+                serde_json::json!({
+                    "tab_id": tab,
+                    "tool": "get_tab_id",
+                })
+            }
         };
         Ok((session, v))
     })?;
     emit_ok(data, json, |d| {
-        if let (Some(u), Some(t)) = (
+        if let Some(tab) = d.get("tab_id").and_then(|v| v.as_str()) {
+            println!("ok page tab-id={tab}");
+        } else if let (Some(u), Some(t)) = (
             d.get("url").and_then(|v| v.as_str()),
             d.get("title").and_then(|v| v.as_str()),
         ) {
@@ -2257,6 +2303,7 @@ fn handle_find_paths(
     max_depth: Option<usize>,
     entry_type: Option<&str>,
     limit: usize,
+    glob: Option<&str>,
     json: bool,
 ) -> Result<(), CliError> {
     let opts = crate::find_paths::FindPathsOpts {
@@ -2268,12 +2315,60 @@ fn handle_find_paths(
         max_depth,
         entry_type: entry_type.map(|s| s.to_string()),
         limit,
+        glob: glob.map(|s| s.to_string()),
     };
     let data = crate::find_paths::find_paths(&opts)?;
     emit_ok(data, json, |d| {
         println!(
             "ok find-paths count={}",
             d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
+        );
+    })
+}
+
+fn handle_sg_scan(paths: &[String], limit: usize, json: bool) -> Result<(), CliError> {
+    let roots: Vec<std::path::PathBuf> = if paths.is_empty() {
+        vec![std::path::PathBuf::from(".")]
+    } else {
+        paths.iter().map(std::path::PathBuf::from).collect()
+    };
+    let data = crate::sg_local::sg_scan(&roots, limit)?;
+    emit_ok(data, json, |d| {
+        println!(
+            "ok sg-scan count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
+        );
+    })
+}
+
+fn handle_sg_rewrite(paths: &[String], apply: bool, json: bool) -> Result<(), CliError> {
+    let roots: Vec<std::path::PathBuf> = if paths.is_empty() {
+        vec![std::path::PathBuf::from(".")]
+    } else {
+        paths.iter().map(std::path::PathBuf::from).collect()
+    };
+    let data = crate::sg_local::sg_rewrite(&roots, apply)?;
+    emit_ok(data, json, |d| {
+        println!(
+            "ok sg-rewrite apply={} planned={}",
+            d.get("apply").and_then(|v| v.as_bool()).unwrap_or(false),
+            d.get("planned").and_then(|v| v.as_u64()).unwrap_or(0)
+        );
+    })
+}
+
+fn handle_sheet_write(
+    input: &std::path::Path,
+    out: &std::path::Path,
+    sheet: &str,
+    json: bool,
+) -> Result<(), CliError> {
+    let data = crate::sheet_local::sheet_write(input, out, sheet)?;
+    emit_ok(data, json, |d| {
+        println!(
+            "ok sheet-write path={} rows={}",
+            d.get("path").and_then(|v| v.as_str()).unwrap_or(""),
+            d.get("rows").and_then(|v| v.as_u64()).unwrap_or(0)
         );
     })
 }
@@ -2336,6 +2431,7 @@ fn handle_config(action: ConfigAction, json: bool) -> Result<(), CliError> {
         ConfigAction::Show => crate::xdg::config_get(None)?,
         ConfigAction::Set { key, value } => crate::xdg::config_set(&key, &value)?,
         ConfigAction::Get { key } => crate::xdg::config_get(key.as_deref())?,
+        ConfigAction::ListKeys => crate::xdg::config_list_keys()?,
     };
     emit_ok(data, json, |d| println!("ok config {d}"))
 }
@@ -2442,6 +2538,93 @@ fn handle_perf(
     emit_ok(data, json, |d| println!("ok perf {d}"))
 }
 
+/// Where the lighthouse binary was resolved from (agent-honest; GAP-A010 / LH-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LighthouseSource {
+    /// Explicit `--lighthouse-path` flag.
+    Flag,
+    /// XDG `config set lighthouse_path`.
+    Xdg,
+    /// Found on PATH via which-equivalent.
+    Path,
+    /// Local e2e mock script (`mock-lighthouse`).
+    Mock,
+}
+
+impl LighthouseSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Flag => "flag",
+            Self::Xdg => "xdg",
+            Self::Path => "path",
+            Self::Mock => "mock",
+        }
+    }
+}
+
+/// Resolve lighthouse binary: flag → XDG → PATH (rules processos_externos).
+pub(crate) fn resolve_lighthouse_binary(
+    cli_path: Option<&Path>,
+) -> Result<(std::path::PathBuf, LighthouseSource), CliError> {
+    if let Some(p) = cli_path {
+        if p.is_file() {
+            let source = if p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.contains("mock-lighthouse"))
+            {
+                LighthouseSource::Mock
+            } else {
+                LighthouseSource::Flag
+            };
+            return Ok((p.to_path_buf(), source));
+        }
+        return Err(CliError::with_suggestion(
+            ErrorKind::Usage,
+            format!("lighthouse path not found: {}", p.display()),
+            "Pass an absolute executable path to --lighthouse-path",
+        ));
+    }
+    if let Some(xdg) = crate::xdg::lighthouse_path_from_config().filter(|s| !s.is_empty()) {
+        let p = Path::new(&xdg);
+        if p.is_file() {
+            let source = if xdg.contains("mock-lighthouse") {
+                LighthouseSource::Mock
+            } else {
+                LighthouseSource::Xdg
+            };
+            return Ok((p.to_path_buf(), source));
+        }
+    }
+    if let Some(p) = which_lighthouse() {
+        return Ok((Path::new(&p).to_path_buf(), LighthouseSource::Path));
+    }
+    Err(CliError::with_suggestion(
+        ErrorKind::Unavailable,
+        "lighthouse binary not found on PATH or XDG lighthouse_path",
+        crate::i18n::suggestion_key("lighthouse_missing", None),
+    ))
+}
+
+fn which_lighthouse() -> Option<String> {
+    std::env::var_os("PATH").and_then(|paths| {
+        for dir in std::env::split_paths(&paths) {
+            let candidate = dir.join("lighthouse");
+            if candidate.is_file() {
+                return Some(candidate.display().to_string());
+            }
+            #[cfg(windows)]
+            {
+                let candidate = dir.join("lighthouse.cmd");
+                if candidate.is_file() {
+                    return Some(candidate.display().to_string());
+                }
+            }
+        }
+        None
+    })
+}
+
 /// Run lighthouse binary and return envelope data (shared by CLI and `run` scripts).
 pub(crate) fn lighthouse_to_value(
     url: &str,
@@ -2450,10 +2633,8 @@ pub(crate) fn lighthouse_to_value(
     mode: &str,
     lighthouse_path: Option<&Path>,
 ) -> Result<serde_json::Value, CliError> {
-    let bin = lighthouse_path
-        .map(|p| p.display().to_string())
-        .or_else(crate::xdg::lighthouse_path_from_config)
-        .unwrap_or_else(|| "lighthouse".to_string());
+    let (bin_path, binary_source) = resolve_lighthouse_binary(lighthouse_path)?;
+    let bin = bin_path.display().to_string();
     let out = out_dir.map(|p| p.to_path_buf()).unwrap_or_else(|| {
         crate::xdg::cache_dir()
             .unwrap_or_else(|_| std::env::temp_dir().join("browser-automation-cli"))
@@ -2468,29 +2649,38 @@ pub(crate) fn lighthouse_to_value(
     };
     let mode_norm = if mode.eq_ignore_ascii_case("snapshot") {
         "snapshot"
-    } else {
+    } else if mode.eq_ignore_ascii_case("navigation") || mode.is_empty() {
         "navigation"
+    } else {
+        return Err(CliError::with_suggestion(
+            ErrorKind::Usage,
+            format!("unsupported lighthouse mode: {mode}"),
+            "Use --mode navigation or --mode snapshot",
+        ));
     };
-    // One-shot CLI always launches its own Chrome via lighthouse CLI for navigation mode.
+    // Map mode to real Lighthouse CLI args (GAP-006). Snapshot uses gather-mode.
     let html_path = out.join("report.html");
     let json_path = out.join("report.json");
-    let output = std::process::Command::new(&bin)
-        .arg(url)
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.arg(url)
         .arg("--quiet")
         .arg("--output=html")
         .arg("--output=json")
         .arg(format!("--output-path={}", out.join("report").display()))
         .arg(format!("--form-factor={form_factor}"))
         .arg("--chrome-flags=--headless=new")
-        .arg("--only-categories=accessibility,seo,best-practices")
-        .output()
-        .map_err(|e| {
-            CliError::with_suggestion(
-                ErrorKind::Unavailable,
-                format!("lighthouse spawn failed: {e}"),
-                crate::i18n::suggestion_key("lighthouse_missing", None),
-            )
-        })?;
+        .arg("--only-categories=accessibility,seo,best-practices");
+    if mode_norm == "snapshot" {
+        // Lighthouse user-flows / gather-mode snapshot (when supported by binary).
+        cmd.arg("--gather-mode=snapshot");
+    }
+    let output = cmd.output().map_err(|e| {
+        CliError::with_suggestion(
+            ErrorKind::Unavailable,
+            format!("lighthouse spawn failed: {e}"),
+            crate::i18n::suggestion_key("lighthouse_missing", None),
+        )
+    })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(CliError::with_suggestion(
@@ -2552,6 +2742,8 @@ pub(crate) fn lighthouse_to_value(
         "device": form_factor,
         "mode": mode_norm,
         "binary": bin,
+        "binary_source": binary_source.as_str(),
+        "binary_present": true,
         "out_dir": out.to_string_lossy(),
         "reports": {
             "html": report_html.to_string_lossy(),
@@ -2958,13 +3150,35 @@ fn handle_extension(
             emit_ok(data, json, |d| println!("ok extension trigger {d}"))
         }
         ExtensionAction::Uninstall { id } => {
-            // One-shot has no persistent Chrome profile: uninstall means "not loaded next process".
-            let data = serde_json::json!({
-                "uninstalled": id,
-                "persistent": false,
-                "note": "one-shot CLI does not keep extensions across processes; omit path on next install",
-            });
-            emit_ok(data, json, |_| println!("ok extension uninstall id={id}"))
+            let id = id.clone();
+            let id_print = id.clone();
+            // Prefer in-process unload when a session can be opened; otherwise honest metadata.
+            let data = block_on_browser_timeout(
+                async move {
+                    let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
+                    if let Ok(mut ledger) = life.ledger.lock() {
+                        ledger.chrome_launched = true;
+                        ledger.chrome_pid = session.chrome_pid();
+                        if let Some(dir) = session.temp_user_data_dir() {
+                            ledger.profile_dir = Some(dir);
+                        }
+                    }
+                    let v = session.extension_uninstall(&id).await;
+                    let close = session.shutdown().await;
+                    if let Ok(mut ledger) = life.ledger.lock() {
+                        ledger.chrome_launched = false;
+                        ledger.chrome_pid = None;
+                        ledger.profile_dir = None;
+                    }
+                    close?;
+                    v
+                },
+                timeout_secs,
+            )?;
+            emit_ok(data, json, |d| {
+                let effect = d.get("effect").and_then(|v| v.as_str()).unwrap_or("?");
+                println!("ok extension uninstall id={id_print} effect={effect}")
+            })
         }
     }
 }
@@ -3068,4 +3282,55 @@ fn handle_completions(shell: CompletionShell) -> Result<(), CliError> {
     }
     let _ = out.flush();
     Ok(())
+}
+
+#[cfg(test)]
+mod lighthouse_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn mock_lighthouse_parses_scores() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mock = root.join("scripts/mock-lighthouse.sh");
+        if !mock.is_file() {
+            eprintln!("skip: mock-lighthouse.sh missing");
+            return;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&mock, std::fs::Permissions::from_mode(0o755));
+        }
+        let out = tempfile::tempdir().expect("tmp");
+        let v = lighthouse_to_value(
+            "https://example.com",
+            Some(out.path()),
+            "desktop",
+            "navigation",
+            Some(&mock),
+        )
+        .expect("mock lighthouse");
+        assert_eq!(
+            v.get("binary_source").and_then(|s| s.as_str()),
+            Some("mock")
+        );
+        assert_eq!(
+            v.get("binary_present").and_then(|b| b.as_bool()),
+            Some(true)
+        );
+        let scores = v
+            .get("scores")
+            .and_then(|s| s.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert!(!scores.is_empty(), "expected scores from mock LHR, got {v}");
+    }
+
+    #[test]
+    fn resolve_missing_is_unavailable() {
+        let err =
+            resolve_lighthouse_binary(Some(Path::new("/no/such/lighthouse-bin-xyz"))).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Usage);
+    }
 }

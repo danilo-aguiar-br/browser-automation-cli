@@ -20,8 +20,8 @@
 - Robots and pipe behaviour tests (`tests/robots_http.rs`, `tests/pipe_broken.rs`)
 - Golden i18n and cold-start helpers (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Optional e2e CDP event coverage when Chrome is available (`tests/e2e_cdp_events.rs`)
-- Full **52-tool** DevTools e2e script (still): `scripts/e2e_all_52_tools.sh`
-- Live CLI inventory is **56 commands** (`commands --json`) — broader than the 52 tool-ref e2e set
+- Full **53-tool** DevTools e2e script (legacy filename): `scripts/e2e_all_52_tools.sh`
+- Live CLI inventory is **59 commands** (`commands --json`) — broader than the 53 tool-ref e2e set
 - Vendored tool-ref fixture: `tests/fixtures/tool-reference.md`
 
 
@@ -37,7 +37,7 @@ cargo fmt --check
 - Prefer library and schema gates first when iterating on contracts
 
 
-## E2E 52 Tools
+## E2E 53 Tools
 ```bash
 cargo build --release --locked
 bash scripts/e2e_all_52_tools.sh
@@ -45,12 +45,12 @@ bash scripts/e2e_all_52_tools.sh
 - Requires a release binary at `target/release/browser-automation-cli` (build with `cargo build --release --locked` first)
 - Exercises DevTools-parity tools against the local fixture page under `scripts/fixtures/e2e_page/`
 - Writes a report under a temp workdir and prints PASS/FAIL/SKIP counts
-- Maintainer evidence for v0.1.2: 52 PASS / 0 FAIL on a local host with Chrome
+- Maintainer evidence for v0.1.3: 53 PASS / 0 FAIL on a local host with Chrome (residual A001 closed)
 - The 52-tool suite does not replace residual smokes for commands outside the tool-ref set
 
 
-## Residual PRD Smokes (beyond 52 tools)
-Run after e2e when validating the full 56-command inventory:
+## Residual PRD Smokes (beyond 53 tools)
+Run after e2e when validating the full 59-command inventory:
 
 ```bash
 # print-pdf artifact
@@ -65,6 +65,32 @@ browser-automation-cli --json qr decode --path /tmp/qr.png
 
 # find-paths (no Chrome)
 browser-automation-cli --json find-paths 'Cargo.*' .
+browser-automation-cli --json find-paths --glob '**/*.rs' .
+
+
+# sheet-write / sg-scan / sg-rewrite (no Chrome)
+printf 'a,b\n1,2\n' > /tmp/rows.csv
+browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx
+browser-automation-cli --json sg-scan . --limit 20
+browser-automation-cli --json sg-rewrite .
+
+# find-paths --glob
+browser-automation-cli --json find-paths --glob '**/*.rs' .
+
+# run JSON array
+cat > /tmp/demo.array.json <<'JSON'
+[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/demo.array.json
+
+# config list-keys + redis honesty (no rediss)
+browser-automation-cli --json config list-keys
+# browser-automation-cli --json config set cache_backend redis
+# browser-automation-cli --json config set cache_redis_url redis://127.0.0.1:6379
+
+# lighthouse binary_source (mock)
+browser-automation-cli --json lighthouse https://example.com \
+  --lighthouse-path ./scripts/mock-lighthouse.sh | jaq '.data.binary_source // .'
 
 # parse PDF / DOCX with optional PII redact
 browser-automation-cli --json parse tests/fixtures/hello.pdf
@@ -83,8 +109,10 @@ browser-automation-cli --json lighthouse https://example.com \
   --lighthouse-path ./scripts/mock-lighthouse.sh
 ```
 - Use `--lighthouse-path` or XDG `lighthouse_path` to point at `scripts/mock-lighthouse.sh` when a real Lighthouse install is unavailable
+- Resolve order: flag → XDG `lighthouse_path` → PATH
+- Envelope reports `binary_source` as `real` or `mock`
 - The mock writes minimal HTML/JSON reports for smoke paths
-- Doctor reports lighthouse presence as informational when the binary is missing
+- Doctor reports lighthouse presence/source as informational when the binary is missing
 
 
 ## Local Validation Profiles
@@ -122,7 +150,7 @@ bash scripts/audit_bilingual_docs.sh
 - Schema gate failures: update both code and `docs/schemas/` in the same change
 - Command schema drift: re-run `bash scripts/generate_command_schemas.sh` after changing `meta.rs`
 - Bilingual fence drift: re-run `bash scripts/audit_bilingual_docs.sh` and align EN and `.pt-BR` command blocks
-- Inventory drift: refresh against `commands --json` (56) and `tests/fixtures/tool-reference.md` (52 tools)
+- Inventory drift: refresh against `commands --json` (59) and `tests/fixtures/tool-reference.md` (53 tools)
 - E2E script missing binary: run `cargo build --release --locked` first so `target/release/browser-automation-cli` exists
 - Lighthouse path missing: pass `--lighthouse-path ./scripts/mock-lighthouse.sh` or set XDG `lighthouse_path`
 - LLM extract fail-closed: expected without `config set openrouter_api_key`

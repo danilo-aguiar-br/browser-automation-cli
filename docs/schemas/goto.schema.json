@@ -6,7 +6,7 @@
   "description": "Navigate to URL and wait for load (one-shot)",
   "properties": {
     "handle_before_unload": {
-      "description": "Accept beforeunload dialogs automatically",
+      "description": "Auto-accept beforeunload dialogs via CDP (never injects preventDefault; tool-ref parity)",
       "type": "boolean"
     },
     "init_script": {

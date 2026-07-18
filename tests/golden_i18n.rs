@@ -71,3 +71,17 @@ fn lifecycle_signal_kinds_documented() {
     assert_eq!(ErrorKind::Timeout.exit_code(), 124);
     assert_eq!(ErrorKind::Cancelled.exit_code(), 130);
 }
+
+#[test]
+fn pt_br_suggestions_use_accents() {
+    use browser_automation_cli::i18n::suggestion_key;
+    let v = suggestion_key("vision_required", Some("pt"));
+    assert!(
+        v.contains("invocação"),
+        "expected accented pt-BR invocação: {v}"
+    );
+    let r = suggestion_key("robots_dual", Some("pt"));
+    assert!(r.contains("propósito"), "expected propósito: {r}");
+    let u = suggestion_key("run_fail_fast", Some("pt"));
+    assert!(u.contains("não"), "expected não: {u}");
+}

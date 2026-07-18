@@ -1,4 +1,4 @@
-[English](llms-full.txt) | [Português Brasileiro](llms.pt-BR.txt)
+[English](llms-full.txt) | [Português Brasileiro](llms-full.pt-BR.txt)
 
 # browser-automation-cli
 
@@ -27,31 +27,34 @@ Product settings are commands, flags, and XDG via `config path|init|show|set|get
 - [CODE_OF_CONDUCT](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CODE_OF_CONDUCT.md): Contributor Covenant 2.1
 - [LICENSE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/LICENSE): dual license pointer
 
-## Command Surface (v0.1.2)
-- Full inventory (56 top-level names via `commands --json`): doctor, commands, schema, version, goto, view, press, click-at, write, keys, type, wait, hover, drag, fill-form, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, extract, text, scroll, cookie, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, search, parse, qr, find-paths, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions
-- Discovery: doctor, commands, schema --cmd (goto/eval/type/scroll/assert expanded), version, completions
-- Config XDG: config init|path|show|get|set
-  - Keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model
-- Navigate: goto, back, forward, reload
+## Command Surface (v0.1.3)
+- Full inventory (59 top-level names via `commands --json`): doctor, commands, schema, version, goto, view, press, click-at, write, keys, type, wait, hover, drag, fill-form, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, extract, text, scroll, cookie, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, search, parse, qr, find-paths, sg-scan, sg-rewrite, sheet-write, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions
+- Discovery: doctor (browsers_dir, lighthouse source, cache_redis), commands, schema --cmd (goto/eval/type/scroll/assert expanded), version, completions
+- Config XDG: config init|path|show|get|set|list-keys
+  - Keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, log_to_file, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url
+- Navigate: goto, back, forward, reload (CDP Page.reload + ignoreCache; init_script removed after nav; handle_before_unload via CDP dialog)
 - Local scrape/crawl/map/search/parse:
-  - scrape --format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding --engine http|browser (browser applies formats via outerHTML)
+  - scrape --format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding --engine http|browser (browser applies formats via outerHTML; file:// + http → Usage)
   - batch-scrape, crawl, map, search (cleans uddg= SERP redirects), parse (PDF/DOCX/xlsx/ods + --redact-pii)
 - Interact: view, press, write, type, keys, wait (repeatable --text OR), hover, drag, fill-form, upload, click-at
 - Observe: extract (--llm/--question/--schema-json; XDG openrouter_api_key, llm_base_url, llm_model), text, scroll (run dy/dx aliases for delta_y/delta_x), attr (DOM property fallback), assert (url_contains/text_contains), grab --path
-- PDF / monitor / utils (some without Chrome): print-pdf (CDP Page.printToPDF), monitor check --url --baseline [--write-baseline], qr encode|decode, find-paths
-- Tabs: page, dialog, cookie
+- PDF / monitor / utils (some without Chrome): print-pdf (CDP Page.printToPDF), monitor check --url --baseline [--write-baseline], qr encode|decode, find-paths (--glob), sheet-write (CSV/JSON→XLSX), sg-scan, sg-rewrite
+- Tabs: page (incl. tab-id), dialog, cookie
 - Capture: console, net
 - MITM local one-shot: mitm init-ca|start|status|list|get|har|export|domains|apis (127.0.0.1 only; CA under XDG)
 - Workflow journal: workflow run|resume|status (SQLite journal under XDG state)
-- Advanced: eval, emulate, resize, perf, lighthouse (XDG lighthouse_path), screencast, heap, extension, devtools3p, webmcp, run (fail-fast may return partial data.steps), exec
+- Advanced: eval, emulate, resize, perf, lighthouse (flag→XDG lighthouse_path→PATH; binary_source real|mock), screencast, heap, extension, devtools3p, webmcp, run (NDJSON or JSON array of steps; fail-fast may return partial data.steps), exec
+- Lifecycle: BORN, EXECUTE, FINALIZE scavenges owned Chromium /tmp orphans, DIE
 - Lang: --lang pt-BR or config set lang localizes human suggestions
+- e2e: 53 DevTools parity tools residual-zero
 
 ## Settings Contract
-- Product settings: commands, flags, XDG via `config path|init|show|set|get` only
+- Product settings: commands, flags, XDG via `config path|init|show|set|get|list-keys` only
 - Encryption: `config set encryption_key` only
-- Logging: `--verbose`/`--debug`/`-q` or `config set log_level`
+- Logging: `--verbose`/`--debug`/`-q` or `config set log_level` / `log_to_file`
 - Color: `config set color true|false`
-- Chrome / Lighthouse: shell path or `config set chrome_path` / `config set lighthouse_path`
+- Chrome / Lighthouse: shell path or `config set chrome_path` / `config set lighthouse_path` (plus lighthouse flag)
+- Cache Redis: `config set cache_backend redis` + `cache_redis_url` (`redis://` only; `rediss://` fail-closed); doctor `cache_redis`
 
 ## Contract Basics
 - Success envelope: `{"schema_version":1,"ok":true,"data":...}`

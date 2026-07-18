@@ -11,7 +11,7 @@
 - Scripts multi-passo preservam refs de acessibilidade sem daemon
 - Gates de categoria mantêm superfícies experimentais opt-in
 - Superfície local de scrape / crawl / map / search / parse embarca como subcomandos de primeira classe
-- Helpers de artefato (`print-pdf`, `monitor`, `qr`, `find-paths`) e chaves LLM XDG estendem fluxos de agente sem daemons
+- Helpers de artefato (`print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) e chaves LLM XDG estendem fluxos de agente sem daemons
 - Defaults duráveis vivem em flags e XDG `config path|init|show|set|get`
 
 
@@ -57,12 +57,12 @@
 - Passe sempre `--json` para parsing por máquina
 - Leia envelopes de sucesso e erro no stdout
 - Mantenha stderr só para logs humanos ou debug
-- Use `commands --json` para descobrir o inventário vivo (**56 comandos**)
-- O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, extract e tools de paridade DevTools
+- Use `commands --json` para descobrir o inventário vivo (**59 comandos**)
+- O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract e tools de paridade DevTools (59 no total; e2e 53 tools)
 - Use `schema --cmd <name> --json` antes de gerar argv de comandos pouco familiares
 - Prefira flags para controle pontual
-- Use `config init|set|get|path|show` para defaults XDG duráveis
-- Chaves completas de config (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Use `config init|set|get|path|show|list-keys` para defaults XDG duráveis
+- Chaves completas de config (16) via `config list-keys`: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Resolva paths com `config path --json`
 - Para multi-passo que precisa de refs `@eN` compartilhadas, use um processo `run --script`
 - Wait com texto OR: `wait --text A --text B`
@@ -103,17 +103,36 @@ fn main() {
 
 
 ## Descoberta de Superfície para Agentes
-- Inventário: `browser-automation-cli commands --json` (56 comandos)
+- Inventário: `browser-automation-cli commands --json` (59 comandos)
 - Fragments de input: `browser-automation-cli schema --cmd <name> --json`
 - Paths de config: `browser-automation-cli config path --json`
-- Chaves de config: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Chaves de config: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - MITM: `mitm status|init-ca|start|list|get|har|export|domains|apis`
 - Workflow: `workflow run|resume|status`
 - Superfície local de scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
-- Artefatos e IO local: `print-pdf`, `monitor check`, `qr encode|decode`, `find-paths`
+- Artefatos e IO local: `print-pdf`, `monitor check`, `qr encode|decode`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
 - Extract LLM: `extract --llm --question …` (só chaves XDG)
-- Saúde: `doctor --json` (reporta descoberta de Chrome e XDG browsers_dir)
+- Saúde: `doctor --json` (reporta descoberta de Chrome, XDG browsers_dir, origem do lighthouse e `cache_redis` quando configurado)
+- Cache: XDG `cache_backend` (`sqlite|memory|redis`) e `cache_redis_url` (somente `redis://`; `rediss://` fail-closed)
+- Lighthouse: flag → XDG `lighthouse_path` → PATH; envelope `binary_source` é `real` ou `mock`
 
+
+## Inventário Completo de Comandos (59)
+- Fonte viva: `browser-automation-cli commands --json` (59 nomes de topo)
+- O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53)
+- Lista completa de comandos de topo (cada nome é um subcomando real):
+  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
+  - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
+  - Observação: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
+  - Captura: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
+  - Multi-passo: `run`, `exec`
+  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - IO local (sem Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+  - Infra: `config`, `mitm`, `workflow`
+  - Emulação/perf: `emulate`, `resize`, `perf`, `heap`
+  - Portões de categoria: `extension`, `devtools3p`, `webmcp`
+- Descubra argv com `schema --cmd <name> --json` para qualquer nome acima
 
 ## Ciclo de Vida
 - Slogan (English): BORN EXECUTE FINALIZE DIE
@@ -156,6 +175,10 @@ browser-automation-cli -q --timeout 60 --json scrape https://example.com --forma
 browser-automation-cli -q --json grab --path /tmp/page.png --full-page
 browser-automation-cli -q --json print-pdf --url https://example.com --path /tmp/page.pdf
 browser-automation-cli -q --json find-paths 'Cargo.*' .
+browser-automation-cli -q --json find-paths --glob '**/*.rs' .
+browser-automation-cli -q --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx
+browser-automation-cli -q --json sg-scan . --limit 50
+browser-automation-cli -q --json config list-keys
 ```
 
 

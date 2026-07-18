@@ -8,7 +8,7 @@
 ## Latency Note
 - Chrome launch dominates cold start on browser-engine commands
 - Prefer one `run` script over many separate launches when steps share state
-- HTTP scrape, crawl, map, search, parse, qr, and find-paths avoid Chrome when you only need content or local IO
+- HTTP scrape, crawl, map, search, parse, qr, find-paths, sheet-write, sg-scan, and sg-rewrite avoid Chrome when you only need content or local IO
 - Each process is BORN, EXECUTE, FINALIZE, DIE with no shared browser across invocations
 
 
@@ -43,7 +43,7 @@ browser-automation-cli --json config get encryption_key
 browser-automation-cli --json config get color
 ```
 - `config init` creates XDG dirs and default `config.toml`
-- Supported keys (13): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
+- Supported keys (16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Flags always override file config for that invocation
 - Product settings use only flags and `config path|init|show|set|get`
 
@@ -314,8 +314,10 @@ browser-automation-cli --json qr decode --path /tmp/qr.png
 ## How To Find Paths on Disk
 ```bash
 browser-automation-cli --json find-paths 'Cargo.*' .
+browser-automation-cli --json find-paths --glob '**/*.rs' .
 ```
 - fd-like path discovery under the binary name `browser-automation-cli`
+- Use `--glob` for shell-style filters (GAP-A011)
 - No Chrome launch
 
 
@@ -376,6 +378,8 @@ browser-automation-cli --timeout 180 --json lighthouse https://example.com
 browser-automation-cli --timeout 60 --json lighthouse https://example.com \
   --lighthouse-path ./scripts/mock-lighthouse.sh
 ```
+- Resolve order: flag `--lighthouse-path` → XDG `lighthouse_path` → PATH
+- Envelope reports `binary_source` as `real` or `mock`
 - Pass `--lighthouse-path` or XDG `lighthouse_path` to an external binary or mock script
 - Lighthouse itself is not embedded in the CLI
 
@@ -403,6 +407,116 @@ browser-automation-cli completions fish
 - Redirect stdout into your shell completion directory as needed
 
 
+
+## How To Write Spreadsheets (sheet-write)
+```bash
+printf 'name,score\nalice,10\nbob,9\n' > /tmp/rows.csv
+browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx --sheet Data
+```
+- Writes a simple XLSX workbook from CSV or JSON array-of-objects
+- No Chrome required
+- Use `--sheet` to name the worksheet (default `Sheet1`)
+
+
+## How To Structural-Lint With sg-scan
+```bash
+browser-automation-cli --json sg-scan . --limit 100
+```
+- One-shot structural lint for forbidden product patterns
+- No Chrome required
+- `--limit 0` means unlimited findings
+
+
+## How To Dry-run and Apply sg-rewrite
+```bash
+browser-automation-cli --json sg-rewrite .
+browser-automation-cli --json sg-rewrite . --apply
+```
+- Default is dry-run report only
+- Pass `--apply` to write known-safe fixes
+- No Chrome required
+
+
+## How To Find Paths With --glob
+```bash
+browser-automation-cli --json find-paths --glob '**/*.rs' .
+browser-automation-cli --json find-paths 'Cargo.*' . --extension rs
+```
+- `--glob` is shell-style glob filter (GAP-A011)
+- Regex `pattern` and `--glob` can be combined with other filters
+- No Chrome required
+
+
+## How To Run a JSON Array Script
+```bash
+cat > /tmp/demo.array.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"view"}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/demo.array.json
+```
+- `run --script` accepts NDJSON **or** a top-level JSON array of step objects
+- Same process lifecycle: BORN EXECUTE FINALIZE DIE
+- Fail-fast errors may still include partial `data.steps`
+
+
+## How To Read Lighthouse binary_source
+```bash
+browser-automation-cli --timeout 60 --json lighthouse https://example.com \
+  --lighthouse-path ./scripts/mock-lighthouse.sh \
+  | jaq '.data.binary_source // .binary_source // .'
+```
+- Resolve order: flag `--lighthouse-path` → XDG `lighthouse_path` → PATH
+- Envelope reports `binary_source` as `real` or `mock`
+- Mock is for e2e/smoke honesty, not production audits
+
+
+## How To Configure Redis Cache Honestly
+```bash
+browser-automation-cli --json config set cache_backend redis
+browser-automation-cli --json config set cache_redis_url redis://127.0.0.1:6379
+browser-automation-cli doctor --offline --quick --json
+```
+- Cache settings are XDG-only via `config set` / `config get` / `config list-keys`
+- Use `redis://` only; `rediss://` is fail-closed (plain TCP client)
+- Doctor reports `cache_redis` when Redis cache is configured
+
+
+## How To Cover Remaining Interaction and Page Commands
+```bash
+# keys / type / hover / drag / upload (same process as navigation)
+cat > /tmp/interact.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"keys","keys":"Tab"}
+{"cmd":"type","text":"hello"}
+{"cmd":"hover","target":"a"}
+{"cmd":"text"}
+{"cmd":"attr","selector":"a","name":"href"}
+{"cmd":"page","action":"list"}
+JSONL
+browser-automation-cli --timeout 90 --json run --script /tmp/interact.browser-automation.jsonl
+
+# dialog auto-handling, reload cache bypass, exec step surface
+browser-automation-cli --timeout 60 --json reload --ignore-cache
+browser-automation-cli --json dialog --action accept
+browser-automation-cli --json exec --help >/dev/null
+
+# category-gated surfaces (explicit flags)
+browser-automation-cli --category-extensions --json extension list
+browser-automation-cli --category-third-party --json devtools3p list
+browser-automation-cli --category-webmcp --json webmcp list
+browser-automation-cli --experimental-screencast --json screencast --help >/dev/null
+browser-automation-cli --category-memory --json heap --help >/dev/null
+browser-automation-cli --json perf --help >/dev/null
+browser-automation-cli --json resize --help >/dev/null
+browser-automation-cli completions bash >/dev/null
+```
+- Every top-level name appears in `commands --json` (59)
+- Prefer `schema --cmd <name>` before inventing argv for gated surfaces
+
+
 ## How To Discover Command Schemas
 ```bash
 browser-automation-cli commands --json
@@ -412,12 +526,16 @@ browser-automation-cli schema --cmd print-pdf --json
 browser-automation-cli schema --cmd monitor --json
 browser-automation-cli schema --cmd qr --json
 browser-automation-cli schema --cmd find-paths --json
+browser-automation-cli schema --cmd sheet-write --json
+browser-automation-cli schema --cmd sg-scan --json
+browser-automation-cli schema --cmd sg-rewrite --json
+browser-automation-cli schema --cmd run --json
 browser-automation-cli schema --cmd batch-scrape --json
 browser-automation-cli schema --cmd config --json
 browser-automation-cli schema --cmd mitm --json
 browser-automation-cli schema --cmd workflow --json
 ```
-- `commands` lists the agent-facing surface (56 commands)
+- `commands` lists the agent-facing surface (59 commands)
 - `schema --cmd` prints a JSON Schema fragment for one command
 - Useful for tool registration in agent frameworks
 
@@ -486,3 +604,21 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
 - Assert fails the process when the condition is not met
 - URL assert supports exact match or contains semantics (`contains` or `url_contains`)
 - Text assert can target a selector via `target` or use `text_contains`
+
+## Full Command Inventory (59)
+- Live source of truth: `browser-automation-cli commands --json` (59 top-level names)
+- DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53)
+- Full top-level command list (every name is a real subcommand):
+  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
+  - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
+  - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
+  - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
+  - Multi-step: `run`, `exec`
+  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - Local IO (no Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+  - Infra: `config`, `mitm`, `workflow`
+  - Emulation/perf: `emulate`, `resize`, `perf`, `heap`
+  - Category gates: `extension`, `devtools3p`, `webmcp`
+- Discover argv with `schema --cmd <name> --json` for any name above
+

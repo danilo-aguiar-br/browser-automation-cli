@@ -9,6 +9,54 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-17
+
+
+### Documentação
+- Docs públicas da raiz (README, INTEGRATIONS, llms*, SECURITY, CONTRIBUTING) sincronizadas com a superfície v0.1.3 (59 comandos, honestidade Redis/Lighthouse, A001–A012)
+- `CHANGELOG.pt-BR.md` espelha o hard-close 0.1.3 completo; adicionado `llms-full.pt-BR.txt`
+### Corrigido (polish Redis live + Lighthouse real)
+- Cache Redis: roundtrip RESP sempre ativo via mock TCP (sem `#[ignore]`, sem env de produto); spawn opcional de `redis-server` real quando estiver no PATH; doctor `cache_redis` a partir do XDG
+- Lighthouse: resolve flag → XDG → PATH; envelope `binary_source`/`binary_present`; doctor reporta a origem; e2e rotula `source=real|mock`
+
+### Corrigido (fechamento duro GAP-A001…A012)
+- Assert residual do e2e sem self-match de scanners; empty match seguro com pipefail (GAP-A001)
+- FINALIZE faz scavenge de órfãos Chromium em `/tmp` de propriedade da CLI (GAP-A002)
+- `run --script` aceita NDJSON ou array JSON de passos (GAP-A003)
+- `scrape --engine http` rejeita `file://` com Usage + sugestão browser/parse (GAP-A004)
+- `reload` usa CDP `Page.reload` + `ignoreCache` (GAP-A005)
+- `init_script` removido após navegação/reload (GAP-A006)
+- Redis `rediss://` fail-closed (GAP-A007); roundtrip mock sempre ativo + live opcional se houver binário (GAP-A008)
+- `handle_before_unload` auto-aceita via diálogo CDP sem inject de `preventDefault` (GAP-A009)
+- Doctor lighthouse reporta sugestão de path XDG com honestidade (GAP-A010)
+- Eventos CDP modernos desconhecidos são ignorados para a captura continuar (GAP-A012)
+
+### Adicionado (pilares PRD GAP-A011)
+- `find-paths --glob` com filtro estilo shell
+- `sheet-write` CSV/JSON → XLSX via `rust_xlsxwriter`
+- `sg-scan` / `sg-rewrite` lint estrutural one-shot (dry-run por padrão)
+
+### Corrigido
+- `goto` aplica `--init-script`, `--handle-before-unload` e `--navigation-timeout-ms` (sem descarte silencioso) via CDP `Page.addScriptToEvaluateOnNewDocument`
+- Doctor nunca sugere `npm`; `--fix` / `--offline` com efeito; correção lighthouse aponta para `config set lighthouse_path`
+- `console list` / `net list` `--include-preserved` usa ring buffer de navegações no processo com `include_preserved_mode` honesto
+- Lighthouse `--mode snapshot` mapeia para `--gather-mode=snapshot` (mock ecoa argv)
+- `reload --init-script` single-shot rejeita sessão em branco; multi-step `run` aplica init no reload
+- Extension uninstall descarrega targets in-process com `effect` explícito (`unloaded` | `metadata_only`)
+- Residual ledger preenche `profile_dir` + side-channels Singleton; FINALIZE limpa só paths owned
+- Helpers Job Object no Windows para reap residual-zero (`win_job`)
+- i18n pt-BR com acentos corretos em sugestões críticas (invocação, propósito, obrigatórios, não)
+- Parse path usa cache HTTP/parse sob XDG (sem dir de cache descartado)
+
+### Adicionado
+- `page tab-id` (tool-ref `get_tab_id`) — inventário 53 tools
+- `eval --service-worker-id` avalia em targets de service worker de extensão
+- `config list-keys` para descoberta de chaves XDG
+- Módulo `RetryConfig` com backoff/jitter; parsers proptest offline
+- Cache HTTP em camadas (memória L1 + SQLite L2 sob XDG); logs rotacionados opcionais (`log_to_file`)
+- Script `scripts/inventory_diff_base.sh` como gate local de inventário; e2e limpa `/tmp/ba-e2e-*` em sucesso
+- Inventário de comandos de topo: 59 nomes (`commands --json`), incluindo `sheet-write`, `sg-scan`, `sg-rewrite`
+
 ## [0.1.2] - 2026-07-17
 
 ### Corrigido

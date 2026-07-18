@@ -185,6 +185,15 @@ pub struct ProductConfig {
     /// Default model id for extract --llm.
     #[serde(default)]
     pub llm_model: Option<String>,
+    /// When true, also write rotated local logs under XDG state (never remote telemetry).
+    #[serde(default)]
+    pub log_to_file: Option<bool>,
+    /// Cache backend: `sqlite` (default layered) | `memory` | `redis`.
+    #[serde(default)]
+    pub cache_backend: Option<String>,
+    /// Redis URL when cache_backend=redis (XDG only; never env).
+    #[serde(default)]
+    pub cache_redis_url: Option<String>,
 }
 
 /// Load config from XDG path; missing file yields defaults.
@@ -234,6 +243,9 @@ fn parse_simple_toml(raw: &str) -> Result<ProductConfig, CliError> {
             "openrouter_api_key" => cfg.openrouter_api_key = Some(v.to_string()),
             "llm_base_url" => cfg.llm_base_url = Some(v.to_string()),
             "llm_model" => cfg.llm_model = Some(v.to_string()),
+            "log_to_file" => cfg.log_to_file = Some(v == "true" || v == "1"),
+            "cache_backend" => cfg.cache_backend = Some(v.to_string()),
+            "cache_redis_url" => cfg.cache_redis_url = Some(v.to_string()),
             _ => {}
         }
     }
@@ -256,11 +268,14 @@ pub fn write_config(cfg: &ProductConfig) -> Result<PathBuf, CliError> {
          encryption_key = \"{enc}\"\n\
          color = {color}\n\
          log_level = \"{log_level}\"\n\
+         log_to_file = {log_to_file}\n\
          chrome_path = \"{chrome_path}\"\n\
          lighthouse_path = \"{lighthouse_path}\"\n\
          openrouter_api_key = \"{openrouter_api_key}\"\n\
          llm_base_url = \"{llm_base_url}\"\n\
-         llm_model = \"{llm_model}\"\n",
+         llm_model = \"{llm_model}\"\n\
+         cache_backend = \"{cache_backend}\"\n\
+         cache_redis_url = \"{cache_redis_url}\"\n",
         lang = cfg.lang.as_deref().unwrap_or(""),
         timeout = cfg.timeout.unwrap_or(0),
         artifacts = cfg.artifacts_dir.as_deref().unwrap_or(""),
@@ -269,11 +284,14 @@ pub fn write_config(cfg: &ProductConfig) -> Result<PathBuf, CliError> {
         enc = cfg.encryption_key.as_deref().unwrap_or(""),
         color = cfg.color.unwrap_or(false),
         log_level = cfg.log_level.as_deref().unwrap_or(""),
+        log_to_file = cfg.log_to_file.unwrap_or(false),
         chrome_path = cfg.chrome_path.as_deref().unwrap_or(""),
         lighthouse_path = cfg.lighthouse_path.as_deref().unwrap_or(""),
         openrouter_api_key = cfg.openrouter_api_key.as_deref().unwrap_or(""),
         llm_base_url = cfg.llm_base_url.as_deref().unwrap_or(""),
         llm_model = cfg.llm_model.as_deref().unwrap_or(""),
+        cache_backend = cfg.cache_backend.as_deref().unwrap_or("sqlite"),
+        cache_redis_url = cfg.cache_redis_url.as_deref().unwrap_or(""),
     );
     let tmp = path.with_extension("toml.tmp");
     {
@@ -319,11 +337,16 @@ pub fn config_set(key: &str, value: &str) -> Result<Value, CliError> {
         "openrouter_api_key" => cfg.openrouter_api_key = Some(value.to_string()),
         "llm_base_url" => cfg.llm_base_url = Some(value.to_string()),
         "llm_model" => cfg.llm_model = Some(value.to_string()),
+        "log_to_file" => {
+            cfg.log_to_file = Some(matches!(value, "true" | "1" | "yes"));
+        }
+        "cache_backend" => cfg.cache_backend = Some(value.to_string()),
+        "cache_redis_url" => cfg.cache_redis_url = Some(value.to_string()),
         other => {
             return Err(CliError::with_suggestion(
                 ErrorKind::Usage,
                 format!("unknown config key: {other}"),
-                "Supported keys: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model",
+                "Run: browser-automation-cli config list-keys",
             ));
         }
     }
@@ -367,11 +390,46 @@ pub fn config_get(key: Option<&str>) -> Result<Value, CliError> {
         })),
         Some("llm_base_url") => Ok(json!({ "key": "llm_base_url", "value": cfg.llm_base_url })),
         Some("llm_model") => Ok(json!({ "key": "llm_model", "value": cfg.llm_model })),
+        Some("log_to_file") => Ok(json!({ "key": "log_to_file", "value": cfg.log_to_file })),
+        Some("cache_backend") => Ok(json!({ "key": "cache_backend", "value": cfg.cache_backend })),
+        Some("cache_redis_url") => Ok(json!({
+            "key": "cache_redis_url",
+            "value": if cfg.cache_redis_url.as_ref().map(|s| !s.is_empty()).unwrap_or(false) {
+                "[set]"
+            } else {
+                ""
+            }
+        })),
         Some(other) => Err(CliError::new(
             ErrorKind::Usage,
             format!("unknown config key: {other}"),
         )),
     }
+}
+
+/// List supported XDG config keys (GAP-018).
+pub fn config_list_keys() -> Result<Value, CliError> {
+    Ok(json!({
+        "keys": [
+            {"key": "lang", "default": null, "description": "Message locale override (en|pt-BR)"},
+            {"key": "timeout", "default": 0, "description": "Global timeout seconds"},
+            {"key": "artifacts_dir", "default": null, "description": "Artifacts output directory"},
+            {"key": "ignore_robots", "default": false, "description": "Default robots ignore (flags still required)"},
+            {"key": "namespace", "default": null, "description": "Isolated state namespace"},
+            {"key": "encryption_key", "default": null, "description": "Session encryption key material"},
+            {"key": "color", "default": null, "description": "ANSI colors on human stderr"},
+            {"key": "log_level", "default": "error", "description": "Tracing filter when flags quiet"},
+            {"key": "log_to_file", "default": false, "description": "Rotated logs under XDG state"},
+            {"key": "chrome_path", "default": null, "description": "Absolute Chrome/Chromium path"},
+            {"key": "lighthouse_path", "default": null, "description": "Absolute lighthouse CLI path"},
+            {"key": "openrouter_api_key", "default": null, "description": "LLM API key (stored 0600)"},
+            {"key": "llm_base_url", "default": null, "description": "OpenAI-compatible base URL"},
+            {"key": "llm_model", "default": null, "description": "Default LLM model id"},
+            {"key": "cache_backend", "default": "sqlite", "description": "sqlite|memory|redis"},
+            {"key": "cache_redis_url", "default": null, "description": "Redis URL when backend=redis"},
+        ],
+        "path": config_file()?.display().to_string(),
+    }))
 }
 
 /// Load optional encryption key from XDG config only (never product env vars).

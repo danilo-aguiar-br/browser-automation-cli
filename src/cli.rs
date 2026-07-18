@@ -270,6 +270,9 @@ pub enum Commands {
         /// Write evaluate result JSON to this path
         #[arg(long)]
         file_path: Option<std::path::PathBuf>,
+        /// Evaluate inside an extension service worker target (tool-ref serviceWorkerId)
+        #[arg(long)]
+        service_worker_id: Option<String>,
     },
     /// Capture a screenshot
     Grab {
@@ -460,6 +463,38 @@ pub enum Commands {
         /// Max results
         #[arg(long, default_value_t = 10000)]
         limit: usize,
+        /// Shell-style glob filter (e.g. `**/*.rs`) — GAP-A011 / §5AE
+        #[arg(long)]
+        glob: Option<String>,
+    },
+    /// Structural lint scan for forbidden product patterns (one-shot; §5AC / GAP-A011)
+    SgScan {
+        /// Roots to scan (default: `.`)
+        #[arg(num_args = 0..)]
+        paths: Vec<String>,
+        /// Max findings (0 = unlimited)
+        #[arg(long, default_value_t = 500)]
+        limit: usize,
+    },
+    /// Structural rewrite for known-safe fixes (dry-run default; `--apply` writes)
+    SgRewrite {
+        /// Roots to rewrite (default: `.`)
+        #[arg(num_args = 0..)]
+        paths: Vec<String>,
+        /// Apply changes (default is dry-run report only)
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Write a simple XLSX workbook from CSV/JSON (one-shot; §5Z / GAP-A011)
+    SheetWrite {
+        /// Input path (.csv or .json array-of-objects)
+        input: std::path::PathBuf,
+        /// Output .xlsx path
+        #[arg(long, short = 'o')]
+        out: std::path::PathBuf,
+        /// Worksheet name
+        #[arg(long, default_value = "Sheet1")]
+        sheet: String,
     },
     /// MITM capture / CA / HAR (one-shot local)
     Mitm {
@@ -847,6 +882,8 @@ pub enum PageAction {
         #[arg(long = "page-id")]
         page_id: Option<usize>,
     },
+    /// Return the stable tab id of the active page (tool-ref get_tab_id)
+    TabId,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -1033,8 +1070,10 @@ pub enum ConfigAction {
     Init,
     /// Show config values
     Show,
-    /// Set a config key (lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|chrome_path|lighthouse_path|openrouter_api_key|llm_base_url|llm_model)
+    /// Set a config key (lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|log_to_file|chrome_path|lighthouse_path|openrouter_api_key|llm_base_url|llm_model|cache_backend|cache_redis_url)
     Set { key: String, value: String },
     /// Get one config key
     Get { key: Option<String> },
+    /// List supported config keys and defaults (GAP-018)
+    ListKeys,
 }

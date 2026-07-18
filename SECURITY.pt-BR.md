@@ -51,6 +51,9 @@
 - Mantenha encryption keys e valores de cookie fora de history e logs duráveis
 - Prefira pipelines `--json` que descartem secrets de stderr em logs duráveis
 - Não aponte a CLI a páginas não confiáveis sem expectativas de isolamento
+- Nunca use `rediss://` para cache (somente TCP plain; `rediss://` é fail-closed)
+- Armazene URL Redis só com `config set cache_redis_url` sob XDG (nunca env de produto)
+- Armazene chaves LLM só com `config set openrouter_api_key` sob XDG
 
 ## Boas Práticas MITM
 - Faça bind e use MITM apenas em `127.0.0.1` (proxy local one-shot; não exponha em LAN ou interfaces públicas)

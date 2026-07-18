@@ -11,12 +11,13 @@
         "init",
         "show",
         "set",
-        "get"
+        "get",
+        "list-keys"
       ],
       "type": "string"
     },
     "key": {
-      "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|chrome_path|lighthouse_path|openrouter_api_key|llm_base_url|llm_model",
+      "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|log_to_file|chrome_path|lighthouse_path|openrouter_api_key|llm_base_url|llm_model|cache_backend|cache_redis_url",
       "type": "string"
     },
     "value": {

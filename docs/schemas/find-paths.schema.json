@@ -8,6 +8,10 @@
     "extension": {
       "type": "string"
     },
+    "glob": {
+      "description": "Shell-style glob e.g. **/*.rs",
+      "type": "string"
+    },
     "hidden": {
       "type": "boolean"
     },

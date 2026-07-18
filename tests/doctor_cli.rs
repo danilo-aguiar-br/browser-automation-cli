@@ -86,6 +86,25 @@ fn doctor_offline_quick_json_emits_valid_payload() {
             stdout
         );
     }
+
+    // GAP-004: never recommend npm in product UX.
+    assert!(
+        !stdout.contains("npm i") && !stdout.contains("npm install"),
+        "doctor must not suggest npm:\n{stdout}"
+    );
+}
+
+#[test]
+fn doctor_fix_json_never_suggests_npm() {
+    let tmp = TempDir::new().unwrap();
+    let output = build_doctor_cmd(&tmp, &["doctor", "--offline", "--quick", "--fix", "--json"])
+        .output()
+        .expect("failed to invoke doctor --fix");
+    let stdout = String::from_utf8(output.stdout).expect("utf8");
+    assert!(
+        !stdout.contains("npm"),
+        "doctor --fix must not mention npm:\n{stdout}"
+    );
 }
 
 #[test]

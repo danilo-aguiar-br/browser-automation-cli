@@ -71,7 +71,7 @@ pub fn effective_lang() -> &'static str {
 pub fn suggestion_for(kind: &str, lang: Option<&str>) -> Option<&'static str> {
     let l = normalize_lang(lang.or(Some(effective_lang())));
     match (kind, l) {
-        ("usage", "pt") => Some("Confira --help e os argumentos obrigatorios"),
+        ("usage", "pt") => Some("Confira --help e os argumentos obrigatórios"),
         ("usage", _) => Some("Check --help and required arguments"),
         ("broken-pipe", "pt") => {
             Some("Nao pipe stdout para consumidor fechado; exit 141 e esperado")
@@ -95,10 +95,10 @@ pub fn suggestion_for(kind: &str, lang: Option<&str>) -> Option<&'static str> {
 pub fn suggestion_key(key: &str, lang: Option<&str>) -> &'static str {
     let l = normalize_lang(lang.or(Some(effective_lang())));
     match (key, l) {
-        ("vision_required", "pt") => "Passe --experimental-vision na mesma invocacao",
+        ("vision_required", "pt") => "Passe --experimental-vision na mesma invocação",
         ("vision_required", _) => "Pass --experimental-vision on the same invocation",
         ("robots_dual", "pt") => {
-            "Passe as duas flags juntas quando ignorar robots.txt de proposito"
+            "Passe as duas flags juntas quando ignorar robots.txt de propósito"
         }
         ("robots_dual", _) => "Pass both flags together when you intentionally skip robots.txt",
         ("category_memory", "pt") => {
@@ -107,20 +107,20 @@ pub fn suggestion_key(key: &str, lang: Option<&str>) -> &'static str {
         ("category_memory", _) => {
             "Pass --category-memory (heap take/summary/close work without deep graph ops)"
         }
-        ("category_extensions", "pt") => "Passe --category-extensions na mesma invocacao",
+        ("category_extensions", "pt") => "Passe --category-extensions na mesma invocação",
         ("category_extensions", _) => "Pass --category-extensions on the same invocation",
-        ("screencast_flag", "pt") => "Passe --experimental-screencast na mesma invocacao",
+        ("screencast_flag", "pt") => "Passe --experimental-screencast na mesma invocação",
         ("screencast_flag", _) => "Pass --experimental-screencast on the same invocation",
-        ("webmcp_flag", "pt") => "Passe --category-webmcp na mesma invocacao",
+        ("webmcp_flag", "pt") => "Passe --category-webmcp na mesma invocação",
         ("webmcp_flag", _) => "Pass --category-webmcp on the same invocation",
-        ("third_party_flag", "pt") => "Passe --category-third-party na mesma invocacao",
+        ("third_party_flag", "pt") => "Passe --category-third-party na mesma invocação",
         ("third_party_flag", _) => "Pass --category-third-party on the same invocation",
         ("capture_network", "pt") => "Passe --capture-network antes de run/net",
         ("capture_network", _) => "Pass --capture-network before run/net",
         ("capture_console", "pt") => "Passe --capture-console antes de run/console",
         ("capture_console", _) => "Pass --capture-console before run/console",
         ("run_fail_fast", "pt") => {
-            "Corrija o passo com falha; os passos seguintes nao foram executados"
+            "Corrija o passo com falha; os passos seguintes não foram executados"
         }
         ("run_fail_fast", _) => "Fix the failing step; subsequent steps were not executed",
         ("lighthouse_missing", "pt") => {
@@ -129,7 +129,7 @@ pub fn suggestion_key(key: &str, lang: Option<&str>) -> &'static str {
         ("lighthouse_missing", _) => {
             "Install lighthouse or: browser-automation-cli config set lighthouse_path <path>"
         }
-        (_, "pt") => "Confira --help e os argumentos obrigatorios",
+        (_, "pt") => "Confira --help e os argumentos obrigatórios",
         _ => "Check --help and required arguments",
     }
 }

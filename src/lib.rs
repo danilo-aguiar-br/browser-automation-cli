@@ -99,6 +99,8 @@
 
 /// Chrome one-shot session: launch, actions, reap.
 pub mod browser;
+/// HTTP/parse cache under XDG (one-shot L1 + SQLite L2).
+pub mod cache;
 /// Clap derive surface and global flags.
 pub mod cli;
 /// ANSI color helpers for human stderr diagnostics.
@@ -129,12 +131,22 @@ pub mod mitm_local;
 pub mod native;
 /// One-shot QR encode/decode (no Chrome).
 pub mod qr_local;
+/// Owned residual path discovery (CLI marker + chromium tmp).
+pub mod residual;
+/// Named retry policies with backoff and jitter.
+pub mod retry;
 /// robots.txt policy enforcement.
 pub mod robots;
 /// Local scrape/crawl/map/search/parse (HTTP + files; one-shot).
 pub mod scrape_local;
+/// Structural lint scan/rewrite one-shot (§5AC).
+pub mod sg_local;
+/// XLSX write-only path via rust_xlsxwriter (§5Z).
+pub mod sheet_local;
 /// Input and path validation helpers.
 pub mod validation;
+/// Windows Job Object helpers (stubs on non-Windows).
+pub mod win_job;
 /// Workflow journal DAG (petgraph + SQLite), one-shot run/resume.
 pub mod workflow_local;
 /// XDG Base Directory paths and config file (no `.env` at runtime).
@@ -250,6 +262,30 @@ fn init_tracing(quiet: bool, verbose: bool, debug: bool, _cli_lang: Option<&str>
     } else {
         EnvFilter::new("error")
     };
+
+    let log_to_file = crate::xdg::load_config()
+        .ok()
+        .and_then(|c| c.log_to_file)
+        .unwrap_or(false);
+
+    if log_to_file {
+        // Optional rotated local file under XDG state (GAP-012). Never remote telemetry.
+        if let Ok(state) = crate::xdg::state_dir() {
+            let log_dir = state.join("log");
+            let _ = std::fs::create_dir_all(&log_dir);
+            let file_appender =
+                tracing_appender::rolling::daily(&log_dir, "browser-automation-cli");
+            let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+            // Leak guard for process lifetime (one-shot DIE frees it).
+            std::mem::forget(_guard);
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_writer(non_blocking)
+                .with_target(false)
+                .try_init();
+            return;
+        }
+    }
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)

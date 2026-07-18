@@ -1,4 +1,4 @@
-//! `run --script` — multi-step NDJSON, one launch, fail-fast (layers A+B).
+//! `run --script` — multi-step NDJSON or JSON array, one launch, fail-fast (layers A+B).
 
 use std::path::Path;
 
@@ -8,6 +8,138 @@ use crate::browser::{CaptureOpts, OneShotSession};
 use crate::error::{CliError, ErrorKind};
 use crate::lifecycle::Lifecycle;
 use crate::robots::RobotsPolicy;
+
+/// Parse a `run` script body as NDJSON objects and/or a top-level JSON array (GAP-A003).
+pub fn parse_run_script(text: &str) -> Result<Vec<Value>, CliError> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Whole-file JSON array (common agent shape).
+    if trimmed.starts_with('[') {
+        match serde_json::from_str::<Value>(trimmed) {
+            Ok(Value::Array(items)) => {
+                return normalize_step_values(items, "script array");
+            }
+            Ok(_) => {
+                return Err(CliError::with_suggestion(
+                    ErrorKind::Data,
+                    "script starts with '[' but is not a JSON array of step objects",
+                    "Use [{\"cmd\":\"goto\",\"url\":\"…\"}, …] or NDJSON one object per line",
+                ));
+            }
+            Err(e) => {
+                // Fall through to line mode if multi-line NDJSON accidentally starts with [
+                // only when parse fails for a pure array file.
+                if !trimmed.contains('\n') {
+                    return Err(CliError::with_suggestion(
+                        ErrorKind::Data,
+                        format!("invalid JSON array script: {e}"),
+                        "Each array element must be an object with \"cmd\" or \"action\"",
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut steps: Vec<Value> = Vec::new();
+    for (lineno, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let v: Value = serde_json::from_str(line).map_err(|e| {
+            CliError::with_suggestion(
+                ErrorKind::Data,
+                format!("script line {}: invalid JSON: {e}", lineno + 1),
+                "Each non-empty line must be one JSON object with \"cmd\", or use a JSON array file",
+            )
+        })?;
+        match v {
+            Value::Array(items) if steps.is_empty() && lineno == 0 => {
+                // Single-line array as the only content.
+                return normalize_step_values(items, &format!("script line {}", lineno + 1));
+            }
+            Value::Array(_) => {
+                return Err(CliError::with_suggestion(
+                    ErrorKind::Data,
+                    format!(
+                        "script line {}: nested JSON array not allowed in NDJSON mode",
+                        lineno + 1
+                    ),
+                    "Use either one JSON array for the whole file, or one object per line",
+                ));
+            }
+            other => steps.push(other),
+        }
+    }
+    normalize_step_values(steps, "script")
+}
+
+fn normalize_step_values(items: Vec<Value>, ctx: &str) -> Result<Vec<Value>, CliError> {
+    let mut out = Vec::with_capacity(items.len());
+    for (i, v) in items.into_iter().enumerate() {
+        if !v.is_object() {
+            return Err(CliError::with_suggestion(
+                ErrorKind::Data,
+                format!("{ctx} step {i}: expected object with \"cmd\""),
+                "Example: {\"cmd\":\"goto\",\"url\":\"https://example.com\"}",
+            ));
+        }
+        out.push(v);
+    }
+    Ok(out)
+}
+
+/// True when the step requests auto-handling of beforeunload dialogs (GAP-A009).
+/// Accepts bool `true` or string `"accept"` / `"dismiss"` (dismiss still arms the handler).
+fn step_wants_beforeunload_handle(step: &Value) -> bool {
+    let v = step
+        .get("handle_before_unload")
+        .or_else(|| step.get("handleBeforeUnload"));
+    match v {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::String(s)) => {
+            let s = s.trim().to_ascii_lowercase();
+            s == "accept" || s == "dismiss" || s == "true" || s == "1"
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod parse_script_tests {
+    use super::*;
+
+    #[test]
+    fn parses_ndjson_objects() {
+        let text = r#"{"cmd":"goto","url":"https://example.com"}
+{"cmd":"eval","expression":"1+1"}
+"#;
+        let steps = parse_run_script(text).unwrap();
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0]["cmd"], "goto");
+    }
+
+    #[test]
+    fn parses_json_array() {
+        let text = r#"[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"reload","ignore_cache":true}
+]"#;
+        let steps = parse_run_script(text).unwrap();
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[1]["cmd"], "reload");
+    }
+
+    #[test]
+    fn parses_single_line_array() {
+        let text = r#"[{"cmd":"goto","url":"about:blank"}]"#;
+        let steps = parse_run_script(text).unwrap();
+        assert_eq!(steps.len(), 1);
+    }
+}
 
 /// Feature flags for multi-step `run` (mirrors global CLI gates).
 #[derive(Debug, Clone, Copy, Default)]
@@ -53,31 +185,18 @@ pub async fn run_script_with_flags(
         CliError::with_suggestion(
             ErrorKind::NoInput,
             format!("cannot read script {}: {e}", script_path.display()),
-            "Pass an existing NDJSON/JSONL file to --script",
+            "Pass an existing NDJSON/JSONL or JSON-array file to --script",
         )
     })?;
 
-    let mut steps: Vec<Value> = Vec::new();
-    for (lineno, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let v: Value = serde_json::from_str(line).map_err(|e| {
-            CliError::with_suggestion(
-                ErrorKind::Data,
-                format!("script line {}: invalid JSON: {e}", lineno + 1),
-                "Each non-empty line must be one JSON object with \"cmd\"",
-            )
-        })?;
-        steps.push(v);
-    }
+    // GAP-A003: accept NDJSON (one object per line) OR a single JSON array of steps.
+    let steps = parse_run_script(&text)?;
 
     if steps.is_empty() {
         return Err(CliError::with_suggestion(
             ErrorKind::Data,
             "script has no steps",
-            "Add at least one NDJSON line with a cmd field",
+            "Add at least one NDJSON line or a JSON array of objects with a cmd field",
         ));
     }
 
@@ -203,7 +322,18 @@ async fn execute_step(
                 .get("url")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CliError::new(ErrorKind::Usage, "goto requires url"))?;
-            session.goto(url, robots).await
+            let init = step
+                .get("init_script")
+                .or_else(|| step.get("initScript"))
+                .and_then(|v| v.as_str());
+            let beforeunload = step_wants_beforeunload_handle(step);
+            let nav_timeout_ms = step
+                .get("navigation_timeout_ms")
+                .or_else(|| step.get("timeout"))
+                .and_then(|v| v.as_u64());
+            session
+                .goto_with_options(url, robots, init, beforeunload, nav_timeout_ms)
+                .await
         }
         "wait" => {
             let ms = step.get("ms").and_then(|v| v.as_u64());
@@ -335,9 +465,18 @@ async fn execute_step(
         "reload" => {
             let ignore_cache = step
                 .get("ignore_cache")
+                .or_else(|| step.get("ignoreCache"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            session.reload(ignore_cache).await
+            let init = step
+                .get("init_script")
+                .or_else(|| step.get("initScript"))
+                .and_then(|v| v.as_str());
+            // GAP-A009: never inject preventDefault; CDP dialog pump handles beforeunload.
+            let beforeunload = step_wants_beforeunload_handle(step);
+            session
+                .reload_with_options(ignore_cache, init, beforeunload)
+                .await
         }
         "view" => {
             let verbose = step
@@ -778,6 +917,19 @@ async fn execute_step(
                         .and_then(|v| v.as_u64())
                         .map(|i| i as usize);
                     session.page_close(index).await
+                }
+                "tab-id" | "tab_id" | "get_tab_id" => {
+                    let tab = session.active_tab_id_string().ok_or_else(|| {
+                        CliError::with_suggestion(
+                            ErrorKind::Browser,
+                            "no active tab id",
+                            "Open a page first (goto / page new)",
+                        )
+                    })?;
+                    Ok(serde_json::json!({
+                        "tab_id": tab,
+                        "tool": "get_tab_id",
+                    }))
                 }
                 other => Err(CliError::new(
                     ErrorKind::Usage,

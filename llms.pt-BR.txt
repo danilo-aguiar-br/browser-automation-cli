@@ -19,26 +19,29 @@ browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou C
 - [SKILL pt](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skills/browser-automation-cli-pt/SKILL.md): skill imperativa
 - [CHANGELOG](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CHANGELOG.pt-BR.md): histórico de releases
 - [SECURITY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/SECURITY.pt-BR.md): reporte de vulnerabilidades
-- [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): mapa expandido de descoberta
+- [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): mapa expandido de descoberta (EN)
+- [llms-full pt-BR](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.pt-BR.txt): mapa expandido de descoberta
 
-## Superfície de Comandos (v0.1.2)
-- Descoberta: doctor, commands, schema, version, completions (56 nomes de topo via `commands --json`)
-- Config XDG: config init|path|show|get|set
-- Navegação: goto, back, forward, reload
-- Scrape/crawl/map/search/parse local: scrape (--format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding, --engine http|browser), batch-scrape, crawl, map, search (limpa uddg), parse (PDF/DOCX/xlsx/ods, --redact-pii)
+## Superfície de Comandos (v0.1.3)
+- Descoberta: doctor (browsers_dir, origem lighthouse, cache_redis), commands, schema, version, completions (59 nomes de topo via `commands --json`; 53 tools DevTools e2e)
+- Config XDG: config init|path|show|get|set|list-keys
+- Navegação: goto, back, forward, reload (CDP Page.reload + ignoreCache; init_script removido após nav)
+- Scrape/crawl/map/search/parse local: scrape (--format text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding, --engine http|browser; file:// + http → Usage), batch-scrape, crawl, map, search (limpa uddg), parse (PDF/DOCX/xlsx/ods, --redact-pii)
 - Interação: view, press, write, type, keys, wait (multi --text OR), hover, drag, fill-form, upload, click-at
 - Observação: extract (--llm/--question/--schema-json), text, scroll (aliases dy/dx no run), attr (fallback property), assert (url_contains/text_contains), grab --path
-- PDF/monitor/utils: print-pdf, monitor check, qr encode|decode, find-paths
-- Abas: page, dialog, cookie
+- PDF/monitor/utils: print-pdf, monitor check, qr encode|decode, find-paths (--glob), sheet-write, sg-scan, sg-rewrite
+- Abas: page (incl. tab-id), dialog, cookie
 - Captura: console, net
 - MITM: mitm init-ca|start|status|list|get|har|export|domains|apis
 - Workflow: workflow run|resume|status
-- Avançado: eval, emulate, resize, perf, lighthouse (lighthouse_path), screencast, heap, extension, devtools3p, webmcp, run (data.steps parciais no fail-fast), exec
+- Avançado: eval, emulate, resize, perf, lighthouse (flag→XDG→PATH; binary_source real|mock), screencast, heap, extension, devtools3p, webmcp, run (NDJSON ou array JSON; data.steps parciais no fail-fast), exec
+- Ciclo de vida: BORN, EXECUTE, FINALIZE (scavenge de órfãos Chromium /tmp owned), DIE
 
 ## Contrato de Settings
-- Settings de produto: flags da CLI + XDG via `config path|init|show|set|get` apenas
-- Chaves de config: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model
-- Logging: `--verbose`/`--debug`/`-q` ou `config set log_level`
+- Settings de produto: flags da CLI + XDG via `config path|init|show|set|get|list-keys` apenas
+- Chaves de config: lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, log_to_file, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url
+- Logging: `--verbose`/`--debug`/`-q` ou `config set log_level` / `log_to_file`
 - Cor: `config set color true|false`
-- Chrome / Lighthouse: path do shell ou `config set chrome_path|lighthouse_path`
+- Chrome / Lighthouse: path do shell ou `config set chrome_path|lighthouse_path` (lighthouse também por flag)
+- Cache Redis: `config set cache_backend redis` + `cache_redis_url` (somente `redis://`; `rediss://` fail-closed)
 - Lang: `--lang pt-BR` ou `config set lang` localiza sugestões

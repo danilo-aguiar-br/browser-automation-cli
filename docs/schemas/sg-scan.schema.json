@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/sg-scan.schema.json",
+  "title": "sg-scan command input",
+  "type": "object",
+  "description": "Structural lint scan for forbidden product patterns (one-shot; no Chrome)",
+  "properties": {
+    "limit": {
+      "type": "integer"
+    },
+    "paths": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
