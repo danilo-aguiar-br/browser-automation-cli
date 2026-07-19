@@ -1,13 +1,20 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Chrome discovery + launch option args for chromiumoxide one-shot.
 #![allow(missing_docs)]
 //!
 //! FORBIDDEN: dual spawn via Child/Command for Chrome production path.
 //! FORBIDDEN: BrowserFetcher embedded no MVP (system Chrome only).
 //! Launch ownership: `oxide::launch_with_oxide` → `Browser::launch`.
+//!
+//! # Workload (PAR-92 / PAR-101)
+//!
+//! **Subprocess + I/O:** temp profile path is allocated in [`build_chrome_args`]
+//! without `std::fs` on the async worker. Materialization uses
+//! [`crate::concurrency::create_dir_all_blocking`] from `oxide::launch_with_oxide`
+//! (async path). Tests may call [`materialize_temp_user_data_dir_sync`].
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Options shared by CLI → BrowserManager → oxide launch.
 #[derive(Debug, Clone)]
@@ -76,7 +83,22 @@ pub(crate) struct ChromeArgs {
     pub temp_user_data_dir: Option<PathBuf>,
 }
 
+/// Create the temp profile dir on the **current** thread (unit tests / sync callers).
+///
+/// Production async launch uses [`crate::concurrency::create_dir_all_blocking`] instead.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn materialize_temp_user_data_dir_sync(args: &ChromeArgs) -> Result<(), String> {
+    if let Some(ref dir) = args.temp_user_data_dir {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("Failed to create temp profile dir: {}", e))?;
+    }
+    Ok(())
+}
+
 /// Build Chrome flags from [`LaunchOptions`] (used by oxide one-shot path).
+///
+/// Temp profile directories are **not** created here (PAR-92): callers on the
+/// async path must await disk materialization off the Tokio worker.
 pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, String> {
     // Chrome only honors the last --enable-features switch.
     let mut enable_features: Vec<String> = vec![
@@ -173,12 +195,13 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
         args.push(format!("--user-data-dir={}", expanded));
         (dir, None)
     } else {
+        // PAR-92: allocate path only — do **not** `create_dir_all` here.
+        // Async launch materializes via `create_dir_all_blocking` in oxide;
+        // sync tests use `materialize_temp_user_data_dir_sync`.
         let dir = std::env::temp_dir().join(format!(
             "browser-automation-cli-chrome-{}",
             uuid::Uuid::new_v4()
         ));
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create temp profile dir: {}", e))?;
         args.push(format!("--user-data-dir={}", dir.display()));
         (dir.clone(), Some(dir))
     };
@@ -232,18 +255,30 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
     })
 }
 
-/// Locate system Chrome/Chromium (XDG chrome_path → product cache → PATH → known install paths).
+/// Locate system Chrome/Chromium for CDP (multiplatform discovery cascade).
 ///
-/// Product settings never read third-party env vars (Puppeteer/Playwright/CI).
+/// Precedence (product law — **no product env vars** for settings):
+/// 1. XDG `chrome_path` when file exists and is executable
+/// 2. Product browsers cache (`install::find_installed_chrome`)
+/// 3. `$PATH` names (`google-chrome`, `chromium`, Edge/Brave aliases, …)
+/// 4. Platform known install paths (ProgramFiles / Applications / `/usr/bin` / snap / flatpak)
+/// 5. Home-local Puppeteer / Playwright caches
+///
+/// Snap/Flatpak hits emit a local `tracing` warning (sandbox may block automation).
+/// Does **not** shell out to `which`/`where` (pure PATH walk via [`crate::platform::which_bin`]).
 pub fn find_chrome() -> Option<PathBuf> {
     if let Some(p) = crate::xdg::chrome_path_from_config() {
         let path = PathBuf::from(p);
-        if path.exists() {
+        if crate::platform::is_executable_file(&path) {
+            crate::platform::warn_if_sandboxed_browser(&path);
             return Some(path);
         }
     }
     if let Some(p) = crate::install::find_installed_chrome() {
-        return Some(p);
+        if crate::platform::is_executable_file(&p) {
+            crate::platform::warn_if_sandboxed_browser(&p);
+            return Some(p);
+        }
     }
 
     let cache_dir = crate::install::get_browsers_dir();
@@ -256,102 +291,171 @@ pub fn find_chrome() -> Option<PathBuf> {
         );
     }
 
+    if let Some(p) = find_chrome_on_path() {
+        crate::platform::warn_if_sandboxed_browser(&p);
+        return Some(p);
+    }
+
+    if let Some(p) = find_chrome_known_paths() {
+        crate::platform::warn_if_sandboxed_browser(&p);
+        return Some(p);
+    }
+
+    if let Some(p) = find_puppeteer_chrome() {
+        if crate::platform::is_executable_file(&p) {
+            return Some(p);
+        }
+    }
+    if let Some(p) = find_playwright_chromium() {
+        if crate::platform::is_executable_file(&p) {
+            return Some(p);
+        }
+    }
+
+    None
+}
+
+/// Resolve browser names via `$PATH` without shelling out.
+fn find_chrome_on_path() -> Option<PathBuf> {
+    const NAMES: &[&str] = &[
+        "google-chrome",
+        "google-chrome-stable",
+        "google-chrome-beta",
+        "google-chrome-unstable",
+        "chromium",
+        "chromium-browser",
+        "microsoft-edge",
+        "microsoft-edge-stable",
+        "msedge",
+        "brave-browser",
+        "brave-browser-stable",
+        "brave",
+    ];
+    for name in NAMES {
+        if let Some(p) = crate::platform::which_bin(name) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Absolute install layouts per OS (env-expanded on Windows; no single hardcoded drive root).
+fn find_chrome_known_paths() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        let candidates = [
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-            "/Applications/Chromium.app/Contents/MacOS/Chromium",
-            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        let mut candidates: Vec<PathBuf> = vec![
+            PathBuf::from("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            PathBuf::from(
+                "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta",
+            ),
+            PathBuf::from(
+                "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+            ),
+            PathBuf::from("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+            PathBuf::from("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+            PathBuf::from("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
         ];
-        for c in &candidates {
-            let p = PathBuf::from(c);
-            if p.exists() {
-                return Some(p);
-            }
+        if let Some(home) = dirs::home_dir() {
+            candidates.push(
+                home.join("Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            );
+            candidates.push(
+                home.join("Applications/Chromium.app/Contents/MacOS/Chromium"),
+            );
+            candidates.push(
+                home.join("Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+            );
         }
+        return crate::platform::first_existing_executable(candidates.iter().map(|p| p.as_path()));
     }
 
     #[cfg(target_os = "linux")]
     {
-        let candidates = [
-            "google-chrome",
-            "google-chrome-stable",
-            "chromium-browser",
-            "chromium",
-            "brave-browser",
-            "brave-browser-stable",
+        let mut candidates: Vec<PathBuf> = vec![
+            PathBuf::from("/usr/bin/google-chrome"),
+            PathBuf::from("/usr/bin/google-chrome-stable"),
+            PathBuf::from("/usr/bin/google-chrome-beta"),
+            PathBuf::from("/usr/bin/google-chrome-unstable"),
+            PathBuf::from("/usr/bin/chromium"),
+            PathBuf::from("/usr/bin/chromium-browser"),
+            PathBuf::from("/usr/bin/microsoft-edge"),
+            PathBuf::from("/usr/bin/microsoft-edge-stable"),
+            PathBuf::from("/usr/bin/brave-browser"),
+            PathBuf::from("/opt/google/chrome/chrome"),
+            PathBuf::from("/opt/google/chrome/google-chrome"),
+            PathBuf::from("/opt/microsoft/msedge/msedge"),
+            PathBuf::from("/snap/bin/chromium"),
+            PathBuf::from("/snap/bin/chromium-browser"),
+            PathBuf::from("/var/lib/flatpak/exports/bin/com.google.Chrome"),
+            PathBuf::from("/var/lib/flatpak/exports/bin/org.chromium.Chromium"),
+            PathBuf::from("/var/lib/flatpak/exports/bin/com.brave.Browser"),
+            PathBuf::from("/var/lib/flatpak/exports/bin/com.microsoft.Edge"),
         ];
-        for name in &candidates {
-            if let Ok(output) = Command::new("which").arg(name).output() {
-                if output.status.success() {
-                    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    if !path.is_empty() {
-                        return Some(PathBuf::from(path));
-                    }
-                }
-            }
+        if let Some(home) = dirs::home_dir() {
+            candidates.push(home.join(".local/share/flatpak/exports/bin/com.google.Chrome"));
+            candidates.push(home.join(".local/share/flatpak/exports/bin/org.chromium.Chromium"));
+            candidates.push(home.join(".local/share/flatpak/exports/bin/com.brave.Browser"));
         }
+        return crate::platform::first_existing_executable(candidates.iter().map(|p| p.as_path()));
     }
 
     #[cfg(target_os = "windows")]
     {
-        let candidates = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        let mut candidates: Vec<PathBuf> = Vec::with_capacity(24);
+        // Prefer env-expanded Program Files / LocalAppData (Unicode-safe via var_os).
+        let rels = [
+            r"Google\Chrome\Application\chrome.exe",
+            r"Google\Chrome Beta\Application\chrome.exe",
+            r"Google\Chrome SxS\Application\chrome.exe", // Canary
+            r"Microsoft\Edge\Application\msedge.exe",
+            r"Microsoft\Edge Beta\Application\msedge.exe",
+            r"BraveSoftware\Brave-Browser\Application\brave.exe",
         ];
-        if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            let chrome = PathBuf::from(&local).join(r"Google\Chrome\Application\chrome.exe");
-            if chrome.exists() {
-                return Some(chrome);
-            }
-            let brave =
-                PathBuf::from(&local).join(r"BraveSoftware\Brave-Browser\Application\brave.exe");
-            if brave.exists() {
-                return Some(brave);
+        for key in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+            if let Some(base) = std::env::var_os(key) {
+                let base = PathBuf::from(base);
+                for rel in &rels {
+                    candidates.push(base.join(rel));
+                }
             }
         }
-        for c in &candidates {
-            let p = PathBuf::from(c);
-            if p.exists() {
-                return Some(p);
-            }
-        }
+        // Legacy hardcoded fallbacks when env vars are missing (rare).
+        candidates.push(PathBuf::from(
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        ));
+        candidates.push(PathBuf::from(
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ));
+        candidates.push(PathBuf::from(
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ));
+        return crate::platform::first_existing_executable(candidates.iter().map(|p| p.as_path()));
     }
 
-    if let Some(p) = find_puppeteer_chrome() {
-        return Some(p);
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        None
     }
-    if let Some(p) = find_playwright_chromium() {
-        return Some(p);
-    }
-
-    None
 }
 
 fn should_disable_sandbox(existing_args: &[String]) -> bool {
     if existing_args.iter().any(|a| a == "--no-sandbox") {
         return false;
     }
-    // Container/root detection only (no product CI env var).
+    // Container/root detection only (no product CI env var as settings).
     #[cfg(unix)]
     {
+        // SAFETY:
+        // - Contract: detect effective root to decide Chrome `--no-sandbox`.
+        // - Invariant: `geteuid` is always safe; returns the process effective uid.
+        // - Root/container cannot run Chromium sandbox reliably; flag is a launch arg only.
+        // - See: `man 2 geteuid`; Chromium sandbox docs for containers.
         if unsafe { libc::geteuid() } == 0 {
             return true;
         }
-        if Path::new("/.dockerenv").exists() {
-            return true;
-        }
-        if Path::new("/run/.containerenv").exists() {
-            return true;
-        }
-        if let Ok(cgroup) = std::fs::read_to_string("/proc/1/cgroup") {
-            if cgroup.contains("docker") || cgroup.contains("kubepods") || cgroup.contains("lxc") {
-                return true;
-            }
-        }
     }
-    false
+    // Shared multiplatform probe (dockerenv, cgroup, k8s, podman).
+    crate::platform::HostEnvironment::detect().container
 }
 
 fn should_disable_dev_shm(existing_args: &[String]) -> bool {
@@ -360,19 +464,16 @@ fn should_disable_dev_shm(existing_args: &[String]) -> bool {
     }
     #[cfg(unix)]
     {
+        // SAFETY:
+        // - Contract: detect effective root to decide Chrome `--disable-dev-shm-usage`.
+        // - Invariant: `geteuid` is always safe; returns the process effective uid.
+        // - Root/container hosts often have tiny `/dev/shm`; flag is a launch arg only.
+        // - See: `man 2 geteuid`; Chromium headless container guidance.
         if unsafe { libc::geteuid() } == 0 {
             return true;
         }
-        if Path::new("/.dockerenv").exists() || Path::new("/run/.containerenv").exists() {
-            return true;
-        }
-        if let Ok(cgroup) = std::fs::read_to_string("/proc/1/cgroup") {
-            if cgroup.contains("docker") || cgroup.contains("kubepods") || cgroup.contains("lxc") {
-                return true;
-            }
-        }
     }
-    false
+    crate::platform::HostEnvironment::detect().container
 }
 
 /// Scan product XDG browsers cache and known home cache dirs (no third-party env vars).
@@ -575,6 +676,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(result.args.iter().any(|a| a == "--headless=new"));
         assert!(result.args.iter().any(|a| a == "--hide-scrollbars"));
         assert!(result
@@ -595,6 +697,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(!result.args.iter().any(|a| a.contains("--headless")));
         assert!(!result.args.iter().any(|a| a == "--hide-scrollbars"));
         assert!(result.temp_user_data_dir.is_some());
@@ -607,6 +710,7 @@ mod tests {
     fn test_build_args_temp_user_data_dir_created() {
         let opts = LaunchOptions::default();
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         let dir = result.temp_user_data_dir.as_ref().unwrap();
         assert!(dir.exists());
         assert!(result
@@ -623,6 +727,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(result.temp_user_data_dir.is_none());
         assert!(result
             .args
@@ -638,6 +743,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(!result.args.iter().any(|a| a == "--window-size=1280,720"));
         assert!(result.args.iter().any(|a| a == "--window-size=1920,1080"));
         if let Some(ref dir) = result.temp_user_data_dir {
@@ -653,6 +759,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(!result.args.iter().any(|a| a == "--hide-scrollbars"));
         if let Some(ref dir) = result.temp_user_data_dir {
             let _ = std::fs::remove_dir_all(dir);
@@ -667,6 +774,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(!result.args.iter().any(|a| a == "--window-size=1280,720"));
         assert!(result.args.iter().any(|a| a == "--start-maximized"));
         if let Some(ref dir) = result.temp_user_data_dir {
@@ -678,6 +786,7 @@ mod tests {
     fn test_build_args_disables_translate() {
         let opts = LaunchOptions::default();
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(result
             .args
             .iter()
@@ -691,6 +800,7 @@ mod tests {
     fn test_build_args_webgpu_default_off() {
         let opts = LaunchOptions::default();
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(!result.args.iter().any(|a| a == "--enable-unsafe-webgpu"));
         if let Some(ref dir) = result.temp_user_data_dir {
             let _ = std::fs::remove_dir_all(dir);
@@ -705,6 +815,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         let policies: Vec<&String> = result
             .args
             .iter()
@@ -726,6 +837,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(result.args.iter().any(|a| a == "--enable-unsafe-webgpu"));
         if cfg!(target_os = "linux") {
             assert!(result.args.iter().any(|a| a == "--use-angle=vulkan"));
@@ -748,6 +860,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         let flags: Vec<&String> = result
             .args
             .iter()
@@ -775,6 +888,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         let count = result
             .args
             .iter()
@@ -794,6 +908,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(!result.args.iter().any(|a| a.contains("--headless")));
         assert!(result
             .args
@@ -815,6 +930,7 @@ mod tests {
             ..Default::default()
         };
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(result
             .args
             .iter()
@@ -828,6 +944,7 @@ mod tests {
     fn test_build_args_ignore_https_errors_default_no_flag() {
         let opts = LaunchOptions::default();
         let result = build_chrome_args(&opts).unwrap();
+        materialize_temp_user_data_dir_sync(&result).unwrap();
         assert!(!result
             .args
             .iter()

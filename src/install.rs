@@ -1,6 +1,12 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Chrome cache discovery for one-shot launches (no download / no apt).
 //!
 //! PRD: system Chrome/Chromium only — no embedded BrowserFetcher in MVP.
+//!
+//! # Workload
+//!
+//! **I/O-light sequential:** few version directories under XDG browsers cache.
+//! Rayon would cost more than a handful of `read_dir` entries (PAR-71).
 
 use std::fs;
 use std::io::{self, Write};

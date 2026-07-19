@@ -44,6 +44,7 @@ browser-automation-cli doctor --offline --quick --json
 - Run format check with `cargo fmt --check`
 - Add regression coverage for every bug fix
 - Contract gates: `tests/parity_run_inventory.rs` (RUN_DISPATCHED_CMDS ∪ intentional exclude) and `tests/clap_command_debug_assert.rs` (`Cli::command().debug_assert()`)
+- Residual-zero local gates: `scripts/residual-check.sh` and `scripts/residual-stress.sh` (local only; not a CI product requirement)
 - See [docs/TESTING.md](docs/TESTING.md)
 
 ## Documentation
@@ -54,7 +55,7 @@ browser-automation-cli doctor --offline --quick --json
 - Keep product settings documented as flags plus `config` XDG only
 - Do not invent or document product environment variables for settings
 - When adding commands, update README Commands, INTEGRATIONS New Flags, llms.txt / llms-full Command Surface (EN+pt-BR), COOKBOOK recipes, skills, MIGRATION, and inventory counts
-- Inventory as of 0.1.4: **61** agent names via `commands --json` (includes `select-option` and `pick` as multi-step/schema surface; they are not standalone clap subcommands — clap top-level help lists 59 without them); **53** e2e DevTools tools
+- Inventory as of 0.1.5: **63** agent names via `commands --json` (includes `locale`, `man`, plus `select-option` and `pick` as multi-step/schema surface; they are not standalone clap subcommands — clap top-level help lists **61** without `select-option`/`pick`); **53** e2e DevTools tools
 
 ## Report Bugs
 - Open a GitHub issue with `browser-automation-cli --version`

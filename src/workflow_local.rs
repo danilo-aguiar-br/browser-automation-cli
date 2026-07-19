@@ -1,7 +1,18 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One-shot workflow journal (PRD §5H): DAG + SQLite, no live Page/@eN across processes.
+//!
+//! # Workload / parallelism
+//!
+//! - **DAG validate:** CPU-light (petgraph); sequential is fine.
+//! - **Step execution:** sequential topo order with fail-fast. Independent ready
+//!   sets are **not** fan-out parallel here because the SQLite journal is a
+//!   single-writer resource and offline steps may share process-local caches.
+//!   Parallelism lives inside each step (batch scrape, sg scan, find-paths).
+//! - **Justification (rules_rust_paralelismo):** coordinating multi-step journal
+//!   writes under a Mutex would add complexity without measured gain for typical
+//!   agent workflows (few steps, I/O inside steps already bounded).
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use petgraph::algo::{is_cyclic_directed, toposort};
@@ -101,16 +112,18 @@ fn now_rfc3339() -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".into())
 }
 
-/// Load manifest from JSON path.
+/// Load manifest from JSON path (BOM-aware, size-limited, typed).
 pub fn load_manifest(path: &Path) -> Result<WorkflowManifest, CliError> {
-    let raw = fs::read_to_string(path).map_err(|e| {
-        CliError::new(
-            ErrorKind::Io,
-            format!("read workflow manifest {}: {e}", path.display()),
-        )
-    })?;
-    serde_json::from_str(&raw)
-        .map_err(|e| CliError::new(ErrorKind::Data, format!("invalid workflow manifest: {e}")))
+    crate::json_util::read_json_file(path, crate::json_util::MAX_JSON_FILE_BYTES).map_err(|e| {
+        if e.kind() == ErrorKind::Data && !e.message().contains("invalid workflow") {
+            CliError::new(
+                ErrorKind::Data,
+                format!("invalid workflow manifest: {}", e.message()),
+            )
+        } else {
+            e
+        }
+    })
 }
 
 /// Validate DAG with petgraph; return topological order of step ids.
@@ -124,8 +137,10 @@ pub fn validate_dag(steps: &[WorkflowStep]) -> Result<Vec<String>, CliError> {
                 format!("duplicate workflow step id: {}", s.id),
             ));
         }
-        let n = g.add_node(s.id.clone());
-        idx.insert(s.id.clone(), n);
+        // One clone for the graph node; insert reuses the same owned key via entry.
+        let id = s.id.clone();
+        let n = g.add_node(id.clone());
+        idx.insert(id, n);
     }
     for s in steps {
         let to = idx[&s.id];
@@ -455,13 +470,9 @@ fn execute_offline_step(step: &WorkflowStep) -> Result<Value, CliError> {
                     .unwrap_or(false),
                 ..Default::default()
             };
-            // Block on async HTTP scrape in a small runtime.
+            // Block on async HTTP scrape (current_thread I/O runtime).
             let robots = crate::robots::RobotsPolicy::Honor;
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| CliError::new(ErrorKind::Software, format!("runtime: {e}")))?;
-            rt.block_on(crate::scrape_local::scrape_http(url, robots, &opts))
+            crate::runtime_util::block_on_io(crate::scrape_local::scrape_http(url, robots, &opts))
         }
         "batch-scrape" | "batch_scrape" => {
             let path = step
@@ -478,11 +489,7 @@ fn execute_offline_step(step: &WorkflowStep) -> Result<Value, CliError> {
                 engine: "http".into(),
                 ..Default::default()
             };
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| CliError::new(ErrorKind::Software, format!("runtime: {e}")))?;
-            rt.block_on(crate::scrape_local::batch_scrape_http(
+            crate::runtime_util::block_on_io(crate::scrape_local::batch_scrape_http(
                 &urls,
                 crate::robots::RobotsPolicy::Honor,
                 &opts,

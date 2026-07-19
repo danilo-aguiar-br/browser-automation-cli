@@ -5,13 +5,19 @@ ALWAYS copy argv as-is unless `schema <cmd> --json` forces a change.
 ALWAYS pass global `--json` for machine consumers on programmatic invocations.
 Binary name is exactly `browser-automation-cli` (NEVER invent alias `bac`).
 FORBIDDEN product environment variables; ALWAYS use flags + XDG `config` only.
-REQUIRED inventory is exactly **61** top-level command names.
+REQUIRED inventory is exactly **63** top-level command names.
+ALWAYS treat `select-option` and `pick` as executable ONLY inside `run`/`exec` (NOT standalone clap).
 
-## Meta / discovery
+## Meta / discovery / locale / man / residual_disk
 
 ```bash
 browser-automation-cli doctor --offline --quick --json
 browser-automation-cli doctor --json
+browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.cli_marker_dirs == 0'
+browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.chromium_tmp_singleton_orphans == 0'
+browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.live_cli_marker_processes == 0'
+browser-automation-cli doctor --offline --quick --json | jaq -e '[.data.checks[] | select(.id=="residual_disk") | .status][0] == "pass"'
+browser-automation-cli doctor --offline --quick --json | jaq -e '[.data.checks[] | select(.id=="residual_disk")] | length == 1'
 browser-automation-cli commands --json
 browser-automation-cli schema goto --json
 browser-automation-cli schema run --json
@@ -25,7 +31,14 @@ browser-automation-cli schema --cmd config --json
 browser-automation-cli schema --cmd wait --json
 browser-automation-cli schema --cmd assert --json
 browser-automation-cli schema --cmd mitm --json
+browser-automation-cli schema locale --json
+browser-automation-cli schema man --json
 browser-automation-cli version --json
+browser-automation-cli locale --json
+browser-automation-cli --lang en locale --json
+browser-automation-cli --lang pt-BR locale --json
+browser-automation-cli man
+browser-automation-cli man --out /tmp/browser-automation-cli.1
 browser-automation-cli completions bash
 browser-automation-cli completions zsh
 browser-automation-cli completions fish
@@ -91,7 +104,7 @@ browser-automation-cli --timeout 60 --json run --script /tmp/isolated-formulas.j
 ```bash
 browser-automation-cli --json view
 browser-automation-cli --json view --allow-empty
-browser-automation-cli --json view --path /tmp/view.txt --verbose
+browser-automation-cli --json view --path /tmp/view.txt --detailed
 browser-automation-cli --json press @e1 --include-snapshot
 browser-automation-cli --json press @e1 --dblclick
 browser-automation-cli --experimental-vision --json click-at --x 10 --y 20
@@ -104,9 +117,9 @@ browser-automation-cli --json type "hello" --target @e2 --clear --submit Enter
 browser-automation-cli --json type "world" --focus-only
 browser-automation-cli --json hover @e1
 browser-automation-cli --json drag --from @e1 --to @e2
-browser-automation-cli --json fill-form --json '[{"target":"@e3","value":"x"}]'
+browser-automation-cli --json fill-form --fields-json '[{"target":"@e3","value":"x"}]'
 browser-automation-cli --json upload @e4 /tmp/file.txt
-# pick / select-option: inventory names; execute via run or exec (custom select / badge / popover / role=option)
+# pick / select-option: inventory names; ONLY via run or exec (NOT standalone clap; custom select / badge / popover / role=option)
 browser-automation-cli --json exec pick --target @e1 --option Anomalia
 browser-automation-cli --json exec select-option --target @e2 --option Alta
 ```
@@ -144,7 +157,7 @@ browser-automation-cli --capture-console --json assert console --level error
 browser-automation-cli --capture-console --json assert console-empty
 browser-automation-cli --capture-console --json assert console-no-match --pattern TypeError
 browser-automation-cli --json cookie list
-browser-automation-cli --json cookie set --json '[{"name":"a","value":"b","url":"https://example.com"}]'
+browser-automation-cli --json cookie set --cookies-json '[{"name":"a","value":"b","url":"https://example.com"}]'
 browser-automation-cli --json cookie clear
 browser-automation-cli --json dialog accept
 browser-automation-cli --json dialog accept --text "ok" --if-present
@@ -508,8 +521,28 @@ browser-automation-cli --timeout 180 --json lighthouse https://example.com --lig
 # Envelope binary_source MUST be real|mock
 ```
 
-## Inventory checklist (61 names)
+## Residual-zero disk verification (REQUIRED after browser work)
 
-doctor commands schema version goto view press click-at write keys type wait hover drag fill-form select-option pick upload back forward reload eval grab print-pdf monitor run exec extract text scroll cookie attr assert console net page dialog scrape batch-scrape crawl map search parse qr find-paths sg-scan sg-rewrite sheet-write mitm workflow config emulate resize perf lighthouse screencast heap extension devtools3p webmcp completions
+```bash
+# ALWAYS one-shot residual-zero. AFTER browser DIE when idle, residual_disk MUST show zeros.
+browser-automation-cli -q --timeout 60 --json goto https://example.com
+out=$(browser-automation-cli -q doctor --offline --quick --json)
+echo "$out" | jaq -e '.ok == true'
+echo "$out" | jaq -e '.data.residual.cli_marker_dirs == 0'
+echo "$out" | jaq -e '.data.residual.chromium_tmp_singleton_orphans == 0'
+echo "$out" | jaq -e '.data.residual.live_cli_marker_processes == 0'
+echo "$out" | jaq -e '(.data.residual.scavenge_safe_candidates | type) == "number"'
+echo "$out" | jaq -e '[.data.checks[] | select(.id=="residual_disk") | .status][0] == "pass"'
+# BORN scavenges stale Singleton-only Chromium tmp dirs (age ≥60s, owned, no live holder)
+# FINALIZE kills CLI Chrome markers and dual-scavenges owned Chromium tmp + stale Singleton GC
+# NEVER kill host user Chrome / Flatpak Chrome
+browser-automation-cli --timeout 60 --json print-pdf --path /tmp/residual.pdf --url https://example.com
+browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.cli_marker_dirs == 0 and .data.residual.chromium_tmp_singleton_orphans == 0'
+```
 
-ALWAYS confirm exactly 61 names above. NEVER invent alias `bac`. ALWAYS load at least one executable line per name from this catalog.
+## Inventory checklist (63 names)
+
+doctor commands schema version locale goto view press click-at write keys type wait hover drag fill-form select-option pick upload back forward reload eval grab print-pdf monitor run exec extract text scroll cookie attr assert console net page dialog scrape batch-scrape crawl map search parse qr find-paths sg-scan sg-rewrite sheet-write mitm workflow config emulate resize perf lighthouse screencast heap extension devtools3p webmcp completions man
+
+ALWAYS confirm exactly 63 names above. NEVER invent alias `bac`. ALWAYS load at least one executable line per name from this catalog.
+ALWAYS execute `pick` / `select-option` only inside `run` / `exec`.

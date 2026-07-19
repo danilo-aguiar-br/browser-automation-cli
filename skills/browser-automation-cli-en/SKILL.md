@@ -1,15 +1,16 @@
 ---
 name: browser-automation-cli
-description: This skill MUST be used when the agent automates browsers with browser-automation-cli including Chrome CDP headless a11y refs form fill pick select-option grab print-pdf (NEVER blank - ALWAYS --url or navigate first) multi-format scrape network console heap lighthouse multi-step run NDJSON or JSON array fail-fast data.steps --json-steps wait multi-selector or url dialog if-present view allow-empty page new isolated-context MITM capture-url XDG config 16 keys Redis plain URL workflow batch-scrape crawl map search parse extract llm schema monitor qr find-paths sheet-write sg-scan sg-rewrite extension outside run clap --json usage errors. Auto-invoke for browser control scraping CDP PDF QR paths sheets structural scan LLM extract console assert or one-shot CLI even without naming this skill. This skill MUST teach BORN EXECUTE FINALIZE DIE --json envelopes XDG plus flags only (NEVER product env vars) full 61-command formulas in references/formulas.md exit codes robots dual-flag and action playbooks.
+description: This skill MUST be used when the agent automates browsers with browser-automation-cli including Chrome CDP headless a11y refs form fill pick select-option grab print-pdf (NEVER blank - ALWAYS --url or prior navigate) multi-format scrape network console heap lighthouse multi-step run NDJSON or JSON array fail-fast data.steps --json-steps wait multi-selector url dialog if-present view allow-empty page isolated-context MITM capture-url XDG 16 keys Redis plain workflow batch-scrape crawl map search parse extract llm monitor qr find-paths sheet-write sg-scan sg-rewrite residual-zero residual_disk doctor locale man and full 63-command inventory. Auto-invoke for browser scraping CDP PDF QR sheets scan LLM extract residual cleanup locale manpage or one-shot CLI even without naming this skill. This skill MUST teach BORN EXECUTE FINALIZE DIE residual-zero --json envelopes XDG plus flags only (NEVER product env vars) 63-command formulas exit codes robots dual-flag and playbooks.
 ---
 
 # browser-automation-cli
 
 ## Rule Zero
 ### REQUIRED
-- ALWAYS invoke this skill for browser control, CDP, headless Chrome, scrape, crawl, form fill, pick, select-option, grab, print-pdf, QR, find-paths, sheet-write, sg-scan, sg-rewrite, monitor, network/console capture, heap, lighthouse, MITM, workflow, parse, extract --llm, XDG config/cache, or binary `browser-automation-cli`
+- ALWAYS invoke this skill for browser control, CDP, headless Chrome, scrape, crawl, form fill, pick, select-option, grab, print-pdf, QR, find-paths, sheet-write, sg-scan, sg-rewrite, monitor, network/console capture, heap, lighthouse, MITM, workflow, parse, extract --llm, residual-zero disk, residual_disk doctor, locale, man, XDG config/cache, or binary `browser-automation-cli`
 - ALWAYS execute binary name exactly `browser-automation-cli` (NEVER invent alias `bac`, protocol-server wrappers, daemons, or sticky sessions)
 - ALWAYS treat one process as one lifecycle BORN EXECUTE FINALIZE DIE
+- ALWAYS enforce residual-zero disk after every browser one-shot (FINALIZE MUST clean CLI markers and scavenge owned Chromium tmp)
 - ALWAYS pass `--json` for machine consumers and validate envelope `ok` before `data`
 - ALWAYS keep multi-step `@eN` work inside one `run --script` process
 - ALWAYS discover argv with `schema <cmd> --json` or `schema --cmd <cmd> --json` before inventing unknown flags
@@ -18,10 +19,12 @@ description: This skill MUST be used when the agent automates browsers with brow
 - NEVER invent product environment variables for settings or logging
 - NEVER reuse `@eN` across separate process launches
 - NEVER split ref-dependent steps across multiple CLI processes
+- NEVER kill host user Chrome or Flatpak Chrome processes
 ### Correct Pattern
 ```bash
 browser-automation-cli doctor --offline --quick --json
 browser-automation-cli -q --timeout 60 --json goto https://example.com
+browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.cli_marker_dirs == 0 and .data.residual.chromium_tmp_singleton_orphans == 0'
 ```
 
 ## Mission
@@ -43,9 +46,9 @@ browser-automation-cli doctor --offline --quick --json
 
 ## When to Invoke
 ### REQUIRED
-- ALWAYS auto-invoke for browser automation, headless Chrome, CDP, a11y refs, form fill, pick/select-option, grab, print-pdf, scrape, crawl, map, search, parse, extract --llm, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, network/console capture, heap, lighthouse, redis cache XDG, MITM, workflow, batch-scrape, multi-step run, or the binary name
+- ALWAYS auto-invoke for browser automation, headless Chrome, CDP, a11y refs, form fill, pick/select-option, grab, print-pdf, scrape, crawl, map, search, parse, extract --llm, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, network/console capture, heap, lighthouse, redis cache XDG, MITM, workflow, batch-scrape, multi-step run, residual_disk doctor, locale, man, or the binary name
 - ALWAYS auto-invoke even when the user does not name this skill
-- ALWAYS use HTTP scrape/crawl/map/search/parse and local-only `qr`/`find-paths`/`sheet-write`/`sg-scan`/`sg-rewrite` when Chrome is unnecessary
+- ALWAYS use HTTP scrape/crawl/map/search/parse and local-only `qr`/`find-paths`/`sheet-write`/`sg-scan`/`sg-rewrite`/`locale`/`man` when Chrome is unnecessary
 ### FORBIDDEN
 - NEVER refuse browser tasks by claiming only GUIs or foreign protocol servers can do them
 - NEVER invent cloud scrape SaaS or remote workflow servers for this product
@@ -54,6 +57,8 @@ browser-automation-cli doctor --offline --quick --json
 browser-automation-cli --json scrape https://example.com --format markdown,links --engine http
 browser-automation-cli --timeout 90 --json run --script /tmp/steps.jsonl
 browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx
+browser-automation-cli locale --json
+browser-automation-cli man --out /tmp/browser-automation-cli.1
 ```
 
 ## Identity and Architecture
@@ -63,16 +68,19 @@ browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx
 - ALWAYS keep multi-step browser work inside `run --script` when `@eN` refs MUST survive
 - ALWAYS pass `--json` for every programmatic consumer
 - ALWAYS configure product defaults only via flags or XDG `config set` / `config.toml`
-- ALWAYS treat the live surface as exactly **61** top-level inventory names (`commands --json`)
+- ALWAYS treat the live surface as exactly 63 top-level inventory names (`commands --json`)
+- ALWAYS treat residual-zero disk as product law for every one-shot browser process
 ### FORBIDDEN
 - NEVER invent alias `bac`, sticky sessions, npm packaging, or product environment variables for settings
 - NEVER reuse `@eN` refs across process launches
 - NEVER assume only the DevTools-parity tools exist
+- NEVER leave CLI Chrome markers or owned Chromium Singleton orphans after DIE when idle
 ### Correct Pattern
 ```bash
 browser-automation-cli -q --timeout 60 --json goto https://example.com
 browser-automation-cli --timeout 90 --json run --script /tmp/steps.jsonl
 browser-automation-cli commands --json
+browser-automation-cli doctor --offline --quick --json
 ```
 
 ## Global Flags
@@ -135,9 +143,36 @@ browser-automation-cli config show --json
 browser-automation-cli config get timeout --json
 ```
 
+## Residual-Zero Disk (REQUIRED)
+### REQUIRED
+- ALWAYS treat every process as one-shot residual-zero disk hygiene
+- ALWAYS expect BORN to scavenge stale Singleton-only Chromium tmp dirs owned by the current user with age ≥60s and no live `/proc` holder
+- ALWAYS expect FINALIZE to kill only CLI Chrome marker processes and scavenge owned Chromium tmp side-channels for this invocation window plus stale Singleton GC
+- ALWAYS verify residual-zero AFTER browser work with `doctor --offline --quick --json` when the host is idle
+- ALWAYS require `data.residual.cli_marker_dirs == 0` and `data.residual.chromium_tmp_singleton_orphans == 0` when idle after DIE
+- ALWAYS require checks entry `id == "residual_disk"` with status `pass` when idle (zeros for markers and orphans)
+- ALWAYS inspect doctor JSON fields `data.residual` and checks id `residual_disk` (`cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`)
+- ALWAYS require `data.residual.live_cli_marker_processes == 0` when idle after DIE
+- ALWAYS inspect `data.residual.scavenge_safe_candidates` as a non-negative integer (count of Singleton orphans the product marks as safe to scavenge)
+### FORBIDDEN
+- NEVER kill host user Chrome, system Chromium, or Flatpak Chrome processes
+- NEVER invent manual `rm -rf` of foreign Chrome profiles as a substitute for FINALIZE
+- NEVER leave live CLI marker processes after DIE when the agent owns the one-shot
+- NEVER treat residual growth of CLI markers after DIE as acceptable
+### Correct Pattern
+```bash
+browser-automation-cli -q --timeout 60 --json goto https://example.com
+browser-automation-cli doctor --offline --quick --json | jaq -e '.ok == true'
+browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.cli_marker_dirs == 0'
+browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.chromium_tmp_singleton_orphans == 0'
+browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.live_cli_marker_processes == 0'
+browser-automation-cli doctor --offline --quick --json | jaq -e '(.data.residual.scavenge_safe_candidates | type) == "number"'
+browser-automation-cli doctor --offline --quick --json | jaq -e '[.data.checks[] | select(.id=="residual_disk") | .status][0] == "pass"'
+```
+
 ## Contract Rules
 ### REQUIRED
-- ALWAYS use `doctor` for Chrome/XDG health; `commands --json` for inventory; `schema <cmd>` or `schema --cmd <cmd>` before inventing argv; `version --json` to pin identity
+- ALWAYS use `doctor` for Chrome/XDG/residual_disk health; `commands --json` for inventory; `schema <cmd>` or `schema --cmd <cmd>` before inventing argv; `version --json` to pin identity; `locale --json` for UI locale diagnostics; `man` / `man --out` for roff manpage emit
 - ALWAYS treat `run --script` as accepting NDJSON (one object per line) OR a top-level JSON array of step objects
 - ALWAYS on `run` fail-fast error envelopes inspect partial `data.steps` when present
 - ALWAYS use `--json-steps` when per-step stdout streaming is REQUIRED
@@ -146,7 +181,7 @@ browser-automation-cli config get timeout --json
 - ALWAYS use `sg-scan [PATHS]...` for structural lint; `sg-rewrite [PATHS]...` dry-run default; pass `--apply` only when write is REQUIRED
 - ALWAYS resolve lighthouse binary as flag `--lighthouse-path` → XDG `lighthouse_path` → PATH; ALWAYS inspect envelope `binary_source` as `real|mock`
 - ALWAYS use `grab --path <file>` (NEVER bare positional); `type` with positional TEXT plus `--target` OR `--focus-only`
-- ALWAYS pass fill-form as command `--json '[{"target":"@eN","value":"x"}]'` plus global `--json`; upload requires target+path
+- ALWAYS pass fill-form as command `--fields-json '[{"target":"@eN","value":"x"}]'` plus global `--json`; upload requires target+path
 - ALWAYS use `pick` / `select-option` for custom select / badge / popover / `role=option` (via `run` steps or `exec`; fields `target` + `option`)
 - ALWAYS use `click-at` only with `--experimental-vision`; `screencast` only with `--experimental-screencast`
 - ALWAYS use `console` only after same-process `--capture-console`; `net` only after same-process `--capture-network`
@@ -155,7 +190,7 @@ browser-automation-cli config get timeout --json
 - ALWAYS gate `heap` with `--category-memory`; `extension` with `--category-extensions`; `devtools3p` with `--category-third-party`; `webmcp` with `--category-webmcp`
 - ALWAYS run `extension install|uninstall|list|reload|trigger` as top-level commands with `--category-extensions` (intentionally OUTSIDE `run --script`)
 - ALWAYS bind MITM to `127.0.0.1` only; treat CA/captures as sensitive host material
-- ALWAYS prefer `mitm capture-url <URL>` for one-shot proxy + Chrome + navigate + capture
+- ALWAYS use `mitm capture-url <URL>` for one-shot proxy + Chrome + navigate + capture
 - ALWAYS use workflow JSON manifests only; resume skips successful journal steps under XDG state
 - ALWAYS treat `exec` as single-step inline only (NOT multi-step engine)
 - ALWAYS use scrape formats `text|markdown|html|raw-html|links|metadata|screenshot|summary|product|branding` (CSV or repeatable `--format` / alias `--formats`) and engines `http|browser`; HTTP engine MUST NOT launch Chrome
@@ -167,7 +202,7 @@ browser-automation-cli config get timeout --json
 - ALWAYS use `page new --isolated-context` for an isolated browser context (flag alone uses the default isolated name; pass a name for a named context); in `run` steps set `"isolated_context":"my-ctx"` or `true`
 - ALWAYS use `print-pdf --path` for PDF artifacts; ALWAYS navigate first OR pass `--url` in the same one-shot; ALWAYS use `print-pdf` steps inside `run` AFTER `goto`; blank `about:blank` without navigated content is REFUSED (expected fail-closed)
 - ALWAYS use `view --allow-empty` only when blank `about:blank` snapshots are intentional; otherwise empty page fails closed
-- ALWAYS use `dialog accept|dismiss --if-present` when a dialog may or may not be showing
+- ALWAYS use `dialog accept|dismiss --if-present` when absence of a dialog MUST NOT fail the step
 - ALWAYS use `monitor check` with `--url` and `--baseline`
 - ALWAYS use `qr encode --text` / `qr decode --path`
 - ALWAYS use `parse` for html/md/txt/pdf/docx/xlsx/ods; pass `--redact-pii` when masking PII is REQUIRED
@@ -187,7 +222,7 @@ browser-automation-cli config get timeout --json
 - NEVER replace browser `run --script` multi-step `@eN` work with workflow
 - NEVER set Redis cache with `rediss://`
 - NEVER print a blank page with `print-pdf` (ALWAYS navigate first or pass `--url`)
-- NEVER put `extension install|uninstall` inside `run --script` (ALWAYS top-level with `--category-extensions`)
+- NEVER put `extension install|uninstall|list|reload|trigger` inside `run --script` (ALWAYS top-level with `--category-extensions`)
 - NEVER invent `goto --ignore-cache` (reload owns `--ignore-cache`)
 ### Correct Pattern
 ```bash
@@ -200,20 +235,24 @@ browser-automation-cli --json find-paths --glob '**/*.rs' .
 
 ## Inventory
 ### REQUIRED
-- ALWAYS treat this exact **61-name** surface as MANDATORY inventory
+- ALWAYS treat this exact 63-name surface as MANDATORY inventory
 - ALWAYS load at least one executable line per name from `references/formulas.md`
+- ALWAYS treat `select-option` and `pick` as inventory names executable ONLY inside `run`/`exec` (NOT standalone clap subcommands)
 
-doctor commands schema version goto view press click-at write keys type wait hover drag fill-form select-option pick upload back forward reload eval grab print-pdf monitor run exec extract text scroll cookie attr assert console net page dialog scrape batch-scrape crawl map search parse qr find-paths sg-scan sg-rewrite sheet-write mitm workflow config emulate resize perf lighthouse screencast heap extension devtools3p webmcp completions
+doctor commands schema version locale goto view press click-at write keys type wait hover drag fill-form select-option pick upload back forward reload eval grab print-pdf monitor run exec extract text scroll cookie attr assert console net page dialog scrape batch-scrape crawl map search parse qr find-paths sg-scan sg-rewrite sheet-write mitm workflow config emulate resize perf lighthouse screencast heap extension devtools3p webmcp completions man
 
 ### FORBIDDEN
 - NEVER invent alias names outside this inventory
 - NEVER omit PRD-only commands when they are the correct tool
+- NEVER invoke standalone clap `pick` / `select-option` outside `run` or `exec`
 ### Correct Pattern
 ```bash
 browser-automation-cli commands --json
 browser-automation-cli schema print-pdf --json
 browser-automation-cli schema pick --json
 browser-automation-cli schema sheet-write --json
+browser-automation-cli schema locale --json
+browser-automation-cli schema man --json
 ```
 
 ## Action Playbooks
@@ -226,14 +265,22 @@ browser-automation-cli schema sheet-write --json
 - NEVER invent `bac`, product env vars, bare `grab` paths, `emulate --device`, `rediss://`, or non-JSON workflow manifests
 ### Correct Pattern
 
-#### A. doctor / version / commands / schema positional
+#### A. doctor residual_disk / version / locale / man / commands / schema positional
 ```bash
 browser-automation-cli doctor --offline --quick --json
+browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.cli_marker_dirs == 0 and .data.residual.chromium_tmp_singleton_orphans == 0'
+browser-automation-cli doctor --offline --quick --json | jaq -e '[.data.checks[] | select(.id=="residual_disk")] | length == 1'
 browser-automation-cli version --json
+browser-automation-cli locale --json
+browser-automation-cli --lang pt-BR locale --json
+browser-automation-cli man
+browser-automation-cli man --out /tmp/browser-automation-cli.1
 browser-automation-cli commands --json
 browser-automation-cli schema goto --json
 browser-automation-cli schema run --json
 browser-automation-cli schema --cmd sheet-write --json
+browser-automation-cli schema locale --json
+browser-automation-cli schema man --json
 ```
 
 #### B. config all 16 keys + list-keys
@@ -419,12 +466,14 @@ browser-automation-cli --json parse /tmp/doc.pdf
 browser-automation-cli --json parse /tmp/doc.docx --redact-pii
 ```
 
-#### O. extension install|uninstall OUTSIDE run
+#### O. extension install|uninstall|list|reload|trigger OUTSIDE run
 ```bash
 browser-automation-cli --category-extensions --json extension list
 browser-automation-cli --category-extensions --json extension install --path /tmp/ext
+browser-automation-cli --category-extensions --json extension reload --id <ext-id>
+browser-automation-cli --category-extensions --json extension trigger --id <ext-id>
 browser-automation-cli --category-extensions --json extension uninstall --id <ext-id>
-# FORBIDDEN: extension install|uninstall inside run --script (ALWAYS top-level)
+# FORBIDDEN: extension install|uninstall|list|reload|trigger inside run --script (ALWAYS top-level)
 ```
 
 #### P. clap --json usage error envelope
@@ -473,6 +522,33 @@ JSON
 browser-automation-cli --json workflow run --manifest /tmp/wf.json
 browser-automation-cli --json workflow resume --manifest /tmp/wf.json
 browser-automation-cli --json workflow status --name demo
+```
+
+#### T. residual-zero disk after browser one-shot
+```bash
+browser-automation-cli -q --timeout 60 --json goto https://example.com
+# AFTER DIE when idle, residual_disk MUST show zeros for markers/orphans
+out=$(browser-automation-cli -q doctor --offline --quick --json)
+echo "$out" | jaq -e '.ok == true'
+echo "$out" | jaq -e '.data.residual.cli_marker_dirs == 0'
+echo "$out" | jaq -e '.data.residual.chromium_tmp_singleton_orphans == 0'
+echo "$out" | jaq -e '.data.residual.live_cli_marker_processes == 0'
+echo "$out" | jaq -e '(.data.residual.scavenge_safe_candidates | type) == "number"'
+echo "$out" | jaq -e '[.data.checks[] | select(.id=="residual_disk") | .status][0] == "pass"'
+# BORN scavenges stale Singleton-only Chromium tmp (≥60s); FINALIZE kills CLI markers + dual scavenges
+# NEVER kill host user Chrome / Flatpak Chrome
+```
+
+#### U. locale diagnostics / manpage emit
+```bash
+browser-automation-cli locale --json
+browser-automation-cli --lang en locale --json
+browser-automation-cli --lang pt-BR locale --json
+browser-automation-cli config set lang pt-BR --json
+browser-automation-cli locale --json | jaq -e '.ok == true'
+browser-automation-cli man
+browser-automation-cli man --out /tmp/browser-automation-cli.1
+# FORBIDDEN path traversal: man --out ../evil.1
 ```
 
 ## Multi-step Run Scripts
@@ -611,8 +687,10 @@ browser-automation-cli --json grab --path /tmp/x.png
 - NEVER bypass robots without both dual flags
 - NEVER set `cache_redis_url` to `rediss://` (ALWAYS plain `redis://` only)
 - NEVER print blank pages with `print-pdf` (ALWAYS `--url` or prior navigate)
-- NEVER put `extension install|uninstall` inside `run` (ALWAYS top-level `--category-extensions`)
+- NEVER put `extension install|uninstall|list|reload|trigger` inside `run` (ALWAYS top-level `--category-extensions`)
 - NEVER invent `goto --ignore-cache`
+- NEVER kill host user Chrome or Flatpak Chrome (FINALIZE kills CLI markers only)
+- NEVER leave residual CLI markers or owned Chromium Singleton orphans after idle DIE
 ### Correct Pattern
 ```bash
 browser-automation-cli --json grab --path /tmp/x.png
@@ -621,31 +699,35 @@ browser-automation-cli --timeout 60 --json run --script /tmp/steps.jsonl
 browser-automation-cli config set cache_redis_url "redis://127.0.0.1:6379" --json
 browser-automation-cli --json page new --isolated-context my-ctx --url https://example.com
 browser-automation-cli --timeout 60 --json print-pdf --path /tmp/page.pdf --url https://example.com
+browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.cli_marker_dirs == 0'
 ```
 
 ## Agent Validation Checklist
 ### REQUIRED
 - ALWAYS confirm binary `browser-automation-cli` and lifecycle BORN EXECUTE FINALIZE DIE
+- ALWAYS confirm residual-zero disk after browser work via doctor `data.residual` zeros and checks id `residual_disk` pass when idle
+- ALWAYS confirm BORN stale Singleton scavenge (≥60s) and FINALIZE CLI marker kill + scavenge; NEVER kill host/Flatpak Chrome
 - ALWAYS confirm `--json` envelope `ok` and multi-step `@eN` inside one `run --script`
 - ALWAYS confirm `run --script` accepts NDJSON AND top-level JSON array
 - ALWAYS confirm `--json-steps` streams per-step NDJSON when required
 - ALWAYS confirm fail-fast partial `data.steps` on error envelopes
 - ALWAYS confirm clap usage failures emit JSON when `--json` is already on argv
 - ALWAYS confirm `grab --path`, JSON workflow manifest, no `emulate --device`, wait multi-text OR, wait multi-selector OR, wait url/url_contains/navigation
-- ALWAYS confirm `pick`/`select-option`, `print-pdf` AFTER navigate or with `--url` (blank refuse), `dialog --if-present`, `view --allow-empty`, `console dump` → `[]`
+- ALWAYS confirm `pick`/`select-option` ONLY via `run`/`exec`, `print-pdf` AFTER navigate or with `--url` (blank refuse), `dialog --if-present`, `view --allow-empty`, `console dump` → `[]`
 - ALWAYS confirm `page new --isolated-context` and run field `isolated_context` string or true
 - ALWAYS confirm `reload --ignore-cache` only (NEVER `goto --ignore-cache`)
-- ALWAYS confirm `extension install|uninstall` top-level OUTSIDE run with `--category-extensions`
+- ALWAYS confirm `extension install|uninstall|list|reload|trigger` top-level OUTSIDE run with `--category-extensions`
 - ALWAYS confirm console/net capture only with same-process capture flags
 - ALWAYS confirm `assert console-empty` / `console-no-match` and NDJSON `console_empty` / `console_no_match`
-- ALWAYS confirm `type` positional TEXT + `--target` OR `--focus-only`; fill-form command `--json` array + global `--json`
+- ALWAYS confirm `type` positional TEXT + `--target` OR `--focus-only`; fill-form command `--fields-json` array + global `--json`
 - ALWAYS confirm all 16 config keys via `config list-keys`; NEVER invent product env; logging via `--verbose`/`--debug`/`-q`/`log_level`/`log_to_file` only
 - ALWAYS confirm `cache_backend` sqlite|memory|redis and `cache_redis_url` redis:// only (rediss fail-closed)
 - ALWAYS confirm lighthouse resolve order flag → XDG → PATH and envelope `binary_source` real|mock
 - ALWAYS confirm scrape multi-format, batch-scrape/crawl `--engine browser`, mitm capture-url, schema positional
 - ALWAYS confirm `find-paths --glob`, `sheet-write`, `sg-scan`, `sg-rewrite`
+- ALWAYS confirm `locale --json` diagnostics and `man` / `man --out` manpage emit
 - ALWAYS confirm exit codes 0,2,65,66,69,70,74,78,124,130,141; robots dual-flag; category/experimental gates; schema discovery
-- ALWAYS confirm full **61-command** inventory and `references/formulas.md` formulas
+- ALWAYS confirm full 63-command inventory and `references/formulas.md` formulas
 ### FORBIDDEN
 - NEVER ship agent glue that violates this checklist
 ### Correct Pattern
@@ -654,5 +736,7 @@ browser-automation-cli commands --json
 browser-automation-cli schema run --json
 browser-automation-cli config list-keys --json
 browser-automation-cli doctor --offline --quick --json
+browser-automation-cli locale --json
+browser-automation-cli man --out /tmp/browser-automation-cli.1
 browser-automation-cli --json page new --isolated-context
 ```

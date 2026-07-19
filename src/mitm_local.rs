@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One-shot local MITM capture helpers (PRD §5E).
 //!
 //! This module:
@@ -7,6 +8,16 @@
 //!
 //! Full TLS intercept proxy (hudsucker) can attach to the same capture store.
 //! CDP Network remains complementary and can feed the same HAR exporter.
+//!
+//! # Workload
+//!
+//! **Mista:** proxy accept loop is one awaited JoinHandle (not multi-URL fan-out).
+//! Domain/API classification over large captures uses [`crate::concurrency::map_cpu`]
+//! (PAR-56). Start/capture is sequential one-shot by design.
+//!
+//! **PAR-91:** CA PEM load in async oneshot paths uses
+//! [`crate::concurrency::read_to_string_blocking`] via [`load_ca_pems_blocking`]
+//! (never `std::fs::read_to_string` on a Tokio worker).
 
 use std::fs;
 use std::io::Write;
@@ -135,10 +146,16 @@ impl MitmCapture {
         if !path.exists() {
             return Ok(Self::new(Some(path.to_path_buf()), redact));
         }
-        let raw = fs::read_to_string(path)
-            .map_err(|e| CliError::new(ErrorKind::Io, format!("read mitm capture: {e}")))?;
-        let v: Value = serde_json::from_str(&raw)
-            .map_err(|e| CliError::new(ErrorKind::Data, format!("parse mitm capture: {e}")))?;
+        let v: Value = crate::json_util::read_json_value_file(
+            path,
+            crate::json_util::MAX_JSON_FILE_BYTES,
+        )
+        .map_err(|e| {
+            CliError::new(
+                e.kind(),
+                format!("mitm capture {}: {}", path.display(), e.message()),
+            )
+        })?;
         let items: Vec<CapturedExchange> =
             serde_json::from_value(v.get("items").cloned().unwrap_or_else(|| json!([])))
                 .map_err(|e| CliError::new(ErrorKind::Data, format!("mitm items: {e}")))?;
@@ -191,6 +208,32 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Load CA cert+key PEMs on the Tokio blocking pool (PAR-91 / PAR-100).
+///
+/// Ensures CA files exist via [`ensure_ca`], then reads both PEMs with
+/// [`crate::concurrency::read_to_string_blocking`] so async oneshot proxy paths
+/// never pin workers with `std::fs::read_to_string`.
+async fn load_ca_pems_blocking() -> Result<(String, String), CliError> {
+    let ca_meta = ensure_ca()?;
+    let cert_path = ca_meta
+        .get("cert_path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CliError::new(ErrorKind::Config, "CA cert path missing"))?
+        .to_string();
+    let key_path = ca_meta
+        .get("key_path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CliError::new(ErrorKind::Config, "CA key path missing"))?
+        .to_string();
+    let ca_cert = crate::concurrency::read_to_string_blocking(std::path::PathBuf::from(cert_path))
+        .await
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("read CA cert: {e}")))?;
+    let ca_key = crate::concurrency::read_to_string_blocking(std::path::PathBuf::from(key_path))
+        .await
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("read CA key: {e}")))?;
+    Ok((ca_cert, ca_key))
 }
 
 /// Ensure CA key/cert exist under XDG; return paths.
@@ -389,11 +432,11 @@ fn chrono_like(ms: u64) -> String {
 pub fn domains() -> Result<Value, CliError> {
     let path = default_capture_path()?;
     let cap = MitmCapture::load(&path, true)?;
+    // PAR-56: host extract is pure CPU over items → map_cpu when large.
+    let hosts_list = crate::concurrency::map_cpu(&cap.items, |e| e.host.clone());
     let mut hosts = std::collections::BTreeSet::new();
-    for e in &cap.items {
-        if let Some(h) = &e.host {
-            hosts.insert(h.clone());
-        }
+    for h in hosts_list.into_iter().flatten() {
+        hosts.insert(h);
     }
     let list: Vec<String> = hosts.into_iter().collect();
     let count = list.len();
@@ -404,8 +447,9 @@ pub fn domains() -> Result<Value, CliError> {
 pub fn apis(kind: Option<&str>) -> Result<Value, CliError> {
     let path = default_capture_path()?;
     let cap = MitmCapture::load(&path, true)?;
-    let mut out = Vec::new();
-    for e in &cap.items {
+    let kind_owned = kind.map(|s| s.to_string());
+    // PAR-56: classify endpoints in parallel when capture is large.
+    let mut out: Vec<Value> = crate::concurrency::map_cpu(&cap.items, |e| {
         let url_l = e.url.to_ascii_lowercase();
         let is_gql = url_l.contains("graphql")
             || e.request_body
@@ -426,19 +470,28 @@ pub fn apis(kind: Option<&str>) -> Result<Value, CliError> {
         } else {
             "other"
         };
-        if let Some(filter) = kind {
+        if let Some(ref filter) = kind_owned {
             if filter != k {
-                continue;
+                return None;
             }
         }
-        out.push(json!({
+        Some(json!({
             "id": e.id,
             "kind": k,
             "method": e.method,
             "url": e.url,
             "status": e.status,
-        }));
-    }
+        }))
+    })
+    .into_iter()
+    .flatten()
+    .collect();
+    // Stable agent order by id when present (PAR-105: sort_by_cpu when large).
+    crate::concurrency::sort_by_cpu(&mut out, |a, b| {
+        let ia = a.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+        let ib = b.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+        ia.cmp(&ib)
+    });
     Ok(json!({ "count": out.len(), "apis": out }))
 }
 
@@ -510,7 +563,21 @@ pub fn import_cdp_network(events: &[Value]) -> Result<Value, CliError> {
 }
 
 /// Shared capture for optional in-process proxy (thread-safe).
+///
+/// # Interior mutability
+///
+/// `std::sync::Mutex` is used because handlers take short critical sections that
+/// **do not** hold the guard across `.await`. Poison is recovered via
+/// [`lock_capture`] so a panic in one handler cannot drop later captures.
 pub type SharedCapture = Arc<Mutex<MitmCapture>>;
+
+/// Lock the shared capture, recovering from poison.
+fn lock_capture(cap: &SharedCapture) -> std::sync::MutexGuard<'_, MitmCapture> {
+    cap.lock().unwrap_or_else(|poisoned| {
+        tracing::debug!("mitm capture mutex poisoned; recovering via into_inner");
+        poisoned.into_inner()
+    })
+}
 
 /// Create shared capture bound to default path.
 pub fn shared_capture() -> Result<SharedCapture, CliError> {
@@ -533,21 +600,9 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
         WebSocketHandler,
     };
     use std::net::SocketAddr;
-    use std::sync::atomic::{AtomicU16, Ordering};
 
-    let ca_meta = ensure_ca()?;
-    let cert_path = ca_meta
-        .get("cert_path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| CliError::new(ErrorKind::Config, "CA cert path missing"))?;
-    let key_path = ca_meta
-        .get("key_path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| CliError::new(ErrorKind::Config, "CA key path missing"))?;
-    let ca_cert = fs::read_to_string(cert_path)
-        .map_err(|e| CliError::new(ErrorKind::Io, format!("read CA cert: {e}")))?;
-    let ca_key = fs::read_to_string(key_path)
-        .map_err(|e| CliError::new(ErrorKind::Io, format!("read CA key: {e}")))?;
+    // PAR-91: CA PEM off async worker (shared helper for both oneshot paths).
+    let (ca_cert, ca_key) = load_ca_pems_blocking().await?;
     let key_pair = KeyPair::from_pem(&ca_key)
         .map_err(|e| CliError::new(ErrorKind::Software, format!("parse CA key: {e}")))?;
     let issuer = Issuer::from_ca_cert_pem(&ca_cert, key_pair)
@@ -577,7 +632,8 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
                     headers.insert(k.to_string(), val.to_string());
                 }
             }
-            if let Ok(mut g) = self.cap.lock() {
+            {
+                let mut g = lock_capture(&self.cap);
                 g.push(CapturedExchange {
                     id: 0,
                     method,
@@ -601,7 +657,8 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
             res: Response<Body>,
         ) -> Response<Body> {
             let status = res.status().as_u16();
-            if let Ok(mut g) = self.cap.lock() {
+            {
+                let mut g = lock_capture(&self.cap);
                 if let Some(last) = g.items.last_mut() {
                     last.status = Some(status);
                 }
@@ -632,7 +689,8 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
-            if let Ok(mut g) = self.cap.lock() {
+            {
+                let mut g = lock_capture(&self.cap);
                 g.push_ws(CapturedWsFrame {
                     direction: "unknown".into(),
                     kind,
@@ -645,10 +703,9 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
     }
 
     let handler = CaptureHandler { cap: capture_h };
-    let bound_port = Arc::new(AtomicU16::new(0));
-    let bound_port_w = bound_port.clone();
 
     // Bind ephemeral: ask OS for port 0 via std listener, then rebuild with that port.
+    // Port is a local `u16` only — no atomic needed (single task owns the value).
     let listener = std::net::TcpListener::bind("127.0.0.1:0")
         .map_err(|e| CliError::new(ErrorKind::Io, format!("bind 127.0.0.1:0: {e}")))?;
     let port = listener
@@ -656,7 +713,6 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
         .map_err(|e| CliError::new(ErrorKind::Io, format!("local_addr: {e}")))?
         .port();
     drop(listener);
-    bound_port_w.store(port, Ordering::SeqCst);
 
     let seconds = seconds.clamp(1, 600);
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
@@ -682,12 +738,10 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
     let _ = tx.send(());
     let _ = proxy_task.await;
 
-    let saved = if let Ok(g) = capture.lock() {
-        g.save().ok()
-    } else {
-        None
+    let (saved, count) = {
+        let g = lock_capture(&capture);
+        (g.save().ok(), g.items.len())
     };
-    let count = capture.lock().map(|g| g.items.len()).unwrap_or(0);
 
     Ok(json!({
         "ok": true,
@@ -718,19 +772,8 @@ pub async fn capture_url_oneshot(
     };
     use std::net::SocketAddr;
 
-    let ca_meta = ensure_ca()?;
-    let cert_path = ca_meta
-        .get("cert_path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| CliError::new(ErrorKind::Config, "CA cert path missing"))?;
-    let key_path = ca_meta
-        .get("key_path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| CliError::new(ErrorKind::Config, "CA key path missing"))?;
-    let ca_cert = fs::read_to_string(cert_path)
-        .map_err(|e| CliError::new(ErrorKind::Io, format!("read CA cert: {e}")))?;
-    let ca_key = fs::read_to_string(key_path)
-        .map_err(|e| CliError::new(ErrorKind::Io, format!("read CA key: {e}")))?;
+    // PAR-91: CA PEM off async worker (shared helper for both oneshot paths).
+    let (ca_cert, ca_key) = load_ca_pems_blocking().await?;
     let key_pair = KeyPair::from_pem(&ca_key)
         .map_err(|e| CliError::new(ErrorKind::Software, format!("parse CA key: {e}")))?;
     let issuer = Issuer::from_ca_cert_pem(&ca_cert, key_pair)
@@ -760,7 +803,8 @@ pub async fn capture_url_oneshot(
                     headers.insert(k.to_string(), val.to_string());
                 }
             }
-            if let Ok(mut g) = self.cap.lock() {
+            {
+                let mut g = lock_capture(&self.cap);
                 g.push(CapturedExchange {
                     id: 0,
                     method,
@@ -784,7 +828,8 @@ pub async fn capture_url_oneshot(
             res: Response<Body>,
         ) -> Response<Body> {
             let status = res.status().as_u16();
-            if let Ok(mut g) = self.cap.lock() {
+            {
+                let mut g = lock_capture(&self.cap);
                 if let Some(last) = g.items.last_mut() {
                     last.status = Some(status);
                 }
@@ -815,7 +860,8 @@ pub async fn capture_url_oneshot(
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
-            if let Ok(mut g) = self.cap.lock() {
+            {
+                let mut g = lock_capture(&self.cap);
                 g.push_ws(CapturedWsFrame {
                     direction: "unknown".into(),
                     kind,
@@ -884,7 +930,8 @@ pub async fn capture_url_oneshot(
 
     // Fallback/complement: merge CDP network events into MITM capture store so
     // agents always see ≥1 exchange when navigation succeeded (proxy TLS edge cases).
-    if let Ok(mut g) = capture.lock() {
+    {
+        let mut g = lock_capture(&capture);
         let net = session
             .with_capture_fields(json!({}))
             .get("network")
@@ -947,12 +994,10 @@ pub async fn capture_url_oneshot(
     let _ = tx.send(());
     let _ = proxy_task.await;
 
-    let saved = if let Ok(g) = capture.lock() {
-        g.save().ok()
-    } else {
-        None
+    let (saved, count) = {
+        let g = lock_capture(&capture);
+        (g.save().ok(), g.items.len())
     };
-    let count = capture.lock().map(|g| g.items.len()).unwrap_or(0);
 
     let mut out = json!({
         "ok": true,

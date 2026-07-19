@@ -54,6 +54,7 @@
 - Nunca use `rediss://` para cache (somente TCP plain; `rediss://` é fail-closed)
 - Armazene URL Redis só com `config set cache_redis_url` sob XDG (nunca env de produto)
 - Armazene chaves LLM só com `config set openrouter_api_key` sob XDG
+- Higiene residual: doctor `residual_disk` reporta dirs temporários órfãos locais; BORN/FINALIZE fazem scavenge só de markers owned da CLI e dirs Chromium Singleton-only stale (nunca mata Chrome Flatpak do host)
 
 ## Boas Práticas MITM
 - Faça bind e use MITM apenas em `127.0.0.1` (proxy local one-shot; não exponha em LAN ou interfaces públicas)

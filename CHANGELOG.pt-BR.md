@@ -8,6 +8,26 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
+## [0.1.5] - 2026-07-19
+
+### Adicionado
+- GC **BORN** automático cross-run de dirs temp Singleton-only do Chromium (`scavenge_stale_singleton_orphans`) — impede acúmulo de `/tmp/org.chromium.Chromium.*` (PRD §5N residual-zero em disco)
+- `ResidualDiskReport` + check `residual_disk` no `doctor` / JSON top-level `residual` (path leve)
+- Constantes públicas residual (prefixo marker, age floor, caps) — anti-hardcode
+- Gates locais: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (sem CI/GHA)
+- Cobertura de integração: side-channel Singleton, wipe de fixture no BORN, campos residual no doctor
+
+### Corrigido
+- **RES-01:** `Lifecycle::finalize` copia `chrome_pid` **antes** do `.take()` para o scavenge da invocação
+- **RES-02/RES-10:** GC cross-run por shape Singleton-only + uid + sem holder vivo em `/proc`
+- **RES-05:** FINALIZE redescobre side-channels antes do wipe
+- Prefixos temp Flatpak `com.google.Chrome.*` **nunca** apagados pelo GC stale
+
+### Alterado
+- Versão `0.1.5`
+- FINALIZE com scavenge duplo: janela da invocação + GC stale
+- Residual-zero estendido de processo/marker para higiene de disco Chromium tmp
+
 
 ## [0.1.4] - 2026-07-18
 

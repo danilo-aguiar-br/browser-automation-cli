@@ -43,6 +43,7 @@ browser-automation-cli doctor --offline --quick --json
 - Rode clippy com `timeout 120 cargo clippy --all-targets --locked -- -D warnings`
 - Rode format check com `cargo fmt --check`
 - Adicione cobertura de regressão para cada bugfix
+- Gates locais residual-zero: `scripts/residual-check.sh` e `scripts/residual-stress.sh` (somente local; não é requisito de CI de produto)
 - Veja [docs/TESTING.pt-BR.md](docs/TESTING.pt-BR.md)
 
 ## Documentação
@@ -52,7 +53,7 @@ browser-automation-cli doctor --offline --quick --json
 - Atualize skill packages em `skills/` quando a superfície de comandos mudar
 - Documente settings de produto só como flags mais `config` XDG
 - Não invente nem documente variáveis de ambiente de produto para settings
-- Ao adicionar comandos, atualize README Commands, INTEGRATIONS New Flags, llms.txt / llms-full Command Surface (EN+pt-BR), receitas COOKBOOK, skills, MIGRATION e contagens de inventário (61 de topo / 53 tools e2e em 0.1.4)
+- Ao adicionar comandos, atualize README Commands, INTEGRATIONS New Flags, llms.txt / llms-full Command Surface (EN+pt-BR), receitas COOKBOOK, skills, MIGRATION e contagens de inventário (**63** nomes de agente via `commands --json` / clap de topo **61** sem `select-option`/`pick` / 53 tools e2e em 0.1.5)
 
 ## Reportar Bugs
 - Abra issue no GitHub com `browser-automation-cli --version`

@@ -33,7 +33,7 @@
 - Accessibility snapshot refs `@eN` stay valid only inside that process
 - `--json` envelopes are stable for programmatic agents; clap usage errors also emit JSON when `--json` is on argv
 - Install path is pure Rust via cargo
-- v0.1.4 hard-closes GAP-001…025: `run --json-steps`, wait multi-selector/url, `select-option`/`pick` run cmds, assert console kinds, `schema <cmd>` positional, MITM `capture-url` + global `--mitm*`, multi-format scrape, batch/crawl `--engine browser`, and residual-zero honesty from 0.1.3
+- v0.1.5 hard-closes residual-zero disk hygiene (RES-01…12): BORN+FINALIZE Singleton GC, `doctor residual_disk`, inventory honesty with `locale`/`man` (63 agent names); keeps the full 0.1.4 agent-first surface
 
 ## Superpowers
 - Navigation and page lifecycle: `goto` (init-script, beforeunload accept|dismiss), `back`, `forward`, `reload`, `page`
@@ -57,10 +57,11 @@
 - MITM one-shot: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact` (binds `127.0.0.1`; global `--mitm*`)
 - Workflow DAG: `workflow run|resume|status` with SQLite journal (resume skips ok)
 - XDG config: `config path|init|show|set|get|list-keys` for config.toml
-- Discovery: `doctor`, `commands` (61 agent names), `schema <cmd>` or `schema --cmd`, `completions`
+- Discovery: `doctor` (incl. `residual_disk`), `commands` (63 agent names), `schema <cmd>` or `schema --cmd`, `version`, `locale`, `man`, `completions`
 - Multi-step observability: `run --json` final envelope includes `ok` + full `steps[].data`; global `--json-steps` streams one NDJSON line per step
 - Fail-fast multi-step: `run` returns partial `data.steps` on error envelopes
-- Lifecycle: FINALIZE scavenges owned Chromium `/tmp` orphans; residual e2e is residual-zero honest
+- Residual-zero disk: BORN auto-GC of stale Singleton-only Chromium dirs under `/tmp` older than 60s; FINALIZE dual scavenge + re-scan; never kills host Flatpak Chrome; marker prefix `browser-automation-cli-chrome-`
+- Lifecycle: BORN + FINALIZE scavenge owned Chromium `/tmp` orphans; product law is residual-zero process + disk
 - Cache: XDG `cache_backend` (`sqlite|memory|redis`) and `cache_redis_url`; `rediss://` fail-closed
 
 ## Quick Start
@@ -68,6 +69,8 @@
 cargo install --path . --locked
 browser-automation-cli --version
 browser-automation-cli doctor --offline --quick --json
+browser-automation-cli doctor --offline --quick --json | jaq '.residual // .data.residual // .'
+browser-automation-cli locale --json
 browser-automation-cli goto https://example.com --json
 browser-automation-cli view --json
 ```
@@ -131,7 +134,7 @@ browser-automation-cli --capture-console --json assert console-empty
 ```
 
 ## Commands
-- Discovery: `doctor`, `commands`, `schema`, `version`, `completions`
+- Discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `man`, `completions`
 - Config: `config path`, `config init`, `config show`, `config set`, `config get`, `config list-keys`
 - Navigate: `goto`, `back`, `forward`, `reload`
 - Snapshot and input: `view`, `press`, `write`, `type`, `keys`, `wait`, `hover`, `drag`, `fill-form`, `upload`
@@ -147,7 +150,7 @@ browser-automation-cli --capture-console --json assert console-empty
 - Advanced: `eval`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`
 - Categories: `extension`, `devtools3p`, `webmcp`
 - Multi-step: `run`, `exec`
-- Inventory: 61 agent-facing names via `commands --json` (includes `select-option` and `pick`); clap top-level help lists 59 without those two as standalone subcommands; DevTools e2e covers 53 tools
+- Inventory: **63** agent-facing names via `commands --json` (includes `locale`, `man`, `select-option`, `pick`); clap top-level help lists **61** without `select-option`/`pick` as standalone subcommands; DevTools e2e covers 53 tools
 
 ## Configuration
 - Prefer CLI flags for one-off agent calls
@@ -163,7 +166,8 @@ browser-automation-cli --capture-console --json assert console-empty
 - `config path` prints resolved config, data, cache, state, and browsers_dir paths
 - `config list-keys` lists every supported key with defaults
 - CLI flags override values stored in config.toml
-- Doctor reports browsers_dir, lighthouse source, and `cache_redis` among readiness checks
+- Doctor reports browsers_dir, lighthouse source, `cache_redis`, and `residual_disk` among readiness checks
+- Doctor JSON top-level field `residual` reports: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
 
 ## Features
 - This crate has no Cargo feature flags
@@ -243,12 +247,18 @@ browser-automation-cli --capture-console --json assert console-empty
 - Assert console: `assert console-empty` / `assert console-no-match --pattern …` (needs `--capture-console`)
 - Assert aliases: `url_contains` / `text_contains`; `attr` uses DOM property fallback when HTML attribute is null
 - Pick / select-option: only inside `run`/`exec` (`{"cmd":"pick","target":"…","option":"…"}`); not clap standalone
-- Inventory size: `commands --json` lists 61 agent names; clap top-level is 59 without `select-option`/`pick` as standalone
+- Inventory size: `commands --json` lists **63** agent names (includes `locale`, `man`); clap top-level is **61** without `select-option`/`pick` as standalone
+- Locale: `locale --json` diagnoses resolved language; set with `--lang pt-BR` or `config set lang pt-BR`
 - `file://` + `scrape --engine http`: Usage error — use browser engine or `parse` for local files
 - `reload --ignore-cache`: CDP `Page.reload` with `ignoreCache` (not a JS no-op)
 - `run` script formats: NDJSON one object per line, or a single JSON array of steps
 - Redis cache: set `cache_backend redis` and `cache_redis_url`; never use `rediss://`
-- Residual /tmp: FINALIZE scavenges owned Chromium singletons; e2e residual assert is residual-zero
+- Residual /tmp disk hygiene (v0.1.5 residual-zero):
+  - BORN auto-GC: `scavenge_stale_singleton_orphans` removes `/tmp` `org.chromium.Chromium.*` Singleton-only dirs older than 60s
+  - FINALIZE dual scavenge + re-scan of owned marker dirs (`browser-automation-cli-chrome-` prefix)
+  - Never kills host Flatpak Chrome or non-CLI browser processes
+  - Doctor check `residual_disk` + top-level JSON field `residual` (`cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`)
+  - Local gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (no CI required)
 - Sheet/lint utils: `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths --glob` for shell globs
 - Dialog soft path: `dialog accept --if-present` / run `if_present:true` soft-ok when no dialog is showing
 

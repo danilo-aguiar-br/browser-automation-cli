@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Named constants for `browser-automation-cli` (anti-hardcode).
 
 /// Network throttling presets aligned with Chrome DevTools / Puppeteer PredefinedNetworkConditions.
@@ -16,6 +17,9 @@ pub struct NetworkPreset {
 }
 
 /// Throughput -1 means no throttle (unlimited).
+///
+/// Compile-time table of Chrome DevTools-style network conditions. Values are
+/// pure `Copy` data inlined via `const` (no identity / no interior mutability).
 pub const NETWORK_PRESETS: &[NetworkPreset] = &[
     NetworkPreset {
         name: "No throttling",
@@ -60,6 +64,12 @@ pub const NETWORK_PRESETS: &[NetworkPreset] = &[
         upload_throughput: (1.5 * 1024.0 * 1024.0) / 8.0,
     },
 ];
+
+// Build-time invariants for the network preset table.
+const _: () = assert!(!NETWORK_PRESETS.is_empty());
+const _: () = assert!(NETWORK_PRESETS.len() == 6);
+const _: () = assert!(NETWORK_PRESETS[0].download_throughput < 0.0); // unlimited sentinel
+const _: () = assert!(NETWORK_PRESETS[1].offline);
 
 /// Lookup a network preset by case-insensitive name.
 pub fn network_preset_by_name(name: &str) -> Option<&'static NetworkPreset> {

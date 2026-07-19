@@ -1,6 +1,9 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Clap derive surface for browser-automation-cli (PRD Layer L).
 //!
 //! Help text on flags is the primary documentation for this module.
+//! Item-level rustdoc is intentionally light: clap `///` strings power `--help`
+//! and man pages; agent skills cover recipes (audit D-02/D-11).
 #![allow(missing_docs)]
 
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum, ValueHint};
@@ -57,6 +60,7 @@ pub struct GlobalOpts {
         long = "quiet",
         global = true,
         action = ArgAction::SetTrue,
+        conflicts_with_all = ["verbose", "debug"],
         help_heading = "Output"
     )]
     pub quiet: bool,
@@ -67,6 +71,7 @@ pub struct GlobalOpts {
         long = "verbose",
         global = true,
         action = ArgAction::SetTrue,
+        conflicts_with = "quiet",
         help_heading = "Output"
     )]
     pub verbose: bool,
@@ -76,9 +81,19 @@ pub struct GlobalOpts {
         long = "debug",
         global = true,
         action = ArgAction::SetTrue,
+        conflicts_with = "quiet",
         help_heading = "Output"
     )]
     pub debug: bool,
+
+    /// Force plain stderr (no ANSI colors; accessibility / agent-friendly)
+    #[arg(
+        long = "plain",
+        global = true,
+        action = ArgAction::SetTrue,
+        help_heading = "Output"
+    )]
+    pub plain: bool,
 
     /// Global wall-clock timeout in seconds (0 = no override)
     #[arg(
@@ -89,6 +104,19 @@ pub struct GlobalOpts {
         help_heading = "Timeouts"
     )]
     pub timeout: u64,
+
+    /// Max concurrent I/O tasks (batch/crawl/CDP fan-out) and Rayon CPU pool hint
+    ///
+    /// `0` = auto: `min(cpus, (free_ram_mb×50%)/64, 64)`. Every fan-out is
+    /// hard-capped (no unbounded `join_all` / spawn loops).
+    #[arg(
+        long = "max-concurrency",
+        global = true,
+        default_value_t = 0,
+        value_name = "N",
+        help_heading = "Parallelism"
+    )]
+    pub max_concurrency: usize,
 
     /// Per-step timeout in seconds for `run` scripts (0 = inherit global timeout)
     #[arg(
@@ -119,7 +147,10 @@ pub struct GlobalOpts {
     )]
     pub artifacts_dir: Option<std::path::PathBuf>,
 
-    /// Force UI language (`en` or `pt`); default resolves from OS locale + XDG
+    /// Force UI language (`en` / `pt-BR`); default: flag → env → XDG → OS → en
+    ///
+    /// Accepts BCP 47 (`pt-BR`, `en`) or legacy `pt`. Env override:
+    /// `BROWSER_AUTOMATION_CLI_LANG`. Machine JSON stays English.
     #[arg(long, global = true, value_name = "LANG", help_heading = "Output")]
     pub lang: Option<String>,
 
@@ -281,6 +312,9 @@ pub struct GlobalOpts {
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     /// Diagnose Chrome install and one-shot readiness
+    ///
+    /// Use global `--json` for machine-readable envelopes (no local `--json` —
+    /// avoids silent shadowing of the global flag).
     Doctor {
         #[arg(long, action = ArgAction::SetTrue)]
         offline: bool,
@@ -288,14 +322,11 @@ pub enum Commands {
         quick: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         fix: bool,
-        #[arg(long, action = ArgAction::SetTrue)]
-        json: bool,
     },
     /// List available commands
-    Commands {
-        #[arg(long, action = ArgAction::SetTrue)]
-        json: bool,
-    },
+    ///
+    /// Use global `--json` for the machine inventory payload.
+    Commands,
     /// JSON Schema fragment for a command (agent discovery)
     /// GAP-022: accepts `schema run` or `schema --cmd run`.
     Schema {
@@ -308,6 +339,8 @@ pub enum Commands {
     },
     /// Print CLI version
     Version,
+    /// Show resolved UI locale and detection diagnostics (human suggestions only)
+    Locale,
     /// Navigate to a URL (one-shot)
     Goto {
         #[arg(value_hint = ValueHint::Url)]
@@ -324,7 +357,12 @@ pub enum Commands {
     },
     /// Accessibility snapshot with @eN refs
     View {
-        #[arg(long, action = ArgAction::SetTrue)]
+        /// Full a11y tree (tool-ref take_snapshot.verbose / run JSON `"verbose":true`).
+        ///
+        /// CLI long name is `--detailed` so it does not silently shadow global
+        /// `--verbose` (product logging). Multi-step `run` scripts still use the
+        /// JSON key `verbose` for DevTools tool-ref parity.
+        #[arg(long = "detailed", action = ArgAction::SetTrue)]
         verbose: bool,
         #[arg(long, value_hint = ValueHint::FilePath)]
         path: Option<std::path::PathBuf>,
@@ -422,8 +460,9 @@ pub enum Commands {
     },
     /// Fill multiple form fields from JSON `[{target|uid,value},...]`
     FillForm {
-        #[arg(long)]
-        json: String,
+        /// JSON array payload (not the global envelope flag `--json`)
+        #[arg(long = "fields-json", value_name = "JSON")]
+        fields_json: String,
         /// Attach slim a11y snapshot after fill-form
         #[arg(long, action = ArgAction::SetTrue)]
         include_snapshot: bool,
@@ -592,7 +631,8 @@ pub enum Commands {
         urls_file: std::path::PathBuf,
         #[arg(long = "format", alias = "formats", default_value = "text")]
         format: String,
-        #[arg(long, default_value_t = 2)]
+        /// Concurrent HTTP fetches (`0` = use global `--max-concurrency` / auto)
+        #[arg(long, default_value_t = 0)]
         concurrency: usize,
         /// http (default) or browser (CDP per URL; GAP-010)
         #[arg(long, default_value = "http")]
@@ -804,10 +844,16 @@ pub enum Commands {
         #[command(subcommand)]
         action: WebmcpAction,
     },
-    /// Generate shell completions (path leve, no Chrome)
+    /// Generate shell completions (path-level, no Chrome)
     Completions {
         #[arg(value_enum)]
         shell: CompletionShell,
+    },
+    /// Generate man page (roff) via clap_mangen (path-level, no Chrome)
+    Man {
+        /// Write man page to PATH instead of stdout
+        #[arg(long, value_name = "PATH", value_hint = ValueHint::FilePath)]
+        out: Option<std::path::PathBuf>,
     },
 }
 
@@ -1103,8 +1149,9 @@ pub enum CookieAction {
     /// Set cookies from a JSON array of cookie objects
     Set {
         /// JSON array: [{"name":"a","value":"b","url":"https://..."}]
-        #[arg(long)]
-        json: String,
+        /// (long name avoids shadowing global envelope `--json`)
+        #[arg(long = "cookies-json", value_name = "JSON")]
+        cookies_json: String,
     },
     /// Clear all browser cookies in this one-shot process
     Clear,

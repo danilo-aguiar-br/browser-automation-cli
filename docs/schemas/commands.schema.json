@@ -6,6 +6,7 @@
   "description": "List available commands",
   "properties": {
     "json": {
+      "description": "Global envelope flag --json (not a local commands flag)",
       "type": "boolean"
     }
   },

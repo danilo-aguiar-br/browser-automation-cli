@@ -1,13 +1,28 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One-shot browser session: launch-only + actions + reap (PR3–PR6).
 //!
 //! PROHIBITED on this path: ensure_daemon, connect_cdp, multi-process session.
 //! Refs live only inside this process; multi-step scripts share one session via `run`.
 //!
 //! Method-level docs are expanded over time; clap and skill surfaces document agent usage.
+//!
+//! # Workload
+//!
+//! **Mista (I/O + light CPU):**
+//! - CDP navigation / input / snapshot is **I/O-bound** (Tokio multi-thread).
+//! - Multi-ref snapshot/grab resolve via [`crate::concurrency::join_bounded`].
+//! - Multi-target attach at launch uses `join_bounded_ordered`.
+//! - Heavy disk (PDF, heap, perf, screencast frames, eval dumps) uses
+//!   [`crate::concurrency::write_bytes_blocking`] / `spawn_blocking` so workers
+//!   are not pinned (docsrs spawn_blocking; rules: never `std::fs` on async path).
+//! - Single interactive acts (`goto`, `press`, `type`, …) stay sequential
+//!   (DOM focus / product law one Page). Browser multi-URL batch is sequential
+//!   by design (N-129); use `--engine http` for URL fan-out.
 #![allow(missing_docs)]
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+use rustc_hash::FxHashMap;
 
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
@@ -46,7 +61,8 @@ fn is_noise_network_url(url: &str) -> bool {
 pub struct OneShotSession {
     manager: BrowserManager,
     ref_map: RefMap,
-    iframe_sessions: HashMap<String, String>,
+    /// Frame id → CDP session id (process-minted keys → FxHashMap).
+    iframe_sessions: FxHashMap<String, String>,
     chrome_pid: Option<u32>,
     capture: CaptureOpts,
     event_rx: broadcast::Receiver<CdpEvent>,
@@ -79,7 +95,8 @@ pub struct OneShotSession {
     /// Extension ids loaded via --load-extension in this session (for uninstall effect).
     loaded_extension_ids: Vec<String>,
     /// Named BrowserContext ids (tool-ref isolatedContext string names; GAP-004).
-    named_contexts: HashMap<String, String>,
+    /// Named isolated world → context id (process-minted → FxHashMap).
+    named_contexts: FxHashMap<String, String>,
 }
 
 impl OneShotSession {
@@ -127,7 +144,7 @@ impl OneShotSession {
         let mut session = Self {
             manager,
             ref_map: RefMap::new(),
-            iframe_sessions: HashMap::new(),
+            iframe_sessions: FxHashMap::default(),
             chrome_pid,
             capture,
             event_rx,
@@ -148,7 +165,7 @@ impl OneShotSession {
             console_preserved: Vec::new(),
             network_preserved: Vec::new(),
             loaded_extension_ids: Vec::new(),
-            named_contexts: HashMap::new(),
+            named_contexts: FxHashMap::default(),
         };
         session.enable_capture_domains().await?;
         Ok(session)
@@ -194,7 +211,7 @@ impl OneShotSession {
         let mut session = Self {
             manager,
             ref_map: RefMap::new(),
-            iframe_sessions: HashMap::new(),
+            iframe_sessions: FxHashMap::default(),
             chrome_pid,
             capture,
             event_rx,
@@ -215,7 +232,7 @@ impl OneShotSession {
             console_preserved: Vec::new(),
             network_preserved: Vec::new(),
             loaded_extension_ids: Vec::new(),
-            named_contexts: HashMap::new(),
+            named_contexts: FxHashMap::default(),
         };
         // Best-effort: record extension path basenames; real ids come from list after launch.
         session.loaded_extension_ids = extensions
@@ -312,7 +329,7 @@ impl OneShotSession {
     pub fn drain_events(&mut self) {
         loop {
             match self.event_rx.try_recv() {
-                Ok(evt) => self.ingest_event(evt),
+                Ok(evt) => self.ingest_event(&evt),
                 Err(broadcast::error::TryRecvError::Empty) => break,
                 Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
                 Err(broadcast::error::TryRecvError::Closed) => break,
@@ -341,7 +358,8 @@ impl OneShotSession {
         }
     }
 
-    fn ingest_event(&mut self, evt: CdpEvent) {
+    /// Ingest one CDP event by shared reference (fields are only read / selectively cloned).
+    fn ingest_event(&mut self, evt: &CdpEvent) {
         match evt.method.as_str() {
             "Runtime.consoleAPICalled" if self.capture.console => {
                 let level = evt
@@ -1146,9 +1164,11 @@ impl OneShotSession {
             let body = serde_json::to_vec_pretty(&data).map_err(|e| {
                 CliError::new(ErrorKind::Io, format!("eval serialize for file: {e}"))
             })?;
-            std::fs::write(path, body).map_err(|e| {
-                CliError::new(ErrorKind::Io, format!("eval write {}: {e}", path.display()))
-            })?;
+            crate::concurrency::write_bytes_blocking(path.to_path_buf(), body)
+                .await
+                .map_err(|e| {
+                    CliError::new(ErrorKind::Io, format!("eval write {}: {e}", path.display()))
+                })?;
         }
         Ok(data)
     }
@@ -1223,17 +1243,14 @@ impl OneShotSession {
                 .unwrap_or(0);
             std::path::PathBuf::from(format!("print-{stamp}.pdf"))
         });
-        if let Some(parent) = out.parent() {
-            if !parent.as_os_str().is_empty() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-        }
-        std::fs::write(&out, &bytes).map_err(|e| {
-            CliError::new(ErrorKind::Io, format!("write pdf {}: {e}", out.display()))
-        })?;
+        // PAR-82: unify on write_bytes_blocking (docsrs: never pin async with std::fs).
+        let byte_len = bytes.len();
+        crate::concurrency::write_bytes_blocking(out.clone(), bytes)
+            .await
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("write pdf {}: {e}", out.display())))?;
         Ok(json!({
             "path": out.display().to_string(),
-            "bytes": bytes.len(),
+            "bytes": byte_len,
             "format": "pdf",
         }))
     }
@@ -1293,9 +1310,16 @@ impl OneShotSession {
             result.path
         };
         let path_buf = std::path::PathBuf::from(&path_str);
-        let written = path_buf.exists();
-        let magic_ok = written && verify_image_magic(&path_buf, format);
-        let byte_size = std::fs::metadata(&path_buf).map(|m| m.len()).unwrap_or(0);
+        let path_for_meta = path_buf.clone();
+        let format_owned = format.to_string();
+        let (written, magic_ok, byte_size) = tokio::task::spawn_blocking(move || {
+            let written = path_for_meta.exists();
+            let magic_ok = written && verify_image_magic(&path_for_meta, &format_owned);
+            let byte_size = std::fs::metadata(&path_for_meta).map(|m| m.len()).unwrap_or(0);
+            (written, magic_ok, byte_size)
+        })
+        .await
+        .unwrap_or((false, false, 0));
 
         Ok(json!({
             "path": path_str,
@@ -1431,13 +1455,14 @@ impl OneShotSession {
             .active_session_id()
             .map_err(|e| CliError::new(ErrorKind::Browser, e))?
             .to_string();
-        let parsed: Value = serde_json::from_str(cookies_json).map_err(|e| {
-            CliError::with_suggestion(
-                ErrorKind::Usage,
-                format!("cookie set JSON invalid: {e}"),
-                r#"Use --json '[{"name":"a","value":"b","url":"https://example.com"}]'"#,
-            )
-        })?;
+        let parsed: Value =
+            crate::json_util::parse_cli_json_value(cookies_json, "cookie set").map_err(|e| {
+                CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    format!("cookie set JSON invalid: {}", e.message()),
+                    r#"Use --cookies-json '[{"name":"a","value":"b","url":"https://example.com"}]'"#,
+                )
+            })?;
         let arr = parsed.as_array().ok_or_else(|| {
             CliError::with_suggestion(
                 ErrorKind::Usage,
@@ -1547,16 +1572,14 @@ impl OneShotSession {
         }
         self.drain_events();
         let level_l = level.to_ascii_lowercase();
-        let count = self
-            .console_log
-            .iter()
-            .filter(|m| {
-                m.get("type")
-                    .and_then(|v| v.as_str())
-                    .map(|t| t.eq_ignore_ascii_case(&level_l))
-                    .unwrap_or(false)
-            })
-            .count() as u64;
+        // PAR-85: filter_cpu when console buffer large.
+        let matched = crate::concurrency::filter_cpu(self.console_log.clone(), |m| {
+            m.get("type")
+                .and_then(|v| v.as_str())
+                .map(|t| t.eq_ignore_ascii_case(&level_l))
+                .unwrap_or(false)
+        });
+        let count = matched.len() as u64;
         if count > max {
             return Err(CliError::with_suggestion(
                 ErrorKind::Data,
@@ -1609,21 +1632,17 @@ impl OneShotSession {
         }
         self.drain_events();
         let pat = pattern.to_ascii_lowercase();
-        let hits: Vec<Value> = self
-            .console_log
-            .iter()
-            .filter(|m| {
-                let text = m
-                    .get("text")
-                    .or_else(|| m.get("message"))
-                    .or_else(|| m.get("args"))
-                    .map(|v| v.to_string())
-                    .unwrap_or_default()
-                    .to_ascii_lowercase();
-                text.contains(&pat)
-            })
-            .cloned()
-            .collect();
+        // PAR-85: filter_cpu when console buffer large.
+        let hits: Vec<Value> = crate::concurrency::filter_cpu(self.console_log.clone(), |m| {
+            let text = m
+                .get("text")
+                .or_else(|| m.get("message"))
+                .or_else(|| m.get("args"))
+                .map(|v| v.to_string())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            text.contains(&pat)
+        });
         if !hits.is_empty() {
             return Err(CliError::with_suggestion(
                 ErrorKind::Data,
@@ -1680,7 +1699,8 @@ impl OneShotSession {
                 .filter(|s| !s.is_empty())
                 .collect();
             if !wanted.is_empty() {
-                messages.retain(|m| {
+                // PAR-74/84: filter_cpu when buffer large (threshold in concurrency).
+                messages = crate::concurrency::filter_cpu(messages, |m| {
                     let level = m
                         .get("level")
                         .or_else(|| m.get("type"))
@@ -1692,7 +1712,8 @@ impl OneShotSession {
             }
         }
         if let Some(sw) = service_worker_id {
-            messages.retain(|m| {
+            let sw = sw.to_string();
+            messages = crate::concurrency::filter_cpu(messages, |m| {
                 m.get("service_worker_id")
                     .and_then(|v| v.as_str())
                     .map(|s| s == sw)
@@ -1749,7 +1770,7 @@ impl OneShotSession {
         Ok(json!({ "cleared": n }))
     }
 
-    pub fn console_dump(&mut self, path: &Path) -> Result<Value, CliError> {
+    pub async fn console_dump(&mut self, path: &Path) -> Result<Value, CliError> {
         // Ensure capture is armed (same contract as list/clear).
         let _ = self.console_list(None, None, None, true, None)?;
         // GAP-021: always write a valid JSON array (empty buffer → `[]`, never 0-byte file).
@@ -1757,18 +1778,14 @@ impl OneShotSession {
         let body = serde_json::to_vec_pretty(&messages).map_err(|e| {
             CliError::new(ErrorKind::Data, format!("console dump serialize: {e}"))
         })?;
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    CliError::new(ErrorKind::Io, format!("console dump mkdir: {e}"))
-                })?;
-            }
-        }
-        std::fs::write(path, body)
+        let count = messages.len();
+        // PAR-78: disk off async / block_on worker (docsrs spawn_blocking).
+        crate::concurrency::write_bytes_blocking(path.to_path_buf(), body)
+            .await
             .map_err(|e| CliError::new(ErrorKind::Io, format!("console dump write: {e}")))?;
         Ok(json!({
             "path": path.to_string_lossy(),
-            "count": messages.len(),
+            "count": count,
             "format": "json_array",
         }))
     }
@@ -1810,7 +1827,8 @@ impl OneShotSession {
                 .filter(|s| !s.is_empty())
                 .collect();
             if !wanted.is_empty() {
-                requests.retain(|r| {
+                // PAR-74/84: filter_cpu when buffer large.
+                requests = crate::concurrency::filter_cpu(requests, |r| {
                     let rt = r
                         .get("resource_type")
                         .or_else(|| r.get("type"))
@@ -1840,7 +1858,7 @@ impl OneShotSession {
     }
 
     /// Resolve a network entry by 0-based index or CDP `requestId` string.
-    pub fn net_get(
+    pub async fn net_get(
         &mut self,
         id: &str,
         request_path: Option<&Path>,
@@ -1888,30 +1906,19 @@ impl OneShotSession {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        // PAR-79: optional path dumps off async / block_on worker.
         if let Some(p) = request_path {
-            if let Some(parent) = p.parent() {
-                if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(parent).map_err(|e| {
-                        CliError::new(ErrorKind::Io, format!("net get request-path mkdir: {e}"))
-                    })?;
-                }
-            }
             let body = serde_json::to_vec_pretty(&req)
                 .map_err(|e| CliError::new(ErrorKind::Io, format!("net get serialize: {e}")))?;
-            std::fs::write(p, body)
+            crate::concurrency::write_bytes_blocking(p.to_path_buf(), body)
+                .await
                 .map_err(|e| CliError::new(ErrorKind::Io, format!("net get request-path: {e}")))?;
         }
         if let Some(p) = response_path {
-            if let Some(parent) = p.parent() {
-                if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(parent).map_err(|e| {
-                        CliError::new(ErrorKind::Io, format!("net get response-path mkdir: {e}"))
-                    })?;
-                }
-            }
             let body = serde_json::to_vec_pretty(&req)
                 .map_err(|e| CliError::new(ErrorKind::Io, format!("net get serialize: {e}")))?;
-            std::fs::write(p, body)
+            crate::concurrency::write_bytes_blocking(p.to_path_buf(), body)
+                .await
                 .map_err(|e| CliError::new(ErrorKind::Io, format!("net get response-path: {e}")))?;
         }
         Ok(json!({
@@ -2004,6 +2011,14 @@ impl OneShotSession {
         self.attach_snapshot_if(include_snapshot, data).await
     }
 
+    /// Fill multiple form fields on the **active** page.
+    ///
+    /// # Parallelism (rules_rust_paralelismo)
+    ///
+    /// **Sequential by design** on a single CDP `Page`: each `write` may change
+    /// focus, validation, or DOM. Concurrent fills on the same session would race
+    /// focus and produce non-deterministic agent results. Multi-field forms do not
+    /// justify multi-process Chrome (product law: one residual profile).
     pub async fn fill_form(
         &mut self,
         fields: &[(String, String)],
@@ -2751,10 +2766,10 @@ impl OneShotSession {
         }
 
         if let Some(headers_raw) = extra_headers_json {
-            let map: HashMap<String, String> = if headers_raw.trim().is_empty() {
-                HashMap::new()
+            let map: FxHashMap<String, String> = if headers_raw.trim().is_empty() {
+                FxHashMap::default()
             } else {
-                serde_json::from_str(headers_raw).map_err(|e| {
+                crate::json_util::from_str(headers_raw).map_err(|e| {
                     CliError::with_suggestion(
                         ErrorKind::Usage,
                         format!("invalid extra-headers JSON: {e}"),
@@ -2920,14 +2935,8 @@ impl OneShotSession {
             out_path = Some(PathBuf::from(format!("trace-{stamp}.ndjson")));
         }
         if let Some(ref p) = out_path {
-            if let Some(parent) = p.parent() {
-                if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(parent).map_err(|e| {
-                        CliError::new(ErrorKind::Io, format!("perf stop mkdir: {e}"))
-                    })?;
-                }
-            }
-            std::fs::write(p, body.as_bytes())
+            crate::concurrency::write_bytes_blocking(p.clone(), body.into_bytes())
+                .await
                 .map_err(|e| CliError::new(ErrorKind::Io, format!("perf stop write: {e}")))?;
             self.last_trace_path = Some(p.clone());
         }
@@ -3019,7 +3028,8 @@ impl OneShotSession {
                 .unwrap_or(0);
             PathBuf::from(format!("screencast-{stamp}"))
         });
-        std::fs::create_dir_all(&dir)
+        crate::concurrency::create_dir_all_blocking(dir.clone())
+            .await
             .map_err(|e| CliError::new(ErrorKind::Io, format!("screencast dir: {e}")))?;
         self.screencast_dir = Some(dir.clone());
         // Page domain must be enabled for screencast frames.
@@ -3086,25 +3096,37 @@ impl OneShotSession {
                     .unwrap_or(0)
             ))
         });
-        std::fs::create_dir_all(&dir)
+        crate::concurrency::create_dir_all_blocking(dir.clone())
+            .await
             .map_err(|e| CliError::new(ErrorKind::Io, format!("screencast stop mkdir: {e}")))?;
 
-        use base64::Engine;
-        let engine = base64::engine::general_purpose::STANDARD;
-        let mut written = 0u64;
-        let mut paths: Vec<String> = Vec::new();
-        for (i, b64) in self.screencast_frames.iter().enumerate() {
-            let bytes = match engine.decode(b64) {
-                Ok(b) => b,
-                Err(_) => continue,
-            };
-            let name = format!("frame-{:05}.png", i + 1);
-            let out = dir.join(&name);
-            if std::fs::write(&out, &bytes).is_ok() {
-                written += 1;
-                paths.push(out.to_string_lossy().into_owned());
-            }
-        }
+        // PAR-51: decode+write N frames off the async worker with Rayon (docsrs:
+        // CPU + std::fs must not pin Tokio workers; bound via install_rayon_pool).
+        let frames = std::mem::take(&mut self.screencast_frames);
+        let dir_for_write = dir.clone();
+        let (written, paths) = tokio::task::spawn_blocking(move || {
+            crate::concurrency::install_rayon_pool_once();
+            use base64::Engine;
+            use rayon::prelude::*;
+            let engine = base64::engine::general_purpose::STANDARD;
+            let mut indexed: Vec<(usize, String)> = frames
+                .par_iter()
+                .enumerate()
+                .filter_map(|(i, b64)| {
+                    let bytes = engine.decode(b64).ok()?;
+                    let name = format!("frame-{:05}.png", i + 1);
+                    let out = dir_for_write.join(&name);
+                    std::fs::write(&out, &bytes).ok()?;
+                    Some((i, out.to_string_lossy().into_owned()))
+                })
+                .collect();
+            indexed.sort_by_key(|(i, _)| *i);
+            let paths: Vec<String> = indexed.into_iter().map(|(_, p)| p).collect();
+            let written = paths.len() as u64;
+            (written, paths)
+        })
+        .await
+        .map_err(|e| CliError::new(ErrorKind::Software, format!("screencast frames join: {e}")))?;
         let video_path = path.map(|p| p.to_path_buf()).or_else(|| {
             // If start path looked like a video file, encode there
             self.screencast_dir.as_ref().and_then(|d| {
@@ -3128,7 +3150,8 @@ impl OneShotSession {
             if is_video && written > 0 {
                 if let Some(parent) = vp.parent() {
                     if !parent.as_os_str().is_empty() {
-                        let _ = std::fs::create_dir_all(parent);
+                        let _ = crate::concurrency::create_dir_all_blocking(parent.to_path_buf())
+                            .await;
                     }
                 }
                 let pattern = dir.join("frame-%05d.png");
@@ -3137,31 +3160,40 @@ impl OneShotSession {
                 } else {
                     "libx264"
                 };
-                let mut cmd = std::process::Command::new("ffmpeg");
-                cmd.arg("-y")
-                    .arg("-framerate")
-                    .arg("10")
-                    .arg("-i")
-                    .arg(&pattern)
-                    .arg("-c:v")
-                    .arg(vcodec)
-                    .arg("-pix_fmt")
-                    .arg("yuv420p")
-                    .arg(vp);
-                match cmd.output() {
-                    Ok(out) if out.status.success() => {
+                let vp_owned = vp.clone();
+                let pattern_owned = pattern.clone();
+                let encode_res = tokio::task::spawn_blocking(move || {
+                    let mut cmd = std::process::Command::new("ffmpeg");
+                    cmd.arg("-y")
+                        .arg("-framerate")
+                        .arg("10")
+                        .arg("-i")
+                        .arg(&pattern_owned)
+                        .arg("-c:v")
+                        .arg(vcodec)
+                        .arg("-pix_fmt")
+                        .arg("yuv420p")
+                        .arg(&vp_owned);
+                    cmd.output()
+                })
+                .await;
+                match encode_res {
+                    Ok(Ok(out)) if out.status.success() => {
                         video_out = Some(vp.to_string_lossy().into_owned());
                         encode_note = Some("encoded via ffmpeg".into());
                     }
-                    Ok(out) => {
+                    Ok(Ok(out)) => {
                         encode_note = Some(format!(
                             "ffmpeg failed: {}",
                             String::from_utf8_lossy(&out.stderr)
                         ));
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         encode_note =
                             Some(format!("ffmpeg not available: {e}; PNG frames kept in dir"));
+                    }
+                    Err(e) => {
+                        encode_note = Some(format!("ffmpeg join error: {e}"));
                     }
                 }
             }
@@ -3172,6 +3204,7 @@ impl OneShotSession {
             "frames": paths,
             "video": video_out,
             "encode_note": encode_note,
+            "parallel_frames": true,
             "ffmpeg_hint": format!(
                 "ffmpeg -y -framerate 10 -i {}/frame-%05d.png -c:v libx264 -pix_fmt yuv420p {}.mp4",
                 dir.display(),
@@ -3179,11 +3212,11 @@ impl OneShotSession {
             ),
         });
         let manifest_path = dir.join("manifest.json");
-        let _ = std::fs::write(
-            &manifest_path,
+        let _ = crate::concurrency::write_bytes_blocking(
+            manifest_path.clone(),
             serde_json::to_vec_pretty(&manifest).unwrap_or_default(),
-        );
-        self.screencast_frames.clear();
+        )
+        .await;
         self.screencast_ack_ids.clear();
         Ok(json!({
             "screencast": "stop",
@@ -3236,12 +3269,6 @@ impl OneShotSession {
             self.drain_events();
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| CliError::new(ErrorKind::Io, format!("heap take mkdir: {e}")))?;
-            }
-        }
         let body = self.heap_chunks.join("");
         let bytes = body.len();
         if bytes == 0 {
@@ -3251,7 +3278,8 @@ impl OneShotSession {
                 "Ensure Chrome supports HeapProfiler; re-run doctor; check event forwarders",
             ));
         }
-        std::fs::write(path, body.as_bytes())
+        crate::concurrency::write_bytes_blocking(path.to_path_buf(), body.into_bytes())
+            .await
             .map_err(|e| CliError::new(ErrorKind::Io, format!("heap take write: {e}")))?;
         self.heap_chunks.clear();
         self.heap_snapshot_finished = false;
@@ -3402,21 +3430,35 @@ impl OneShotSession {
                 "note": "no matching extension target in this process; omitted from next load path",
             }));
         }
-        let mut closed = Vec::new();
-        for t in &matches {
-            if let Some(target_id) = t.get("targetId").and_then(|v| v.as_str()) {
-                let _ = self
-                    .manager
-                    .client
-                    .send_command(
-                        "Target.closeTarget",
-                        Some(json!({ "targetId": target_id })),
-                        None,
-                    )
-                    .await;
-                closed.push(target_id.to_string());
-            }
-        }
+        // PAR-96: multi-target close is independent CDP I/O → join_bounded.
+        let target_ids: Vec<String> = matches
+            .iter()
+            .filter_map(|t| {
+                t.get("targetId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect();
+        let cdp_limit = crate::concurrency::effective_limit_capped(8);
+        let client = self.manager.client.clone();
+        let close_futs: Vec<_> = target_ids
+            .into_iter()
+            .map(|tid| {
+                let client = client.clone();
+                async move {
+                    let _ = client
+                        .send_command(
+                            "Target.closeTarget",
+                            Some(json!({ "targetId": tid.clone() })),
+                            None,
+                        )
+                        .await;
+                    tid
+                }
+            })
+            .collect();
+        let closed =
+            crate::concurrency::join_bounded(close_futs, cdp_limit.max(1)).await;
         self.loaded_extension_ids
             .retain(|x| x != id && !id.contains(x));
         Ok(json!({
@@ -3626,10 +3668,10 @@ impl OneShotSession {
         let _ = self.devtools3p_list().await?;
         let params = params_json.unwrap_or("{}");
         // Validate JSON object
-        let parsed: Value = serde_json::from_str(params).map_err(|e| {
+        let parsed: Value = crate::json_util::parse_cli_json_value(params, "params").map_err(|e| {
             CliError::with_suggestion(
                 ErrorKind::Usage,
-                format!("invalid params JSON: {e}"),
+                format!("invalid params JSON: {}", e.message()),
                 r#"Pass --params '{"key":"value"}'"#,
             )
         })?;
@@ -3718,10 +3760,10 @@ impl OneShotSession {
         input_json: Option<&str>,
     ) -> Result<Value, CliError> {
         let input = input_json.unwrap_or("{}");
-        let parsed: Value = serde_json::from_str(input).map_err(|e| {
+        let parsed: Value = crate::json_util::parse_cli_json_value(input, "input").map_err(|e| {
             CliError::with_suggestion(
                 ErrorKind::Usage,
-                format!("invalid input JSON: {e}"),
+                format!("invalid input JSON: {}", e.message()),
                 r#"Pass --input '{"key":"value"}'"#,
             )
         })?;
@@ -3867,7 +3909,7 @@ fn normalize_eval_expression(
     args_json: Option<&str>,
 ) -> Result<String, CliError> {
     if let Some(args_raw) = args_json {
-        let uids: Vec<String> = serde_json::from_str(args_raw).map_err(|e| {
+        let uids: Vec<String> = crate::json_util::from_str(args_raw).map_err(|e| {
             CliError::with_suggestion(
                 ErrorKind::Usage,
                 format!("eval --args must be a JSON array of uids: {e}"),
@@ -3909,10 +3951,15 @@ fn normalize_eval_expression(
 
 fn mark_launched(life: &Lifecycle, pid: Option<u32>, profile: Option<std::path::PathBuf>) {
     let launch_t = std::time::SystemTime::now();
-    if let Ok(mut ledger) = life.ledger.lock() {
+    // Deliberate PathBuf clone: ledger takes ownership of `profile`, while residual
+    // discovery after the settle sleep still needs the same path (rules: name clones).
+    let profile_scan = profile.clone();
+    // Poison-recovering ledger API (rules: never silent-skip residual ownership).
+    life.with_ledger_mut(|ledger| {
         ledger.chrome_launched = true;
         ledger.chrome_pid = pid;
-        if let Some(ref dir) = profile {
+        // Move profile into the ledger — caller transfers ownership of the Option.
+        if let Some(dir) = profile {
             // Track Singleton side-channel under the profile when present.
             for name in ["SingletonLock", "SingletonCookie", "SingletonSocket"] {
                 let p = dir.join(name);
@@ -3920,7 +3967,7 @@ fn mark_launched(life: &Lifecycle, pid: Option<u32>, profile: Option<std::path::
                     ledger.side_channels.push(p);
                 }
             }
-            ledger.profile_dir = Some(dir.clone());
+            ledger.profile_dir = Some(dir);
         }
         #[cfg(windows)]
         if let Some(p) = pid {
@@ -3928,12 +3975,14 @@ fn mark_launched(life: &Lifecycle, pid: Option<u32>, profile: Option<std::path::
                 ledger.windows_job_handle = crate::win_job::create_and_assign(p);
             }
         }
-    }
+    });
     // GAP-020: discover owned /tmp/org.chromium.* created for this launch only.
     // Brief settle so Chrome can create Singleton side-channels.
+    // Sync path (FINALIZE / post-launch ledger) — not a Tokio async worker
+    // (rules: std::thread::sleep forbidden only inside async fn).
     std::thread::sleep(std::time::Duration::from_millis(80));
     let extras = crate::residual::discover_owned_chromium_tmp_side_channels(
-        profile.as_deref(),
+        profile_scan.as_deref(),
         pid,
         launch_t,
     );
@@ -3941,7 +3990,7 @@ fn mark_launched(life: &Lifecycle, pid: Option<u32>, profile: Option<std::path::
         crate::lifecycle::mark_side_channel(life, p);
     }
     // Re-scan profile Singleton* after settle.
-    if let Some(ref dir) = profile {
+    if let Some(ref dir) = profile_scan {
         for name in ["SingletonLock", "SingletonCookie", "SingletonSocket"] {
             let p = dir.join(name);
             if p.exists() {
@@ -3952,13 +4001,8 @@ fn mark_launched(life: &Lifecycle, pid: Option<u32>, profile: Option<std::path::
 }
 
 fn mark_closed(life: &Lifecycle) {
-    if let Ok(mut ledger) = life.ledger.lock() {
-        ledger.chrome_launched = false;
-        ledger.chrome_pid = None;
-        // Primary close already wiped profile via BrowserManager::close; clear ledger.
-        ledger.profile_dir = None;
-        ledger.side_channels.clear();
-    }
+    // Primary close already wiped profile via BrowserManager::close; clear ledger.
+    life.clear_chrome_and_profile();
 }
 
 async fn launch_marked(life: &Lifecycle, capture: CaptureOpts) -> Result<OneShotSession, CliError> {
@@ -4190,13 +4234,19 @@ where
     match work(session).await {
         Ok((session, value)) => finish(life, session, Ok(value)).await,
         Err(e) => {
-            mark_closed(life);
+            // Session was dropped inside `work` without explicit Browser.close.
+            // Keep residual ledger flags so FINALIZE can SIGTERM→grace→SIGKILL
+            // (rules: never clear ownership without reap). Do **not** mark_closed.
             Err(e)
         }
     }
 }
 
 /// Block on tokio multi-thread runtime for one-shot browser work.
+///
+/// # Workload
+///
+/// **I/O-bound** (Chrome CDP + network). See [`block_on_browser_timeout`].
 pub fn block_on_browser<F, T>(fut: F) -> Result<T, CliError>
 where
     F: std::future::Future<Output = Result<T, CliError>>,
@@ -4205,41 +4255,240 @@ where
 }
 
 /// Like `block_on_browser`, but abort with `ErrorKind::Timeout` when `timeout_secs > 0`.
+///
+/// Also races the work against the active [`crate::lifecycle::Lifecycle`] cancel
+/// token (SIGINT/SIGTERM via in-runtime signal watch → exit **130**).
+///
+/// # Graceful shutdown (one-shot)
+///
+/// 1. **Detect** — [`shutdown_signal`] (SIGINT/SIGTERM; Windows Ctrl-C/Break).
+/// 2. **Signal** — first OS signal cancels the shared [`CancellationToken`].
+/// 3. **Force** — second OS signal runs residual [`Lifecycle::finalize`] so a
+///    stuck Browser.close cannot hang the process forever.
+///
+/// # Workload classification (rules_rust_paralelismo + economia + latencia)
+///
+/// - **Class:** I/O-bound (CDP WebSocket + Chrome subprocess events).
+/// - **Runtime:** [`crate::runtime_util::build_browser_runtime`] — multi-thread
+///   workers from [`crate::concurrency::browser_worker_threads`] (budget /
+///   `--max-concurrency`, hard-capped at 8) + capped blocking pool.
+/// - **CDP fan-out:** snapshot/screenshot resolve batches use
+///   [`crate::concurrency::join_bounded`] (never unbounded `join_all`).
+/// - **CPU off async:** structural scan / multi-file work uses Rayon via
+///   [`crate::concurrency`]; never call Rayon on a Tokio worker without
+///   `spawn_blocking`.
+/// - **Latency:** measure agent meta P50/P99 via `scripts/latency-baseline.sh`.
+///   Chrome boot is external WCET (seconds).
+/// - **No daemon:** product law is BORN→EXECUTE→FINALIZE→DIE; amortizing Chrome
+///   boot via a long-lived process is **forbidden**.
+/// - **Subprocess:** Chrome via chromiumoxide; residual kill is ledger + Job
+///   Object / SIGTERM→grace→SIGKILL — not `systemd-run --scope` as product default.
+/// - **N/A (product law):** PGO/BOLT, isolcpus, mlockall, remote permit metrics,
+///   loom CI full, systemd MemoryMax scopes — ops/HFT, not agent one-shot default.
 pub fn block_on_browser_timeout<F, T>(fut: F, timeout_secs: u64) -> Result<T, CliError>
 where
     F: std::future::Future<Output = Result<T, CliError>>,
 {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .worker_threads(2)
-        .thread_name("bac-browser")
-        .build()
-        .map_err(|e| {
-            CliError::new(
-                ErrorKind::Software,
-                format!("Failed to create tokio runtime: {e}"),
-            )
-        })?;
-    if timeout_secs == 0 {
-        return rt.block_on(fut);
+    let rt = crate::runtime_util::build_browser_runtime()?;
+
+    let cancel = crate::lifecycle::current_cancel();
+    if cancel.is_cancelled() {
+        return Err(cancelled_error());
     }
-    rt.block_on(async {
-        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), fut).await {
-            Ok(inner) => inner,
-            Err(_) => Err(CliError::with_suggestion(
-                ErrorKind::Timeout,
-                format!("operation exceeded --timeout {timeout_secs}s"),
-                "Raise --timeout or reduce wait/navigation work",
-            )),
+
+    // Capture lifecycle on this thread before entering the runtime: the signal
+    // task runs on a worker thread and must not rely on thread-local CURRENT_LIFE.
+    let life_for_signal = crate::lifecycle::current_lifecycle();
+
+    rt.block_on(async move {
+        // Wire OS signals: first → cooperative cancel; second → residual force.
+        let cancel_for_signal = cancel.clone();
+        tokio::spawn(async move {
+            let first = shutdown_signal().await;
+            tracing::warn!(
+                trigger = first.as_str(),
+                "shutdown signal received; cooperative cancel (exit 130 path)"
+            );
+            cancel_for_signal.cancel();
+            let second = shutdown_signal().await;
+            tracing::warn!(
+                trigger = second.as_str(),
+                "second shutdown signal; forcing residual finalize"
+            );
+            if let Some(life) = life_for_signal {
+                life.finalize();
+            }
+        });
+
+        if timeout_secs == 0 {
+            tokio::select! {
+                biased;
+                r = fut => r,
+                _ = cancel.cancelled() => Err(cancelled_error()),
+            }
+        } else {
+            tokio::select! {
+                biased;
+                r = fut => r,
+                _ = cancel.cancelled() => Err(cancelled_error()),
+                _ = tokio::time::sleep(std::time::Duration::from_secs(timeout_secs)) => {
+                    Err(CliError::with_suggestion(
+                        ErrorKind::Timeout,
+                        format!("operation exceeded --timeout {timeout_secs}s"),
+                        "Raise --timeout or reduce wait/navigation work",
+                    ))
+                }
+            }
         }
     })
+}
+
+fn cancelled_error() -> CliError {
+    CliError::with_suggestion(
+        ErrorKind::Cancelled,
+        "cancelled by signal (SIGINT/SIGTERM)",
+        "Re-run the command; previous invocation was interrupted (exit 130)",
+    )
+}
+
+/// Which OS event triggered cooperative shutdown (for logs / tests).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShutdownTrigger {
+    /// Portable Ctrl-C / `tokio::signal::ctrl_c`.
+    CtrlC,
+    /// Unix `SIGINT`.
+    SigInt,
+    /// Unix `SIGTERM` (systemd, k8s, supervisors).
+    SigTerm,
+    /// Windows Ctrl-Break.
+    CtrlBreak,
+}
+
+impl ShutdownTrigger {
+    /// Stable machine-readable label for tracing.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CtrlC => "ctrl_c",
+            Self::SigInt => "sigint",
+            Self::SigTerm => "sigterm",
+            Self::CtrlBreak => "ctrl_break",
+        }
+    }
+}
+
+/// Central OS shutdown detector (rules: single `shutdown_signal` entrypoint).
+///
+/// - **Unix:** first of Ctrl-C / `SIGINT` / `SIGTERM` via `tokio::select!`.
+/// - **Windows:** first of Ctrl-C / Ctrl-Break.
+/// - **Other:** Ctrl-C only (`ctrl_c`).
+///
+/// Does not perform cleanup (async-signal-safe path: only await + return).
+/// Callers cancel a [`CancellationToken`] and run FINALIZE outside this future.
+///
+/// SIGHUP / SIGUSR* are intentionally **not** captured: this is a one-shot CLI
+/// (no hot-reload, no operational user signals).
+pub async fn shutdown_signal() -> ShutdownTrigger {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm = match signal(SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to register SIGTERM; falling back to ctrl_c");
+                let _ = tokio::signal::ctrl_c().await;
+                return ShutdownTrigger::CtrlC;
+            }
+        };
+        let mut sigint = match signal(SignalKind::interrupt()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to register SIGINT; falling back to ctrl_c");
+                let _ = tokio::signal::ctrl_c().await;
+                return ShutdownTrigger::CtrlC;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => ShutdownTrigger::CtrlC,
+            _ = sigterm.recv() => ShutdownTrigger::SigTerm,
+            _ = sigint.recv() => ShutdownTrigger::SigInt,
+        }
+    }
+    #[cfg(windows)]
+    {
+        let mut break_stream = match tokio::signal::windows::ctrl_break() {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to register ctrl_break; falling back to ctrl_c");
+                let _ = tokio::signal::ctrl_c().await;
+                return ShutdownTrigger::CtrlC;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => ShutdownTrigger::CtrlC,
+            _ = break_stream.recv() => ShutdownTrigger::CtrlBreak,
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        ShutdownTrigger::CtrlC
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{is_internal_browser_url, is_noise_network_url, tree_to_at_refs};
+    use crate::error::ErrorKind;
+    use crate::lifecycle::Lifecycle;
     use crate::native::browser::WaitUntil;
     use serde_json::json;
+
+    #[test]
+    fn pre_cancelled_token_returns_exit_130() {
+        let lc = Lifecycle::new();
+        lc.cancel.cancel();
+        let err = super::block_on_browser_timeout(async { Ok::<(), _>(()) }, 5)
+            .expect_err("must cancel");
+        assert_eq!(err.kind(), ErrorKind::Cancelled);
+        assert_eq!(err.exit_code(), 130);
+    }
+
+    #[test]
+    fn shutdown_trigger_labels_are_stable() {
+        use super::ShutdownTrigger;
+        assert_eq!(ShutdownTrigger::CtrlC.as_str(), "ctrl_c");
+        assert_eq!(ShutdownTrigger::SigInt.as_str(), "sigint");
+        assert_eq!(ShutdownTrigger::SigTerm.as_str(), "sigterm");
+        assert_eq!(ShutdownTrigger::CtrlBreak.as_str(), "ctrl_break");
+    }
+
+    #[test]
+    fn zero_timeout_sleep_can_complete() {
+        let _lc = Lifecycle::new();
+        let r = super::block_on_browser_timeout(
+            async {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                Ok::<u32, crate::error::CliError>(7)
+            },
+            0,
+        );
+        assert_eq!(r.unwrap(), 7);
+    }
+
+    #[test]
+    fn hard_timeout_returns_exit_124() {
+        let _lc = Lifecycle::new();
+        let err = super::block_on_browser_timeout(
+            async {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                Ok::<(), crate::error::CliError>(())
+            },
+            1,
+        )
+        .expect_err("must timeout");
+        assert_eq!(err.kind(), ErrorKind::Timeout);
+        assert_eq!(err.exit_code(), 124);
+    }
 
     #[test]
     fn tree_to_at_refs_rewrites_markers() {

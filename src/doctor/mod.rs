@@ -1,4 +1,13 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Local diagnostics for one-shot installs (no multi-process daemon).
+//!
+//! # Workload
+//!
+//! **I/O-light sequential (N-144 / PAR-57 / PAR-73 honesty):** each check is an
+//! independent path/binary probe assembled in stable report order. Probes are
+//! cheap (stat/which); Rayon would rarely beat sequential assembly and the
+//! matrix **must not** claim `map_cpu` for doctor. Concurrency budget is still
+//! exported for agents (`budget_report` / `by_command.doctor`).
 
 use serde_json::json;
 
@@ -24,18 +33,58 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
     let mut checks = Vec::new();
     let mut failed = false;
 
+    let host = crate::platform::HostEnvironment::detect();
+    checks.push(json!({
+        "id": "host_environment",
+        "status": "info",
+        "message": host.summary(),
+        "wsl": host.wsl,
+        "container": host.container,
+        "ci": host.ci,
+        "termux": host.termux,
+        "flatpak": host.flatpak,
+        "snap": host.snap,
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+    }));
+
     let chrome = chrome::find_chrome();
     match &chrome {
-        Some(p) => checks.push(
-            json!({"id":"chrome","status":"pass","message": format!("found {}", p.display())}),
-        ),
+        Some(p) => {
+            let sandbox = crate::platform::detect_browser_sandbox(p);
+            let executable = crate::platform::is_executable_file(p);
+            let mut status = "pass";
+            let mut message = format!("found {}", p.display());
+            if sandbox.is_restricted() {
+                status = "warn";
+                message = format!(
+                    "found {} (sandbox={}; CDP may fail — prefer system package or config set chrome_path)",
+                    p.display(),
+                    sandbox.as_str()
+                );
+            } else if !executable {
+                status = "fail";
+                failed = true;
+                message = format!("found {} but not executable", p.display());
+            }
+            checks.push(json!({
+                "id": "chrome",
+                "status": status,
+                "message": message,
+                "path": p.display().to_string(),
+                "sandbox": sandbox.as_str(),
+                "executable": executable,
+            }));
+        }
         None => {
             failed = true;
             checks.push(json!({
                 "id":"chrome",
                 "status":"fail",
-                "message":"Chrome/Chromium not found on PATH or cache",
-                "fix":"install Chromium or set executable path"
+                "message":"Chrome/Chromium not found on PATH, known install paths, or product cache",
+                "fix":"install Chromium/Chrome or: browser-automation-cli config set chrome_path /path/to/chrome",
+                "sandbox": "none",
+                "executable": false,
             }));
         }
     }
@@ -153,6 +202,42 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
         }
     }
 
+    // Parallelism budget (rules_rust_paralelismo) — agent-visible, host-local only.
+    checks.push(json!({
+        "id": "concurrency_budget",
+        "status": "info",
+        "message": "bounded fan-out budget (CPU × free RAM × 50% / 64MiB, hard cap 64)",
+        "budget": crate::concurrency::budget_report(),
+    }));
+
+    // RES-04: residual disk hygiene (path-light; no Chrome launch).
+    // Lifecycle::new already ran BORN stale GC; report reflects post-BORN state
+    // when doctor is invoked through the normal CLI entry (lib::run).
+    let residual = crate::residual::residual_disk_report();
+    let residual_status = if residual.live_cli_marker_processes > 0 {
+        failed = true;
+        "fail"
+    } else if residual.cli_marker_dirs > 0 || residual.chromium_tmp_singleton_orphans > 0 {
+        "warn"
+    } else {
+        "pass"
+    };
+    checks.push(json!({
+        "id": "residual_disk",
+        "status": residual_status,
+        "message": format!(
+            "cli_markers={} chromium_singleton_orphans={} scavenge_safe={} live_cli_marker_procs={}",
+            residual.cli_marker_dirs,
+            residual.chromium_tmp_singleton_orphans,
+            residual.scavenge_safe_candidates,
+            residual.live_cli_marker_processes
+        ),
+        "cli_marker_dirs": residual.cli_marker_dirs,
+        "chromium_tmp_singleton_orphans": residual.chromium_tmp_singleton_orphans,
+        "scavenge_safe_candidates": residual.scavenge_safe_candidates,
+        "live_cli_marker_processes": residual.live_cli_marker_processes,
+    }));
+
     let data = json!({
         "schema_version": 1,
         "checks": checks,
@@ -161,19 +246,31 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
         "offline": opts.offline,
         "fix_requested": opts.fix,
         "ok": !failed,
+        "concurrency": crate::concurrency::budget_report(),
+        "residual": residual,
     });
 
     if opts.json {
-        let _ = print_success_json(data);
+        match print_success_json(data) {
+            Ok(()) => {}
+            Err(e) if e.kind() == crate::error::ErrorKind::BrokenPipe => return 141,
+            Err(_) => {}
+        }
     } else {
         for c in checks {
-            println!(
+            let line = format!(
                 "[{}] {} — {}",
                 c.get("status").and_then(|s| s.as_str()).unwrap_or("?"),
                 c.get("id").and_then(|s| s.as_str()).unwrap_or("?"),
                 c.get("message").and_then(|s| s.as_str()).unwrap_or("")
             );
+            match crate::output::writeln_stdout(line) {
+                Ok(()) => {}
+                Err(e) if e.kind() == crate::error::ErrorKind::BrokenPipe => return 141,
+                Err(_) => {}
+            }
         }
+        let _ = crate::output::flush_stdout();
     }
 
     if failed {
@@ -234,20 +331,5 @@ fn cache_redis_check() -> serde_json::Value {
 }
 
 fn which_bin(name: &str) -> Option<String> {
-    std::env::var_os("PATH").and_then(|paths| {
-        for dir in std::env::split_paths(&paths) {
-            let candidate = dir.join(name);
-            if candidate.is_file() {
-                return Some(candidate.display().to_string());
-            }
-            #[cfg(windows)]
-            {
-                let with_exe = dir.join(format!("{name}.exe"));
-                if with_exe.is_file() {
-                    return Some(with_exe.display().to_string());
-                }
-            }
-        }
-        None
-    })
+    crate::platform::which_bin(name).map(|p| p.display().to_string())
 }

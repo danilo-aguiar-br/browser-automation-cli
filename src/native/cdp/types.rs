@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Chrome DevTools Protocol wire types used by the native CDP stack.
 //!
 //! Field-level docs are intentionally sparse: shapes mirror the upstream protocol JSON.
@@ -586,6 +587,14 @@ pub struct BrowserVersionInfo {
 /// To populate: download `browser_protocol.json` and `js_protocol.json` from
 /// <https://github.com/nicolo-ribaudo/nicolo-ribaudo.github.io/> (or any
 /// Chromium source) into `cli/cdp-protocol/` and rebuild.
+///
+/// # Code generation policy (`rules_rust_macros`)
+///
+/// External protocol JSON → `build.rs` string emitter → `OUT_DIR/cdp_generated.rs`
+/// → `include!(concat!(env!("OUT_DIR"), ...))`. This is the **preferred** path
+/// for data-driven type generation (not a custom `proc_macro` crate): the
+/// generator is ordinary Rust under the debugger, and expansion is deterministic
+/// for a given protocol snapshot.
 ///
 /// Usage: `use super::cdp::types::generated::cdp_page::*;`
 #[allow(clippy::upper_case_acronyms)]

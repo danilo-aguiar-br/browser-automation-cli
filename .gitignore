@@ -27,3 +27,6 @@ docs_rules/
 graphrag.sqlite
 graphrag.sqlite-*
 graphrag*
+
+# Local cyber / settings workspace (not published)
+.setting.cyber/

@@ -1,9 +1,34 @@
+//! Build script for `browser-automation-cli`.
+//!
+//! Responsibilities (offline only — no network, no absolute host paths as inputs):
+//! 1. Embed `GIT_SHA` and `BUILD_TIMESTAMP` for `version --json`.
+//! 2. Generate CDP domain stubs from `cdp-protocol/*.json` into `OUT_DIR`.
+//!
+//! Rerun triggers use `cargo:rerun-if-changed` / `cargo:rerun-if-env-changed` only.
+//!
+//! # Macro / codegen policy (`rules_rust_macros`)
+//!
+//! Prefer **`build.rs` + `include!`** over a custom `proc-macro` crate when the
+//! input is external data (CDP protocol JSON). Reasons:
+//! - generator is ordinary Rust (debuggable, unit-testable without trybuild);
+//! - no `syn`/`quote` dependency surface for consumers;
+//! - expansion is deterministic for a fixed protocol snapshot;
+//! - the library crate only emits events/types — it never installs macros globally.
+//!
+//! String concatenation is intentional here (build scripts are not proc-macro
+//! crates). Do **not** introduce `macro_rules!` or a workspace proc-macro just to
+//! emit these stubs.
+
 use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::process::Command as ProcessCommand;
 
 fn main() {
+    // Build metadata for `version` / agent diagnostics (rules_rust_cli_com_clap).
+    emit_git_build_meta();
+
     let protocol_dir = Path::new("cdp-protocol");
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_path = Path::new(&out_dir).join("cdp_generated.rs");
@@ -478,4 +503,48 @@ fn generate_domain(
     }
 
     output.push_str("}\n\n");
+}
+
+/// Embed short git SHA / dirty flag / UTC timestamp as `cargo:rustc-env` keys.
+///
+/// Missing git is non-fatal (`unknown`); rebuild when `.git/HEAD` changes.
+fn emit_git_build_meta() {
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/refs/heads");
+
+    let sha = ProcessCommand::new("git")
+        .args(["rev-parse", "--short=12", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".into());
+
+    let dirty = ProcessCommand::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false);
+
+    let sha_out = if dirty && sha != "unknown" {
+        format!("{sha}-dirty")
+    } else {
+        sha
+    };
+
+    let ts = ProcessCommand::new("date")
+        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".into());
+
+    println!("cargo:rustc-env=GIT_SHA={sha_out}");
+    println!("cargo:rustc-env=BUILD_TIMESTAMP={ts}");
 }

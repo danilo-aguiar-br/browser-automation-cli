@@ -1,9 +1,17 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Screenshot and page image capture helpers.
+//!
+//! # Workload
+//!
+//! **Mista:** multi-target rect resolve uses `join_bounded` (I/O CDP). Decode
+//! and disk write of PNG/JPEG use `spawn_blocking` / `save_screenshot_async`
+//! so Tokio workers are not pinned by `std::fs`.
 #![allow(missing_docs)]
 use serde::Serialize;
 use serde_json::Value;
 use std::path::PathBuf;
 
-use std::collections::HashMap;
+
 
 use super::cdp::client::CdpClient;
 use super::cdp::types::*;
@@ -103,7 +111,7 @@ pub async fn take_screenshot(
     session_id: &str,
     ref_map: &RefMap,
     options: &ScreenshotOptions,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<ScreenshotResult, String> {
     let target_rect = if options.annotate {
         match options.selector.as_deref() {
@@ -155,12 +163,13 @@ pub async fn take_screenshot(
     } else {
         "png"
     };
-    let path = save_screenshot(
-        &base64,
-        options.path.as_deref(),
-        ext,
-        options.output_dir.as_deref(),
-    )?;
+    let path = save_screenshot_async(
+        base64.clone(),
+        options.path.clone(),
+        ext.to_string(),
+        options.output_dir.clone(),
+    )
+    .await?;
 
     Ok(ScreenshotResult {
         path,
@@ -174,7 +183,7 @@ async fn capture_screenshot_base64(
     session_id: &str,
     ref_map: &RefMap,
     options: &ScreenshotOptions,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<String, String> {
     let mut params = CaptureScreenshotParams {
         format: Some(options.format.clone()),
@@ -253,7 +262,8 @@ async fn collect_annotations(
         return Ok(Vec::new());
     }
 
-    // Batch-resolve all backend_node_ids to object IDs using concurrent CDP calls.
+    // Bounded concurrent CDP resolve (rules_rust_paralelismo: no unbounded join_all).
+    let cdp_limit = crate::concurrency::effective_limit_capped(32);
     let resolve_futures: Vec<_> = with_backend_ids
         .iter()
         .map(|(_, _, backend_node_id)| {
@@ -268,7 +278,8 @@ async fn collect_annotations(
         })
         .collect();
 
-    let resolve_results = futures_util::future::join_all(resolve_futures).await;
+    let resolve_results =
+        crate::concurrency::join_bounded_ordered(resolve_futures, cdp_limit).await;
 
     // Collect resolved object IDs paired with their ref info.
     let mut resolved: Vec<(String, super::element::RefEntry, String)> = Vec::new();
@@ -289,13 +300,14 @@ async fn collect_annotations(
         return Ok(Vec::new());
     }
 
-    // Batch-get bounding rects for all resolved elements using concurrent CDP calls.
+    // Batch-get bounding rects (bounded concurrent CDP).
     let rect_futures: Vec<_> = resolved
         .iter()
         .map(|(_, _, object_id)| get_rect_for_object(client, session_id, object_id))
         .collect();
 
-    let rect_results = futures_util::future::join_all(rect_futures).await;
+    let rect_results =
+        crate::concurrency::join_bounded_ordered(rect_futures, cdp_limit).await;
 
     let mut annotations = Vec::new();
     for (i, rect_result) in rect_results.into_iter().enumerate() {
@@ -327,7 +339,7 @@ async fn get_rect_for_selector(
     session_id: &str,
     ref_map: &RefMap,
     selector: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<Option<Rect>, String> {
     let (object_id, effective_session_id) = super::element::resolve_element_object_id(
         client,
@@ -578,10 +590,33 @@ fn save_screenshot(
     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_data)
         .map_err(|e| format!("Failed to decode screenshot: {}", e))?;
 
+    // Sync write is OK here: `save_screenshot` is called from async only via
+    // `spawn_blocking` wrapper or short one-shot paths; keep std::fs for decode+write
+    // atomicity on the blocking path. Callers in async should prefer
+    // [`save_screenshot_async`].
     std::fs::write(&save_path, &bytes)
         .map_err(|e| format!("Failed to save screenshot to {}: {}", save_path, e))?;
 
     Ok(save_path)
+}
+
+/// Async-safe screenshot save: decode+write on Tokio blocking pool.
+pub async fn save_screenshot_async(
+    base64_data: String,
+    explicit_path: Option<String>,
+    ext: String,
+    output_dir: Option<String>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        save_screenshot(
+            &base64_data,
+            explicit_path.as_deref(),
+            &ext,
+            output_dir.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| format!("screenshot save join: {e}"))?
 }
 
 fn round(value: f64) -> i64 {

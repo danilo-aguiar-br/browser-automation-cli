@@ -1,5 +1,13 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Pointer, keyboard, form, and dialog interaction over CDP.
+//!
+//! # Workload
+//!
+//! **I/O-bound ordered:** clicks, keys, type (char-a-char), drag paths, and
+//! fill-form fields **must** stay sequential on one Page (N-135/N-141). Parallel
+//! input races focus and breaks DOM semantics. No JoinSet fan-out here.
 #![allow(missing_docs)]
-use std::collections::HashMap;
+
 
 use serde_json::Value;
 
@@ -33,7 +41,7 @@ pub async fn click(
     selector_or_ref: &str,
     button: &str,
     click_count: i32,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<ClickResult, String> {
     let (x, y, effective_session_id) = resolve_element_center(
         client,
@@ -63,7 +71,7 @@ pub async fn dblclick(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<ClickResult, String> {
     click(
         client,
@@ -82,7 +90,7 @@ pub async fn hover(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (x, y, effective_session_id) = resolve_element_center(
         client,
@@ -119,7 +127,7 @@ pub async fn drag(
     ref_map: &RefMap,
     from: &str,
     to: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (x1, y1, sid1) =
         resolve_element_center(client, session_id, ref_map, from, iframe_sessions).await?;
@@ -183,7 +191,7 @@ pub async fn fill(
     ref_map: &RefMap,
     selector_or_ref: &str,
     value: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -253,7 +261,7 @@ pub async fn fill_smart(
     ref_map: &RefMap,
     selector_or_ref: &str,
     value: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let kind = detect_fill_kind(
         client,
@@ -339,7 +347,7 @@ async fn detect_fill_kind(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<String, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -403,7 +411,7 @@ pub async fn type_text(
     text: &str,
     clear: bool,
     delay_ms: Option<u64>,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -593,7 +601,7 @@ pub async fn scroll(
     selector_or_ref: Option<&str>,
     delta_x: f64,
     delta_y: f64,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     if let Some(sel) = selector_or_ref {
         let (object_id, effective_session_id) =
@@ -644,7 +652,7 @@ pub async fn select_option(
     ref_map: &RefMap,
     selector_or_ref: &str,
     values: &[String],
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -708,7 +716,7 @@ pub async fn check(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let is_checked = super::element::is_element_checked(
         client,
@@ -760,7 +768,7 @@ pub async fn uncheck(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let is_checked = super::element::is_element_checked(
         client,
@@ -819,7 +827,7 @@ async fn js_click_checkbox(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -876,7 +884,7 @@ pub async fn focus(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -909,7 +917,7 @@ pub async fn clear(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -948,7 +956,7 @@ pub async fn select_all(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -993,7 +1001,7 @@ pub async fn scroll_into_view(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1030,7 +1038,7 @@ pub async fn dispatch_event(
     selector_or_ref: &str,
     event_type: &str,
     event_init: Option<&Value>,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1073,7 +1081,7 @@ pub async fn highlight(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1115,7 +1123,7 @@ pub async fn tap_touch(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (x, y, effective_session_id) = resolve_element_center(
         client,

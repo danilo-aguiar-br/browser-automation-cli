@@ -66,6 +66,29 @@ browser-automation-cli doctor --offline --quick --json
 ```
 - Modo offline quick checa descoberta local do Chrome sem sondas de rede
 - Use doctor completo sem `--quick` quando precisar de checks mais profundos
+- Doctor também reporta higiene residual de disco (check `residual_disk` + topo `residual`)
+
+
+## Como Verificar Higiene Residual-Zero de Disco
+```bash
+# Relatório residual path-light (BORN pode já ter scavenged orphans Singleton stale)
+browser-automation-cli doctor --offline --quick --json \
+  | jaq '{ok, residual, residual_disk: [.checks[] | select(.id=="residual_disk")]}'
+
+# Trabalho browser one-shot não deve deixar markers chrome CLI
+# Nota: --url about:blank é smoke residual intencional (url presente); não é PDF em branco sem url (GAP-013)
+browser-automation-cli --json print-pdf --url about:blank --path /tmp/browser-automation-cli-residual-check.pdf
+
+# Re-cheque campos residual após DIE
+browser-automation-cli doctor --offline --quick --json | jaq '.residual'
+```
+- Campos de topo `residual`: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Check id `residual_disk`: `fail` quando restam processos marker vivos; `warn` quando restam dirs marker ou orphans Singleton; senão `pass`
+- Residual-zero significa zero processos marker CLI vivos, zero dirs `browser-automation-cli-chrome-*`, zero lixo Singleton-only de Chromium tmp owned após DIE
+- Age floor do GC cross-run stale é 60s; temp de Chrome Flatpak do host nunca é apagado
+- Mantenedores (gates locais opcionais, sem exigência de CI/GHA):
+  - `bash scripts/residual-check.sh`
+  - `bash scripts/residual-stress.sh`
 
 
 ## Como Abrir uma Página e Fazer Snapshot
@@ -708,7 +731,7 @@ browser-automation-cli --json perf --help >/dev/null
 browser-automation-cli --json resize --help >/dev/null
 browser-automation-cli completions bash >/dev/null
 ```
-- Cada nome de agente aparece em `commands --json` (61)
+- Cada nome de agente aparece em `commands --json` (**63**)
 - `select-option` / `pick` aparecem no inventário e só em run/schema
 - Prefira `schema <name>` antes de inventar argv em superfícies com gate
 
@@ -732,8 +755,10 @@ browser-automation-cli schema batch-scrape --json
 browser-automation-cli schema config --json
 browser-automation-cli schema mitm --json
 browser-automation-cli schema workflow --json
+browser-automation-cli schema locale --json
+browser-automation-cli schema man --json
 ```
-- `commands` lista a superfície voltada a agentes (61 nomes)
+- `commands` lista a superfície voltada a agentes (**63** nomes)
 - `schema <cmd>` ou `schema --cmd` imprime um fragmento JSON Schema de um comando
 - Útil para registro de tools em frameworks de agentes
 
@@ -812,12 +837,12 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
 - Assert de URL suporta match exato ou semântica contains (`contains` ou `url_contains`)
 - Assert de texto pode mirar seletor via `target` ou usar `text_contains`
 
-## Inventário Completo de Comandos (61)
-- Fonte viva: `browser-automation-cli commands --json` (61 nomes voltados a agentes)
-- Help clap de topo lista 59 sem `select-option` e `pick` como subcomandos standalone
+## Inventário Completo de Comandos (63)
+- Fonte viva: `browser-automation-cli commands --json` (**63** nomes voltados a agentes)
+- Help clap de topo lista **61** sem `select-option` e `pick` como subcomandos standalone
 - O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53)
 - Lista completa de comandos de agente:
-  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Meta / descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
   - Multi-passo / schema only: `select-option`, `pick`

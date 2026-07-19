@@ -22,8 +22,9 @@ browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou C
 - [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): mapa expandido de descoberta (EN)
 - [llms-full pt-BR](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.pt-BR.txt): mapa expandido de descoberta
 
-## Superfície de Comandos (v0.1.4)
-- Descoberta: doctor (browsers_dir, origem lighthouse, cache_redis), commands, schema (`schema <cmd>` ou `schema --cmd`), version, completions (61 nomes de topo via `commands --json`; 53 tools DevTools e2e)
+## Superfície de Comandos (v0.1.5)
+- Descoberta: doctor (browsers_dir, origem lighthouse, cache_redis, residual_disk + JSON residual), commands, schema (`schema <cmd>` ou `schema --cmd`), version, locale, man, completions
+- Inventário: **63** nomes de agente via `commands --json` (inclui `locale`, `man`, `select-option`, `pick`); clap de topo lista **61** sem `select-option`/`pick` como standalone; 53 tools DevTools e2e
 - Config XDG: config init|path|show|get|set|list-keys
 - Navegação: goto, back, forward, reload (CDP Page.reload + ignoreCache; init_script removido após nav; `--handle-before-unload accept|dismiss`)
 - Scrape/crawl/map/search/parse local: scrape (--format multi/CSV text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding, --engine http|browser; file:// + http → Usage), batch-scrape (--engine http|browser), crawl (--engine http|browser), map, search (limpa uddg), parse (PDF/DOCX/xlsx/ods, --redact-pii)
@@ -35,7 +36,8 @@ browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou C
 - MITM: mitm init-ca|start|status|list|get|har|export|domains|apis|capture-url|graphql|ws|block|allow|redact (+ flags globais --mitm*)
 - Workflow: workflow run|resume|status
 - Avançado: eval, emulate, resize, perf, lighthouse (flag→XDG→PATH; binary_source real|mock), screencast, heap, extension, devtools3p, webmcp, run (NDJSON ou array JSON; --json-steps; data.steps parciais no fail-fast), exec
-- Ciclo de vida: BORN, EXECUTE, FINALIZE (scavenge de órfãos Chromium /tmp owned), DIE
+- Residual-zero de disco: BORN auto-GC de dirs Chromium Singleton-only em `/tmp` (piso 60s); FINALIZE dual scavenge + re-scan; nunca mata Chrome Flatpak do host; prefixo de marker `browser-automation-cli-chrome-`
+- Ciclo de vida: BORN, EXECUTE, FINALIZE (scavenge de órfãos Chromium /tmp owned), DIE; product law residual-zero de processo + disco
 
 ## Contrato de Settings
 - Settings de produto: flags da CLI + XDG via `config path|init|show|set|get|list-keys` apenas

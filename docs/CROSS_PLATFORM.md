@@ -29,6 +29,47 @@
 - Validate the binary on your host with `doctor --json` after install
 
 
+## Browser Discovery Cascade
+
+Resolution order (never product env vars — product law is **flags + XDG only**):
+
+1. XDG `chrome_path` (`config set chrome_path /absolute/path`) when the file is executable
+2. Product browsers cache under XDG data (`browsers/`)
+3. `$PATH` names: `google-chrome`, `google-chrome-stable|beta|unstable`, `chromium`, `chromium-browser`, `microsoft-edge`, `msedge`, `brave-browser`, …
+4. Known absolute layouts per OS (below)
+5. Home-local Puppeteer / Playwright caches under `~/.cache/`
+
+Override: `browser-automation-cli config set chrome_path /path/to/chrome`  
+Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `path`, `sandbox`, `executable`, and `host_environment`.
+
+### Linux known paths
+- `/usr/bin/google-chrome`, `google-chrome-stable|beta|unstable`, `chromium`, `chromium-browser`
+- `/opt/google/chrome/chrome`, `/opt/google/chrome/google-chrome`
+- `/usr/bin/microsoft-edge`, `/opt/microsoft/msedge/msedge`
+- Snap: `/snap/bin/chromium` (emits sandbox **warn** — prefer APT/RPM)
+- Flatpak exports: `/var/lib/flatpak/exports/bin/com.google.Chrome`, `org.chromium.Chromium`, user `~/.local/share/flatpak/exports/bin/…`
+
+### macOS known paths
+- `/Applications/Google Chrome.app/…`, Beta, Canary
+- `/Applications/Chromium.app/…`, `Microsoft Edge.app`, `Brave Browser.app`
+- `~/Applications/Google Chrome.app/…` (per-user installs)
+
+### Windows known paths
+- `%ProgramFiles%` / `%ProgramFiles(x86)%` / `%LOCALAPPDATA%` joined with:
+  - `Google\Chrome\Application\chrome.exe`
+  - `Google\Chrome Beta\…`, `Google\Chrome SxS\…` (Canary)
+  - `Microsoft\Edge\Application\msedge.exe`
+  - `BraveSoftware\Brave-Browser\Application\brave.exe`
+- Hardcoded `C:\Program Files\…` only as last-resort fallback when env vars are missing
+- Console boot: UTF-8 code page **65001** + `ENABLE_VIRTUAL_TERMINAL_PROCESSING` for ANSI
+- Residual Chrome trees: Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`)
+
+### Snap / Flatpak sandboxes
+- Detected by path prefix (`/snap/`, `/var/lib/flatpak/`, `~/.var/app/`) and `$SNAP` / `$FLATPAK_ID`
+- Doctor status becomes **warn** when sandbox is restricted
+- Prefer system packages; CDP + temp user-data-dir often break under confinement
+
+
 ## Linux Notes
 - Common binaries include `chromium-browser`, `chromium`, and `google-chrome`
 - Run `doctor` after package install to confirm discovery
@@ -36,6 +77,12 @@
 - Headless is default for local agent runs
 - On Alpine or other musl hosts, cross-compile or build natively for the musl target
 - Provide a real Chrome or Chromium binary; the CLI does not bundle a browser
+- Containers auto-add Chrome `--no-sandbox` and `--disable-dev-shm-usage` when root or docker/podman/k8s markers are present
+- Residual disk hygiene (v0.1.5): BORN + FINALIZE scavenge owned Singleton-only Chromium tmp under process temp (commonly `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*`)
+- Stale Singleton GC age floor is **60s**; only same-uid Singleton-only (or empty) dirs with no live `/proc` holder are wiped
+- CLI markers use prefix `browser-automation-cli-chrome-*` under the process temp dir
+- Host Flatpak Chrome temp prefixes are **never** deleted by product residual GC
+- Inspect with `doctor --offline --quick --json` → top-level `residual` and check `residual_disk`
 
 
 ## macOS Notes
@@ -43,6 +90,7 @@
 - Prefer full binary path via XDG `chrome_path` only when PATH discovery fails
 - Apple Silicon and Intel both use system Chrome discovery
 - Grant accessibility or screen permissions only if you use headed debugging outside agents
+- Universal binary / notarization are **release-ops** (not required for source builds)
 
 
 ## Windows Notes
@@ -52,6 +100,9 @@
 - Quote paths with spaces: `"C:\Users\me\out.png"`
 - Prefer `grab --path` with a full path rather than relying on cwd
 - Windows process helpers live behind `cfg(windows)` and do not change the JSON contract
+- Path basenames reserved on Windows (`CON`, `NUL`, `COM1`, …) are rejected on **all** hosts for portable scripts
+- Residual **process** hygiene uses Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) so Chrome trees die with the CLI process
+- Disk residual report fields (`residual` / `residual_disk`) remain available via doctor for marker and temp hygiene diagnostics
 
 
 ## Containers
@@ -61,6 +112,13 @@
 - Do not assume a host-mounted product settings file outside XDG; use flags and XDG mounts if needed
 - Example shape: package `browser-automation-cli` plus Chromium, then call `doctor --json`
 - Optional: Redis server when testing `cache_backend redis`; Lighthouse binary or mock for audits
+- Host probe: `doctor --json` → `host_environment.container` / `.wsl` / `.ci` / `.termux`
+
+
+## Host environment probe
+- Module `platform::HostEnvironment` detects WSL, container, CI markers, Termux, Flatpak, Snap
+- Used by doctor diagnostics and Chrome launch flags (container → sandbox/dev-shm flags)
+- CI env keys are **observability only** — never product settings
 
 
 ## Shell Support
@@ -89,7 +147,8 @@ browser-automation-cli completions powershell
 - Full config keys (16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Product settings are flags and XDG `config` only — never product environment variables
 - Product settings use flags and XDG CLI only (`config path|init|show|set|get|list-keys`)
-- Full command inventory and agent patterns: [docs/HOW_TO_USE.md](HOW_TO_USE.md)
+- Language for human suggestions: `--lang` or XDG `lang` only
+- Full command inventory (63 agent names) and agent patterns: [docs/HOW_TO_USE.md](HOW_TO_USE.md)
 - Redis cache: `cache_backend redis` + `cache_redis_url redis://…` only (`rediss://` fail-closed)
 - Product logging: `--verbose` / `--debug` / `-q` or XDG `log_level`
 - Color: `config set color`; Chrome path: `config set chrome_path`

@@ -1,4 +1,12 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One-shot QR encode/decode (no Chrome, pure-Rust path).
+//!
+//! # Workload
+//!
+//! **CPU-light** single payload. Encode builds one matrix; decode usually finds
+//! one grid. Multi-grid decode loops are O(grids) with grids typically 1 —
+//! coordination overhead of Rayon exceeds gain (rules: never parallelize when
+//! cost ≪ spawn). Sequential is intentional, not an omission.
 
 use std::fs;
 use std::path::{Path, PathBuf};

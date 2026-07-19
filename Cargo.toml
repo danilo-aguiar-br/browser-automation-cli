@@ -1,6 +1,6 @@
 [package]
 name = "browser-automation-cli"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 rust-version = "1.88.0"
 authors = ["Danilo Aguiar <daniloaguiarbr@proton.me>"]
@@ -29,6 +29,7 @@ exclude = [
     ".serena/",
     ".claude/",
     ".vscode/",
+    ".setting.cyber/",
     "logs/",
     "memory/",
 ]
@@ -36,6 +37,8 @@ exclude = [
 [package.metadata.docs.rs]
 all-features = true
 default-target = "x86_64-unknown-linux-gnu"
+# Explicit targets required after docs.rs 2026-05-01 (no implicit multi-target).
+# wasm32 omitted: Chrome CDP automation is host-only (see crate `//!` Targets).
 targets = [
     "x86_64-unknown-linux-gnu",
     "x86_64-apple-darwin",
@@ -43,13 +46,23 @@ targets = [
     "x86_64-pc-windows-msvc",
     "aarch64-unknown-linux-musl",
 ]
+# docsrs enables `#![feature(doc_cfg)]` in lib.rs (not doc_auto_cfg; Oct 2025 merge).
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [[bin]]
 name = "browser-automation-cli"
 path = "src/main.rs"
 
 [dependencies]
+# Default CLI allocator (rules_rust_economia_de_recursos). Measure RSS via
+# `scripts/rss-baseline.sh` before claiming wins vs system malloc.
+mimalloc = { version = "0.1", default-features = false }
+# Fast non-crypto hasher for trusted in-process maps (rules_rust_eficiencia —
+# FxHash for digests / integer-like keys; not for untrusted DoS surfaces).
+rustc-hash = "2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 dirs = "5.0"
@@ -57,6 +70,8 @@ base64 = "0.22"
 getrandom = "0.2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "signal", "process"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+# CPU-bound fan-out (sg scan, multi-file text); sized via concurrency::rayon_threads.
+rayon = "1.10"
 chromiumoxide = "0.9.1"
 futures = "0.3"
 futures-util = "0.3"
@@ -65,6 +80,8 @@ uuid = { version = "1", features = ["v4"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots", "stream", "blocking"] }
 sha2 = "0.10"
 aes-gcm = "0.10"
+# Wipe derived session encryption keys on stack before drop (rules: sensitive memory zeroize).
+zeroize = { version = "1", features = ["derive"] }
 async-trait = "0.1"
 socket2 = "0.6"
 similar = "2"
@@ -75,12 +92,26 @@ chrono = "0.4"
 urlencoding = "2"
 clap = { version = "4", features = ["derive", "wrap_help", "string", "cargo", "color", "suggestions"] }
 clap_complete = "4"
+clap_mangen = "0.2"
 thiserror = "2"
 human-panic = "2"
 indexmap = { version = "2", features = ["serde"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# env-filter + fmt + registry: composition; json: file sink; tracing-log: bridge
+# log crate records from deps (reqwest/etc.) into tracing events (local only).
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "registry", "tracing-log"] }
 tracing-appender = "0.2"
+tracing-error = "0.2"
+# i18n stack (rules_rust multi-idioma): OS locale → BCP47 → negotiate → OnceLock.
+# Full ICU calendar/collator intentionally omitted (agent CLI; machine JSON stays English).
+sys-locale = "0.3"
+# macros: langid! for compile-time identifiers (rules: unic-langid LanguageIdentifier).
+unic-langid = { version = "0.9", features = ["macros"] }
+# 0.14 switched to icu_locid::LanguageIdentifier and breaks fluent 0.17 (unic-langid).
+# Pin 0.13 for a single LanguageIdentifier type across negotiation + FluentBundle.
+fluent-langneg = "0.13"
+fluent = "0.17"
+unicode-segmentation = "1"
 robotstxt = "0.3"
 aquamarine = "0.6"
 directories = "5"
@@ -104,22 +135,91 @@ image = "0.25"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.52", features = ["Win32_System_Threading", "Win32_Foundation"] }
+windows-sys = { version = "0.52", features = [
+    "Win32_System_Threading",
+    "Win32_Foundation",
+    "Win32_System_Console",
+    # free_ram_mb via GlobalMemoryStatusEx (rules_rust_paralelismo permits formula).
+    "Win32_System_SystemInformation",
+] }
+
+# Optional locale packs beyond MVP en + pt-BR (rules: never ship top-20 by default).
+[features]
+default = []
+# Scaffold only — additional FTL packs land behind these flags when translated.
+i18n-cjk = []
+i18n-rtl = []
+i18n-europe = []
+i18n-full = ["i18n-cjk", "i18n-rtl", "i18n-europe"]
+i18n-pseudo = []
 
 [dev-dependencies]
 tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
 proptest = "1"
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "cli_parse"
+harness = false
 
 [build-dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# ── Release (rules_rust_eficiencia_e_performance) ───────────────────────────
+# Speed-first profile for the one-shot agent binary. Cross-crate LTO + single
+# CGU maximize inlining; panic=abort drops unwind tables (CLI never catches
+# panics for recovery). strip=symbols keeps distributed artifacts small.
+# overflow-checks left at release default (false) after audit: no financial
+# math hot path; debug/test profiles keep checks on.
+# Never set target-cpu=native here — that belongs only to local .cargo overrides.
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-strip = true
+strip = "symbols"
 panic = "abort"
+debug = false
+incremental = false
+
+# Size-optimized alternate (cargo build --profile release-size). Same LTO/CGU
+# stack as release; opt-level "z" trades some speed for smaller text.
+[profile.release-size]
+inherits = "release"
+opt-level = "z"
+
+# Latency / flamegraph profiling (rules_rust_latencia_reduzir): keep LTO/CGU
+# and panic=abort from release, but retain line tables (`debug = 1`) and do not
+# strip symbols so `perf` / `cargo flamegraph` can attribute samples.
+# Usage: cargo build --profile release-prof
+# Not for distribution — use [profile.release] for published binaries.
+[profile.release-prof]
+inherits = "release"
+debug = 1
+strip = "none"
+
+# Criterion / cargo bench: match production optimisations so microbenches are
+# not compared against a soft dev build (rules: never debug vs release).
+[profile.bench]
+inherits = "release"
+# Criterion harness needs unwind; Cargo forces unwind for benches regardless.
+debug = false
+lto = "thin"
+codegen-units = 1
+
+# Dev: keep our crate debuggable, but optimise dependencies so CDP/reqwest
+# paths are usable without a full --release rebuild every iteration.
+[profile.dev.package."*"]
+opt-level = 2
+
+# Build scripts / proc-macros: prefer compile speed over runtime optimisations.
+[profile.dev.build-override]
+opt-level = 0
+codegen-units = 16
+
+[profile.release.build-override]
+opt-level = 0
+codegen-units = 16
 

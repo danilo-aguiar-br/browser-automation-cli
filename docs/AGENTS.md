@@ -13,7 +13,8 @@
 - Local scrape / crawl / map / search / parse surface ships as first-class subcommands
 - Artifact helpers (`print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) and XDG LLM keys extend agent workflows without daemons
 - Durable defaults live in flags and XDG `config path|init|show|set|get`
-- v0.1.4 hard-closes agent contracts: `--json-steps`, wait multi/url, pick/select-option, assert console, schema positional, MITM capture-url, clap JSON usage errors
+- v0.1.5 residual-zero disk: BORN + FINALIZE Singleton GC, doctor `residual_disk` / JSON `residual`, meta cmds `locale` and `man`, inventory 63
+- Carry-forward from v0.1.4 agent contracts: `--json-steps`, wait multi/url, pick/select-option, assert console, schema positional, MITM capture-url, clap JSON usage errors
 
 
 ## Economy
@@ -59,9 +60,9 @@
 - Always pass `--json` for machine parsing
 - Read success and error envelopes from stdout
 - Keep stderr for human or debug logs only
-- Use `commands --json` to discover the live inventory (**61 agent names**)
-- Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, select-option, pick, and DevTools-parity tools (61 total; e2e 53 tools)
-- Note: `select-option` and `pick` are multi-step/schema surface only (not standalone clap subcommands; clap top-level lists 59 without them)
+- Use `commands --json` to discover the live inventory (**63 agent names**)
+- Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, select-option, pick, locale, man, and DevTools-parity tools (63 total; e2e 53 tools)
+- Note: `select-option` and `pick` are multi-step/schema surface only (not standalone clap subcommands; clap top-level lists **61** without them)
 - Use `schema <name> --json` or `schema --cmd <name> --json` before generating argv for unfamiliar commands
 - Prefer flags for one-off control
 - Use `config init|set|get|path|show|list-keys` for durable XDG defaults
@@ -85,7 +86,9 @@
 - Print PDF with `print-pdf --url … --path …` (also inside `run`)
 - View blank pages: pass `--allow-empty` only when intentional
 - LLM extract fails closed without XDG `openrouter_api_key`
-- Localize human suggestions with `--lang pt-BR` or `config set lang pt-BR`
+- Localize human suggestions with `--lang pt-BR` or `config set lang pt-BR` (flags + XDG only)
+- Inspect resolved locale with `locale --json`; generate man page with `man`
+- After browser work, expect residual-zero disk: doctor check `residual_disk` and top-level `residual` (`cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`)
 - Clap usage errors emit JSON when `--json` is already on argv (GAP-002)
 - Beforeunload (GAP-003): `goto`/`reload --handle-before-unload accept|dismiss`; run field `handle_before_unload`
 - Isolated context (GAP-004): `page new --isolated-context [name]` (flag alone → `default-isolated`); run `isolated_context` string or `true`
@@ -123,7 +126,7 @@ fn main() {
 
 
 ## Surface Discovery for Agents
-- Inventory: `browser-automation-cli commands --json` (61 agent names)
+- Inventory: `browser-automation-cli commands --json` (**63** agent names)
 - Input fragments: `browser-automation-cli schema <name> --json` or `schema --cmd <name> --json`
 - Config paths: `browser-automation-cli config path --json`
 - Config keys: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
@@ -133,39 +136,45 @@ fn main() {
 - Local scrape surface: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
 - Artifacts and local IO: `print-pdf`, `monitor check`, `qr encode|decode`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
 - Multi-step only: `select-option`, `pick`
+- Meta: `locale` (UI locale diagnostics), `man` (roff man page; no Chrome)
 - LLM extract: `extract --llm --question …` (XDG keys only)
-- Health: `doctor --json` (reports Chrome discovery, XDG browsers_dir, lighthouse source, and `cache_redis` when configured)
+- Health: `doctor --json` (Chrome discovery, XDG browsers_dir, lighthouse source, `cache_redis` when configured, residual disk hygiene)
+- Residual: top-level `residual` + check `residual_disk` with fields `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
 - Cache: XDG `cache_backend` (`sqlite|memory|redis`) and `cache_redis_url` (`redis://` only; `rediss://` fail-closed)
 - Lighthouse: flag → XDG `lighthouse_path` → PATH; envelope `binary_source` is `real` or `mock`
 
 
-## Full Command Inventory (61)
-- Live source of truth: `browser-automation-cli commands --json` (61 agent-facing names)
-- Clap top-level help lists 59 without `select-option` and `pick` as standalone
+## Full Command Inventory (63)
+- Live source of truth: `browser-automation-cli commands --json` (**63** agent-facing names)
+- Clap top-level help lists **61** without `select-option` and `pick` as standalone
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53)
 - Full agent command list:
-  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Meta / discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
   - Multi-step / schema only: `select-option`, `pick`
   - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-step: `run`, `exec`
-  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
   - Local IO (no Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
-  - Emulation/perf: `emulate`, `resize`, `perf`, `heap`
+  - Emulation / perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
 - Discover argv with `schema <name> --json` for any name above
 
 ## Lifecycle
 - Slogan (English): BORN EXECUTE FINALIZE DIE
 - One process owns one Chrome session from launch through FINALIZE
-- FINALIZE is idempotent (Browser.close, wait, kill fallback)
+- BORN scavenges stale Singleton-only Chromium tmp (age floor 60s)
+- FINALIZE is idempotent (Browser.close, wait, kill fallback) and dual-scavenges invocation-window + stale Singleton orphans
+- Residual contract for agents: after DIE expect zero live CLI marker processes, zero CLI marker dirs, zero owned Singleton-only Chromium tmp litter
+- Host Flatpak Chrome is never killed or wiped by product residual GC
 - Do not expect session or `@eN` refs to survive process exit
+- Verify with `doctor --offline --quick --json` → `residual` / check `residual_disk`
 
 
-## Technical Contract (v0.1.4)
+## Technical Contract (v0.1.5)
 ### REQUIRED
 - Pass `--json` for programmatic consumption
 - Treat one process as one Chrome lifecycle (BORN EXECUTE FINALIZE DIE)
@@ -176,8 +185,9 @@ fn main() {
 - Check process exit code before trusting stdout
 - Branch on envelope field `ok`
 - Keep category and experimental gates explicit when needed
-- Configure durable product settings via `config` / flags only
+- Configure durable product settings via `config` / flags only (`--lang` + XDG for language)
 - Discover unknown commands with `commands --json` and `schema <cmd>` or `schema --cmd`
+- After browser one-shots, treat residual-zero as part of success: inspect doctor `residual` when diagnosing leaks
 
 ### FORBIDDEN
 - Do not keep a daemon between agent turns
@@ -191,7 +201,8 @@ fn main() {
 - Do not invent a `--device` preset on `emulate`; use `--user-agent`, `--viewport`, `--network-conditions`
 - Do not treat `select-option` / `pick` as clap standalone subcommands; use `run` / `exec` steps
 - Do not assume silent success for empty `view` on about:blank without `--allow-empty`
-- Do not assume `print-pdf` accepts blank about:blank; navigate or pass `url` first (GAP-013)
+- Do not assume `print-pdf` succeeds without a navigated page or an explicit `url` (GAP-013); residual smokes may use `print-pdf --url about:blank` as a light one-shot when `url` is present
+- Do not kill or ask the CLI to wipe host Flatpak Chrome residual
 
 ### Correct Pattern
 ```bash
@@ -219,6 +230,8 @@ browser-automation-cli -q --json page new --isolated-context
 browser-automation-cli -q --json dialog accept --if-present
 browser-automation-cli -q --capture-console --json console dump --path /tmp/console.json
 browser-automation-cli -q --json schema pick
+browser-automation-cli -q --json locale
+browser-automation-cli -q --json doctor --offline --quick
 ```
 
 

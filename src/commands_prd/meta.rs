@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Machine-readable command list and JSON Schema fragments for agents.
 
 use serde_json::{json, Value};
@@ -11,6 +12,7 @@ pub const COMMANDS: &[&str] = &[
     "commands",
     "schema",
     "version",
+    "locale",
     "goto",
     "view",
     "press",
@@ -68,6 +70,7 @@ pub const COMMANDS: &[&str] = &[
     "devtools3p",
     "webmcp",
     "completions",
+    "man",
 ];
 
 /// Default-ON DevTools parity commands that MUST appear in `COMMANDS`.
@@ -105,6 +108,7 @@ pub const PARITY_DEFAULT_ON_REQUIRED: &[&str] = &[
     "schema",
     "version",
     "completions",
+    "man",
 ];
 
 /// Official DevTools tool-ref name → CLI subcommand (agent discovery).
@@ -180,8 +184,9 @@ pub fn list_commands(json: bool) -> Result<(), CliError> {
         print_success_json(data)?;
     } else {
         for c in COMMANDS {
-            println!("{c}");
+            crate::output::writeln_stdout(*c)?;
         }
+        crate::output::flush_stdout()?;
     }
     Ok(())
 }
@@ -204,13 +209,21 @@ fn schema_for(cmd: &str) -> Option<Value> {
                 "offline": { "type": "boolean", "description": "Skip network probes" },
                 "quick": { "type": "boolean", "description": "Skip live launch test" },
                 "fix": { "type": "boolean", "description": "Apply safe repairs when possible" },
-                "json": { "type": "boolean" }
+                "json": {
+                    "type": "boolean",
+                    "description": "Global envelope flag --json (not a local doctor flag)"
+                }
             }),
             &[],
         ),
         "commands" => schema_object(
             "List available commands",
-            json!({ "json": { "type": "boolean" } }),
+            json!({
+                "json": {
+                    "type": "boolean",
+                    "description": "Global envelope flag --json (not a local commands flag)"
+                }
+            }),
             &[],
         ),
         "schema" => schema_object(
@@ -221,6 +234,11 @@ fn schema_for(cmd: &str) -> Option<Value> {
             &["cmd"],
         ),
         "version" => schema_object("Print CLI version (JSON when --json)", json!({}), &[]),
+        "locale" => schema_object(
+            "Show resolved UI locale diagnostics (suggestions only; JSON machine keys English)",
+            json!({}),
+            &[],
+        ),
         "goto" => schema_object(
             "Navigate to URL and wait for load (one-shot)",
             json!({
@@ -238,7 +256,14 @@ fn schema_for(cmd: &str) -> Option<Value> {
         "view" => schema_object(
             "Accessibility snapshot with @eN refs",
             json!({
-                "verbose": { "type": "boolean" },
+                "verbose": {
+                    "type": "boolean",
+                    "description": "Full a11y tree (run/JSON tool-ref). CLI flag is --detailed (avoids shadowing global --verbose)."
+                },
+                "detailed": {
+                    "type": "boolean",
+                    "description": "CLI alias of verbose for one-shot argv (maps to verbose in handlers)"
+                },
                 "path": { "type": "string", "description": "Optional file to write tree text" }
             }),
             &[],
@@ -336,10 +361,18 @@ fn schema_for(cmd: &str) -> Option<Value> {
             json!({
                 "json": {
                     "type": "string",
-                    "description": "JSON array of {target,value} objects"
+                    "description": "JSON array of {target,value} objects (run/JSON key). CLI flag: --fields-json"
+                },
+                "fields": {
+                    "type": "array",
+                    "description": "Preferred run-script form: array of {target|uid,value}"
+                },
+                "fields_json": {
+                    "type": "string",
+                    "description": "CLI long name --fields-json (avoids shadowing global --json)"
                 }
             }),
-            &["json"],
+            &[],
         ),
         "select-option" | "select_option" | "pick" => schema_object(
             "Pick option from custom select / badge popover / role=option (GAP-023)",
@@ -456,7 +489,18 @@ fn schema_for(cmd: &str) -> Option<Value> {
             json!({
                 "action": { "type": "string", "enum": ["list", "set", "clear"] },
                 "url": { "type": "string" },
-                "json": { "type": "string", "description": "JSON array for set" }
+                "json": {
+                    "type": "string",
+                    "description": "JSON array for set (run/JSON key). CLI flag: --cookies-json"
+                },
+                "cookies": {
+                    "type": "array",
+                    "description": "Preferred run-script form for set"
+                },
+                "cookies_json": {
+                    "type": "string",
+                    "description": "CLI long name --cookies-json (avoids shadowing global --json)"
+                }
             }),
             &["action"],
         ),
@@ -841,6 +885,16 @@ fn schema_for(cmd: &str) -> Option<Value> {
             }),
             &["shell"],
         ),
+        "man" => schema_object(
+            "Generate man page (roff) via clap_mangen (no Chrome)",
+            json!({
+                "out": {
+                    "type": "string",
+                    "description": "Optional output path; default stdout"
+                }
+            }),
+            &[],
+        ),
         _ => return None,
     };
     Some(props)
@@ -868,10 +922,8 @@ pub fn schema_for_cmd(cmd: &str, json: bool) -> Result<(), CliError> {
     if json {
         print_success_json(data)?;
     } else {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&data).unwrap_or_default()
-        );
+        let pretty = serde_json::to_string_pretty(&data).unwrap_or_default();
+        crate::output::writeln_stdout(pretty)?;
     }
     Ok(())
 }

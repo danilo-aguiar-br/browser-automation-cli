@@ -1,8 +1,29 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Typed CLI errors with sysexits-style exit codes.
 //!
 //! # Error kinds
 //!
-//! `ErrorKind` maps to process exit codes used by the binary and JSON envelopes.
+//! [`ErrorKind`](crate::error::ErrorKind) maps to process exit codes used by the
+//! binary and JSON envelopes. Stable machine strings come from
+//! [`ErrorKind::as_str`](crate::error::ErrorKind::as_str).
+//!
+//! # Conversions
+//!
+//! - [`CliError::exit_code`](crate::error::CliError::exit_code) /
+//!   [`ErrorKind::exit_code`](crate::error::ErrorKind::exit_code) — infallible
+//!   `u8` mapping (zero-cost)
+//! - [`ErrorKind::as_str`](crate::error::ErrorKind::as_str) — static
+//!   `&'static str` for JSON `error.kind` (zero-cost)
+//! - Prefer these helpers over ad-hoc `as` casts when mapping to process status
+//! - There is no fallible `TryFrom` path: every kind has a fixed exit code
+//!
+//! # Cost
+//!
+//! | Operation | Cost |
+//! |-----------|------|
+//! | `exit_code()` | O(1), no allocation |
+//! | `as_str()` | O(1), static slice |
+//! | `CliError::new` / `with_suggestion` | allocates `String` message (and optional suggestion) |
 //!
 //! # Examples
 //!
@@ -17,6 +38,12 @@
 //! assert_eq!(err.exit_code(), 69);
 //! assert_eq!(err.kind().as_str(), "unavailable");
 //! ```
+//!
+//! # See also
+//!
+//! - [`crate::envelope`] for JSON success/error envelopes
+//! - [`crate::exit_code_for`] for library callers that already hold a
+//!   [`CliError`](crate::error::CliError)
 
 use thiserror::Error;
 
@@ -98,6 +125,10 @@ pub struct CliError {
 
 impl CliError {
     /// Create an error without a suggestion.
+    ///
+    /// Marked `#[cold]`: success paths dominate; keeps error construction out of
+    /// the predicted hot branch layout (rules_rust_eficiencia_e_performance).
+    #[cold]
     pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
@@ -108,6 +139,7 @@ impl CliError {
     }
 
     /// Create an error with a short remediation suggestion for agents.
+    #[cold]
     pub fn with_suggestion(
         kind: ErrorKind,
         message: impl Into<String>,

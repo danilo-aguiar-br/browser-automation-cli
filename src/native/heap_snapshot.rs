@@ -1,9 +1,25 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Offline V8 `.heapsnapshot` analysis for `browser-automation-cli heap *`.
 #![allow(missing_docs)]
 //!
 //! Parses the Chrome heap snapshot JSON format and rebuilds a real object graph:
 //! outgoing edges, retainers (reverse edges), dominator chains, retaining paths,
 //! and per-node object details (distance, retained size, detachedness).
+//!
+//! # Workload / parallelism (rules_rust_paralelismo)
+//!
+//! **CPU-bound** graph algorithms (dominators, retained size) over a single
+//! shared adjacency structure.
+//!
+//! - **PAR-93:** node materialize from flat arrays uses Rayon when
+//!   `n ≥ CPU_MAP_THRESHOLD`; class maps merge sequentially after.
+//! - **Dominator phases stay sequential** (N-142 / N-152): RPO → idom → retained
+//!   have data dependencies; blind `par_iter` races or multiplies RSS.
+//! - Independent post-idom maps (filter/score node lists, dups) use
+//!   [`crate::concurrency::map_cpu`] / [`crate::concurrency::sort_by_cpu`] when
+//!   length ≥ threshold (PAR-65 / PAR-107).
+//! - Entry point is **sync CLI** (`spawn_blocking` if ever called from async).
+//! - File size is hard-capped by [`MAX_HEAP_SNAPSHOT_BYTES`].
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
@@ -16,6 +32,9 @@ const DEFAULT_MAX_EDGES: usize = 200;
 const DEFAULT_MAX_PATHS: usize = 32;
 const DEFAULT_MAX_PATH_DEPTH: usize = 8;
 const DEFAULT_MAX_CLASS_NODES: usize = 500;
+/// Hard file-size budget before reading a `.heapsnapshot` into RAM
+/// (rules: never `read_to_string` untrusted/huge input without a ceiling).
+const MAX_HEAP_SNAPSHOT_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 struct NodeRec {
@@ -63,8 +82,26 @@ struct SnapshotGraph {
 impl SnapshotGraph {
     fn load(path: &Path) -> Result<Self, String> {
         let meta = std::fs::metadata(path).map_err(|e| format!("heap file: {e}"))?;
-        let raw = std::fs::read_to_string(path).map_err(|e| format!("heap read: {e}"))?;
-        let v: Value = serde_json::from_str(&raw).map_err(|e| format!("heap parse JSON: {e}"))?;
+        if meta.len() > MAX_HEAP_SNAPSHOT_BYTES {
+            return Err(format!(
+                "heap snapshot too large: {} bytes > {} budget (use a smaller capture)",
+                meta.len(),
+                MAX_HEAP_SNAPSHOT_BYTES
+            ));
+        }
+        // Capacity known from metadata → try_reserve before full read (OOM → Result).
+        let mut raw = String::new();
+        raw.try_reserve_exact(meta.len() as usize)
+            .map_err(|e| format!("heap allocate failed ({e}); file may exceed host RAM"))?;
+        let file = std::fs::File::open(path).map_err(|e| format!("heap open: {e}"))?;
+        use std::io::Read;
+        std::io::BufReader::new(file)
+            .read_to_string(&mut raw)
+            .map_err(|e| format!("heap read: {e}"))?;
+        let v: Value = crate::json_util::from_str(&raw)
+            .map_err(|e| format!("heap parse JSON: {e}"))?;
+        // Drop the raw string early so peak RSS does not hold JSON text + Value.
+        drop(raw);
 
         let snapshot = v.get("snapshot").cloned().unwrap_or(Value::Null);
         let meta_obj = snapshot.get("meta").cloned().unwrap_or(Value::Null);
@@ -93,16 +130,17 @@ impl SnapshotGraph {
         let to_node_idx =
             field_index(&edge_fields, "to_node").unwrap_or(edge_fields.len().saturating_sub(1));
 
-        let mut nodes: Vec<NodeRec> = Vec::new();
-        let mut class_counts: HashMap<String, u64> = HashMap::new();
-        let mut class_self_sizes: HashMap<String, u64> = HashMap::new();
-        let mut class_to_nodes: HashMap<String, Vec<usize>> = HashMap::new();
-        let mut id_to_index: HashMap<u64, usize> = HashMap::new();
-
-        for (index, chunk) in nodes_flat.chunks(node_stride).enumerate() {
-            if chunk.len() < node_stride {
-                break;
+        // Pre-size when the node count is known; fail closed on OOM (untrusted snapshot).
+        let approx_nodes = nodes_flat.len() / node_stride.max(1);
+        // PAR-93: materialize NodeRec in parallel when large; merge class maps sequentially
+        // (HashMap shared mutation is not Rayon-safe). idom/RPO remain sequential (N-142).
+        let n_full = approx_nodes;
+        let materialize = |index: usize| -> Option<NodeRec> {
+            let base = index * node_stride;
+            if base + node_stride > nodes_flat.len() {
+                return None;
             }
+            let chunk = &nodes_flat[base..base + node_stride];
             let type_id = chunk[type_idx].max(0) as usize;
             let type_name = node_types
                 .get(type_id)
@@ -122,13 +160,7 @@ impl SnapshotGraph {
                 .map(|i| chunk[i].max(0) as usize)
                 .unwrap_or(0);
             let detachedness = detached_idx.map(|i| chunk[i].max(0) as u64);
-
-            *class_counts.entry(name.clone()).or_insert(0) += 1;
-            *class_self_sizes.entry(name.clone()).or_insert(0) += self_size;
-            class_to_nodes.entry(name.clone()).or_default().push(index);
-            id_to_index.insert(id, index);
-
-            nodes.push(NodeRec {
+            Some(NodeRec {
                 index,
                 type_name,
                 name,
@@ -136,7 +168,33 @@ impl SnapshotGraph {
                 self_size,
                 edge_count,
                 detachedness,
-            });
+            })
+        };
+        let nodes: Vec<NodeRec> = if n_full < crate::concurrency::CPU_MAP_THRESHOLD {
+            (0..n_full).filter_map(materialize).collect()
+        } else {
+            crate::concurrency::install_rayon_pool_once();
+            use rayon::prelude::*;
+            (0..n_full)
+                .into_par_iter()
+                .filter_map(materialize)
+                .collect()
+        };
+        let mut class_counts: HashMap<String, u64> = HashMap::with_capacity(64);
+        let mut class_self_sizes: HashMap<String, u64> = HashMap::with_capacity(64);
+        let mut class_to_nodes: HashMap<String, Vec<usize>> = HashMap::with_capacity(64);
+        let mut id_to_index: HashMap<u64, usize> = HashMap::new();
+        id_to_index
+            .try_reserve(nodes.len())
+            .map_err(|e| format!("heap id map reserve failed: {e}"))?;
+        for node in &nodes {
+            *class_counts.entry(node.name.clone()).or_insert(0) += 1;
+            *class_self_sizes.entry(node.name.clone()).or_insert(0) += node.self_size;
+            class_to_nodes
+                .entry(node.name.clone())
+                .or_default()
+                .push(node.index);
+            id_to_index.insert(node.id, node.index);
         }
 
         let n = nodes.len();
@@ -640,7 +698,8 @@ fn string_array(root: &Value, key: &str) -> Vec<String> {
 pub fn summarize(path: &Path) -> Result<Value, String> {
     let s = SnapshotGraph::load(path)?;
     let mut top: Vec<(String, u64)> = s.class_counts.into_iter().collect();
-    top.sort_by_key(|b| std::cmp::Reverse(b.1));
+    // PAR-107: large class lists sort on Rayon budget.
+    crate::concurrency::sort_by_key_cpu(&mut top, |b| std::cmp::Reverse(b.1));
     top.truncate(20);
     Ok(json!({
         "path": s.path,
@@ -670,7 +729,7 @@ pub fn details(path: &Path) -> Result<Value, String> {
             })
         })
         .collect();
-    classes.sort_by(|a, b| {
+    crate::concurrency::sort_by_cpu(&mut classes, |a, b| {
         b.get("count")
             .and_then(|v| v.as_u64())
             .cmp(&a.get("count").and_then(|v| v.as_u64()))
@@ -727,18 +786,16 @@ pub fn duplicate_strings(path: &Path) -> Result<Value, String> {
         }
         *freq.entry(st.as_str()).or_insert(0) += 1;
     }
-    let mut dups: Vec<Value> = freq
-        .into_iter()
-        .filter(|(_, c)| *c > 1)
-        .map(|(s, c)| {
-            json!({
-                "string": if s.len() > 120 { format!("{}…", &s[..120]) } else { s.to_string() },
-                "count": c,
-                "bytes_est": (s.len() as u64) * c,
-            })
+    // PAR-65: independent string→json map after sequential freq count.
+    let pairs: Vec<(&str, u64)> = freq.into_iter().filter(|(_, c)| *c > 1).collect();
+    let mut dups: Vec<Value> = crate::concurrency::map_cpu(&pairs, |(s, c)| {
+        json!({
+            "string": if s.len() > 120 { format!("{}…", &s[..120]) } else { s.to_string() },
+            "count": c,
+            "bytes_est": (s.len() as u64) * c,
         })
-        .collect();
-    dups.sort_by(|a, b| {
+    });
+    crate::concurrency::sort_by_cpu(&mut dups, |a, b| {
         b.get("count")
             .and_then(|v| v.as_u64())
             .cmp(&a.get("count").and_then(|v| v.as_u64()))
@@ -761,7 +818,7 @@ pub fn class_nodes(path: &Path, id: u64) -> Result<Value, String> {
         .iter()
         .map(|(k, v)| (k.clone(), *v))
         .collect();
-    top.sort_by_key(|b| std::cmp::Reverse(b.1));
+    crate::concurrency::sort_by_key_cpu(&mut top, |b| std::cmp::Reverse(b.1));
     let idx = id.saturating_sub(1) as usize;
     let (name, count) = top.get(idx).cloned().ok_or_else(|| {
         format!(

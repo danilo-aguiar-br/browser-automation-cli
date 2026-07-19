@@ -1,6 +1,13 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Element resolution, hit-testing, and ref-based node helpers.
+//!
+//! # Workload
+//!
+//! **I/O-bound single-act:** each resolve is one CDP call (or a short chain) on
+//! the active session. AX walks are sequential over typically small trees
+//! (cost ≪ Rayon; N-138). Multi-ref fan-out lives in snapshot/grab, not here.
 #![allow(missing_docs)]
-use std::collections::HashMap;
-
+use rustc_hash::FxHashMap;
 use serde_json::Value;
 
 use super::cdp::client::CdpClient;
@@ -16,8 +23,12 @@ pub struct RefEntry {
     pub frame_id: Option<String>,
 }
 
+/// Ref id → entry map for the current snapshot.
+///
+/// Uses [`FxHashMap`]: ref ids are short process-minted tokens (`e1`, `e2`, …),
+/// not untrusted external keys (rules_rust_eficiencia_e_performance).
 pub struct RefMap {
-    map: HashMap<String, RefEntry>,
+    map: FxHashMap<String, RefEntry>,
     next_ref: usize,
 }
 
@@ -30,7 +41,7 @@ impl Default for RefMap {
 impl RefMap {
     pub fn new() -> Self {
         Self {
-            map: HashMap::new(),
+            map: FxHashMap::default(),
             next_ref: 1,
         }
     }
@@ -153,17 +164,25 @@ pub fn parse_ref(input: &str) -> Option<String> {
     None
 }
 
-/// Mirror of DaemonState.active_frame_id, refreshed before every command
+/// Mirror of session active frame id, refreshed before every command
 /// (commands are serialized by the session state lock, so this cannot
 /// race). It lets CSS-selector resolution honor `frame <sel>` without
 /// threading a parameter through every interaction signature; snapshot refs
 /// already carry their frame through the ref map.
-static ACTIVE_FRAME: std::sync::OnceLock<std::sync::Mutex<Option<String>>> =
-    std::sync::OnceLock::new();
+///
+/// # Interior mutability choice
+///
+/// - Needs a process-wide `Sync` static with a non-`Copy` payload (`String`) →
+///   `std::sync::Mutex` (not `Cell`/`RefCell`/`Atomic*`).
+/// - Not `tokio::sync::Mutex`: accessors are sync and never hold the guard
+///   across `.await`.
+/// - Direct `Mutex::new` (MSRV ≥ 1.63) — no `OnceLock`/`LazyLock` wrapper.
+/// - Poison is recovered via `into_inner` so a prior panic cannot sticky-fail
+///   frame ops.
+static ACTIVE_FRAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 pub fn set_active_frame(frame_id: Option<&str>) {
-    let mutex = ACTIVE_FRAME.get_or_init(|| std::sync::Mutex::new(None));
-    match mutex.lock() {
+    match ACTIVE_FRAME.lock() {
         Ok(mut guard) => *guard = frame_id.map(String::from),
         Err(poisoned) => {
             let mut guard = poisoned.into_inner();
@@ -173,10 +192,10 @@ pub fn set_active_frame(frame_id: Option<&str>) {
 }
 
 fn active_frame() -> Option<String> {
-    ACTIVE_FRAME.get().and_then(|m| match m.lock() {
+    match ACTIVE_FRAME.lock() {
         Ok(g) => g.clone(),
         Err(poisoned) => poisoned.into_inner().clone(),
-    })
+    }
 }
 
 /// Object handle for the <iframe> element that owns a frame, resolved on the
@@ -315,7 +334,7 @@ pub async fn resolve_element_center(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(f64, f64, String), String> {
     if let Some(ref_id) = parse_ref(selector_or_ref) {
         let entry = ref_map
@@ -495,7 +514,7 @@ pub async fn resolve_element_object_id(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(String, String), String> {
     if let Some(ref_id) = parse_ref(selector_or_ref) {
         let entry = ref_map
@@ -603,7 +622,7 @@ pub async fn resolve_element_object_id(
 pub(super) fn resolve_ax_session<'a>(
     frame_id: Option<&str>,
     session_id: &'a str,
-    iframe_sessions: &'a HashMap<String, String>,
+    iframe_sessions: &'a rustc_hash::FxHashMap<String, String>,
 ) -> (serde_json::Value, &'a str) {
     if let Some(frame_id) = frame_id {
         if let Some(iframe_sid) = iframe_sessions.get(frame_id) {
@@ -622,7 +641,7 @@ pub(super) fn resolve_ax_session<'a>(
 fn resolve_frame_session<'a>(
     frame_id: Option<&str>,
     session_id: &'a str,
-    iframe_sessions: &'a HashMap<String, String>,
+    iframe_sessions: &'a rustc_hash::FxHashMap<String, String>,
 ) -> &'a str {
     frame_id
         .and_then(|fid| iframe_sessions.get(fid))
@@ -641,7 +660,7 @@ async fn find_node_id_by_role_name(
     name: &str,
     nth: Option<usize>,
     frame_id: Option<&str>,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<i64, String> {
     let (ax_params, effective_session_id) =
         resolve_ax_session(frame_id, session_id, iframe_sessions);
@@ -887,7 +906,7 @@ pub async fn get_element_text(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<String, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -926,7 +945,7 @@ pub async fn get_element_attribute(
     ref_map: &RefMap,
     selector_or_ref: &str,
     attribute: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<Value, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -969,7 +988,7 @@ pub async fn is_element_visible(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<bool, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1014,7 +1033,7 @@ pub async fn is_element_enabled(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<bool, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1051,7 +1070,7 @@ pub async fn is_element_checked(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<bool, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1121,7 +1140,7 @@ pub async fn get_element_inner_text(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<String, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1158,7 +1177,7 @@ pub async fn get_element_inner_html(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<String, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1195,7 +1214,7 @@ pub async fn get_element_input_value(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<String, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1235,7 +1254,7 @@ pub async fn set_element_value(
     ref_map: &RefMap,
     selector_or_ref: &str,
     value: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<(), String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1273,7 +1292,7 @@ pub async fn get_element_bounding_box(
     session_id: &str,
     ref_map: &RefMap,
     selector_or_ref: &str,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<Value, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1336,7 +1355,7 @@ pub async fn get_element_styles(
     ref_map: &RefMap,
     selector_or_ref: &str,
     properties: Option<Vec<String>>,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
 ) -> Result<Value, String> {
     let (object_id, effective_session_id) = resolve_element_object_id(
         client,
@@ -1539,7 +1558,7 @@ mod tests {
 
     #[test]
     fn test_cross_origin_element_uses_dedicated_session() {
-        let mut iframe_sessions = HashMap::new();
+        let mut iframe_sessions = FxHashMap::default();
         iframe_sessions.insert(
             "cross-origin-frame".to_string(),
             "iframe-session".to_string(),
@@ -1556,7 +1575,7 @@ mod tests {
 
     #[test]
     fn test_same_origin_element_uses_parent_session() {
-        let iframe_sessions = HashMap::new();
+        let iframe_sessions = FxHashMap::default();
 
         let session = resolve_frame_session(
             Some("same-origin-frame"),
@@ -1569,7 +1588,7 @@ mod tests {
 
     #[test]
     fn test_main_frame_element_uses_parent_session() {
-        let iframe_sessions = HashMap::new();
+        let iframe_sessions = FxHashMap::default();
 
         let session = resolve_frame_session(None, "parent-session", &iframe_sessions);
 

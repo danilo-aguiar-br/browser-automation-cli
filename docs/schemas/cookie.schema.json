@@ -13,8 +13,16 @@
       ],
       "type": "string"
     },
+    "cookies": {
+      "description": "Preferred run-script form for set",
+      "type": "array"
+    },
+    "cookies_json": {
+      "description": "CLI long name --cookies-json (avoids shadowing global --json)",
+      "type": "string"
+    },
     "json": {
-      "description": "JSON array for set",
+      "description": "JSON array for set (run/JSON key). CLI flag: --cookies-json",
       "type": "string"
     },
     "url": {

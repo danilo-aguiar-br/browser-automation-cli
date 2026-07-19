@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/man.schema.json",
+  "title": "man command input",
+  "type": "object",
+  "description": "Generate man page (roff) via clap_mangen (no Chrome)",
+  "properties": {
+    "out": {
+      "description": "Optional output path; default stdout",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

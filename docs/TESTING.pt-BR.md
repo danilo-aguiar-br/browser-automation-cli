@@ -23,7 +23,9 @@
 - Helpers de golden i18n e cold-start (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Cobertura e2e opcional de eventos CDP quando Chrome está disponível (`tests/e2e_cdp_events.rs`)
 - Script e2e completo das **53 tools** DevTools (nome legado do arquivo): `scripts/e2e_all_52_tools.sh`
-- Inventário vivo da CLI é **61 nomes de agente** (`commands --json`) — mais amplo que o conjunto e2e de 53 tool-ref; inclui multi-passo-only `select-option` e `pick`
+- Inventário vivo da CLI é **63 nomes de agente** (`commands --json`) — mais amplo que o conjunto e2e de 53 tool-ref; inclui multi-passo-only `select-option` e `pick`, mais meta `locale` e `man`
+- Suite de integração residual: `tests/residual_one_shot.rs` (marker zero, não-crescimento de Singleton, wipe de fixture no BORN, campos residual no doctor)
+- Gates locais residual: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (sem exigência de CI/GHA)
 - Fixture vendored de tool-ref: `tests/fixtures/tool-reference.md`
 
 
@@ -31,6 +33,8 @@
 ```bash
 timeout 300 cargo test --locked
 timeout 300 cargo test --lib --locked
+timeout 120 cargo test --lib residual:: --locked
+timeout 120 cargo test --test residual_one_shot --locked
 timeout 120 cargo test --test parity_run_inventory --locked
 timeout 120 cargo test --test clap_command_debug_assert --locked
 timeout 120 cargo clippy --all-targets --locked -- -D warnings
@@ -50,11 +54,30 @@ bash scripts/e2e_all_52_tools.sh
 - Exercita tools de paridade DevTools na página fixture em `scripts/fixtures/e2e_page/`
 - Escreve relatório em workdir temp e imprime contagens PASS/FAIL/SKIP
 - Evidência do mantenedor para v0.1.4: 53 PASS / 0 FAIL em host local com Chrome (residual A001 fechado; GAP-001…025 hard-close)
+- Evidência do mantenedor para v0.1.5: residual-zero em disco fechado (RES-01…12); `cargo test --lib residual::` + `cargo test --test residual_one_shot` + residual-check local PASS
 - A suite de 52-tools não substitui smokes residuais de comandos fora do conjunto tool-ref
 
 
+## Gates Residual-Zero de Disco (v0.1.5)
+```bash
+cargo build --release --locked
+cargo test --lib residual:: --locked
+cargo test --test residual_one_shot --locked
+bash scripts/residual-check.sh
+# stress opcional de N one-shots:
+# bash scripts/residual-stress.sh
+```
+- `residual_one_shot` cobre: marker CLI zero após goto, não-crescimento de Singleton Chromium após print-pdf, wipe BORN de fixture Singleton stale, campos residual no doctor
+- `residual-check.sh` roda doctor (BORN GC path-light) + print-pdf one-shot + assert zero markers CLI e JSON `residual` do doctor
+- `residual-stress.sh` repete trabalho one-shot para estressar higiene residual localmente
+- Check id do doctor sob teste: `residual_disk` (higiene residual de disco path-light)
+- Campo JSON de topo do doctor sob teste: `residual` (`ResidualDiskReport`)
+- Campos residual do doctor sob teste: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Age floor do GC stale de produção é 60s; testes podem usar helpers de library com age zero para fixtures
+
+
 ## Smokes Residuais de PRD (além das 53 tools)
-Rode após o e2e ao validar o inventário completo de 61 nomes:
+Rode após o e2e ao validar o inventário completo de **63** nomes:
 
 ```bash
 # print-pdf artifact (one-shot + run)
@@ -138,9 +161,16 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 
 # clap JSON usage error (GAP-002)
 browser-automation-cli --json not-a-real-command 2>/dev/null | jaq -e '.ok == false' || true
+
+# locale / man meta (inventário 63)
+browser-automation-cli --json locale
+browser-automation-cli --json man >/tmp/browser-automation-cli.1
+
+# campos residual do doctor (v0.1.5)
+browser-automation-cli doctor --offline --quick --json | jaq '.residual'
 ```
 - Também úteis: scrape browser com format, `config path`, `mitm start`, doctor XDG, i18n `--lang pt-BR`
-- Testes de contrato a citar em evidência: `parity_run_inventory`, `clap_command_debug_assert`
+- Testes de contrato a citar em evidência: `parity_run_inventory`, `clap_command_debug_assert`, `residual_one_shot`, testes lib residual
 - Também: `dialog --if-present`, `console dump` (array `[]` quando vazio), `print-pdf` dentro de `run`
 
 
@@ -161,7 +191,7 @@ browser-automation-cli --json lighthouse https://example.com \
 - Testes com browser exigem Chrome ou Chromium instalado localmente
 - A validação roda localmente com cargo e scripts e2e na máquina do mantenedor
 - Mantenha publish no crates.io bloqueado sem aprovação explícita do mantenedor
-- Smokes opcionais de pilares após e2e: `run` + `--json-steps`, comandos residuais de PRD acima, `config path`, `mitm capture-url`, doctor XDG
+- Smokes opcionais de pilares após e2e: `run` + `--json-steps`, comandos residuais de PRD acima, residual-check, `config path`, `mitm capture-url`, doctor XDG + residual
 
 
 ## Auditoria de Schemas e Documentação Bilíngue
@@ -191,7 +221,8 @@ bash scripts/audit_bilingual_docs.sh
 - Falhas de schema gate: atualize código e `docs/schemas/` na mesma mudança
 - Drift de schema de comando: reexecute `bash scripts/generate_command_schemas.sh` após mudar `meta.rs`
 - Drift bilíngue de fences: reexecute `bash scripts/audit_bilingual_docs.sh` e alinhe blocos de comando EN e `.pt-BR`
-- Drift de inventário: reconcilie com `commands --json` (61) e `tests/fixtures/tool-reference.md` (53 tools)
+- Drift de inventário: reconcilie com `commands --json` (63) e `tests/fixtures/tool-reference.md` (53 tools)
+- Leaks residual de disco: reexecute `cargo test --test residual_one_shot` e `bash scripts/residual-check.sh`; inspecione `residual` do doctor
 - Drift de inventário run: atualize `RUN_DISPATCHED_CMDS` e reexecute `cargo test --test parity_run_inventory`
 - Falhas de clap assert: corrija `GlobalOpts` / definições de subcomando e reexecute `cargo test --test clap_command_debug_assert`
 - Script e2e sem binário: rode `cargo build --release --locked` primeiro para existir `target/release/browser-automation-cli`

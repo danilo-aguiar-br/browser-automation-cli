@@ -1,14 +1,40 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One-shot optional LLM HTTP extract (XDG key only; no product env vars).
 //!
 //! Uses an OpenAI-compatible chat completions endpoint configured via XDG
 //! (`openrouter_api_key`, `llm_base_url`, `llm_model`). No telemetry.
+//!
+//! # Workload
+//!
+//! **I/O-bound** (blocking HTTP to operator-configured LLM endpoint). Client is
+//! process-wide via `OnceLock` (rules: create `reqwest` client once).
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
 use crate::error::{CliError, ErrorKind};
 use crate::xdg;
+
+/// Process-wide blocking HTTP client for rare LLM/webhook one-shots.
+///
+/// Stable `get_or_init` path (`get_or_try_init` still unstable on MSRV 1.88).
+pub fn shared_blocking_http_client() -> Result<&'static reqwest::blocking::Client, CliError> {
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    if let Some(c) = CLIENT.get() {
+        return Ok(c);
+    }
+    let built = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .user_agent(concat!(
+            "browser-automation-cli/",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()
+        .map_err(|e| CliError::new(ErrorKind::Software, format!("http client: {e}")))?;
+    Ok(CLIENT.get_or_init(|| built))
+}
 
 /// Default OpenAI-compatible base URL (path ends before `/chat/completions`).
 pub const DEFAULT_LLM_BASE_URL: &str = "https://openrouter.ai/api/v1";
@@ -63,11 +89,8 @@ pub fn chat_completion(
         "temperature": 0.2,
     });
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(60))
-        .user_agent("browser-automation-cli/0.1.3")
-        .build()
-        .map_err(|e| CliError::new(ErrorKind::Software, format!("llm client: {e}")))?;
+    // Process-wide blocking client (rules: create once; LLM path is rare one-shot).
+    let client = shared_blocking_http_client()?;
 
     // GAP-013: named RetryConfig::llm() (budget + jitter), not ad-hoc delay array.
     let cfg = crate::retry::RetryConfig::llm();

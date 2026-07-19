@@ -1,8 +1,15 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Chromiumoxide launch + FINALIZE helpers (PRD: Browser::launch only, no connect).
 #![allow(missing_docs)]
 //!
 //! System Chrome/Chromium only — no BrowserFetcher embedded (PRD L56 / L387).
 //! Launch flags come from `build_chrome_args` so proxy/webgpu/extensions are live.
+//!
+//! # Workload (PAR-92 / PAR-101)
+//!
+//! Temp Chrome profile mkdir is **I/O-bound** and runs via
+//! [`crate::concurrency::create_dir_all_blocking`] before `Browser::launch`
+//! so the multi-thread Tokio worker is never pinned by `std::fs::create_dir_all`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,6 +37,12 @@ pub struct OxideLaunch {
 /// Handler must be polled (via CdpClient::from_browser) for commands to complete.
 pub async fn launch_with_oxide(options: &LaunchOptions) -> Result<OxideLaunch, String> {
     let chrome_args = build_chrome_args(options)?;
+    // PAR-92: materialize temp profile off the async worker (docsrs spawn_blocking).
+    if let Some(ref dir) = chrome_args.temp_user_data_dir {
+        crate::concurrency::create_dir_all_blocking(dir.clone())
+            .await
+            .map_err(|e| format!("Failed to create temp profile dir: {e}"))?;
+    }
 
     let mut builder = BrowserConfig::builder();
 

@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.1.5] - 2026-07-19
+
+### Added
+- Automatic **BORN** cross-run GC of stale Chromium Singleton-only temp dirs (`scavenge_stale_singleton_orphans`) so prior one-shot runs cannot accumulate `/tmp/org.chromium.Chromium.*` litter (PRD §5N residual-zero disk)
+- `ResidualDiskReport` + `doctor` check `residual_disk` / top-level JSON `residual` (path-light; no Chrome launch for the report itself)
+- Public residual constants (marker prefix, age floor, size caps) — anti-hardcode
+- Local gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (no CI/GHA)
+- Integration coverage: Singleton side-channel non-growth, BORN fixture wipe, doctor residual fields
+
+### Fixed
+- **RES-01:** `Lifecycle::finalize` now copies `chrome_pid` **before** `.take()` so invocation-window scavenge can attribute side-channels
+- **RES-02/RES-10:** cross-run GC by Singleton-only shape + uid + no live `/proc` holder (not weak path_references alone)
+- **RES-05:** FINALIZE re-discovers side-channels before wipe
+- Host Flatpak `com.google.Chrome.*` temp prefixes are **never** deleted by stale GC
+
+### Changed
+- Version `0.1.5`
+- FINALIZE dual scavenge: invocation-window + stale Singleton GC
+- Product law residual-zero extended from process/marker to Chromium tmp disk hygiene
+
 
 ## [0.1.4] - 2026-07-18
 

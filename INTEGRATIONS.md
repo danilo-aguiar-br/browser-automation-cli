@@ -22,7 +22,8 @@
 - `0.1.1` adds XDG `config`, local MITM, workflow journal, and local scrape/crawl/map/search/parse surface (`batch-scrape`, `crawl`, `map`, `search`, `parse`, expanded `scrape`)
 - `0.1.2` closes agent-first gaps and adds `print-pdf`, `monitor`, `qr`, `find-paths`, parse document types, extract LLM, and expanded config keys
 - `0.1.3` hard-closes residual-zero and agent contracts: NDJSON|JSON-array `run`, CDP reload/beforeunload/init_script, Redis/Lighthouse honesty, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 clap top-level; 53 e2e DevTools tools)
-- `0.1.4` hard-closes GAP-001…025: `--json-steps`, wait multi/url, `select-option`/`pick` run cmds, assert console kinds, `schema <cmd>` positional, MITM `capture-url` + global `--mitm*`, multi-format scrape, batch/crawl `--engine browser`, clap JSON usage errors (61 agent names via `commands --json`)
+- `0.1.4` hard-closes GAP-001…025: `--json-steps`, wait multi/url, `select-option`/`pick` run cmds, assert console kinds, `schema <cmd>` positional, MITM `capture-url` + global `--mitm*`, multi-format scrape, batch/crawl `--engine browser`, clap JSON usage errors
+- `0.1.5` hard-closes residual-zero disk (RES-01…12): BORN auto-GC of stale Singleton-only Chromium `/tmp` dirs (age floor 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + top-level `residual` (`ResidualDiskReport`), never kills host Flatpak Chrome; inventory honesty with `locale`/`man` (**63** agent names via `commands --json`; clap top-level **61** without `select-option`/`pick` standalone)
 - Experimental tools require `--experimental-vision` or `--experimental-screencast`
 
 ## Summary Table
@@ -113,3 +114,11 @@ echo "$out" | jaq -e '.ok == true'
   - Clap usage errors emit JSON when `--json` is on argv; `console dump` always valid JSON array
   - Inventory: 61 agent names via `commands --json` (includes `select-option`, `pick`); clap top-level 59 without them as standalone
   - Contract gates: `tests/parity_run_inventory.rs`, `tests/clap_command_debug_assert.rs`
+- `0.1.5`:
+  - Residual-zero disk hygiene (product law: residual-zero process + disk)
+  - BORN auto-GC: `scavenge_stale_singleton_orphans` of `/tmp` `org.chromium.Chromium.*` Singleton-only dirs older than 60s
+  - FINALIZE dual scavenge + re-scan of owned marker dirs (prefix `browser-automation-cli-chrome-`); never kills host Flatpak Chrome
+  - Doctor check `residual_disk` + top-level JSON field `residual` (`ResidualDiskReport`): `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+  - Local residual gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (local only; no CI requirement)
+  - Discovery honesty: inventory includes `locale` and `man`
+  - Inventory: **63** agent names via `commands --json` (includes `locale`, `man`, `select-option`, `pick`); clap top-level **61** without `select-option`/`pick` as standalone

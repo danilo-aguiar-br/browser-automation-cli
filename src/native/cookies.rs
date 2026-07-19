@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Cookie read/write helpers over CDP Network domain.
+//!
+//! # Workload
+//!
+//! **I/O-bound single session:** list/set/clear are one CDP command each
+//! (batch set via `Network.setCookies`). No multi-item fan-out; cookie vectors
+//! are owned by one browser session (sequential_justified N-138).
 #![allow(missing_docs)]
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

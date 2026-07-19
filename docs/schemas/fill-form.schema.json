@@ -5,13 +5,19 @@
   "type": "object",
   "description": "Fill multiple fields from JSON array",
   "properties": {
+    "fields": {
+      "description": "Preferred run-script form: array of {target|uid,value}",
+      "type": "array"
+    },
+    "fields_json": {
+      "description": "CLI long name --fields-json (avoids shadowing global --json)",
+      "type": "string"
+    },
     "json": {
-      "description": "JSON array of {target,value} objects",
+      "description": "JSON array of {target,value} objects (run/JSON key). CLI flag: --fields-json",
       "type": "string"
     }
   },
-  "required": [
-    "json"
-  ],
+  "required": [],
   "additionalProperties": false
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 #![allow(missing_docs)]
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
@@ -15,23 +16,62 @@ const LIGHTPANDA_DISCOVERY_TIMEOUT: Duration = Duration::from_millis(500);
 const LIGHTPANDA_SESSION_TIMEOUT_SECS: u64 = 604800; // 1 week, the documented maximum
 const MAX_LOG_LINES: usize = 40;
 
+/// Owned Lightpanda child process (RAII: kill + `wait` on Drop).
+///
+/// # Drop
+///
+/// [`Drop`] is idempotent: after an explicit [`Self::kill`], the inner
+/// [`Child`] is taken so Drop is a no-op (no double-wait). Every kill path
+/// always pairs `kill` with `wait` to avoid Unix zombies (rules: spawn→wait).
 pub struct LightpandaProcess {
-    child: Child,
+    /// `None` after successful reap via [`Self::kill`].
+    child: Option<Child>,
     pub ws_url: String,
     _log_drainers: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl LightpandaProcess {
+    /// Kill and reap the child (idempotent). Safe to call from Drop.
     pub fn kill(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    /// Non-blocking exit probe (`try_wait`). `true` when already reaped or exited.
+    pub fn has_exited(&mut self) -> bool {
+        match self.child.as_mut() {
+            None => true,
+            Some(child) => match child.try_wait() {
+                Ok(Some(_)) => {
+                    // Process exited; drop the Child to reap fully.
+                    let _ = self.child.take().map(|mut c| c.wait());
+                    true
+                }
+                Ok(None) => false,
+                Err(_) => false,
+            },
+        }
+    }
+
+    /// OS pid while the child is still owned; `None` after reap.
+    pub fn id(&self) -> Option<u32> {
+        self.child.as_ref().map(|c| c.id())
     }
 }
 
 impl Drop for LightpandaProcess {
     fn drop(&mut self) {
+        // Significant drop: external process resource. Keep short, no panic.
         self.kill();
     }
+}
+
+/// Best-effort kill + wait (rules: every spawn path reaps the child).
+fn kill_and_reap(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 #[derive(Default)]
@@ -60,6 +100,13 @@ fn build_lightpanda_serve_args(port: u16, proxy: Option<&str>) -> Vec<String> {
     args
 }
 
+/// Bounded stdout/stderr ring for launch diagnostics.
+///
+/// # Interior mutability
+///
+/// Reader threads push lines while the launcher snapshots on failure. Uses
+/// `std::sync::Mutex` (short critical sections, no `.await`). Poison recovered
+/// via `into_inner` so a panic in one stream cannot hide the other.
 #[derive(Clone, Default)]
 struct LaunchLogBuffer {
     stdout: Arc<Mutex<VecDeque<String>>>,
@@ -102,33 +149,9 @@ fn push_bounded(buffer: &Mutex<VecDeque<String>>, line: String) {
 }
 
 pub fn find_lightpanda() -> Option<PathBuf> {
-    #[cfg(unix)]
-    {
-        if let Ok(output) = Command::new("which").arg("lightpanda").output() {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() {
-                    return Some(PathBuf::from(path));
-                }
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        if let Ok(output) = Command::new("where").arg("lightpanda").output() {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                if !path.is_empty() {
-                    return Some(PathBuf::from(path));
-                }
-            }
-        }
+    // Pure PATH walk — never shell out to `which`/`where` (multiplatform rules).
+    if let Some(p) = crate::platform::which_bin("lightpanda") {
+        return Some(p);
     }
 
     if let Some(home) = dirs::home_dir() {
@@ -137,7 +160,7 @@ pub fn find_lightpanda() -> Option<PathBuf> {
             home.join(".local/bin/lightpanda"),
         ];
         for c in &candidates {
-            if c.exists() {
+            if crate::platform::is_executable_file(c) {
                 return Some(c.clone());
             }
         }
@@ -173,7 +196,15 @@ pub async fn launch_lightpanda(
         .spawn()
         .map_err(|e| format!("Failed to launch Lightpanda at {:?}: {}", binary_path, e))?;
 
-    let (log_buffer, log_drainers) = start_log_drainers(&mut child)?;
+    let (log_buffer, log_drainers) = match start_log_drainers(&mut child) {
+        Ok(v) => v,
+        Err(e) => {
+            // start_log_drainers already reaps on its internal error paths; re-reap is harmless
+            // only if the child is still live (e.g. unexpected error shape).
+            kill_and_reap(&mut child);
+            return Err(e);
+        }
+    };
 
     let ws_url =
         match wait_for_lightpanda_ready(&mut child, port, &log_buffer, LIGHTPANDA_STARTUP_TIMEOUT)
@@ -181,14 +212,13 @@ pub async fn launch_lightpanda(
         {
             Ok(url) => url,
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_and_reap(&mut child);
                 return Err(e);
             }
         };
 
     Ok(LightpandaProcess {
-        child,
+        child: Some(child),
         ws_url,
         _log_drainers: log_drainers,
     })
@@ -198,11 +228,11 @@ fn start_log_drainers(
     child: &mut Child,
 ) -> Result<(LaunchLogBuffer, Vec<std::thread::JoinHandle<()>>), String> {
     let stdout = child.stdout.take().ok_or_else(|| {
-        let _ = child.kill();
+        kill_and_reap(child);
         "Failed to capture Lightpanda stdout".to_string()
     })?;
     let stderr = child.stderr.take().ok_or_else(|| {
-        let _ = child.kill();
+        kill_and_reap(child);
         "Failed to capture Lightpanda stderr".to_string()
     })?;
 

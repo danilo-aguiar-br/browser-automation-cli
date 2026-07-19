@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 #![allow(missing_docs)]
 use std::time::Duration;
 
@@ -208,7 +209,11 @@ async fn discover_cdp_ws(host: &str, port: u16, timeout: Duration) -> Result<Str
 }
 
 async fn reqwest_get_string(url: &str) -> Result<String, String> {
-    let resp = reqwest::get(url).await.map_err(|e| e.to_string())?;
+    // Prefer process-wide client (keep-alive); fall back to one-shot get.
+    let resp = match crate::robots::shared_http_client() {
+        Ok(c) => c.get(url).send().await.map_err(|e| e.to_string())?,
+        Err(_) => reqwest::get(url).await.map_err(|e| e.to_string())?,
+    };
     resp.text().await.map_err(|e| e.to_string())
 }
 

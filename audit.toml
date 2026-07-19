@@ -1,0 +1,15 @@
+# cargo-audit config (rules_rust_cli_stdin_stdout checklist)
+# Used by: cargo audit --deny warnings (when available) / scripts/ci-check.sh
+
+[advisories]
+ignore = []
+informational_warnings = ["unmaintained", "unsound", "notice"]
+severity_threshold = "low"
+
+[output]
+deny = ["unmaintained", "unsound"]
+quiet = false
+
+[yanked]
+enabled = true
+update_index = true

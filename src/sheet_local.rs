@@ -1,6 +1,14 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One-shot XLSX write via `rust_xlsxwriter` (§5Z / GAP-A011).
 //!
 //! Read path remains `calamine` in `scrape_local`/`parse`. This module is write-only.
+//!
+//! # Workload
+//!
+//! **CPU-light + disk I/O** for a single workbook. Sequential by design:
+//! `rust_xlsxwriter::Workbook` is not shared across threads, and one-shot
+//! sheet sizes are small enough that Rayon overhead would dominate. Fan-out
+//! belongs to callers that produce many independent workbooks (not this path).
 
 use std::fs;
 use std::path::Path;
@@ -96,10 +104,10 @@ fn read_csv_rows(path: &Path, delim: u8) -> Result<Vec<Vec<String>>, CliError> {
 }
 
 fn read_json_rows(path: &Path) -> Result<Vec<Vec<String>>, CliError> {
-    let raw = fs::read_to_string(path)
-        .map_err(|e| CliError::new(ErrorKind::Io, format!("read {}: {e}", path.display())))?;
-    let v: Value = serde_json::from_str(&raw)
-        .map_err(|e| CliError::new(ErrorKind::Data, format!("json: {e}")))?;
+    let v: Value = crate::json_util::read_json_value_file(
+        path,
+        crate::json_util::MAX_JSON_FILE_BYTES,
+    )?;
     let arr = v.as_array().ok_or_else(|| {
         CliError::with_suggestion(
             ErrorKind::Data,

@@ -1,5 +1,26 @@
-//! PRD command dispatch (paths leves + Layer A/B browser one-shot).
-#![allow(missing_docs)]
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! PRD command dispatch (path-level + Layer A/B browser one-shot).
+//!
+//! # Workload
+//!
+//! **Mista (orchestration):** dispatch is sequential per invocation (one CLI
+//! process). Multi-item fan-out lives inside callees (`scrape_local` JoinSet,
+//! `sg`/`find-paths` Rayon, CDP `join_bounded`). Browser batch/crawl stays
+//! sequential under product law (N-129). Large disk dumps from handlers use
+//! [`crate::concurrency::write_bytes_blocking`] (under `block_on`) or
+//! [`crate::concurrency::write_bytes_sync`] (outer CLI thread).
+//!
+//! # Module map (D-01 maintainability)
+//!
+//! | Module | Responsibility |
+//! |--------|----------------|
+//! | `mod` (this file) | `dispatch` match table + session-bound handlers |
+//! | [`meta`] | agent inventory (`commands`, `schema`) |
+//! | [`run`] | multi-step script engine (`run` / `exec`) |
+//!
+//! New **command families** should land in sibling modules and be wired from
+//! `dispatch`, rather than growing unrelated helpers in this file.
+#![allow(missing_docs)] // clap/handler surface; agent UX is `--help` + skills (D-02/D-11)
 
 mod meta;
 pub mod run;
@@ -24,16 +45,16 @@ use crate::robots::RobotsPolicy;
 
 /// Dispatch parsed CLI. Returns process exit code (0 success).
 pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
-    let json = cli.globals.json
-        || matches!(
-            &cli.command,
-            Commands::Doctor { json: true, .. } | Commands::Commands { json: true }
-        );
+    // Global `--json` only (no local shadowing on doctor/commands).
+    let json = cli.globals.json;
     let capture = CaptureOpts {
         console: cli.globals.capture_console,
         network: cli.globals.capture_network,
     };
-    let timeout_secs = cli.globals.timeout;
+    // CLI --timeout > 0 wins; else XDG config timeout (rules: global timeout obligatory).
+    let timeout_secs = crate::config::resolve_global_timeout(cli.globals.timeout);
+    let step_timeout_secs =
+        crate::config::resolve_step_timeout(cli.globals.step_timeout, timeout_secs);
     let artifacts = cli.globals.artifacts_dir.clone();
     let category_memory = cli.globals.category_memory;
     let category_extensions = cli.globals.category_extensions;
@@ -57,16 +78,15 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             offline,
             quick,
             fix,
-            json: doc_json,
         } => crate::doctor::run_doctor(crate::doctor::DoctorOptions {
             offline,
             quick,
             fix,
-            json: json || doc_json,
+            json,
         }),
-        Commands::Commands { json: cmd_json } => match meta::list_commands(json || cmd_json) {
+        Commands::Commands => match meta::list_commands(json) {
             Ok(()) => 0,
-            Err(e) => emit_err(&e, json || cmd_json),
+            Err(e) => emit_err(&e, json),
         },
         Commands::Schema { cmd, cmd_positional } => {
             // GAP-022: positional `schema run` or `schema --cmd run`.
@@ -87,6 +107,10 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             }
         },
         Commands::Version => match handle_version(json) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
+        Commands::Locale => match handle_locale(json) {
             Ok(()) => 0,
             Err(e) => emit_err(&e, json),
         },
@@ -271,7 +295,7 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             }
         }
         Commands::FillForm {
-            json: fields_json,
+            fields_json,
             include_snapshot,
         } => {
             match handle_fill_form(
@@ -400,6 +424,7 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
                 category_third_party,
                 category_webmcp,
                 json_steps,
+                step_timeout_secs,
             );
             match handle_run(life, &script, robots, capture, timeout_secs, json, flags) {
                 Ok(()) => 0,
@@ -419,6 +444,7 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
                 category_third_party,
                 category_webmcp,
                 json_steps,
+                step_timeout_secs,
             );
             match handle_exec(life, &args, robots, capture, timeout_secs, json, flags) {
                 Ok(()) => 0,
@@ -807,6 +833,10 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
             Ok(()) => 0,
             Err(e) => emit_err(&e, json),
         },
+        Commands::Man { out } => match handle_man(out.as_deref()) {
+            Ok(()) => 0,
+            Err(e) => emit_err(&e, json),
+        },
     };
 
     life.finalize();
@@ -814,40 +844,64 @@ pub fn dispatch(cli: Cli, life: &Lifecycle) -> i32 {
 }
 
 fn handle_version(json: bool) -> Result<(), CliError> {
-    let data = serde_json::json!({
-        "name": "browser-automation-cli",
-        "version": env!("CARGO_PKG_VERSION"),
-    });
+    let data = crate::build_identity();
     emit_ok(data, json, |d| {
-        println!(
-            "{}",
-            d.get("version").and_then(|v| v.as_str()).unwrap_or("")
-        );
+        let ver = d.get("version").and_then(|v| v.as_str()).unwrap_or("");
+        let sha = d.get("git_sha").and_then(|v| v.as_str()).unwrap_or("unknown");
+        if sha != "unknown" {
+            crate::output::writeln_stdout(format!("{ver} ({sha})"))
+        } else {
+            crate::output::writeln_stdout(ver)
+        }
+    })
+}
+
+fn handle_locale(json: bool) -> Result<(), CliError> {
+    let data = crate::i18n::locale_diagnostics();
+    emit_ok(data, json, |d| {
+        let resolved = d.get("resolved").and_then(|v| v.as_str()).unwrap_or("en");
+        let source = d.get("source").and_then(|v| v.as_str()).unwrap_or("default");
+        let system = d
+            .get("system_locale")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        // Human labels follow resolved locale; values stay BCP47/English keys.
+        let label_r = crate::i18n::Mensagem::LocaleResolved.texto(crate::i18n::effective_idioma());
+        let label_s = crate::i18n::Mensagem::LocaleSource.texto(crate::i18n::effective_idioma());
+        crate::output::writeln_stdout(format!(
+            "{label_r}: {resolved}\n{label_s}: {source}\nsystem: {system}"
+        ))
     })
 }
 
 fn emit_ok<F>(data: serde_json::Value, json: bool, text: F) -> Result<(), CliError>
 where
-    F: FnOnce(&serde_json::Value),
+    F: FnOnce(&serde_json::Value) -> Result<(), CliError>,
 {
     if json {
         print_success_json(data)?;
     } else {
-        text(&data);
+        text(&data)?;
     }
+    crate::output::flush_stdout()?;
     Ok(())
 }
 
 fn emit_err(err: &CliError, json: bool) -> i32 {
     let localized = crate::i18n::localize_error_suggestion(err);
     if json {
-        let _ = print_error_json(&localized);
+        match print_error_json(&localized) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::BrokenPipe => return 141,
+            Err(_) => {}
+        }
     } else {
-        eprintln!("error: {localized}");
+        let _ = crate::output::writeln_stderr(format!("error: {localized}"));
         if let Some(s) = localized.suggestion() {
-            eprintln!("suggestion: {s}");
+            let _ = crate::output::writeln_stderr(format!("suggestion: {s}"));
         }
     }
+    let _ = crate::output::flush_stdout();
     localized.exit_code() as i32
 }
 
@@ -894,7 +948,8 @@ fn handle_goto(
     emit_ok(data, json, |d| {
         let u = d.get("url").and_then(|v| v.as_str()).unwrap_or(url);
         let t = d.get("title").and_then(|v| v.as_str()).unwrap_or("");
-        println!("ok url={u} title={t}");
+        crate::output::writeln_stdout(&format!("ok url={u} title={t}"))?;
+        Ok(())
     })
 }
 
@@ -928,16 +983,17 @@ fn handle_view(
                 obj.insert("empty".into(), serde_json::json!(empty));
             }
             if let Some(p) = path_owned.as_ref() {
-                if let Some(parent) = p.parent() {
-                    if !parent.as_os_str().is_empty() {
-                        std::fs::create_dir_all(parent).map_err(|e| {
-                            CliError::new(ErrorKind::Io, format!("view --path mkdir: {e}"))
-                        })?;
-                    }
-                }
-                let tree = data.get("tree").and_then(|v| v.as_str()).unwrap_or("");
-                std::fs::write(p, tree.as_bytes())
-                    .map_err(|e| CliError::new(ErrorKind::Io, format!("view --path write: {e}")))?;
+                // PAR-83: tree dump off async/block_on worker (may be multi-MB).
+                let tree = data
+                    .get("tree")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                crate::concurrency::write_bytes_blocking(p.clone(), tree.into_bytes())
+                    .await
+                    .map_err(|e| {
+                        CliError::new(ErrorKind::Io, format!("view --path write: {e}"))
+                    })?;
                 if let Some(obj) = data.as_object_mut() {
                     obj.insert(
                         "path".to_string(),
@@ -951,15 +1007,16 @@ fn handle_view(
     )?;
     emit_ok(data, json, |d| {
         if let Some(p) = d.get("path").and_then(|v| v.as_str()) {
-            println!("ok view path={p}");
+            crate::output::writeln_stdout(&format!("ok view path={p}"))?;
         } else if let Some(tree) = d.get("tree").and_then(|v| v.as_str()) {
-            print!("{tree}");
+            crate::output::write_stdout(tree.as_bytes())?;
             if !tree.ends_with('\n') {
-                println!();
+                crate::output::writeln_stdout("")?;
             }
         } else {
-            println!("ok view");
+            crate::output::writeln_stdout("ok view")?;
         }
+        Ok(())
     })
 }
 
@@ -977,7 +1034,8 @@ fn handle_press(
         timeout_secs,
     )?;
     emit_ok(data, json, |_| {
-        println!("ok pressed={target} dblclick={dblclick}");
+        crate::output::writeln_stdout(&format!("ok pressed={target} dblclick={dblclick}"))?;
+        Ok(())
     })
 }
 
@@ -995,7 +1053,8 @@ fn handle_write(
         timeout_secs,
     )?;
     emit_ok(data, json, |_| {
-        println!("ok written={target} len={}", value.len());
+        crate::output::writeln_stdout(&format!("ok written={target} len={}", value.len()))?;
+        Ok(())
     })
 }
 
@@ -1013,26 +1072,20 @@ fn handle_click_at(
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = true;
-                ledger.chrome_pid = session.chrome_pid();
-            }
+            life.record_chrome(session.chrome_pid());
             let _ = session
                 .goto("about:blank", crate::robots::RobotsPolicy::Honor)
                 .await?;
             let r = session.click_at(x, y, dblclick, include_snapshot).await;
             let close = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             close?;
             r
         },
         timeout_secs,
     )?;
     emit_ok(data, json, |_| {
-        println!("ok click-at x={x} y={y} dbl={dblclick}")
+        crate::output::writeln_stdout(&format!("ok click-at x={x} y={y} dbl={dblclick}"))
     })
 }
 
@@ -1046,7 +1099,7 @@ fn handle_keys(
 ) -> Result<(), CliError> {
     let data =
         block_on_browser_timeout(run_keys(life, key, include_snapshot, capture), timeout_secs)?;
-    emit_ok(data, json, |_| println!("ok key={key}"))
+    emit_ok(data, json, |_|  crate::output::writeln_stdout(&format!("ok key={key}")))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1074,10 +1127,9 @@ fn handle_type(
     )?;
     let label = target.unwrap_or("(focused)");
     emit_ok(data, json, |_| {
-        println!(
-            "ok typed={label} len={} clear={clear} submit={submit:?} focus_only={focus_only}",
-            text.len()
-        );
+        crate::output::writeln_stdout(&format!("ok typed={label} len={} clear={clear} submit={submit:?} focus_only={focus_only}",
+            text.len()))?;
+            Ok(())
     })
 }
 
@@ -1102,10 +1154,7 @@ fn handle_wait(
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = true;
-                ledger.chrome_pid = session.chrome_pid();
-            }
+            life.record_chrome(session.chrome_pid());
             // OR semantics: try each text until one succeeds (tool-ref wait_for array)
             let r = if texts_owned.is_empty() {
                 session
@@ -1155,17 +1204,15 @@ fn handle_wait(
                 }
             };
             let close = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             close?;
             r
         },
         timeout_secs,
     )?;
     emit_ok(data, json, |d| {
-        println!("ok wait {}", d);
+        crate::output::writeln_stdout(&format!("ok wait {}", d))?;
+        Ok(())
     })
 }
 
@@ -1182,19 +1229,13 @@ where
     block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = true;
-                ledger.chrome_pid = session.chrome_pid();
-            }
+            life.record_chrome(session.chrome_pid());
             let _ = session
                 .goto("about:blank", crate::robots::RobotsPolicy::Honor)
                 .await?;
             let (session, value) = f(session).await?;
             let close = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             close?;
             Ok(value)
         },
@@ -1215,7 +1256,7 @@ fn handle_hover(
         let v = session.hover(&target, include_snapshot).await?;
         Ok((session, v))
     })?;
-    emit_ok(data, json, |_| println!("ok hover"))
+    emit_ok(data, json, |_|  crate::output::writeln_stdout("ok hover"))
 }
 
 fn handle_drag(
@@ -1233,7 +1274,7 @@ fn handle_drag(
         let v = session.drag(&from, &to, include_snapshot).await?;
         Ok((session, v))
     })?;
-    emit_ok(data, json, |_| println!("ok drag"))
+    emit_ok(data, json, |_|  crate::output::writeln_stdout("ok drag"))
 }
 
 fn handle_fill_form(
@@ -1244,17 +1285,20 @@ fn handle_fill_form(
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
-    let parsed: serde_json::Value = serde_json::from_str(fields_json).map_err(|e| {
-        CliError::with_suggestion(
-            ErrorKind::Usage,
-            format!("fill-form --json parse error: {e}"),
-            r##"Pass JSON array: [{"target":"input","value":"x"}] or [{"uid":"@e1","value":"x"}]"##,
-        )
-    })?;
+    let parsed: serde_json::Value =
+        crate::json_util::parse_cli_json_value(fields_json, "fill-form --fields-json").map_err(
+            |e| {
+                CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    format!("fill-form --fields-json parse error: {}", e.message()),
+                    r##"Pass JSON array: [{"target":"input","value":"x"}] or [{"uid":"@e1","value":"x"}]"##,
+                )
+            },
+        )?;
     let arr = parsed.as_array().ok_or_else(|| {
         CliError::with_suggestion(
             ErrorKind::Usage,
-            "fill-form --json must be a JSON array",
+            "fill-form --fields-json must be a JSON array",
             r##"[{"target":"input","value":"x"}]"##,
         )
     })?;
@@ -1296,7 +1340,8 @@ fn handle_fill_form(
     })?;
     emit_ok(data, json, |d| {
         let n = d.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
-        println!("ok fill-form count={n}");
+        crate::output::writeln_stdout(&format!("ok fill-form count={n}"))?;
+        Ok(())
     })
 }
 
@@ -1317,7 +1362,8 @@ fn handle_upload(
     })?;
     emit_ok(data, json, |d| {
         let p = d.get("path").and_then(|v| v.as_str()).unwrap_or("");
-        println!("ok upload path={p}");
+        crate::output::writeln_stdout(&format!("ok upload path={p}"))?;
+        Ok(())
     })
 }
 
@@ -1343,7 +1389,7 @@ fn handle_history(
         };
         Ok((session, v))
     })?;
-    emit_ok(data, json, |_| println!("ok {direction_label}"))
+    emit_ok(data, json, |_|  crate::output::writeln_stdout(&format!("ok {direction_label}")))
 }
 
 fn handle_reload(
@@ -1373,7 +1419,7 @@ fn handle_reload(
         Ok((session, v))
     })?;
     emit_ok(data, json, |_| {
-        println!("ok reload ignore_cache={ignore_cache}")
+        crate::output::writeln_stdout(&format!("ok reload ignore_cache={ignore_cache}"))
     })
 }
 
@@ -1397,13 +1443,13 @@ fn handle_eval(
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
+            life.with_ledger_mut(|ledger| {
                 ledger.chrome_launched = true;
                 ledger.chrome_pid = session.chrome_pid();
                 if let Some(dir) = session.temp_user_data_dir() {
                     ledger.profile_dir = Some(dir);
                 }
-            }
+            });
             let r = if let Some(ref sw) = sw_owned {
                 session.eval_service_worker(sw, &expr).await
             } else {
@@ -1420,20 +1466,16 @@ fn handle_eval(
                     .await
             };
             let close = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             close?;
             r
         },
         timeout_secs,
     )?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok eval={}",
-            d.get("result").unwrap_or(&serde_json::Value::Null)
-        );
+        crate::output::writeln_stdout(&format!("ok eval={}",
+            d.get("result").unwrap_or(&serde_json::Value::Null)))?;
+            Ok(())
     })
 }
 
@@ -1483,10 +1525,7 @@ fn handle_grab(
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = true;
-                ledger.chrome_pid = session.chrome_pid();
-            }
+            life.record_chrome(session.chrome_pid());
             let _ = session
                 .goto("about:blank", crate::robots::RobotsPolicy::Honor)
                 .await?;
@@ -1500,10 +1539,7 @@ fn handle_grab(
                 )
                 .await;
             let close = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             close?;
             r
         },
@@ -1511,7 +1547,8 @@ fn handle_grab(
     )?;
     emit_ok(data, json, |d| {
         let p = d.get("path").and_then(|v| v.as_str()).unwrap_or("");
-        println!("ok grab path={p}");
+        crate::output::writeln_stdout(&format!("ok grab path={p}"))?;
+        Ok(())
     })
 }
 
@@ -1538,26 +1575,21 @@ fn handle_print_pdf(
         async {
             let mut session =
                 crate::browser::OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = true;
-                ledger.chrome_pid = session.chrome_pid();
-            }
+            life.record_chrome(session.chrome_pid());
             if let Some(u) = url.as_deref() {
                 let _ = session.goto(u, robots).await?;
             }
             let out = session.print_pdf(path.as_deref()).await;
             let _ = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             out
         },
         timeout_secs,
     )?;
     emit_ok(data, json, |d| {
         let p = d.get("path").and_then(|v| v.as_str()).unwrap_or("");
-        println!("ok print-pdf path={p}");
+        crate::output::writeln_stdout(&format!("ok print-pdf path={p}"))?;
+        Ok(())
     })
 }
 
@@ -1602,6 +1634,7 @@ fn handle_monitor(
             let hash = hex::encode(hasher.finalize());
             let baseline_exists = baseline.exists();
             let (changed, previous_hash) = if baseline_exists {
+                // Outer CLI path (no Tokio worker) — sync helper is correct (PAR-83).
                 let prev = std::fs::read_to_string(&baseline).map_err(|e| {
                     CliError::new(
                         ErrorKind::Io,
@@ -1614,17 +1647,13 @@ fn handle_monitor(
                 (true, None)
             };
             if write_baseline || !baseline_exists {
-                if let Some(parent) = baseline.parent() {
-                    if !parent.as_os_str().is_empty() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                }
-                std::fs::write(&baseline, format!("{hash}\n")).map_err(|e| {
-                    CliError::new(
-                        ErrorKind::Io,
-                        format!("write baseline {}: {e}", baseline.display()),
-                    )
-                })?;
+                crate::concurrency::write_bytes_sync(&baseline, format!("{hash}\n").as_bytes())
+                    .map_err(|e| {
+                        CliError::new(
+                            ErrorKind::Io,
+                            format!("write baseline {}: {e}", baseline.display()),
+                        )
+                    })?;
             }
             let data = serde_json::json!({
                 "url": url,
@@ -1637,8 +1666,9 @@ fn handle_monitor(
             });
             emit_ok(data, json, |d| {
                 let ch = d.get("changed").and_then(|v| v.as_bool()).unwrap_or(false);
-                println!("ok monitor check changed={ch}");
-            })
+                crate::output::writeln_stdout(&format!("ok monitor check changed={ch}"))?;
+                Ok(())
+    })
         }
     }
 }
@@ -1678,6 +1708,8 @@ fn handle_run(
             "unavailable" => ErrorKind::Unavailable,
             "browser" => ErrorKind::Browser,
             "timeout" => ErrorKind::Timeout,
+            "cancelled" => ErrorKind::Cancelled,
+            "broken-pipe" => ErrorKind::BrokenPipe,
             "data" => ErrorKind::Data,
             _ => ErrorKind::Software,
         };
@@ -1691,7 +1723,8 @@ fn handle_run(
     }
     emit_ok(data, json, |d| {
         let total = d.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-        println!("ok run steps={total}");
+        crate::output::writeln_stdout(&format!("ok run steps={total}"))?;
+        Ok(())
     })
 }
 
@@ -1743,7 +1776,7 @@ fn handle_exec(
                 run::run_one_step(life, step, robots, capture, flags),
                 timeout_secs,
             )?;
-            emit_ok(data, json, |d| println!("ok exec {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok exec {d}")))
         }
         other => Err(CliError::with_suggestion(
             ErrorKind::Usage,
@@ -1776,18 +1809,12 @@ fn handle_extract(
             let dom = block_on_browser_timeout(
                 async move {
                     let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-                    if let Ok(mut ledger) = life.ledger.lock() {
-                        ledger.chrome_launched = true;
-                        ledger.chrome_pid = session.chrome_pid();
-                    }
+                    life.record_chrome(session.chrome_pid());
                     // Selector alone needs a live page; agents should prefer run multi-step.
                     // Best-effort: extract on about:blank fails → clear usage.
                     let r = session.extract(&target_owned, attr_owned.as_deref()).await;
                     let close = session.shutdown().await;
-                    if let Ok(mut ledger) = life.ledger.lock() {
-                        ledger.chrome_launched = false;
-                        ledger.chrome_pid = None;
-                    }
+                    life.clear_chrome();
                     close?;
                     r
                 },
@@ -1826,25 +1853,19 @@ fn handle_extract(
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = true;
-                ledger.chrome_pid = session.chrome_pid();
-            }
+            life.record_chrome(session.chrome_pid());
             let _ = session
                 .goto("about:blank", crate::robots::RobotsPolicy::Honor)
                 .await?;
             let r = session.extract(&target, attr.as_deref()).await;
             let close = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             close?;
             r
         },
         timeout_secs,
     )?;
-    emit_ok(data, json, |d| println!("ok extract {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok extract {d}")))
 }
 
 fn handle_extract_llm(
@@ -1860,11 +1881,9 @@ fn handle_extract_llm(
             engine: "http".into(),
             max_body_bytes: 2_000_000,
         };
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| CliError::new(ErrorKind::Software, format!("runtime: {e}")))?;
-        let data = rt.block_on(crate::scrape_local::scrape_http(
+        // HTTP-only: current_thread runtime (rules_rust_latencia — no unbounded
+        // multi_thread workers for a one-shot scrape before LLM extract).
+        let data = crate::runtime_util::block_on_io(crate::scrape_local::scrape_http(
             target,
             crate::robots::RobotsPolicy::Honor,
             &opts,
@@ -1919,7 +1938,7 @@ fn handle_extract_llm_text(
         ));
     }
     let data = crate::llm_local::extract_with_llm(source_text, question, schema_body.as_deref())?;
-    emit_ok(data, json, |d| println!("ok extract-llm {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok extract-llm {d}")))
 }
 
 fn handle_attr(
@@ -1953,10 +1972,7 @@ fn handle_assert(
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = true;
-                ledger.chrome_pid = session.chrome_pid();
-            }
+            life.record_chrome(session.chrome_pid());
             let _ = session
                 .goto("about:blank", crate::robots::RobotsPolicy::Honor)
                 .await?;
@@ -1972,16 +1988,13 @@ fn handle_assert(
                 },
             };
             let close = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             close?;
             r
         },
         timeout_secs,
     )?;
-    emit_ok(data, json, |_| println!("ok assert"))
+    emit_ok(data, json, |_|  crate::output::writeln_stdout("ok assert"))
 }
 
 fn handle_console(
@@ -1994,10 +2007,7 @@ fn handle_console(
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = true;
-                ledger.chrome_pid = session.chrome_pid();
-            }
+            life.record_chrome(session.chrome_pid());
             let _ = session
                 .goto("about:blank", crate::robots::RobotsPolicy::Honor)
                 .await?;
@@ -2017,19 +2027,16 @@ fn handle_console(
                 ),
                 ConsoleAction::Get { id } => session.console_get(id),
                 ConsoleAction::Clear => session.console_clear(),
-                ConsoleAction::Dump { path } => session.console_dump(&path),
+                ConsoleAction::Dump { path } => session.console_dump(&path).await,
             };
             let close = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             close?;
             r
         },
         timeout_secs,
     )?;
-    emit_ok(data, json, |d| println!("ok console {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok console {d}")))
 }
 
 fn handle_net(
@@ -2042,10 +2049,7 @@ fn handle_net(
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = true;
-                ledger.chrome_pid = session.chrome_pid();
-            }
+            life.record_chrome(session.chrome_pid());
             let _ = session
                 .goto("about:blank", crate::robots::RobotsPolicy::Honor)
                 .await?;
@@ -2065,19 +2069,20 @@ fn handle_net(
                     id,
                     request_path,
                     response_path,
-                } => session.net_get(&id, request_path.as_deref(), response_path.as_deref()),
+                } => {
+                    session
+                        .net_get(&id, request_path.as_deref(), response_path.as_deref())
+                        .await
+                }
             };
             let close = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             close?;
             r
         },
         timeout_secs,
     )?;
-    emit_ok(data, json, |d| println!("ok net {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok net {d}")))
 }
 
 fn handle_page(
@@ -2134,15 +2139,16 @@ fn handle_page(
     })?;
     emit_ok(data, json, |d| {
         if let Some(tab) = d.get("tab_id").and_then(|v| v.as_str()) {
-            println!("ok page tab-id={tab}");
+            crate::output::writeln_stdout(&format!("ok page tab-id={tab}"))?;
         } else if let (Some(u), Some(t)) = (
             d.get("url").and_then(|v| v.as_str()),
             d.get("title").and_then(|v| v.as_str()),
         ) {
-            println!("ok page url={u} title={t}");
+            crate::output::writeln_stdout(&format!("ok page url={u} title={t}"))?;
         } else {
-            println!("ok page {d}");
+            crate::output::writeln_stdout(&format!("ok page {d}"))?;
         }
+        Ok(())
     })
 }
 
@@ -2182,7 +2188,7 @@ fn handle_scroll(
             .await?;
         Ok((session, v))
     })?;
-    emit_ok(data, json, |d| println!("ok scroll {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok scroll {d}")))
 }
 
 fn handle_cookie(
@@ -2195,12 +2201,14 @@ fn handle_cookie(
     let data = with_session_blank(life, capture, timeout_secs, move |mut session| async move {
         let v = match action {
             CookieAction::List { url } => session.cookie_list(url.as_deref()).await?,
-            CookieAction::Set { json: body } => session.cookie_set(&body).await?,
+            CookieAction::Set {
+                cookies_json: body,
+            } => session.cookie_set(&body).await?,
             CookieAction::Clear => session.cookie_clear().await?,
         };
         Ok((session, v))
     })?;
-    emit_ok(data, json, |d| println!("ok cookie {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok cookie {d}")))
 }
 
 fn handle_dialog(
@@ -2213,10 +2221,7 @@ fn handle_dialog(
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = true;
-                ledger.chrome_pid = session.chrome_pid();
-            }
+            life.record_chrome(session.chrome_pid());
             let _ = session
                 .goto("about:blank", crate::robots::RobotsPolicy::Honor)
                 .await?;
@@ -2249,28 +2254,27 @@ fn handle_dialog(
                 Err(e) => Err(e),
             };
             let close = session.shutdown().await;
-            if let Ok(mut ledger) = life.ledger.lock() {
-                ledger.chrome_launched = false;
-                ledger.chrome_pid = None;
-            }
+            life.clear_chrome();
             close?;
             r
         },
         timeout_secs,
     )?;
-    emit_ok(data, json, |_| println!("ok dialog"))
+    emit_ok(data, json, |_|  crate::output::writeln_stdout("ok dialog"))
 }
 
 #[allow(clippy::too_many_arguments)]
 fn post_webhook(webhook_url: &str, data: &serde_json::Value) -> Result<(), CliError> {
-    // One-shot operator webhook; no product telemetry.
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| CliError::new(ErrorKind::Software, format!("webhook client: {e}")))?;
+    // One-shot operator webhook; no product telemetry. Reuse process-wide client.
+    let client = crate::llm_local::shared_blocking_http_client()?;
     let mut last_err = String::new();
     for attempt in 0..3u32 {
-        match client.post(webhook_url).json(data).send() {
+        match client
+            .post(webhook_url)
+            .timeout(std::time::Duration::from_secs(15))
+            .json(data)
+            .send()
+        {
             Ok(resp) if resp.status().is_success() => return Ok(()),
             Ok(resp) => {
                 last_err = format!("webhook HTTP {}", resp.status());
@@ -2327,8 +2331,9 @@ fn handle_scrape(
             }
             return emit_ok(data, json, |d| {
                 let u = d.get("source_url").and_then(|v| v.as_str()).unwrap_or(url);
-                println!("ok scrape engine=http source_url={u}");
-            });
+                crate::output::writeln_stdout(&format!("ok scrape engine=http source_url={u}"))?;
+                Ok(())
+    });
         }
         // Multi-format HTTP: fetch once as html then derive.
         let opts_html = crate::scrape_local::ScrapeOpts {
@@ -2377,8 +2382,9 @@ fn handle_scrape(
         }
         return emit_ok(data, json, |d| {
             let u = d.get("source_url").and_then(|v| v.as_str()).unwrap_or(url);
-            println!("ok scrape engine=http multi-format source_url={u}");
-        });
+            crate::output::writeln_stdout(&format!("ok scrape engine=http multi-format source_url={u}"))?;
+            Ok(())
+    });
     }
 
     // browser engine: CDP scrape once, derive formats from HTML.
@@ -2445,7 +2451,8 @@ fn handle_scrape(
             .and_then(|v| v.as_str())
             .unwrap_or("honor");
         let u = d.get("source_url").and_then(|v| v.as_str()).unwrap_or(url);
-        println!("ok scrape source_url={u} robots_policy={policy}");
+        crate::output::writeln_stdout(&format!("ok scrape source_url={u} robots_policy={policy}"))?;
+        Ok(())
     })
 }
 
@@ -2464,8 +2471,11 @@ fn handle_batch_scrape(
     let urls = crate::scrape_local::read_urls_file(urls_file)?;
     let engine_l = engine.to_ascii_lowercase();
     if engine_l == "browser" {
-        // GAP-010: sequential browser scrapes in one process (bounded by concurrency for future).
-        let _ = concurrency;
+        // GAP-010: one shared Chrome session — sequential navigations by product
+        // law (single Page). Parallelism is HTTP engine + CDP internal fan-out.
+        // Budget is still reported so agents can size HTTP batch equivalently.
+        // Budget reported for agents; browser path stays sequential (single Page).
+        let budget = crate::concurrency::resolve_permits(concurrency);
         let mut pages = Vec::new();
         let mut errors = Vec::new();
         for u in &urls {
@@ -2480,13 +2490,14 @@ fn handle_batch_scrape(
             "errors": errors,
             "engine": "browser",
             "format": format,
+            "concurrency_budget": budget,
+            "note": "browser engine is single-session sequential; use --engine http for parallel fetches",
         });
         return emit_ok(data, json, |d| {
-            println!(
-                "ok batch-scrape engine=browser count={}",
-                d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
-            );
-        });
+            crate::output::writeln_stdout(&format!("ok batch-scrape engine=browser count={}",
+                d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)))?;
+                Ok(())
+    });
     }
     let opts = crate::scrape_local::ScrapeOpts {
         format: crate::scrape_local::ScrapeFormat::parse(format)?,
@@ -2498,10 +2509,9 @@ fn handle_batch_scrape(
         0,
     )?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok batch-scrape count={}",
-            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
-        );
+        crate::output::writeln_stdout(&format!("ok batch-scrape count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)))?;
+            Ok(())
     })
 }
 
@@ -2568,11 +2578,10 @@ fn handle_crawl(
             "max_depth_applied": 1,
         });
         return emit_ok(data, json, |d| {
-            println!(
-                "ok crawl engine=browser count={}",
-                d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
-            );
-        });
+            crate::output::writeln_stdout(&format!("ok crawl engine=browser count={}",
+                d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)))?;
+                Ok(())
+    });
     }
     let opts = crate::scrape_local::ScrapeOpts {
         format: crate::scrape_local::ScrapeFormat::parse(format)?,
@@ -2584,10 +2593,9 @@ fn handle_crawl(
         0,
     )?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok crawl count={}",
-            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
-        );
+        crate::output::writeln_stdout(&format!("ok crawl count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)))?;
+            Ok(())
     })
 }
 
@@ -2603,10 +2611,9 @@ fn handle_map(
         0,
     )?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok map count={}",
-            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
-        );
+        crate::output::writeln_stdout(&format!("ok map count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)))?;
+            Ok(())
     })
 }
 
@@ -2618,20 +2625,18 @@ fn handle_search(
 ) -> Result<(), CliError> {
     let data = block_on_browser_timeout(crate::scrape_local::search_http(query, robots, limit), 0)?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok search count={}",
-            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
-        );
+        crate::output::writeln_stdout(&format!("ok search count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)))?;
+            Ok(())
     })
 }
 
 fn handle_parse(path: &Path, redact_pii: bool, json: bool) -> Result<(), CliError> {
     let data = crate::scrape_local::parse_file_opts(path, redact_pii)?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok parse path={}",
-            d.get("path").and_then(|v| v.as_str()).unwrap_or("")
-        );
+        crate::output::writeln_stdout(&format!("ok parse path={}",
+            d.get("path").and_then(|v| v.as_str()).unwrap_or("")))?;
+            Ok(())
     })
 }
 
@@ -2642,7 +2647,7 @@ fn handle_qr(action: crate::cli::QrAction, json: bool) -> Result<(), CliError> {
         }
         crate::cli::QrAction::Decode { path } => crate::qr_local::decode(&path)?,
     };
-    emit_ok(data, json, |d| println!("ok qr {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok qr {d}")))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2671,10 +2676,9 @@ fn handle_find_paths(
     };
     let data = crate::find_paths::find_paths(&opts)?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok find-paths count={}",
-            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
-        );
+        crate::output::writeln_stdout(&format!("ok find-paths count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)))?;
+            Ok(())
     })
 }
 
@@ -2686,10 +2690,9 @@ fn handle_sg_scan(paths: &[String], limit: usize, json: bool) -> Result<(), CliE
     };
     let data = crate::sg_local::sg_scan(&roots, limit)?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok sg-scan count={}",
-            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)
-        );
+        crate::output::writeln_stdout(&format!("ok sg-scan count={}",
+            d.get("count").and_then(|v| v.as_u64()).unwrap_or(0)))?;
+            Ok(())
     })
 }
 
@@ -2701,11 +2704,10 @@ fn handle_sg_rewrite(paths: &[String], apply: bool, json: bool) -> Result<(), Cl
     };
     let data = crate::sg_local::sg_rewrite(&roots, apply)?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok sg-rewrite apply={} planned={}",
+        crate::output::writeln_stdout(&format!("ok sg-rewrite apply={} planned={}",
             d.get("apply").and_then(|v| v.as_bool()).unwrap_or(false),
-            d.get("planned").and_then(|v| v.as_u64()).unwrap_or(0)
-        );
+            d.get("planned").and_then(|v| v.as_u64()).unwrap_or(0)))?;
+            Ok(())
     })
 }
 
@@ -2717,11 +2719,10 @@ fn handle_sheet_write(
 ) -> Result<(), CliError> {
     let data = crate::sheet_local::sheet_write(input, out, sheet)?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok sheet-write path={} rows={}",
+        crate::output::writeln_stdout(&format!("ok sheet-write path={} rows={}",
             d.get("path").and_then(|v| v.as_str()).unwrap_or(""),
-            d.get("rows").and_then(|v| v.as_u64()).unwrap_or(0)
-        );
+            d.get("rows").and_then(|v| v.as_u64()).unwrap_or(0)))?;
+            Ok(())
     })
 }
 
@@ -2742,7 +2743,8 @@ fn handle_mitm(action: MitmAction, json: bool) -> Result<(), CliError> {
                     "items": cap.items,
                 }))
                 .map_err(|e| CliError::new(ErrorKind::Data, format!("export: {e}")))?;
-                std::fs::write(&out, body)
+                // Outer CLI sync path (PAR-83): write_bytes_sync for large capture dumps.
+                crate::concurrency::write_bytes_sync(&out, &body)
                     .map_err(|e| CliError::new(ErrorKind::Io, format!("export write: {e}")))?;
                 serde_json::json!({
                     "path": out.display().to_string(),
@@ -2779,7 +2781,7 @@ fn handle_mitm(action: MitmAction, json: bool) -> Result<(), CliError> {
         MitmAction::Allow { host } => crate::mitm_local::allow_host(&host)?,
         MitmAction::Redact { secrets } => crate::mitm_local::redact_policy(secrets)?,
     };
-    emit_ok(data, json, |d| println!("ok mitm {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok mitm {d}")))
 }
 
 fn handle_workflow(action: WorkflowAction, json: bool) -> Result<(), CliError> {
@@ -2794,7 +2796,7 @@ fn handle_workflow(action: WorkflowAction, json: bool) -> Result<(), CliError> {
             crate::workflow_local::workflow_status(journal.as_deref(), name.as_deref())?
         }
     };
-    emit_ok(data, json, |d| println!("ok workflow {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok workflow {d}")))
 }
 
 fn handle_config(action: ConfigAction, json: bool) -> Result<(), CliError> {
@@ -2806,7 +2808,7 @@ fn handle_config(action: ConfigAction, json: bool) -> Result<(), CliError> {
         ConfigAction::Get { key } => crate::xdg::config_get(key.as_deref())?,
         ConfigAction::ListKeys => crate::xdg::config_list_keys()?,
     };
-    emit_ok(data, json, |d| println!("ok config {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok config {d}")))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2855,7 +2857,7 @@ fn handle_emulate(
             .await?;
         Ok((session, v))
     })?;
-    emit_ok(data, json, |_| println!("ok emulate"))
+    emit_ok(data, json, |_|  crate::output::writeln_stdout("ok emulate"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2873,7 +2875,7 @@ fn handle_resize(
         let v = session.resize(width, height, scale, mobile).await?;
         Ok((session, v))
     })?;
-    emit_ok(data, json, |_| println!("ok resize {width}x{height}"))
+    emit_ok(data, json, |_|  crate::output::writeln_stdout(&format!("ok resize {width}x{height}")))
 }
 
 fn handle_perf(
@@ -2908,7 +2910,7 @@ fn handle_perf(
         };
         Ok((session, v))
     })?;
-    emit_ok(data, json, |d| println!("ok perf {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok perf {d}")))
 }
 
 /// Where the lighthouse binary was resolved from (agent-honest; GAP-A010 / LH-1).
@@ -2980,22 +2982,7 @@ pub(crate) fn resolve_lighthouse_binary(
 }
 
 fn which_lighthouse() -> Option<String> {
-    std::env::var_os("PATH").and_then(|paths| {
-        for dir in std::env::split_paths(&paths) {
-            let candidate = dir.join("lighthouse");
-            if candidate.is_file() {
-                return Some(candidate.display().to_string());
-            }
-            #[cfg(windows)]
-            {
-                let candidate = dir.join("lighthouse.cmd");
-                if candidate.is_file() {
-                    return Some(candidate.display().to_string());
-                }
-            }
-        }
-        None
-    })
+    crate::platform::which_bin("lighthouse").map(|p| p.display().to_string())
 }
 
 /// Run lighthouse binary and return envelope data (shared by CLI and `run` scripts).
@@ -3063,15 +3050,16 @@ pub(crate) fn lighthouse_to_value(
         ));
     }
     // Lighthouse may write report.report.html / report.report.json depending on version.
+    // Move paths when the preferred name exists; otherwise build alternate PathBufs.
     let report_html = if html_path.exists() {
-        html_path.clone()
+        html_path
     } else if out.join("report.report.html").exists() {
         out.join("report.report.html")
     } else {
-        html_path.clone()
+        html_path
     };
     let report_json = if json_path.exists() {
-        json_path.clone()
+        json_path
     } else if out.join("report.report.json").exists() {
         out.join("report.report.json")
     } else {
@@ -3138,12 +3126,11 @@ fn handle_lighthouse(
 ) -> Result<(), CliError> {
     let data = lighthouse_to_value(url, out_dir, device, mode, lighthouse_path)?;
     emit_ok(data, json, |d| {
-        println!(
-            "ok lighthouse report={}",
+        crate::output::writeln_stdout(&format!("ok lighthouse report={}",
             d.pointer("/reports/html")
                 .and_then(|v| v.as_str())
-                .unwrap_or("")
-        );
+                .unwrap_or("")))?;
+                Ok(())
     })
 }
 
@@ -3161,7 +3148,7 @@ fn handle_screencast(
         };
         Ok((session, v))
     })?;
-    emit_ok(data, json, |d| println!("ok screencast {d}"))
+    emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok screencast {d}")))
 }
 
 fn handle_heap(
@@ -3179,16 +3166,15 @@ fn handle_heap(
                     Ok((session, v))
                 })?;
             emit_ok(data, json, |d| {
-                println!(
-                    "ok heap take path={}",
-                    d.get("path").and_then(|v| v.as_str()).unwrap_or("")
-                );
-            })
+                crate::output::writeln_stdout(&format!("ok heap take path={}",
+                    d.get("path").and_then(|v| v.as_str()).unwrap_or("")))?;
+                    Ok(())
+    })
         }
         HeapAction::Close { path } => {
             let data = OneShotSession::heap_close(&path)?;
             emit_ok(data, json, |_| {
-                println!("ok heap close path={}", path.display())
+                crate::output::writeln_stdout(&format!("ok heap close path={}", path.display()))
             })
         }
         HeapAction::Compare {
@@ -3202,11 +3188,11 @@ fn handle_heap(
                     obj.insert("class_index".into(), serde_json::json!(ci));
                 }
             }
-            emit_ok(data, json, |d| println!("ok heap compare {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok heap compare {d}")))
         }
         HeapAction::Summary { path } => {
             let data = OneShotSession::heap_file_summary(&path)?;
-            emit_ok(data, json, |d| println!("ok heap summary {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok heap summary {d}")))
         }
         HeapAction::Details {
             path,
@@ -3223,7 +3209,7 @@ fn handle_heap(
                 page_idx,
                 page_size,
             );
-            emit_ok(data, json, |d| println!("ok heap details {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok heap details {d}")))
         }
         HeapAction::DupStrings {
             path,
@@ -3232,7 +3218,7 @@ fn handle_heap(
         } => {
             let mut data = OneShotSession::heap_dup_strings(&path)?;
             paginate_filter_json(&mut data, "strings", None, page_idx, page_size);
-            emit_ok(data, json, |d| println!("ok heap dup-strings {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok heap dup-strings {d}")))
         }
         HeapAction::ClassNodes {
             path,
@@ -3250,11 +3236,11 @@ fn handle_heap(
                 page_idx,
                 page_size,
             );
-            emit_ok(data, json, |d| println!("ok heap class-nodes {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok heap class-nodes {d}")))
         }
         HeapAction::Dominators { path, node } => {
             let data = OneShotSession::heap_node_op(&path, node, "dominators")?;
-            emit_ok(data, json, |d| println!("ok heap dominators {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok heap dominators {d}")))
         }
         HeapAction::Edges {
             path,
@@ -3264,7 +3250,7 @@ fn handle_heap(
         } => {
             let mut data = OneShotSession::heap_node_op(&path, node, "edges")?;
             paginate_filter_json(&mut data, "edges", None, page_idx, page_size);
-            emit_ok(data, json, |d| println!("ok heap edges {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok heap edges {d}")))
         }
         HeapAction::Retainers {
             path,
@@ -3274,7 +3260,7 @@ fn handle_heap(
         } => {
             let mut data = OneShotSession::heap_node_op(&path, node, "retainers")?;
             paginate_filter_json(&mut data, "retainers", None, page_idx, page_size);
-            emit_ok(data, json, |d| println!("ok heap retainers {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok heap retainers {d}")))
         }
         HeapAction::Paths {
             path,
@@ -3299,11 +3285,11 @@ fn handle_heap(
                     "Pass a valid .heapsnapshot path and node id",
                 )
             })?;
-            emit_ok(data, json, |d| println!("ok heap paths {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok heap paths {d}")))
         }
         HeapAction::ObjectDetails { path, node } => {
             let data = OneShotSession::heap_object_details(&path, node)?;
-            emit_ok(data, json, |d| println!("ok heap object-details {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok heap object-details {d}")))
         }
     }
 }
@@ -3428,7 +3414,7 @@ fn handle_extension(
                     let v = session.extension_list().await?;
                     Ok((session, v))
                 })?;
-            emit_ok(data, json, |d| println!("ok extension list {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok extension list {d}")))
         }
         ExtensionAction::Install { path } => {
             let path_s = path.display().to_string();
@@ -3437,10 +3423,7 @@ fn handle_extension(
                     let mut session =
                         OneShotSession::launch_with_extensions(capture, vec![path_s.clone()])
                             .await?;
-                    if let Ok(mut ledger) = life.ledger.lock() {
-                        ledger.chrome_launched = true;
-                        ledger.chrome_pid = session.chrome_pid();
-                    }
+                    life.record_chrome(session.chrome_pid());
                     // Service workers may take a moment to register after --load-extension.
                     let mut listed = session.extension_list().await?;
                     for _ in 0..20 {
@@ -3452,10 +3435,7 @@ fn handle_extension(
                         listed = session.extension_list().await?;
                     }
                     let close = session.shutdown().await;
-                    if let Ok(mut ledger) = life.ledger.lock() {
-                        ledger.chrome_launched = false;
-                        ledger.chrome_pid = None;
-                    }
+                    life.clear_chrome();
                     close?;
                     Ok(serde_json::json!({
                         "installed_path": path_s,
@@ -3466,10 +3446,10 @@ fn handle_extension(
                 },
                 timeout_secs,
             )?;
-            emit_ok(data, json, |d| println!("ok extension install {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok extension install {d}")))
         }
         ExtensionAction::Reload { id, path } => {
-            let id = id.clone();
+            // Match already owns `id`/`path` — move into the async block (no clone).
             let path_s = path.as_ref().map(|p| p.display().to_string());
             let data = block_on_browser_timeout(
                 async move {
@@ -3478,25 +3458,18 @@ fn handle_extension(
                     } else {
                         OneShotSession::launch_headless_with_capture(capture).await?
                     };
-                    if let Ok(mut ledger) = life.ledger.lock() {
-                        ledger.chrome_launched = true;
-                        ledger.chrome_pid = session.chrome_pid();
-                    }
+                    life.record_chrome(session.chrome_pid());
                     let v = session.extension_reload(&id).await;
                     let close = session.shutdown().await;
-                    if let Ok(mut ledger) = life.ledger.lock() {
-                        ledger.chrome_launched = false;
-                        ledger.chrome_pid = None;
-                    }
+                    life.clear_chrome();
                     close?;
                     v
                 },
                 timeout_secs,
             )?;
-            emit_ok(data, json, |d| println!("ok extension reload {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok extension reload {d}")))
         }
         ExtensionAction::Trigger { id, path } => {
-            let id = id.clone();
             let path_s = path.as_ref().map(|p| p.display().to_string());
             let data = block_on_browser_timeout(
                 async move {
@@ -3505,44 +3478,34 @@ fn handle_extension(
                     } else {
                         OneShotSession::launch_headless_with_capture(capture).await?
                     };
-                    if let Ok(mut ledger) = life.ledger.lock() {
-                        ledger.chrome_launched = true;
-                        ledger.chrome_pid = session.chrome_pid();
-                    }
+                    life.record_chrome(session.chrome_pid());
                     let v = session.extension_trigger(&id).await;
                     let close = session.shutdown().await;
-                    if let Ok(mut ledger) = life.ledger.lock() {
-                        ledger.chrome_launched = false;
-                        ledger.chrome_pid = None;
-                    }
+                    life.clear_chrome();
                     close?;
                     v
                 },
                 timeout_secs,
             )?;
-            emit_ok(data, json, |d| println!("ok extension trigger {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok extension trigger {d}")))
         }
         ExtensionAction::Uninstall { id } => {
-            let id = id.clone();
+            // One clone for human emit after the async move consumes `id`.
             let id_print = id.clone();
             // Prefer in-process unload when a session can be opened; otherwise honest metadata.
             let data = block_on_browser_timeout(
                 async move {
                     let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-                    if let Ok(mut ledger) = life.ledger.lock() {
+                    life.with_ledger_mut(|ledger| {
                         ledger.chrome_launched = true;
                         ledger.chrome_pid = session.chrome_pid();
                         if let Some(dir) = session.temp_user_data_dir() {
                             ledger.profile_dir = Some(dir);
                         }
-                    }
+                    });
                     let v = session.extension_uninstall(&id).await;
                     let close = session.shutdown().await;
-                    if let Ok(mut ledger) = life.ledger.lock() {
-                        ledger.chrome_launched = false;
-                        ledger.chrome_pid = None;
-                        ledger.profile_dir = None;
-                    }
+                    life.clear_chrome_and_profile();
                     close?;
                     v
                 },
@@ -3550,7 +3513,7 @@ fn handle_extension(
             )?;
             emit_ok(data, json, |d| {
                 let effect = d.get("effect").and_then(|v| v.as_str()).unwrap_or("?");
-                println!("ok extension uninstall id={id_print} effect={effect}")
+                crate::output::writeln_stdout(&format!("ok extension uninstall id={id_print} effect={effect}"))
             })
         }
     }
@@ -3576,12 +3539,11 @@ fn handle_devtools3p(
                     let v = session.devtools3p_list().await?;
                     Ok((session, v))
                 })?;
-            emit_ok(data, json, |d| println!("ok devtools3p list {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok devtools3p list {d}")))
         }
         Devtools3pAction::Exec { name, params, url } => {
+            // `name`/`params` already owned by the match binding — move, do not clone.
             let url = url.unwrap_or_else(|| "about:blank".into());
-            let params = params.clone();
-            let name = name.clone();
             let data =
                 with_session_blank(life, capture, timeout_secs, move |mut session| async move {
                     if url != "about:blank" {
@@ -3592,7 +3554,7 @@ fn handle_devtools3p(
                     let v = session.devtools3p_exec(&name, params.as_deref()).await?;
                     Ok((session, v))
                 })?;
-            emit_ok(data, json, |d| println!("ok devtools3p exec {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok devtools3p exec {d}")))
         }
     }
 }
@@ -3617,12 +3579,11 @@ fn handle_webmcp(
                     let v = session.webmcp_list().await?;
                     Ok((session, v))
                 })?;
-            emit_ok(data, json, |d| println!("ok webmcp list {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok webmcp list {d}")))
         }
         WebmcpAction::Exec { name, input, url } => {
+            // Move owned match bindings into the async block (no redundant clone).
             let url = url.unwrap_or_else(|| "about:blank".into());
-            let name = name.clone();
-            let input = input.clone();
             let data =
                 with_session_blank(life, capture, timeout_secs, move |mut session| async move {
                     if url != "about:blank" {
@@ -3633,7 +3594,7 @@ fn handle_webmcp(
                     let v = session.webmcp_exec(&name, input.as_deref()).await?;
                     Ok((session, v))
                 })?;
-            emit_ok(data, json, |d| println!("ok webmcp exec {d}"))
+            emit_ok(data, json, |d|  crate::output::writeln_stdout(&format!("ok webmcp exec {d}")))
         }
     }
 }
@@ -3654,6 +3615,50 @@ fn handle_completions(shell: CompletionShell) -> Result<(), CliError> {
         CompletionShell::Powershell => generate(shells::PowerShell, &mut cmd, bin, &mut out),
     }
     let _ = out.flush();
+    Ok(())
+}
+
+/// Render man page (roff) with clap_mangen to stdout or `--out PATH`.
+fn handle_man(out: Option<&Path>) -> Result<(), CliError> {
+    use clap::CommandFactory;
+    use std::io::Write;
+
+    let cmd = crate::cli::Cli::command();
+    let man = clap_mangen::Man::new(cmd);
+    let mut buf = Vec::new();
+    man.render(&mut buf).map_err(|e| {
+        CliError::new(
+            ErrorKind::Software,
+            format!("manpage render failed: {e}"),
+        )
+    })?;
+
+    if let Some(path) = out {
+        crate::validation::reject_path_traversal(path).map_err(|m| {
+            CliError::with_suggestion(ErrorKind::Usage, m, "Pass a path without `..` components")
+        })?;
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    CliError::new(ErrorKind::Io, format!("create man parent: {e}"))
+                })?;
+            }
+        }
+        // Atomic write: temp + rename beside destination when possible.
+        let tmp = path.with_extension("1.tmp");
+        std::fs::write(&tmp, &buf)
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("write man temp: {e}")))?;
+        std::fs::rename(&tmp, path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            CliError::new(ErrorKind::Io, format!("rename man page: {e}"))
+        })?;
+    } else {
+        let mut stdout = std::io::stdout();
+        stdout
+            .write_all(&buf)
+            .map_err(|e| CliError::new(ErrorKind::BrokenPipe, format!("stdout: {e}")))?;
+        let _ = stdout.flush();
+    }
     Ok(())
 }
 

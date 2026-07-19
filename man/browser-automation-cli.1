@@ -1,0 +1,318 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH browser-automation-cli 1  "browser-automation-cli 0.1.5" 
+.SH NAME
+browser\-automation\-cli \- One\-shot browser automation CLI (Chrome CDP). BORN, EXECUTE, FINALIZE, DIE.
+.SH SYNOPSIS
+\fBbrowser\-automation\-cli\fR [\fB\-\-json\fR] [\fB\-\-json\-steps\fR] [\fB\-q\fR|\fB\-\-quiet\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-\-debug\fR] [\fB\-\-plain\fR] [\fB\-\-timeout\fR] [\fB\-\-max\-concurrency\fR] [\fB\-\-step\-timeout\fR] [\fB\-\-headed\fR] [\fB\-\-artifacts\-dir\fR] [\fB\-\-lang\fR] [\fB\-\-capture\-console\fR] [\fB\-\-capture\-network\fR] [\fB\-\-ignore\-robots\fR] [\fB\-\-i\-accept\-robots\-risk\fR] [\fB\-\-category\-memory\fR] [\fB\-\-category\-extensions\fR] [\fB\-\-category\-third\-party\fR] [\fB\-\-category\-webmcp\fR] [\fB\-\-experimental\-screencast\fR] [\fB\-\-experimental\-vision\fR] [\fB\-\-mitm\fR] [\fB\-\-mitm\-ca\-dir\fR] [\fB\-\-mitm\-har\fR] [\fB\-\-mitm\-hosts\fR] [\fB\-\-mitm\-ws\fR] [\fB\-\-mitm\-max\-body\-bytes\fR] [\fB\-\-mitm\-no\-media\-bodies\fR] [\fB\-\-mitm\-redact\-secrets\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+One\-shot browser automation CLI (Chrome CDP). BORN, EXECUTE, FINALIZE, DIE.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH OUTPUT
+.TP
+\fB\-\-json\fR
+Emit machine\-readable JSON success/error envelopes on stdout
+.TP
+\fB\-\-json\-steps\fR
+GAP\-020: stream one NDJSON object per `run` step on stdout (step,cmd,ok,result)
+.TP
+\fB\-q\fR, \fB\-\-quiet\fR
+Suppress non\-error human logs on stderr
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Increase stderr verbosity (`\-v` / `\-\-verbose` = info; or `config set log_level debug`)
+.TP
+\fB\-\-debug\fR
+Maximum tracing detail on stderr (debug/trace)
+.TP
+\fB\-\-plain\fR
+Force plain stderr (no ANSI colors; accessibility / agent\-friendly)
+.TP
+\fB\-\-lang\fR \fI<LANG>\fR
+Force UI language (`en` / `pt\-BR`); default: flag → env → XDG → OS → en
+
+Accepts BCP 47 (`pt\-BR`, `en`) or legacy `pt`. Env override: `BROWSER_AUTOMATION_CLI_LANG`. Machine JSON stays English.
+.SH TIMEOUTS
+.TP
+\fB\-\-timeout\fR \fI<SECS>\fR [default: 0]
+Global wall\-clock timeout in seconds (0 = no override)
+.TP
+\fB\-\-step\-timeout\fR \fI<SECS>\fR [default: 0]
+Per\-step timeout in seconds for `run` scripts (0 = inherit global timeout)
+.SH PARALLELISM
+.TP
+\fB\-\-max\-concurrency\fR \fI<N>\fR [default: 0]
+Max concurrent I/O tasks (batch/crawl/CDP fan\-out) and Rayon CPU pool hint
+
+`0` = auto: `min(cpus, (free_ram_mb×50%)/64, 64)`. Every fan\-out is hard\-capped (no unbounded `join_all` / spawn loops).
+.SH BROWSER
+.TP
+\fB\-\-headed\fR
+Launch Chrome with a visible window (debug; default headless=new)
+.TP
+\fB\-\-artifacts\-dir\fR \fI<DIR>\fR
+Directory for screenshots, PDFs, and other one\-shot artifacts
+.TP
+\fB\-\-capture\-console\fR
+Capture console messages during browser commands
+.TP
+\fB\-\-capture\-network\fR
+Capture network requests during browser commands
+.SH ROBOTS
+.TP
+\fB\-\-ignore\-robots\fR
+Skip robots.txt policy checks (requires risk acceptance for blocked hosts)
+.TP
+\fB\-\-i\-accept\-robots\-risk\fR
+Explicitly accept robots.txt override risk when using \-\-ignore\-robots
+.SH CATEGORIES
+.TP
+\fB\-\-category\-memory\fR
+Enable deep heap analysis tools (PRD category\-memory)
+.TP
+\fB\-\-category\-extensions\fR
+Enable extension management tools
+.TP
+\fB\-\-category\-third\-party\fR
+Enable third\-party developer tool surface
+.TP
+\fB\-\-category\-webmcp\fR
+Enable WebMCP\-compatible tool surface
+.TP
+\fB\-\-experimental\-screencast\fR
+Enable experimental screencast (may require ffmpeg for file export)
+.TP
+\fB\-\-experimental\-vision\fR
+Enable coordinate click\-at (vision) tools
+.SH MITM
+.TP
+\fB\-\-mitm\fR
+Enable one\-shot local MITM proxy and route Chrome through it (PRD §5E / GAP\-019)
+.TP
+\fB\-\-mitm\-ca\-dir\fR \fI<DIR>\fR
+Directory for MITM CA key+cert PEM (default: XDG data)
+.TP
+\fB\-\-mitm\-har\fR \fI<FILE>\fR
+Write HAR 1.2 to this path on FINALIZE when \-\-mitm is active
+.TP
+\fB\-\-mitm\-hosts\fR \fI<HOSTS>\fR
+Comma\-separated hosts to decrypt (empty = all via proxy)
+.TP
+\fB\-\-mitm\-ws\fR
+Capture WebSocket frames in MITM handler
+.TP
+\fB\-\-mitm\-max\-body\-bytes\fR \fI<BYTES>\fR
+Max body bytes retained per exchange
+.TP
+\fB\-\-mitm\-no\-media\-bodies\fR
+Drop image/video/audio bodies from MITM capture
+.TP
+\fB\-\-mitm\-redact\-secrets\fR
+Redact Authorization/Cookie secrets in MITM exports (default on when set)
+.SH SUBCOMMANDS
+.TP
+browser\-automation\-cli\-doctor(1)
+Diagnose Chrome install and one\-shot readiness
+.TP
+browser\-automation\-cli\-commands(1)
+List available commands
+.TP
+browser\-automation\-cli\-schema(1)
+JSON Schema fragment for a command (agent discovery) GAP\-022: accepts `schema run` or `schema \-\-cmd run`
+.TP
+browser\-automation\-cli\-version(1)
+Print CLI version
+.TP
+browser\-automation\-cli\-locale(1)
+Show resolved UI locale and detection diagnostics (human suggestions only)
+.TP
+browser\-automation\-cli\-goto(1)
+Navigate to a URL (one\-shot)
+.TP
+browser\-automation\-cli\-view(1)
+Accessibility snapshot with @eN refs
+.TP
+browser\-automation\-cli\-press(1)
+Click an element (selector or @eN)
+.TP
+browser\-automation\-cli\-click\-at(1)
+Click at page CSS coordinates (requires \-\-experimental\-vision)
+.TP
+browser\-automation\-cli\-write(1)
+Fill an input value (select/checkbox/radio/text smart fill)
+.TP
+browser\-automation\-cli\-keys(1)
+Press a keyboard key
+.TP
+browser\-automation\-cli\-type(1)
+Type text (tool\-ref type_text). Use \-\-target or \-\-focus\-only
+.TP
+browser\-automation\-cli\-wait(1)
+Wait for ms and/or text and/or selector and/or load state
+.TP
+browser\-automation\-cli\-hover(1)
+Hover an element
+.TP
+browser\-automation\-cli\-drag(1)
+Drag from one target to another
+.TP
+browser\-automation\-cli\-fill\-form(1)
+Fill multiple form fields from JSON `[{target|uid,value},...]`
+.TP
+browser\-automation\-cli\-upload(1)
+Upload a file to a file input
+.TP
+browser\-automation\-cli\-back(1)
+History back
+.TP
+browser\-automation\-cli\-forward(1)
+History forward
+.TP
+browser\-automation\-cli\-reload(1)
+Reload current page
+.TP
+browser\-automation\-cli\-eval(1)
+Evaluate JavaScript (expression or function declaration)
+.TP
+browser\-automation\-cli\-grab(1)
+Capture a screenshot
+.TP
+browser\-automation\-cli\-print\-pdf(1)
+Print current page to PDF via CDP Page.printToPDF (one\-shot)
+.TP
+browser\-automation\-cli\-monitor(1)
+One\-shot change check against a baseline file (hash/text)
+.TP
+browser\-automation\-cli\-run(1)
+Run multi\-step NDJSON script in one process
+.TP
+browser\-automation\-cli\-exec(1)
+Single\-step inline command (same surface as `run` steps: goto, wait, view, press, …)
+.TP
+browser\-automation\-cli\-extract(1)
+Extract text/attribute from a target, or LLM extract with \-\-llm
+.TP
+browser\-automation\-cli\-text(1)
+Extract visible text from a target (PRD §7 `text`)
+.TP
+browser\-automation\-cli\-scroll(1)
+Scroll page or element by delta pixels (PRD §7 `scroll`)
+.TP
+browser\-automation\-cli\-cookie(1)
+Cookie jar helpers for the active page (Network domain)
+.TP
+browser\-automation\-cli\-attr(1)
+Read one attribute from a target
+.TP
+browser\-automation\-cli\-assert(1)
+Assertions (url / text / console)
+.TP
+browser\-automation\-cli\-console(1)
+Captured console messages (\-\-capture\-console)
+.TP
+browser\-automation\-cli\-net(1)
+Captured network requests (\-\-capture\-network)
+.TP
+browser\-automation\-cli\-page(1)
+Page info or multi\-tab management
+.TP
+browser\-automation\-cli\-dialog(1)
+Accept or dismiss dialogs
+.TP
+browser\-automation\-cli\-scrape(1)
+Navigate and return body text / formats (local HTTP or CDP scrape)
+.TP
+browser\-automation\-cli\-batch\-scrape(1)
+Scrape many URLs from a file (HTTP or browser engine, one\-shot)
+.TP
+browser\-automation\-cli\-crawl(1)
+Crawl from a seed URL (HTTP BFS or browser, one\-shot)
+.TP
+browser\-automation\-cli\-map(1)
+Map site URLs from a seed (HTTP)
+.TP
+browser\-automation\-cli\-search(1)
+Local search (HTTP SERP links or URL map)
+.TP
+browser\-automation\-cli\-parse(1)
+Parse a local file (html/md/txt/pdf/docx/xlsx text extract)
+.TP
+browser\-automation\-cli\-qr(1)
+QR encode/decode one\-shot (no Chrome)
+.TP
+browser\-automation\-cli\-find\-paths(1)
+Discover filesystem paths (fd\-like UX; binary remains browser\-automation\-cli)
+.TP
+browser\-automation\-cli\-sg\-scan(1)
+Structural lint scan for forbidden product patterns (one\-shot; §5AC / GAP\-A011)
+.TP
+browser\-automation\-cli\-sg\-rewrite(1)
+Structural rewrite for known\-safe fixes (dry\-run default; `\-\-apply` writes)
+.TP
+browser\-automation\-cli\-sheet\-write(1)
+Write a simple XLSX workbook from CSV/JSON (one\-shot; §5Z / GAP\-A011)
+.TP
+browser\-automation\-cli\-mitm(1)
+MITM capture / CA / HAR (one\-shot local)
+.TP
+browser\-automation\-cli\-workflow(1)
+Workflow journal DAG (petgraph + SQLite)
+.TP
+browser\-automation\-cli\-config(1)
+XDG config and path management (no .env at runtime)
+.TP
+browser\-automation\-cli\-emulate(1)
+Emulate device / network / UA / geo / CPU
+.TP
+browser\-automation\-cli\-resize(1)
+Resize page viewport
+.TP
+browser\-automation\-cli\-perf(1)
+Performance trace / metrics
+.TP
+browser\-automation\-cli\-lighthouse(1)
+Run Lighthouse audit (external binary)
+.TP
+browser\-automation\-cli\-screencast(1)
+Screencast start/stop (experimental)
+.TP
+browser\-automation\-cli\-heap(1)
+Heap snapshot tools (requires \-\-category\-memory for deep analysis)
+.TP
+browser\-automation\-cli\-extension(1)
+Chrome extension tools (requires \-\-category\-extensions)
+.TP
+browser\-automation\-cli\-devtools3p(1)
+Third\-party developer tools surface (requires \-\-category\-third\-party)
+.TP
+browser\-automation\-cli\-webmcp(1)
+Web surface tools (requires \-\-category\-webmcp)
+.TP
+browser\-automation\-cli\-completions(1)
+Generate shell completions (path\-level, no Chrome)
+.TP
+browser\-automation\-cli\-man(1)
+Generate man page (roff) via clap_mangen (path\-level, no Chrome)
+.TP
+browser\-automation\-cli\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH EXTRA
+Examples:
+  browser\-automation\-cli doctor \-\-json
+  browser\-automation\-cli goto https://example.com \-\-json
+  browser\-automation\-cli schema run
+  browser\-automation\-cli run \-\-script steps.ndjson \-\-json\-steps
+  browser\-automation\-cli config path
+
+Exit codes follow sysexits\-style mapping (2 usage, 69 unavailable, 70 software, 124 timeout).
+Config is XDG\-only (config set); product settings do not read process environment variables.
+.SH VERSION
+v0.1.5
+.SH AUTHORS
+Danilo Aguiar <daniloaguiarbr@proton.me>

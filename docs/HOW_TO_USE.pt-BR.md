@@ -41,9 +41,11 @@ browser-automation-cli --json view
 - Escreva XLSX a partir de CSV/JSON com `sheet-write <input> -o <out.xlsx>` (sem Chrome)
 - Lint estrutural com `sg-scan [paths…]` e rewrite dry-run com `sg-rewrite [paths…]` (`--apply` para gravar)
 - Verifique mudança de página contra baseline com `monitor check`
-- Liste o inventário vivo (61 nomes de agente) com `commands --json`
+- Liste o inventário vivo (**63** nomes de agente) com `commands --json`
 - Descubra formatos de argv com `schema <name> --json` ou `schema --cmd <name> --json`
 - Imprima a versão do produto com `version`
+- Inspecione o locale de UI resolvido com `locale --json` (só sugestões humanas)
+- Gere uma página man com `man` (roff; sem Chrome)
 - Resolva chaves XDG com `config list-keys --json`
 
 ```bash
@@ -134,8 +136,9 @@ browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.b
 - Lighthouse com caminho mock: `lighthouse https://example.com --lighthouse-path ./scripts/mock-lighthouse.sh --json`
 - Cache backend só via XDG: `config set cache_backend sqlite|memory|redis` e opcional `config set cache_redis_url redis://127.0.0.1:6379`
 - `rediss://` é fail-closed (somente TCP plain; não use URLs rediss)
-- Doctor reporta Chrome, origem do lighthouse e `cache_redis` quando cache Redis está configurado
-- Localize sugestões humanas: `--lang pt-BR` ou `config set lang pt-BR`
+- Doctor reporta Chrome, origem do lighthouse, `cache_redis` quando cache Redis está configurado, e higiene residual de disco
+- Check do doctor `residual_disk` e JSON de topo `residual`: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Localize sugestões humanas: `--lang pt-BR` ou `config set lang pt-BR` (só flags + XDG)
 - Verbosity: `--verbose` (info), `--debug` (máximo), `-q`/`--quiet` ou `config set log_level debug`
 - Cor: `config set color true|false` (valores truthy: `true`, `1`, `yes`)
 - Path do Chrome: `config set chrome_path /path/to/chrome` quando a descoberta por PATH não bastar
@@ -144,12 +147,31 @@ browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.b
 - Página isolada: `page new --isolated-context` (contexto isolado)
 
 
+## Higiene Residual (disco + processo)
+- O ciclo de vida é sempre BORN → EXECUTE → FINALIZE → DIE em um processo
+- BORN executa GC cross-run de Singleton stale (`scavenge_stale_singleton_orphans`, age floor 60s)
+- FINALIZE faz dual scavenge: orphans Chromium tmp da janela de invocação + GC Singleton stale
+- Residual-zero significa: sem processo Chrome CLI vivo, sem markers `browser-automation-cli-chrome-*`, sem lixo Singleton-only de Chromium tmp owned
+- Prefixos temp de Chrome Flatpak do host **nunca** são apagados pelo GC do produto
+- Inspecione com doctor (relatório residual path-light; sem launch de Chrome para o relatório):
+
+```bash
+browser-automation-cli doctor --offline --quick --json \
+  | jaq '{ok, residual, residual_disk: [.checks[] | select(.id=="residual_disk")]}'
+```
+
+- Campos JSON de topo `residual`: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Check id `residual_disk`: `fail` quando há processos marker vivos; `warn` quando restam dirs marker ou orphans Singleton; senão `pass`
+- Mantenedores podem rodar gates locais: `bash scripts/residual-check.sh` e `bash scripts/residual-stress.sh` (sem exigência de CI/GHA)
+
+
 ## Configuração (XDG)
 - Prefira flags para chamadas pontuais de agente
 - Prefira config XDG via comando `config` para defaults duráveis
 - Settings de produto são só flags e CLI XDG: `config init`, `config path`, `config show`, `config set`, `config get`, `config list-keys` — **nunca** variáveis de ambiente de produto
 - Resolva paths vivos de config/data/state com `config path --json`
 - Logging de produto é controlado por `--verbose` / `--debug` / `-q` e XDG `log_level`
+- Idioma das sugestões humanas: só `--lang` ou XDG `lang` (sem catálogos de env de produto)
 - Chaves suportadas (lista completa de 16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Valores truthy de color: `true`, `1`, `yes`
 - Valores falsy ou outros resolvem para desligado salvo set truthy
@@ -251,13 +273,20 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - `--schema-json` opcional aponta para um arquivo JSON Schema local para respostas estruturadas
 
 
-## i18n
+## i18n e Meta de Descoberta
 ```bash
 browser-automation-cli --lang pt-BR --json click-at --x 1 --y 1
 # usage error shows localized suggestion when lang is pt-BR (needs --experimental-vision for success)
 browser-automation-cli --json config set lang pt-BR
+browser-automation-cli --json locale
+browser-automation-cli --json man
+browser-automation-cli --json commands
+browser-automation-cli --json schema locale
+browser-automation-cli --json schema man
 ```
-- Mensagens humanas e sugestões honram `--lang` e XDG `lang`
+- Mensagens humanas e sugestões honram só `--lang` e XDG `lang`
+- `locale` reporta diagnósticos do locale de UI resolvido (chaves de máquina permanecem em inglês)
+- `man` emite página man em roff (sem Chrome)
 - Envelopes de máquina mantêm campos estáveis em inglês: `kind` / `exit_code`
 
 
@@ -383,8 +412,9 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 - Passe `--json` em toda chamada programática
 - Parseie só envelopes do stdout; trate stderr como diagnóstico
 - Ramifique no campo `ok` do envelope e no exit code do processo
-- Descubra inventário com `commands --json` (61 nomes de agente)
+- Descubra inventário com `commands --json` (**63** nomes de agente)
 - Descubra argv com `schema <name> --json` ou `schema --cmd <name> --json`
+- Após trabalho browser, confirme higiene residual com `doctor --json` → `residual` / check `residual_disk`
 - Colapse trabalho browser multi-passo em um processo `run --script` quando refs importam (opcional `--json-steps`)
 - Prefira flags para controle pontual; use `config` para defaults XDG duráveis
 - Não invente daemon entre turns do agente
@@ -437,12 +467,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Veja notas orientadas a crates em [docs/AGENTS.pt-BR.md](AGENTS.pt-BR.md) e [INTEGRATIONS.pt-BR.md](../INTEGRATIONS.pt-BR.md)
 
 
-## Inventário Completo de Comandos (61)
-- Fonte viva: `browser-automation-cli commands --json` (61 nomes voltados a agentes)
-- Help clap de topo lista 59 sem `select-option` e `pick` como subcomandos standalone
+## Inventário Completo de Comandos (63)
+- Fonte viva: `browser-automation-cli commands --json` (**63** nomes voltados a agentes)
+- Help clap de topo lista **61** sem `select-option` e `pick` como subcomandos standalone (esses dois são só run/schema)
 - O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53)
 - Lista completa de comandos de agente:
-  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Meta / descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
   - Multi-passo / schema only: `select-option`, `pick`

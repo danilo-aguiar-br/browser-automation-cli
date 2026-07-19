@@ -65,6 +65,29 @@ browser-automation-cli doctor --offline --quick --json
 ```
 - Offline quick mode checks local Chrome discovery without network probes
 - Use full doctor without `--quick` when you need deeper readiness checks
+- Doctor also reports residual disk hygiene (check `residual_disk` + top-level `residual`)
+
+
+## How To Verify Residual-Zero Disk Hygiene
+```bash
+# Path-light residual report (BORN may already have scavenged stale Singleton orphans)
+browser-automation-cli doctor --offline --quick --json \
+  | jaq '{ok, residual, residual_disk: [.checks[] | select(.id=="residual_disk")]}'
+
+# One-shot browser work should leave no CLI chrome markers
+# Note: --url about:blank is intentional residual smoke (url present); not a blank PDF without url (GAP-013)
+browser-automation-cli --json print-pdf --url about:blank --path /tmp/browser-automation-cli-residual-check.pdf
+
+# Re-check residual fields after DIE
+browser-automation-cli doctor --offline --quick --json | jaq '.residual'
+```
+- Top-level `residual` fields: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Check id `residual_disk`: `fail` when live marker processes remain; `warn` when marker dirs or Singleton orphans remain; else `pass`
+- Residual-zero means zero live CLI marker processes, zero `browser-automation-cli-chrome-*` dirs, zero owned Singleton-only Chromium tmp litter after DIE
+- Age floor for cross-run stale GC is 60s; host Flatpak Chrome temp is never wiped
+- Maintainers (optional local gates, no CI/GHA requirement):
+  - `bash scripts/residual-check.sh`
+  - `bash scripts/residual-stress.sh`
 
 
 ## How To Open a Page and Snapshot
@@ -318,8 +341,8 @@ cat > /tmp/fill-form.run.json <<'JSON'
 JSON
 # browser-automation-cli --timeout 90 --json run --script /tmp/fill-form.run.json
 
-# CLI form (fields JSON via fill-form --json):
-# browser-automation-cli --json fill-form --json '[{"target":"input","value":"hello"}]'
+# CLI form (fields JSON via fill-form --fields-json; global --json is envelope only):
+# browser-automation-cli --json fill-form --fields-json '[{"target":"input","value":"hello"}]'
 ```
 - Run accepts `fields` array (or `json` string/array) of `{target|uid|selector|ref, value|text}`
 - Prefer one process with `goto` so selectors stay valid
@@ -731,7 +754,7 @@ browser-automation-cli --json perf --help >/dev/null
 browser-automation-cli --json resize --help >/dev/null
 browser-automation-cli completions bash >/dev/null
 ```
-- Every agent name appears in `commands --json` (61)
+- Every agent name appears in `commands --json` (**63**)
 - `select-option` / `pick` appear in inventory and run/schema only
 - Prefer `schema <name>` before inventing argv for gated surfaces
 
@@ -755,8 +778,10 @@ browser-automation-cli schema batch-scrape --json
 browser-automation-cli schema config --json
 browser-automation-cli schema mitm --json
 browser-automation-cli schema workflow --json
+browser-automation-cli schema locale --json
+browser-automation-cli schema man --json
 ```
-- `commands` lists the agent-facing surface (61 names)
+- `commands` lists the agent-facing surface (**63** names)
 - `schema <cmd>` or `schema --cmd` prints a JSON Schema fragment for one command
 - Useful for tool registration in agent frameworks
 
@@ -827,21 +852,21 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
 - URL assert supports exact match or contains semantics (`contains` or `url_contains`)
 - Text assert can target a selector via `target` or use `text_contains`
 
-## Full Command Inventory (61)
-- Live source of truth: `browser-automation-cli commands --json` (61 agent-facing names)
-- Clap top-level help lists 59 without `select-option` and `pick` as standalone subcommands
+## Full Command Inventory (63)
+- Live source of truth: `browser-automation-cli commands --json` (**63** agent-facing names)
+- Clap top-level help lists **61** without `select-option` and `pick` as standalone subcommands
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53)
 - Full agent command list:
-  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Meta / discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
   - Multi-step / schema only: `select-option`, `pick`
   - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-step: `run`, `exec`
-  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
   - Local IO (no Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
-  - Emulation/perf: `emulate`, `resize`, `perf`, `heap`
+  - Emulation / perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
 - Discover argv with `schema <name> --json` for any name above

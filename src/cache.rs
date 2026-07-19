@@ -1,13 +1,25 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! HTTP / parse cache under XDG (PRD 5AF / GAP-011 / GAP-023).
 //!
-//! Backends: in-process L1 (HashMap), SQLite under XDG cache. Redis is optional
-//! via `config set cache_backend=redis` + `cache_redis_url` (never env).
+//! Backends: in-process L1 ([`FxHashMap`] of hex digests), SQLite under XDG
+//! cache. Redis is optional via `config set cache_backend=redis` +
+//! `cache_redis_url` (never env).
+//!
+//! # Workload / hashing
+//!
+//! L1 keys are SHA-256 hex digests produced by this process (trusted).
+//! [`rustc_hash::FxHashMap`] avoids SipHash overhead on short fixed-width
+//! keys (rules_rust_eficiencia_e_performance). Do **not** use FxHash for
+//! untrusted external key spaces.
+//!
+//! **Concurrency:** single-key get/put under short `Mutex` critical sections
+//! that never cross `.await` (rules). Not a multi-item fan-out surface.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use rustc_hash::FxHashMap;
 use sha2::{Digest, Sha256};
 
 use crate::error::{CliError, ErrorKind};
@@ -72,9 +84,16 @@ pub trait HttpCache: Send {
 }
 
 /// In-process L1 cache (dies with the process — one-shot safe).
+///
+/// # Interior mutability
+///
+/// `Mutex` is required so [`HttpCache`] can take `&self` while remaining
+/// `Send` for optional multi-thread use. Critical sections only clone/insert
+/// map entries (no `.await`). Poison is **propagated** as [`CliError`] (not
+/// recovered) because a poisoned L1 is a software fault, not residual cleanup.
 #[derive(Debug, Default)]
 pub struct MemoryCache {
-    inner: Mutex<HashMap<String, CacheEntry>>,
+    inner: Mutex<FxHashMap<String, CacheEntry>>,
 }
 
 impl HttpCache for MemoryCache {
@@ -108,7 +127,7 @@ impl SqliteCache {
         std::fs::create_dir_all(&dir)
             .map_err(|e| CliError::new(ErrorKind::Io, format!("http_cache mkdir: {e}")))?;
         let path = dir.join("cache.sqlite");
-        let db = Self { path: path.clone() };
+        let db = Self { path };
         db.init_schema()?;
         Ok(db)
     }
@@ -309,7 +328,7 @@ impl HttpCache for RedisCache {
             return Ok(None);
         }
         // Payload is JSON: {body_b64, content_type, expires_unix}
-        let v: serde_json::Value = serde_json::from_str(&raw)
+        let v: serde_json::Value = crate::json_util::from_str(&raw)
             .map_err(|e| CliError::new(ErrorKind::Data, format!("redis cache decode: {e}")))?;
         let body_b64 = v
             .get("body_b64")
@@ -371,6 +390,24 @@ fn write_resp_array(stream: &mut impl std::io::Write, parts: &[&str]) -> Result<
         .map_err(|e| format!("redis write: {e}"))
 }
 
+/// Hard cap for a single RESP bulk payload (untrusted network / redis server).
+/// Prevents `vec![0; n]` OOM from a malicious length (rules: try_reserve / max before alloc).
+const MAX_RESP_BULK_BYTES: usize = 16 * 1024 * 1024;
+const MAX_RESP_LINE_BYTES: usize = 16 * 1024 * 1024;
+
+fn checked_resp_bulk_len(n: i64) -> Result<usize, String> {
+    if n < 0 {
+        return Err("negative bulk length".into());
+    }
+    let n = n as u64;
+    if n > MAX_RESP_BULK_BYTES as u64 {
+        return Err(format!(
+            "redis bulk too large: {n} > {MAX_RESP_BULK_BYTES} (allocation budget)"
+        ));
+    }
+    Ok(n as usize)
+}
+
 fn read_resp_line(stream: &mut impl std::io::Read) -> Result<String, String> {
     let mut line = Vec::new();
     let mut byte = [0u8; 1];
@@ -387,7 +424,7 @@ fn read_resp_line(stream: &mut impl std::io::Read) -> Result<String, String> {
         if byte[0] != b'\r' {
             line.push(byte[0]);
         }
-        if line.len() > 16 * 1024 * 1024 {
+        if line.len() > MAX_RESP_LINE_BYTES {
             return Err("redis line too large".into());
         }
     }
@@ -406,7 +443,12 @@ fn read_resp_value(stream: &mut impl std::io::Read) -> Result<String, String> {
             if n < 0 {
                 return Ok(String::new());
             }
-            let mut buf = vec![0u8; n as usize + 2]; // payload + CRLF
+            let len = checked_resp_bulk_len(n)?;
+            // Size validated → fallible reserve then fill (OOM-safe path for untrusted n).
+            let mut buf = Vec::new();
+            buf.try_reserve_exact(len.saturating_add(2))
+                .map_err(|e| format!("redis bulk reserve failed: {e}"))?;
+            buf.resize(len + 2, 0);
             stream
                 .read_exact(&mut buf)
                 .map_err(|e| format!("bulk read: {e}"))?;
@@ -472,13 +514,16 @@ mod tests {
     use std::collections::HashMap;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
     use std::thread;
 
     /// Minimal RESP server speaking the subset used by [`RedisCache`] (GAP-A008).
     struct RespMockServer {
         port: u16,
-        stop: Arc<Mutex<bool>>,
+        /// Stop flag is a pure boolean shared across threads → `AtomicBool`
+        /// (rules: never `Mutex<bool>` when an atomic suffices).
+        stop: Arc<AtomicBool>,
         join: Option<thread::JoinHandle<()>>,
     }
 
@@ -486,12 +531,13 @@ mod tests {
         fn spawn() -> Result<Self, String> {
             let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
             let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-            let stop = Arc::new(Mutex::new(false));
+            // Relaxed: isolated stop flag; no dependent data publication.
+            let stop = Arc::new(AtomicBool::new(false));
             let stop_t = Arc::clone(&stop);
             let store: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
             let join = thread::spawn(move || {
                 let _ = listener.set_nonblocking(true);
-                while !*stop_t.lock().unwrap_or_else(|e| e.into_inner()) {
+                while !stop_t.load(Ordering::Relaxed) {
                     match listener.accept() {
                         Ok((stream, _)) => {
                             let store = Arc::clone(&store);
@@ -517,14 +563,21 @@ mod tests {
 
     impl Drop for RespMockServer {
         fn drop(&mut self) {
-            if let Ok(mut g) = self.stop.lock() {
-                *g = true;
-            }
+            self.stop.store(true, Ordering::Relaxed);
             let _ = TcpStream::connect(("127.0.0.1", self.port));
             if let Some(j) = self.join.take() {
                 let _ = j.join();
             }
         }
+    }
+
+    fn lock_store(
+        store: &Mutex<HashMap<String, String>>,
+    ) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+        // Test mock: recover poison so one handler panic cannot freeze the mock.
+        store
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn handle_resp_client(
@@ -544,14 +597,12 @@ mod tests {
                 "SET" if cmd.len() >= 3 => {
                     let key = cmd[1].clone();
                     let val = cmd[2].clone();
-                    if let Ok(mut g) = store.lock() {
-                        g.insert(key, val);
-                    }
+                    lock_store(&store).insert(key, val);
                     "+OK\r\n".to_string()
                 }
                 "GET" if cmd.len() >= 2 => {
                     let key = &cmd[1];
-                    let val = store.lock().ok().and_then(|g| g.get(key).cloned());
+                    let val = lock_store(&store).get(key).cloned();
                     match val {
                         Some(v) => format!("${}\r\n{}\r\n", v.len(), v),
                         None => "$-1\r\n".to_string(),
@@ -559,10 +610,11 @@ mod tests {
                 }
                 "DEL" if cmd.len() >= 2 => {
                     let key = &cmd[1];
-                    let n = store
-                        .lock()
-                        .map(|mut g| if g.remove(key).is_some() { 1 } else { 0 })
-                        .unwrap_or(0);
+                    let n = if lock_store(&store).remove(key).is_some() {
+                        1
+                    } else {
+                        0
+                    };
                     format!(":{n}\r\n")
                 }
                 _ => "-ERR unknown command\r\n".to_string(),
@@ -573,6 +625,9 @@ mod tests {
         }
         Ok(())
     }
+
+    /// Hard cap for RESP array arity in the test mock parser.
+    const MAX_RESP_ARRAY_LEN: usize = 1024;
 
     fn read_resp_array(stream: &mut impl Read) -> Result<Vec<String>, String> {
         let line = read_resp_line(stream)?;
@@ -586,7 +641,14 @@ mod tests {
         if n < 0 {
             return Ok(Vec::new());
         }
-        let mut out = Vec::with_capacity(n as usize);
+        if n as u64 > MAX_RESP_ARRAY_LEN as u64 {
+            return Err(format!(
+                "redis array too large: {n} > {MAX_RESP_ARRAY_LEN} (allocation budget)"
+            ));
+        }
+        let mut out = Vec::new();
+        out.try_reserve_exact(n as usize)
+            .map_err(|e| format!("redis array reserve failed: {e}"))?;
         for _ in 0..n {
             out.push(read_resp_bulk(stream)?);
         }
@@ -602,7 +664,11 @@ mod tests {
         if n < 0 {
             return Ok(String::new());
         }
-        let mut buf = vec![0u8; n as usize + 2];
+        let len = checked_resp_bulk_len(n)?;
+        let mut buf = Vec::new();
+        buf.try_reserve_exact(len.saturating_add(2))
+            .map_err(|e| format!("redis bulk reserve failed: {e}"))?;
+        buf.resize(len + 2, 0);
         stream
             .read_exact(&mut buf)
             .map_err(|e| format!("bulk body: {e}"))?;
@@ -612,16 +678,16 @@ mod tests {
         String::from_utf8(buf).map_err(|e| format!("bulk utf8: {e}"))
     }
 
+    #[test]
+    fn resp_bulk_rejects_oversized_length() {
+        assert!(checked_resp_bulk_len(-1).is_err());
+        assert!(checked_resp_bulk_len((MAX_RESP_BULK_BYTES as i64) + 1).is_err());
+        assert_eq!(checked_resp_bulk_len(0).unwrap(), 0);
+        assert_eq!(checked_resp_bulk_len(64).unwrap(), 64);
+    }
+
     fn which_bin(name: &str) -> Option<String> {
-        std::env::var_os("PATH").and_then(|paths| {
-            for dir in std::env::split_paths(&paths) {
-                let candidate = dir.join(name);
-                if candidate.is_file() {
-                    return Some(candidate.display().to_string());
-                }
-            }
-            None
-        })
+        crate::platform::which_bin(name).map(|p| p.display().to_string())
     }
 
     fn free_port() -> Result<u16, String> {

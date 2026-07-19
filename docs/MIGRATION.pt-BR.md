@@ -112,7 +112,8 @@ Correções de GAP e crescimento de superfície em alto nível no `0.1.2`:
 
 
 ## 0.1.2 → 0.1.3
-Hard-close residual-zero, honesty Redis/Lighthouse e superfície PRD de write/lint no `0.1.3`:
+Hard-close do scavenger residual de processo/tmp (A001–A002), honesty Redis/Lighthouse e superfície PRD de write/lint no `0.1.3`.
+A lei canônica residual-zero de disco (GC Singleton em BORN com age ≥ 60s, dual scavenge em FINALIZE, doctor `residual_disk`) é `0.1.5` — veja a seção 0.1.4 → 0.1.5.
 
 ### Residual e2e e scavenger (A001–A002)
 - Medição residual do e2e sem self-match; harness residual seguro com pipefail
@@ -222,6 +223,38 @@ Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/
 ### Chaves de config (lista completa de 16 inalterada em 0.1.4)
 - `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 
+
+## 0.1.4 → 0.1.5
+Hard-close de higiene residual-zero em **disco** (RES-01…12, Pass 27) e superfície meta de descoberta:
+
+### Residual-zero em disco (processo + GC Singleton)
+- Lei de produto residual-zero estende de processo/marker para higiene de disco Chromium tmp
+- **BORN** GC automático cross-run: `scavenge_stale_singleton_orphans` apaga owned Singleton-only `/tmp/org.chromium.Chromium.*` (e ocultos `.org.chromium.Chromium.*`) com age **≥ 60s** e sem holder vivo
+- **FINALIZE** dual scavenge: side-channels da janela de invocação + GC Singleton stale
+- Prefixos temp de Chrome Flatpak do host (`com.google.Chrome.*`) **nunca** são apagados pelo GC do produto
+- Constantes públicas residual (prefixo marker, age floor, caps de tamanho) anti-hardcode
+
+### Superfície residual do doctor
+- Novo check id: `residual_disk` (path-light; sem launch de Chrome para o relatório em si)
+- Campo JSON de topo do doctor: `residual` (`ResidualDiskReport`)
+- Campos: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Status: `fail` se processos marker vivos; `warn` se restam dirs marker ou orphans Singleton; senão `pass`
+
+### Inventário e comandos meta
+- Inventário vivo é **63** nomes de agente via `commands --json`
+- Help clap de topo lista **61** sem `select-option` / `pick` como standalone
+- Meta já no binário e no inventário: `locale` (diagnósticos de locale de UI), `man` (roff via clap_mangen; sem Chrome)
+- E2e DevTools tool-ref permanece **53 tools**
+
+### Gates locais residual (sem exigência de CI/GHA)
+- Integração: `tests/residual_one_shot.rs`
+- Scripts de mantenedor: `scripts/residual-check.sh`, `scripts/residual-stress.sh`
+- Cobertura unit residual sob `cargo test --lib residual::`
+
+### Chaves de config (lista completa de 16 inalterada em 0.1.5)
+- `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
+- Idioma continua só flags + XDG: `--lang` ou `config set lang` (sem catálogos de env de produto)
+
 ## Migração Passo a Passo
 ### De qualquer tree antiga para 0.1.1
 - Instale ou rebuild o binário para pelo menos `0.1.1`
@@ -285,6 +318,23 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Confirme inventário com `commands --json` (61) e regenere schemas se empacotar docs
 - Reexecute validação local: `cargo test --lib`, `parity_run_inventory`, `clap_command_debug_assert`, e2e 53 tools, smokes residuais
 
+### De 0.1.4 para 0.1.5
+- Rebuild/instale `0.1.5`
+- Espere residual-zero em disco após cada one-shot: BORN + FINALIZE scavenge Singleton-only Chromium tmp
+- Parseie JSON do doctor para topo `residual` e check `residual_disk` ao diagnosticar leaks
+- Não dependa do GC residual apagar temp de Chrome Flatpak do host (nunca é alvo)
+- Descubra comandos meta: `locale`, `man` (já no inventário; confirme com `commands --json`)
+- Confirme inventário com `commands --json` (**63**) e regenere schemas se empacotar docs
+- Prefira gates residual ao validar paths browser:
+```bash
+cargo test --lib residual:: --locked
+cargo test --test residual_one_shot --locked
+bash scripts/residual-check.sh
+# opcional: bash scripts/residual-stress.sh
+```
+- Idioma e todos os settings de produto permanecem só flags + XDG (`--lang` / `config set lang`)
+- Reexecute validação local: `cargo test --lib`, suite residual acima, `parity_run_inventory`, `clap_command_debug_assert`, script e2e 53 tools
+
 ## Mudanças de JSON Schema
 - Antes: prosa livre ou JSON ad-hoc sem `schema_version`
 - Depois no sucesso:
@@ -304,6 +354,7 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Adições estáticas de v0.1.2 incluem `print-pdf`, `monitor`, `qr`, `find-paths` (regenere com o gerador)
 - Adições estáticas de v0.1.3 incluem `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths` ganha `glob`; chaves de config incluem cache/log_to_file
 - v0.1.4: fragments wait/assert/schema/run expandem multi-seletor, wait url, console asserts, json-steps; inventário adiciona `select-option`/`pick` como nomes run/schema
+- v0.1.5: campos residual do doctor; inventário adiciona `locale` / `man` (meta); contrato residual-zero em disco
 
 
 ## Notas de Compatibilidade
@@ -315,12 +366,15 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Integração por subprocesso permanece o único path de agente suportado
 - Exit codes permanecem no estilo sysexits: `0`, `2`, `65`, `66`, `69`, `70`, `74`, `78`, `124`, `130`, `141`
 - Agentes que assumiam `batch-scrape` só HTTP devem aceitar `--engine browser` opcional em 0.1.4
+- Agentes que só checavam residual de processo em 0.1.3/0.1.4 devem também parsear campos de disco `residual` do doctor em 0.1.5
+- Tamanho do inventário move 61 → **63** (`locale`, `man`)
 - Agentes que tratavam `select-option`/`pick` como subcomandos clap devem usar passos `run`/`exec`
 
 
 ## Rollback
 - Fixe o commit local anterior ou o path do binário instalado
 - Mantenha scripts compatíveis com os campos `ok` e `schema_version` do envelope
+- Se reverter de `0.1.5` para `0.1.4`, remova premissas de que o doctor sempre emite topo `residual` / check `residual_disk`, de que BORN faz GC automático de Singleton tmp stale com age ≥ 60s, de que o inventário é 63, e de que `locale`/`man` estão sempre presentes em trees antigas sem esses cmds
 - Se reverter de `0.1.4` para `0.1.3`, remova o uso de `--json-steps`, wait `url`/`url_contains`/`navigation`, arrays multi-seletor de wait, passos `select-option`/`pick`, assert `console_empty`/`console_no_match`, fluxos só-posicionais de `schema <cmd>`, `mitm capture-url` / `graphql` / `ws` / `block` / `allow` / `redact`, flags globais `--mitm*`, premissas de scrape multi-formato, `batch-scrape`/`crawl` `--engine browser`, `view --allow-empty`, recusa de PDF em branco, `page new --isolated-context`, `--handle-before-unload accept|dismiss`, e premissas de erro de usage clap em JSON
 - Se reverter de `0.1.3` para `0.1.2`, remova o uso de `sheet-write`, `sg-scan`, `sg-rewrite`, `find-paths --glob`, scripts `run` só em array JSON, chaves XDG de cache e premissas de `binary_source`
 - Se reverter de `0.1.2` para `0.1.1`, remova o uso de `print-pdf`, `monitor`, `qr`, `find-paths`, `parse --redact-pii`, `extract --llm` e as novas chaves de config

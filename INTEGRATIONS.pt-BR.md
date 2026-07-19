@@ -22,7 +22,8 @@
 - `0.1.1` adiciona `config` XDG, MITM local, journal de workflow e superfície local scrape/crawl/map/search/parse (`batch-scrape`, `crawl`, `map`, `search`, `parse`, `scrape` expandido)
 - `0.1.2` fecha gaps agent-first e adiciona `print-pdf`, `monitor`, `qr`, `find-paths`, tipos de documento no parse, extract LLM e chaves de config expandidas
 - `0.1.3` fecha residual-zero e contratos de agente: `run` NDJSON|array JSON, reload/beforeunload/init_script CDP, honestidade Redis/Lighthouse, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 comandos de topo; 53 tools DevTools e2e)
-- `0.1.4` fecha gaps agent-first: `--json-steps`, `wait` url/navigation/multi-seletor, `select-option`/`pick` (run/schema), assert `console_*`, `schema <cmd>` posicional, MITM `capture-url` + `--mitm*`, scrape multi-formato, batch/crawl `--engine browser`, `print-pdf` no `run` (61 comandos de topo; 53 tools DevTools e2e)
+- `0.1.4` fecha gaps agent-first: `--json-steps`, `wait` url/navigation/multi-seletor, `select-option`/`pick` (run/schema), assert `console_*`, `schema <cmd>` posicional, MITM `capture-url` + `--mitm*`, scrape multi-formato, batch/crawl `--engine browser`, `print-pdf` no `run`
+- `0.1.5` fecha residual-zero de disco (RES-01…12): BORN auto-GC de dirs Chromium Singleton-only em `/tmp` (piso de idade 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + campo de topo `residual` (`ResidualDiskReport`), nunca mata Chrome Flatpak do host; honestidade de inventário com `locale`/`man` (**63** nomes de agente via `commands --json`; clap de topo **61** sem `select-option`/`pick` standalone)
 - Ferramentas experimentais exigem `--experimental-vision` ou `--experimental-screencast`
 
 ## Tabela Resumo
@@ -109,3 +110,11 @@ echo "$out" | jaq -e '.ok == true'
   - Scrape multi-formato (`--format` repetível/CSV); `batch-scrape` e `crawl` aceitam `--engine browser` (default http)
   - `print-pdf` no multi-passo `run`; diálogo soft com `--if-present` (GAP-006)
   - Inventário de comandos com 61 nomes de topo (`commands --json`), incluindo `select-option` e `pick`
+- `0.1.5`:
+  - Higiene residual-zero de disco (product law: residual-zero de processo + disco)
+  - BORN auto-GC: `scavenge_stale_singleton_orphans` de dirs `/tmp` `org.chromium.Chromium.*` Singleton-only com mais de 60s
+  - FINALIZE dual scavenge + re-scan de dirs marker owned (prefixo `browser-automation-cli-chrome-`); nunca mata Chrome Flatpak do host
+  - Checagem doctor `residual_disk` + campo JSON de topo `residual` (`ResidualDiskReport`): `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+  - Gates locais de residual: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (somente local; sem requisito de CI)
+  - Honestidade de descoberta: inventário inclui `locale` e `man`
+  - Inventário: **63** nomes de agente via `commands --json` (inclui `locale`, `man`, `select-option`, `pick`); clap de topo **61** sem `select-option`/`pick` como standalone

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Named retry policy with budget, backoff, and jitter (rules_rust_retry_com_backoff / GAP-013).
 
 use std::time::Duration;

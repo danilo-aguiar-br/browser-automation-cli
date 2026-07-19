@@ -1,5 +1,15 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Accessibility tree and DOM snapshot builders for agents.
+//!
+//! # Workload
+//!
+//! **Mista:** multi-ref CDP resolve / href fetch use
+//! [`crate::concurrency::join_bounded`] (I/O). Tree construction, parent/child
+//! links, depth assignment, and ref minting are **sequential by design** (N-145):
+//! each step mutates shared indices; blind `par_iter` races. CPU map helpers
+//! apply only to independent post-passes when added with threshold.
 #![allow(missing_docs)]
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use serde_json::Value;
 
@@ -161,14 +171,15 @@ struct CursorElementInfo {
 }
 
 struct RoleNameTracker {
-    counts: HashMap<String, usize>,
+    /// Process-minted role:name keys — FxHashMap (not SipHash) for snapshot build.
+    counts: FxHashMap<String, usize>,
     entries: Vec<(usize, String)>,
 }
 
 impl RoleNameTracker {
     fn new() -> Self {
         Self {
-            counts: HashMap::new(),
+            counts: FxHashMap::default(),
             entries: Vec::new(),
         }
     }
@@ -182,7 +193,7 @@ impl RoleNameTracker {
         nth
     }
 
-    fn get_duplicates(&self) -> HashMap<String, usize> {
+    fn get_duplicates(&self) -> FxHashMap<String, usize> {
         self.counts
             .iter()
             .filter(|(_, &count)| count > 1)
@@ -197,7 +208,7 @@ pub async fn take_snapshot(
     options: &SnapshotOptions,
     ref_map: &mut RefMap,
     frame_id: Option<&str>,
-    iframe_sessions: &HashMap<String, String>,
+    iframe_sessions: &FxHashMap<String, String>,
 ) -> Result<String, String> {
     client
         .send_command_no_params("DOM.enable", Some(session_id))
@@ -337,7 +348,7 @@ pub async fn take_snapshot(
     let mut nodes_with_refs: Vec<(usize, usize)> = Vec::new();
 
     // Pre-collect cursor-interactive elements so we can mark them with refs during tree building
-    let cursor_elements: HashMap<i64, CursorElementInfo> =
+    let cursor_elements: FxHashMap<i64, CursorElementInfo> =
         find_cursor_interactive_elements(client, session_id)
             .await
             .unwrap_or_default();
@@ -417,26 +428,31 @@ pub async fn take_snapshot(
         if !link_nodes.is_empty() {
             // CDP has no batch resolve API, so we parallelize individual calls.
             // Phase 1: resolve all backend node IDs to JS object IDs in parallel.
-            let resolve_futs = link_nodes.iter().map(|&(idx, bid)| async move {
-                let resolved = client
-                    .send_command(
-                        "DOM.resolveNode",
-                        Some(serde_json::json!({ "backendNodeId": bid })),
-                        Some(session_id),
-                    )
-                    .await;
-                let obj_id = resolved.ok().and_then(|r| {
-                    r.get("object")
-                        .and_then(|o| o.get("objectId"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                });
-                (idx, obj_id)
-            });
+            // Bounded CDP fan-out (rules_rust_paralelismo: never unbounded join_all).
+            let cdp_limit = crate::concurrency::effective_limit_capped(32);
+            let resolve_futs: Vec<_> = link_nodes
+                .iter()
+                .map(|&(idx, bid)| async move {
+                    let resolved = client
+                        .send_command(
+                            "DOM.resolveNode",
+                            Some(serde_json::json!({ "backendNodeId": bid })),
+                            Some(session_id),
+                        )
+                        .await;
+                    let obj_id = resolved.ok().and_then(|r| {
+                        r.get("object")
+                            .and_then(|o| o.get("objectId"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    });
+                    (idx, obj_id)
+                })
+                .collect();
             let resolved: Vec<(usize, Option<String>)> =
-                futures_util::future::join_all(resolve_futs).await;
+                crate::concurrency::join_bounded(resolve_futs, cdp_limit).await;
 
-            // Phase 2: fetch hrefs for all resolved objects in parallel.
+            // Phase 2: fetch hrefs for all resolved objects (bounded).
             let href_futs: Vec<_> = resolved
                 .iter()
                 .filter_map(|(idx, obj_id)| {
@@ -465,7 +481,7 @@ pub async fn take_snapshot(
                 })
                 .collect();
             let hrefs: Vec<(usize, Option<String>)> =
-                futures_util::future::join_all(href_futs).await;
+                crate::concurrency::join_bounded(href_futs, cdp_limit).await;
 
             for (idx, href) in hrefs {
                 if let Some(url) = href {
@@ -602,7 +618,7 @@ async fn resolve_iframe_frame_id(
 async fn find_cursor_interactive_elements(
     client: &CdpClient,
     session_id: &str,
-) -> Result<HashMap<i64, CursorElementInfo>, String> {
+) -> Result<FxHashMap<i64, CursorElementInfo>, String> {
     // Single JS evaluation that matches the v0.19.0 Node.js findCursorInteractiveElements():
     // - Uses querySelectorAll('*') to walk all elements
     // - Checks getComputedStyle(el).cursor === 'pointer'
@@ -711,7 +727,7 @@ async fn find_cursor_interactive_elements(
         .unwrap_or_default();
 
     if elements.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(FxHashMap::default());
     }
 
     // Batch-resolve backendNodeIds: use DOM.getDocument to get the root nodeId,
@@ -747,7 +763,8 @@ async fn find_cursor_interactive_elements(
         .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
         .unwrap_or_default();
 
-    // Resolve backendNodeIds for each DOM node using concurrent CDP calls.
+    // Resolve backendNodeIds for each DOM node (bounded concurrent CDP).
+    let cdp_limit = crate::concurrency::effective_limit_capped(32);
     let describe_futures: Vec<_> = node_ids
         .iter()
         .map(|&node_id| {
@@ -759,10 +776,11 @@ async fn find_cursor_interactive_elements(
         })
         .collect();
 
-    let describe_results = futures_util::future::join_all(describe_futures).await;
+    let describe_results =
+        crate::concurrency::join_bounded_ordered(describe_futures, cdp_limit).await;
 
     // Build a map from data-__ab-ci index to backendNodeId.
-    let mut idx_to_backend: HashMap<usize, i64> = HashMap::new();
+    let mut idx_to_backend: FxHashMap<usize, i64> = FxHashMap::default();
     for desc in describe_results.into_iter().flatten() {
         let backend_id = desc
             .get("node")
@@ -802,13 +820,15 @@ async fn find_cursor_interactive_elements(
         )
         .await
     {
-        eprintln!(
-            "[browser-automation-cli] Warning: failed to clean up data-__ab-ci attributes: {e}"
+        tracing::warn!(
+            target: "browser_automation_cli::native::snapshot",
+            error = %e,
+            "failed to clean up data-__ab-ci attributes"
         );
     }
 
     // Build the map
-    let mut map: HashMap<i64, CursorElementInfo> = HashMap::new();
+    let mut map: FxHashMap<i64, CursorElementInfo> = FxHashMap::default();
     for (i, elem) in elements.iter().enumerate() {
         let backend_node_id = idx_to_backend.get(&i).copied();
 
@@ -893,7 +913,7 @@ async fn find_cursor_interactive_elements(
 /// the label to the correct input role so consumers see role="radio" in data.refs.
 fn promote_hidden_inputs(
     tree_nodes: &mut [TreeNode],
-    cursor_elements: &HashMap<i64, CursorElementInfo>,
+    cursor_elements: &FxHashMap<i64, CursorElementInfo>,
 ) {
     for node in tree_nodes.iter_mut() {
         if !matches!(node.role.as_str(), "LabelText" | "generic") {
@@ -920,7 +940,9 @@ fn promote_hidden_inputs(
 
 fn build_tree(nodes: &[AXNode]) -> (Vec<TreeNode>, Vec<usize>) {
     let mut tree_nodes: Vec<TreeNode> = Vec::with_capacity(nodes.len());
-    let mut id_to_idx: HashMap<String, usize> = HashMap::new();
+    // Known size → avoid rehash while indexing a11y nodes (perf rules: with_capacity).
+    let mut id_to_idx: FxHashMap<String, usize> =
+        FxHashMap::with_capacity_and_hasher(nodes.len(), Default::default());
 
     for (i, node) in nodes.iter().enumerate() {
         let role = extract_ax_string(&node.role);
@@ -1463,7 +1485,7 @@ mod tests {
         let iframe_frame_id = "cross-origin-iframe-frame";
         let iframe_session = "cross-origin-iframe-session";
 
-        let mut iframe_sessions = HashMap::new();
+        let mut iframe_sessions = FxHashMap::default();
         iframe_sessions.insert(iframe_frame_id.to_string(), iframe_session.to_string());
 
         let (params, session) =
@@ -1477,7 +1499,7 @@ mod tests {
     fn test_same_origin_iframe_uses_parent_session_with_frame_id() {
         let parent_session = "parent-session";
         let iframe_frame_id = "same-origin-iframe-frame";
-        let iframe_sessions = HashMap::new();
+        let iframe_sessions = FxHashMap::default();
 
         let (params, session) =
             resolve_ax_session(Some(iframe_frame_id), parent_session, &iframe_sessions);
@@ -1489,7 +1511,7 @@ mod tests {
     #[test]
     fn test_main_frame_uses_parent_session() {
         let parent_session = "parent-session";
-        let iframe_sessions = HashMap::new();
+        let iframe_sessions = FxHashMap::default();
 
         let (params, session) = resolve_ax_session(None, parent_session, &iframe_sessions);
 
@@ -1530,7 +1552,7 @@ mod tests {
             make_node("LabelText", "", Some(2)),
             make_node("button", "Submit", Some(3)),
         ];
-        let mut cursor_elements = HashMap::new();
+        let mut cursor_elements = FxHashMap::default();
         cursor_elements.insert(
             1,
             make_cursor_info(Some(HiddenInputKind::Radio), Some("false"), "Option A"),
@@ -1556,7 +1578,7 @@ mod tests {
     fn test_promote_preserves_existing_name() {
         // If AX tree already has a name, don't overwrite with textContent
         let mut nodes = vec![make_node("LabelText", "AX Name", Some(1))];
-        let mut cursor_elements = HashMap::new();
+        let mut cursor_elements = FxHashMap::default();
         cursor_elements.insert(
             1,
             make_cursor_info(Some(HiddenInputKind::Radio), Some("false"), "Text Content"),
@@ -1572,7 +1594,7 @@ mod tests {
     fn test_promote_skips_without_hidden_input() {
         // Cursor-interactive label WITHOUT a hidden input should not be promoted
         let mut nodes = vec![make_node("LabelText", "", Some(1))];
-        let mut cursor_elements = HashMap::new();
+        let mut cursor_elements = FxHashMap::default();
         cursor_elements.insert(1, make_cursor_info(None, None, "Click me"));
 
         promote_hidden_inputs(&mut nodes, &cursor_elements);

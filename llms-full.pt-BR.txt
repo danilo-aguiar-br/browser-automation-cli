@@ -27,9 +27,10 @@ Settings de produto são comandos, flags e XDG via `config path|init|show|set|ge
 - [CODE_OF_CONDUCT](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CODE_OF_CONDUCT.pt-BR.md): Contributor Covenant 2.1
 - [LICENSE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/LICENSE): ponteiro de dual license
 
-## Superfície de Comandos (v0.1.4)
-- Inventário completo (61 nomes de topo via `commands --json`): doctor, commands, schema, version, goto, view, press, click-at, write, keys, type, wait, hover, drag, fill-form, select-option, pick, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, extract, text, scroll, cookie, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, search, parse, qr, find-paths, sg-scan, sg-rewrite, sheet-write, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions
-- Descoberta: doctor (browsers_dir, origem lighthouse, cache_redis), commands, schema <cmd> ou schema --cmd (goto/eval/type/scroll/assert expandidos), version, completions
+## Superfície de Comandos (v0.1.5)
+- Inventário completo (**63** nomes de agente via `commands --json`): doctor, commands, schema, version, locale, goto, view, press, click-at, write, keys, type, wait, hover, drag, fill-form, select-option, pick, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, extract, text, scroll, cookie, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, search, parse, qr, find-paths, sg-scan, sg-rewrite, sheet-write, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions, man
+- Nota: `select-option` e `pick` são superfície multi-passo / schema (run/exec); não são subcomandos clap standalone (help clap de topo lista **61** sem eles)
+- Descoberta: doctor (browsers_dir, origem lighthouse, cache_redis, residual_disk + JSON residual ResidualDiskReport), commands, schema <cmd> ou schema --cmd (goto/eval/type/scroll/assert expandidos), version, locale, man, completions
 - Config XDG: config init|path|show|get|set|list-keys
   - Chaves (16): lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, log_to_file, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url
 - Navegação: goto, back, forward, reload (CDP Page.reload + ignoreCache; init_script removido após nav; handle_before_unload accept|dismiss via CDP)
@@ -44,7 +45,8 @@ Settings de produto são comandos, flags e XDG via `config path|init|show|set|ge
 - MITM local one-shot: mitm init-ca|start|status|list|get|har|export|domains|apis|capture-url|graphql|ws|block|allow|redact (127.0.0.1 only; CA sob XDG; flags globais --mitm*)
 - Workflow journal: workflow run|resume|status (SQLite journal sob XDG state)
 - Avançado: eval, emulate, resize, perf, lighthouse (flag→XDG lighthouse_path→PATH; binary_source real|mock), screencast, heap, extension, devtools3p, webmcp, run (NDJSON ou array JSON de passos; --json-steps; fail-fast pode devolver data.steps parciais), exec
-- Ciclo de vida: BORN, EXECUTE, FINALIZE faz scavenge de órfãos Chromium /tmp owned, DIE
+- Residual-zero de disco: BORN auto-GC (`scavenge_stale_singleton_orphans` de dirs `/tmp` org.chromium.Chromium.* Singleton-only com mais de 60s); FINALIZE dual scavenge + re-scan de dirs marker owned (prefixo `browser-automation-cli-chrome-`); nunca mata Chrome Flatpak do host; doctor residual_disk + campos residual cli_marker_dirs, chromium_tmp_singleton_orphans, scavenge_safe_candidates, live_cli_marker_processes; scripts locais residual-check.sh / residual-stress.sh
+- Ciclo de vida: BORN, EXECUTE, FINALIZE faz scavenge de órfãos Chromium /tmp owned, DIE; product law residual-zero de processo + disco
 - Lang: --lang pt-BR ou config set lang localiza sugestões humanas
 - e2e: 53 tools de paridade DevTools residual-zero
 

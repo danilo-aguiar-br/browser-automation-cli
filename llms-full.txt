@@ -27,10 +27,10 @@ Product settings are commands, flags, and XDG via `config path|init|show|set|get
 - [CODE_OF_CONDUCT](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CODE_OF_CONDUCT.md): Contributor Covenant 2.1
 - [LICENSE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/LICENSE): dual license pointer
 
-## Command Surface (v0.1.4)
-- Full inventory (61 agent names via `commands --json`): doctor, commands, schema, version, goto, view, press, click-at, write, keys, type, wait, hover, drag, fill-form, select-option, pick, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, extract, text, scroll, cookie, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, search, parse, qr, find-paths, sg-scan, sg-rewrite, sheet-write, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions
-- Note: `select-option` and `pick` are multi-step / schema surface (run/exec inventory); they are not standalone clap subcommands (clap top-level help lists 59 without them)
-- Discovery: doctor (browsers_dir, lighthouse source, cache_redis), commands, schema `<cmd>` or schema --cmd (goto/eval/type/scroll/assert/wait expanded), version, completions
+## Command Surface (v0.1.5)
+- Full inventory (**63** agent names via `commands --json`): doctor, commands, schema, version, locale, goto, view, press, click-at, write, keys, type, wait, hover, drag, fill-form, select-option, pick, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, extract, text, scroll, cookie, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, search, parse, qr, find-paths, sg-scan, sg-rewrite, sheet-write, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions, man
+- Note: `select-option` and `pick` are multi-step / schema surface (run/exec inventory); they are not standalone clap subcommands (clap top-level help lists **61** without them)
+- Discovery: doctor (browsers_dir, lighthouse source, cache_redis, residual_disk + residual JSON ResidualDiskReport), commands, schema `<cmd>` or schema --cmd (goto/eval/type/scroll/assert/wait expanded), version, locale, man, completions
 - Config XDG: config init|path|show|get|set|list-keys
   - Keys (16): lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, log_to_file, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url
 - Navigate: goto (--init-script, --handle-before-unload accept|dismiss, --navigation-timeout-ms), back, forward, reload (CDP Page.reload + ignoreCache; init_script removed after nav)
@@ -48,7 +48,8 @@ Product settings are commands, flags, and XDG via `config path|init|show|set|get
 - Workflow journal: workflow run|resume|status (SQLite journal under XDG state)
 - Advanced: eval, emulate, resize, perf, lighthouse (flag→XDG lighthouse_path→PATH; binary_source real|mock), screencast, heap, extension, devtools3p, webmcp
 - Multi-step: run (NDJSON or JSON array of steps; --json final envelope ok + steps[].data; --json-steps streams NDJSON per step; fail-fast may return partial data.steps), exec
-- Lifecycle: BORN, EXECUTE, FINALIZE scavenges owned Chromium /tmp orphans, DIE
+- Residual-zero disk hygiene: BORN auto-GC (`scavenge_stale_singleton_orphans` of `/tmp` org.chromium.Chromium.* Singleton-only dirs older than 60s); FINALIZE dual scavenge + re-scan of owned marker dirs (prefix `browser-automation-cli-chrome-`); never kills host Flatpak Chrome; doctor residual_disk + residual JSON fields cli_marker_dirs, chromium_tmp_singleton_orphans, scavenge_safe_candidates, live_cli_marker_processes; local scripts residual-check.sh / residual-stress.sh
+- Lifecycle: BORN, EXECUTE, FINALIZE scavenges owned Chromium /tmp orphans, DIE; product law residual-zero process + disk
 - Lang: --lang pt-BR or config set lang localizes human suggestions
 - e2e: 53 DevTools parity tools residual-zero
 - Clap: GlobalOpts Args+flatten; clap usage errors emit JSON when --json on argv; tests/clap_command_debug_assert.rs + parity_run_inventory

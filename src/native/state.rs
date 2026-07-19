@@ -1,3 +1,14 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Session state snapshots (storage, cookies, permissions).
+//!
+//! # Workload
+//!
+//! **Mista:** CDP collect is I/O-bound; disk encrypt/write/read/mkdir/rename use
+//! [`crate::concurrency`] blocking helpers (PAR-60/77/80/81) so Tokio workers are
+//! never pinned by `std::fs`. Multi-origin **load** is **sequential on one CDP
+//! session** (N-143): each origin requires `Page.navigate` before storage
+//! writes; parallel navigates on the same session race. List/clear/clean of few
+//! session files stay sequential (cost ≪ Rayon).
 #![allow(missing_docs)]
 use aes_gcm::{aead::Aead, aead::KeyInit, Aes256Gcm};
 use base64::Engine;
@@ -315,7 +326,10 @@ pub async fn save_state(
         Some(p) => p.to_string(),
         None => {
             let dir = get_sessions_dir();
-            let _ = fs::create_dir_all(&dir);
+            // PAR-81: mkdir off async worker.
+            crate::concurrency::create_dir_all_blocking(dir.clone())
+                .await
+                .map_err(|e| format!("Failed to create state directory {}: {e}", dir.display()))?;
             let name = session_name.unwrap_or("default");
             if !is_valid_session_name(name) {
                 return Err(session_name_error(name));
@@ -326,14 +340,17 @@ pub async fn save_state(
         }
     };
 
+    // PAR-60: disk write off the async worker (docsrs spawn_blocking / std::fs).
     if let Some(key) = crate::xdg::encryption_key() {
         let encrypted = encrypt_data(json_str.as_bytes(), &key)?;
         save_path.push_str(".enc");
-        fs::write(&save_path, &encrypted)
-            .map_err(|e| format!("Failed to write state to {}: {}", save_path, e))?;
+        crate::concurrency::write_bytes_blocking(PathBuf::from(&save_path), encrypted)
+            .await
+            .map_err(|e| format!("Failed to write state to {}: {e}", save_path))?;
     } else {
-        fs::write(&save_path, &json_str)
-            .map_err(|e| format!("Failed to write state to {}: {}", save_path, e))?;
+        crate::concurrency::write_bytes_blocking(PathBuf::from(&save_path), json_str.into_bytes())
+            .await
+            .map_err(|e| format!("Failed to write state to {}: {e}", save_path))?;
     }
 
     Ok(save_path)
@@ -351,17 +368,20 @@ pub async fn save_auto_state_transactional(
     }
 
     let dir = get_sessions_dir();
-    fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create state directory {}: {}", dir.display(), e))?;
+    // PAR-80: mkdir/rename off async worker.
+    crate::concurrency::create_dir_all_blocking(dir.clone())
+        .await
+        .map_err(|e| format!("Failed to create state directory {}: {e}", dir.display()))?;
 
     let tmp_dir = dir.join(".tmp");
-    fs::create_dir_all(&tmp_dir).map_err(|e| {
-        format!(
-            "Failed to create temporary state directory {}: {}",
-            tmp_dir.display(),
-            e
-        )
-    })?;
+    crate::concurrency::create_dir_all_blocking(tmp_dir.clone())
+        .await
+        .map_err(|e| {
+            format!(
+                "Failed to create temporary state directory {}: {e}",
+                tmp_dir.display()
+            )
+        })?;
 
     let base_name = format!("{}-{}", session_name, session_id_str);
     let final_json_path = dir.join(format!("{}.json", base_name));
@@ -387,34 +407,41 @@ pub async fn save_auto_state_transactional(
     )
     .await?;
 
-    if let Err(err) = validate_state_file(&candidate_path) {
+    let candidate_for_validate = candidate_path.clone();
+    if let Err(err) = tokio::task::spawn_blocking(move || validate_state_file(&candidate_for_validate))
+        .await
+        .map_err(|e| format!("state validate join: {e}"))?
+    {
         let _ = fs::remove_file(&candidate_path);
         return Err(err);
     }
 
     let previous_path = PathBuf::from(format!("{}.previous", final_path.to_string_lossy()));
-    if final_path.exists() {
+    let final_exists = final_path.exists();
+    if final_exists {
         let _ = fs::remove_file(&previous_path);
-        fs::rename(&final_path, &previous_path).map_err(|e| {
-            format!(
-                "Failed to rotate previous state {} to {}: {}",
-                final_path.display(),
-                previous_path.display(),
-                e
-            )
-        })?;
+        crate::concurrency::rename_blocking(final_path.clone(), previous_path.clone())
+            .await
+            .map_err(|e| {
+                format!(
+                    "Failed to rotate previous state {} to {}: {e}",
+                    final_path.display(),
+                    previous_path.display()
+                )
+            })?;
     }
 
     let candidate = PathBuf::from(&candidate_path);
-    if let Err(err) = fs::rename(&candidate, &final_path) {
+    if let Err(err) = crate::concurrency::rename_blocking(candidate.clone(), final_path.clone()).await
+    {
         if previous_path.exists() && !final_path.exists() {
-            let _ = fs::rename(&previous_path, &final_path);
+            let _ = crate::concurrency::rename_blocking(previous_path.clone(), final_path.clone())
+                .await;
         }
         return Err(format!(
-            "Failed to promote state {} to {}: {}",
+            "Failed to promote state {} to {}: {err}",
             candidate.display(),
-            final_path.display(),
-            err
+            final_path.display()
         ));
     }
     if previous_path.exists() {
@@ -457,16 +484,25 @@ fn read_state_json(path: &str) -> Result<String, String> {
 
 pub fn validate_state_file(path: &str) -> Result<(), String> {
     let json_str = read_state_json(path)?;
-    let _: StorageState =
-        serde_json::from_str(&json_str).map_err(|e| format!("Invalid state file: {}", e))?;
+    let _: StorageState = crate::json_util::from_str(&json_str)
+        .map_err(|e| format!("Invalid state file: {}", e))?;
     Ok(())
 }
 
-pub async fn load_state(client: &CdpClient, session_id: &str, path: &str) -> Result<(), String> {
-    let json_str = read_state_json(path)?;
+/// Async read of state JSON (PAR-77: disk off the async worker).
+async fn read_state_json_async(path: &str) -> Result<String, String> {
+    let path = path.to_string();
+    tokio::task::spawn_blocking(move || read_state_json(&path))
+        .await
+        .map_err(|e| format!("state read join: {e}"))?
+}
 
-    let state: StorageState =
-        serde_json::from_str(&json_str).map_err(|e| format!("Invalid state file: {}", e))?;
+pub async fn load_state(client: &CdpClient, session_id: &str, path: &str) -> Result<(), String> {
+    // PAR-77: never fs::read on async worker for state restore.
+    let json_str = read_state_json_async(path).await?;
+
+    let state: StorageState = crate::json_util::from_str(&json_str)
+        .map_err(|e| format!("Invalid state file: {}", e))?;
 
     // Load cookies
     if !state.cookies.is_empty() {
@@ -478,7 +514,8 @@ pub async fn load_state(client: &CdpClient, session_id: &str, path: &str) -> Res
         cookies::set_cookies(client, session_id, cookie_values, None).await?;
     }
 
-    // Load storage per origin
+    // Load storage per origin — sequential by design (N-143 / PAR-54):
+    // single CDP session cannot navigate multiple origins concurrently.
     for origin in &state.origins {
         if origin.local_storage.is_empty() && origin.session_storage.is_empty() {
             continue;
@@ -611,8 +648,8 @@ pub fn state_show(path: &str) -> Result<Value, String> {
         fs::read_to_string(path).map_err(|e| format!("Failed to read state file: {}", e))?
     };
 
-    let state: StorageState =
-        serde_json::from_str(&json_str).map_err(|e| format!("Invalid state file: {}", e))?;
+    let state: StorageState = crate::json_util::from_str(&json_str)
+        .map_err(|e| format!("Invalid state file: {}", e))?;
 
     let metadata = fs::metadata(path).ok();
     let filename = std::path::Path::new(path)
@@ -717,25 +754,34 @@ pub fn state_rename(old_path: &str, new_name: &str) -> Result<Value, String> {
 }
 
 fn encrypt_data(data: &[u8], key_str: &str) -> Result<Vec<u8>, String> {
+    use zeroize::Zeroize;
+
     let mut hasher = Sha256::new();
     hasher.update(key_str.as_bytes());
-    let key_bytes = hasher.finalize();
-    let cipher =
-        Aes256Gcm::new_from_slice(&key_bytes).map_err(|e| format!("Invalid key: {}", e))?;
+    // Materialize as owned array so we can zeroize after use (rules: secrets).
+    let mut key_bytes: [u8; 32] = hasher.finalize().into();
+    let result = (|| {
+        let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+            .map_err(|e| format!("Invalid key: {}", e))?;
 
-    let mut nonce = [0u8; 12];
-    getrandom::getrandom(&mut nonce).map_err(|e| format!("Failed to generate nonce: {}", e))?;
-    let ciphertext = cipher
-        .encrypt(aes_gcm::Nonce::from_slice(&nonce), data)
-        .map_err(|e| format!("Encryption failed: {}", e))?;
+        let mut nonce = [0u8; 12];
+        getrandom::getrandom(&mut nonce).map_err(|e| format!("Failed to generate nonce: {}", e))?;
+        let ciphertext = cipher
+            .encrypt(aes_gcm::Nonce::from_slice(&nonce), data)
+            .map_err(|e| format!("Encryption failed: {}", e))?;
 
-    let mut result = Vec::with_capacity(12 + ciphertext.len());
-    result.extend_from_slice(&nonce);
-    result.extend_from_slice(&ciphertext);
-    Ok(result)
+        let mut result = Vec::with_capacity(12 + ciphertext.len());
+        result.extend_from_slice(&nonce);
+        result.extend_from_slice(&ciphertext);
+        Ok(result)
+    })();
+    key_bytes.zeroize();
+    result
 }
 
 fn decrypt_data(data: &[u8], key_str: &str) -> Result<Vec<u8>, String> {
+    use zeroize::Zeroize;
+
     if data.len() < 13 {
         return Err("Ciphertext too short".to_string());
     }
@@ -743,13 +789,16 @@ fn decrypt_data(data: &[u8], key_str: &str) -> Result<Vec<u8>, String> {
 
     let mut hasher = Sha256::new();
     hasher.update(key_str.as_bytes());
-    let key_bytes = hasher.finalize();
-    let cipher =
-        Aes256Gcm::new_from_slice(&key_bytes).map_err(|e| format!("Invalid key: {}", e))?;
-    let plaintext = cipher
-        .decrypt(aes_gcm::Nonce::from_slice(nonce_bytes), ciphertext)
-        .map_err(|e| format!("Decryption failed: {}", e))?;
-    Ok(plaintext)
+    let mut key_bytes: [u8; 32] = hasher.finalize().into();
+    let result = (|| {
+        let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+            .map_err(|e| format!("Invalid key: {}", e))?;
+        cipher
+            .decrypt(aes_gcm::Nonce::from_slice(nonce_bytes), ciphertext)
+            .map_err(|e| format!("Decryption failed: {}", e))
+    })();
+    key_bytes.zeroize();
+    result
 }
 
 pub fn find_auto_state_file(session_name: &str) -> Option<String> {

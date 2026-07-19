@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! XDG Base Directory layout for browser-automation-cli (no `.env` at runtime).
 //!
 //! Canonical product paths use the `directories` crate:
@@ -202,18 +203,24 @@ pub fn load_config() -> Result<ProductConfig, CliError> {
     if !path.exists() {
         return Ok(ProductConfig::default());
     }
+    // Minimal TOML subset via serde if we add toml; otherwise JSON fallback.
+    // Prefer JSON if file ends with .json — primary is TOML via line parse for keys we need.
+    // JSON path: BOM-aware + size-limited (RFC 8259 strict; no JSON5 on machine path).
+    if path.extension().and_then(|e| e.to_str()) == Some("json") {
+        return crate::json_util::read_json_file(&path, crate::json_util::MAX_JSON_FILE_BYTES)
+            .map_err(|e| {
+                CliError::new(
+                    ErrorKind::Data,
+                    format!("invalid config JSON: {}", e.message()),
+                )
+            });
+    }
     let raw = fs::read_to_string(&path).map_err(|e| {
         CliError::new(
             ErrorKind::Io,
             format!("read config {}: {e}", path.display()),
         )
     })?;
-    // Minimal TOML subset via serde if we add toml; otherwise JSON fallback.
-    // Prefer JSON if file ends with .json — primary is TOML via line parse for keys we need.
-    if path.extension().and_then(|e| e.to_str()) == Some("json") {
-        return serde_json::from_str(&raw)
-            .map_err(|e| CliError::new(ErrorKind::Data, format!("invalid config JSON: {e}")));
-    }
     parse_simple_toml(&raw)
 }
 

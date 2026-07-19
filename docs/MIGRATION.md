@@ -112,7 +112,8 @@ High-level GAP fixes and surface growth landed in `0.1.2`:
 
 
 ## 0.1.2 → 0.1.3
-Hard-close residual-zero, Redis/Lighthouse honesty, and PRD write/lint surface landed in `0.1.3`:
+Hard-close residual process/tmp scavenger (A001–A002), Redis/Lighthouse honesty, and PRD write/lint surface landed in `0.1.3`.
+Canonical residual-zero disk product law (BORN Singleton GC age ≥ 60s, FINALIZE dual scavenge, doctor `residual_disk`) is `0.1.5` — see section 0.1.4 → 0.1.5.
 
 ### Residual e2e and scavenger (A001–A002)
 - Residual e2e measurement no longer self-matches; pipefail-safe residual harness
@@ -228,6 +229,38 @@ Hard-close GAP-001…025 for agent-first observability, wait/assert depth, MITM 
 ### Config keys (unchanged full list of 16 in 0.1.4)
 - `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 
+
+## 0.1.4 → 0.1.5
+Hard-close residual-zero **disk** hygiene (RES-01…12, Pass 27) and meta discovery surface:
+
+### Residual-zero disk (process + Singleton GC)
+- Product law residual-zero extends from process/marker to Chromium tmp disk hygiene
+- **BORN** automatic cross-run GC: `scavenge_stale_singleton_orphans` wipes owned Singleton-only `/tmp/org.chromium.Chromium.*` (and hidden `.org.chromium.Chromium.*`) older than **60s** with no live holder
+- **FINALIZE** dual scavenge: invocation-window side-channels + stale Singleton GC
+- Host Flatpak Chrome temp prefixes (`com.google.Chrome.*`) are **never** deleted by product GC
+- Public residual constants (marker prefix, age floor, size caps) for anti-hardcode
+
+### Doctor residual surface
+- New check id: `residual_disk` (path-light; no Chrome launch for the report itself)
+- Top-level doctor JSON field: `residual` (`ResidualDiskReport`)
+- Fields: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Status: `fail` if live marker processes; `warn` if marker dirs or singleton orphans remain; else `pass`
+
+### Inventory and meta commands
+- Live inventory is **63** agent names via `commands --json`
+- Clap top-level help lists **61** without `select-option` / `pick` as standalone
+- Meta already in binary and inventory: `locale` (UI locale diagnostics), `man` (roff via clap_mangen; no Chrome)
+- DevTools tool-ref e2e remains **53 tools**
+
+### Local residual gates (no CI/GHA requirement)
+- Integration: `tests/residual_one_shot.rs`
+- Maintainer scripts: `scripts/residual-check.sh`, `scripts/residual-stress.sh`
+- Library residual unit coverage under `cargo test --lib residual::`
+
+### Config keys (unchanged full list of 16 in 0.1.5)
+- `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
+- Language still flags + XDG only: `--lang` or `config set lang` (no product env catalogs)
+
 ## Step-by-Step Migration
 ### From any older tree to 0.1.1
 - Install or rebuild the binary for at least `0.1.1`
@@ -293,6 +326,23 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Confirm inventory with `commands --json` (61) and regenerate schemas if packaging docs
 - Re-run local validation: `cargo test --lib`, `parity_run_inventory`, `clap_command_debug_assert`, e2e 53-tool script, residual smokes
 
+### From 0.1.4 to 0.1.5
+- Rebuild/install `0.1.5`
+- Expect residual-zero disk after every one-shot: BORN + FINALIZE scavenge Singleton-only Chromium tmp
+- Parse doctor JSON for top-level `residual` and check `residual_disk` when diagnosing leaks
+- Do not rely on residual GC wiping host Flatpak Chrome temp (never targeted)
+- Discover meta commands: `locale`, `man` (already in inventory; confirm with `commands --json`)
+- Confirm inventory with `commands --json` (**63**) and regenerate schemas if packaging docs
+- Prefer residual gates when validating browser paths:
+```bash
+cargo test --lib residual:: --locked
+cargo test --test residual_one_shot --locked
+bash scripts/residual-check.sh
+# optional: bash scripts/residual-stress.sh
+```
+- Language and all product settings remain flags + XDG only (`--lang` / `config set lang`)
+- Re-run local validation: `cargo test --lib`, residual suite above, `parity_run_inventory`, `clap_command_debug_assert`, e2e 53-tool script
+
 ## JSON Schema Changes
 - Before: free-form prose or ad-hoc JSON without `schema_version`
 - After success:
@@ -311,6 +361,7 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - v0.1.2 static additions include `print-pdf`, `monitor`, `qr`, `find-paths` (regenerate with the generator)
 - v0.1.3 static additions include `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths` gains `glob`; config keys include cache/log_to_file
 - v0.1.4: wait/assert/schema/run fragments expand for multi-selector, url wait, console asserts, json-steps; inventory adds `select-option`/`pick` as run/schema names
+- v0.1.5: doctor residual report fields; inventory adds `locale` / `man` (meta); residual-zero disk contract
 - Prefer live `schema <cmd>` after upgrades to confirm the installed binary
 
 
@@ -324,11 +375,14 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Exit codes stay sysexits-style: `0`, `2`, `65`, `66`, `69`, `70`, `74`, `78`, `124`, `130`, `141`
 - Agents that assumed `batch-scrape` was HTTP-only must accept optional `--engine browser` in 0.1.4
 - Agents that treated `select-option`/`pick` as clap subcommands must use `run`/`exec` steps instead
+- Agents that only checked process residual in 0.1.3/0.1.4 should also parse doctor `residual` disk fields in 0.1.5
+- Inventory size moves 61 → **63** (`locale`, `man`)
 
 
 ## Rollback
 - Pin to the previous local commit or installed binary path
 - Keep scripts compatible with the success envelope fields `ok` and `schema_version`
+- If rolling back from `0.1.5` to `0.1.4`, remove assumptions that doctor always emits top-level `residual` / check `residual_disk`, that BORN auto-GCs stale Singleton tmp older than 60s, that inventory is 63, and that `locale`/`man` are always present in older trees without those cmds
 - If rolling back from `0.1.4` to `0.1.3`, remove use of `--json-steps`, wait `url`/`url_contains`/`navigation`, multi-selector wait arrays, `select-option`/`pick` steps, assert `console_empty`/`console_no_match`, `schema <cmd>` positional-only flows, `mitm capture-url` / `graphql` / `ws` / `block` / `allow` / `redact`, global `--mitm*` flags, multi-format scrape assumptions, `batch-scrape`/`crawl` `--engine browser`, `view --allow-empty`, and clap-JSON-usage-error assumptions
 - If rolling back from `0.1.3` to `0.1.2`, remove use of `sheet-write`, `sg-scan`, `sg-rewrite`, `find-paths --glob`, JSON-array-only `run` scripts, cache XDG keys, and `binary_source` assumptions
 - If rolling back from `0.1.2` to `0.1.1`, remove use of `print-pdf`, `monitor`, `qr`, `find-paths`, `parse --redact-pii`, `extract --llm`, and the new config keys

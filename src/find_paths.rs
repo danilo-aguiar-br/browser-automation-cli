@@ -1,8 +1,18 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One-shot filesystem path discovery (`find-paths`, fd-like UX; no Chrome).
+//!
+//! # Workload
+//!
+//! **I/O-bound** directory walk. Parallelism via `ignore::WalkBuilder::threads`
+//! sized to [`crate::concurrency::walk_threads`] (respects `--max-concurrency`;
+//! never unbounded spawn). Multi-root walks use Rayon `flat_map` + collect when
+//! N>1 (**PAR-95:** no `Mutex` on the fan-out path — same pattern as `sg`).
+//! Filtering is cheap per entry.
 
 use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
+use rayon::prelude::*;
 use regex::RegexBuilder;
 use serde_json::{json, Value};
 
@@ -49,6 +59,7 @@ impl Default for FindPathsOpts {
 
 /// Walk roots and return matching paths (one-shot).
 pub fn find_paths(opts: &FindPathsOpts) -> Result<Value, CliError> {
+    crate::concurrency::install_rayon_pool_once();
     let roots = if opts.roots.is_empty() {
         vec![PathBuf::from(".")]
     } else {
@@ -66,8 +77,10 @@ pub fn find_paths(opts: &FindPathsOpts) -> Result<Value, CliError> {
                 })?,
         )
     };
-    let mut paths = Vec::new();
-    for root in &roots {
+    let walk_threads = crate::concurrency::walk_threads();
+    // PAR-95: each root collects into a local Vec; multi-root uses flat_map+collect
+    // (no Mutex on the parallel fan-out path).
+    let walk_one = |root: &PathBuf| -> Vec<String> {
         let mut builder = WalkBuilder::new(root);
         builder.hidden(!opts.hidden);
         builder.git_ignore(!opts.no_ignore);
@@ -77,12 +90,12 @@ pub fn find_paths(opts: &FindPathsOpts) -> Result<Value, CliError> {
         if let Some(d) = opts.max_depth {
             builder.max_depth(Some(d));
         }
-        builder.threads(
-            std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(2),
-        );
+        builder.threads(walk_threads);
+        let mut local = Vec::new();
         for entry in builder.build() {
+            if opts.limit > 0 && local.len() >= opts.limit {
+                break;
+            }
             let entry = match entry {
                 Ok(e) => e,
                 Err(_) => continue,
@@ -115,14 +128,17 @@ pub fn find_paths(opts: &FindPathsOpts) -> Result<Value, CliError> {
                     continue;
                 }
             }
-            paths.push(path.display().to_string());
-            if opts.limit > 0 && paths.len() >= opts.limit {
-                break;
-            }
+            local.push(path.display().to_string());
         }
-        if opts.limit > 0 && paths.len() >= opts.limit {
-            break;
-        }
+        local
+    };
+    let mut paths: Vec<String> = if roots.len() <= 1 {
+        roots.iter().flat_map(walk_one).collect()
+    } else {
+        roots.par_iter().flat_map(walk_one).collect()
+    };
+    if opts.limit > 0 && paths.len() > opts.limit {
+        paths.truncate(opts.limit);
     }
     Ok(json!({
         "count": paths.len(),
@@ -131,6 +147,9 @@ pub fn find_paths(opts: &FindPathsOpts) -> Result<Value, CliError> {
         "glob": opts.glob,
         "engine": "ignore",
         "chrome": false,
+        "walk_threads": walk_threads,
+        "roots_parallel": roots.len() > 1,
+        "concurrency": crate::concurrency::effective_limit(),
     }))
 }
 
@@ -150,36 +169,26 @@ fn glob_match(pattern: &str, path: &Path) -> bool {
 }
 
 fn glob_match_str(pattern: &str, text: &str) -> bool {
-    // Convert simple glob → regex (case-insensitive).
+    // Convert shell glob to a simple regex (no full globset dep for MVP).
     let mut re = String::from("(?i)^");
-    let chars: Vec<char> = pattern.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        match chars[i] {
-            '*' if i + 1 < chars.len() && chars[i + 1] == '*' => {
-                re.push_str(".*");
-                i += 2;
-                if i < chars.len() && chars[i] == '/' {
-                    i += 1;
+    let mut chars = pattern.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '*' => {
+                if chars.peek() == Some(&'*') {
+                    chars.next();
+                    // `**` → match across path separators
+                    re.push_str(".*");
+                } else {
+                    re.push_str("[^/]*");
                 }
             }
-            '*' => {
-                re.push_str("[^/]*");
-                i += 1;
-            }
-            '?' => {
-                re.push_str("[^/]");
-                i += 1;
-            }
+            '?' => re.push_str("[^/]"),
             '.' | '+' | '(' | ')' | '|' | '^' | '$' | '{' | '}' | '[' | ']' | '\\' => {
                 re.push('\\');
-                re.push(chars[i]);
-                i += 1;
-            }
-            c => {
                 re.push(c);
-                i += 1;
             }
+            other => re.push(other),
         }
     }
     re.push('$');

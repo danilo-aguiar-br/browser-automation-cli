@@ -1,13 +1,21 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Network interception, request logs, and console error tracking.
+//!
+//! # Workload
+//!
+//! **I/O-bound** CDP. Multi-page `about:blank` sanitize fans out with
+//! [`crate::concurrency::join_bounded`]. Domain allow-lists are small and
+//! sequential (cost ≪ overhead).
 #![allow(missing_docs)]
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use super::cdp::client::CdpClient;
 
 pub async fn set_extra_headers(
     client: &CdpClient,
     session_id: &str,
-    headers: &HashMap<String, String>,
+    headers: &FxHashMap<String, String>,
 ) -> Result<(), String> {
     let headers_value: Value = headers
         .iter()
@@ -166,24 +174,39 @@ pub async fn sanitize_existing_pages(
     pages: &[super::browser::PageInfo],
     filter: &DomainFilter,
 ) {
-    for page in pages {
-        if page.url.is_empty() || page.url == "about:blank" {
-            continue;
-        }
-        if let Ok(parsed) = url::Url::parse(&page.url) {
-            if let Some(hostname) = parsed.host_str() {
-                if !filter.is_allowed(hostname) {
-                    let _ = client
-                        .send_command(
-                            "Page.navigate",
-                            Some(json!({ "url": "about:blank" })),
-                            Some(&page.session_id),
-                        )
-                        .await;
-                }
+    // Multi-page navigate is I/O-bound CDP — fan-out with join_bounded (Semaphore).
+    let to_blank: Vec<&super::browser::PageInfo> = pages
+        .iter()
+        .filter(|page| {
+            if page.url.is_empty() || page.url == "about:blank" {
+                return false;
             }
-        }
+            url::Url::parse(&page.url)
+                .ok()
+                .and_then(|u| u.host_str().map(|h| h.to_string()))
+                .is_some_and(|hostname| !filter.is_allowed(&hostname))
+        })
+        .collect();
+    if to_blank.is_empty() {
+        return;
     }
+    let cdp_limit = crate::concurrency::effective_limit_capped(32);
+    let futs: Vec<_> = to_blank
+        .iter()
+        .map(|page| {
+            let sid = page.session_id.as_str();
+            async move {
+                let _ = client
+                    .send_command(
+                        "Page.navigate",
+                        Some(json!({ "url": "about:blank" })),
+                        Some(sid),
+                    )
+                    .await;
+            }
+        })
+        .collect();
+    let _ = crate::concurrency::join_bounded(futs, cdp_limit).await;
 }
 
 pub async fn install_domain_filter_script(

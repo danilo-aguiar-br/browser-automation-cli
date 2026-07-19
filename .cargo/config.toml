@@ -1,0 +1,19 @@
+# Local cargo config (rules_rust_eficiencia_e_performance).
+#
+# - mold: faster link on Linux host builds (dev loop). Runtime binary is
+#   independent of the linker used to produce it.
+# - Do NOT set rustflags = ["-C", "target-cpu=native"] here for the default
+#   build: crates.io / multi-machine distribution must stay portable (x86-64
+#   baseline). For a dedicated local turbo build, export:
+#     RUSTFLAGS="-C target-cpu=native" cargo build --release
+#
+# CI/GHA is intentionally NOT configured in this repo (product / user policy).
+
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+# Prefer absolute mold when present; falls back if host overrides config.
+rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/mold"]
+
+[target.aarch64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/mold"]

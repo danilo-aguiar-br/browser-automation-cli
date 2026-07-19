@@ -3,13 +3,14 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/doctor.schema.json",
   "title": "doctor command input",
   "type": "object",
-  "description": "Diagnose local Chrome install and one-shot readiness",
+  "description": "Diagnose local Chrome install and one-shot readiness. Success envelopes may include top-level residual (ResidualDiskReport) and check residual_disk (cli_marker_dirs, chromium_tmp_singleton_orphans, scavenge_safe_candidates, live_cli_marker_processes).",
   "properties": {
     "fix": {
       "description": "Apply safe repairs when possible",
       "type": "boolean"
     },
     "json": {
+      "description": "Global envelope flag --json (not a local doctor flag)",
       "type": "boolean"
     },
     "offline": {

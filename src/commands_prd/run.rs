@@ -1,4 +1,11 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `run --script` — multi-step NDJSON or JSON array, one launch, fail-fast (layers A+B).
+//!
+//! # Workload
+//!
+//! **Sequential by design (N-134):** script steps run in order with fail-fast.
+//! Internal steps may call parallel callees (scrape/http, filters) under the
+//! process concurrency budget. Never parallelize the step loop itself.
 
 use std::path::Path;
 
@@ -99,6 +106,10 @@ pub const INTENTIONAL_RUN_EXCLUDE: &[(&str, &str)] = &[
         "shell completions; not a browser step",
     ),
     (
+        "man",
+        "man page generation; not a browser step",
+    ),
+    (
         "mitm",
         "MITM is a separate one-shot surface; use mitm capture-url or --mitm with browser cmds",
     ),
@@ -166,7 +177,13 @@ pub fn run_supported_suggestion() -> String {
 }
 
 /// Parse a `run` script body as NDJSON objects and/or a top-level JSON array (GAP-A003).
+///
+/// Rules (`rules_rust_json_e_ndjson`):
+/// - BOM-aware; LF-delimited NDJSON; one complete JSON value per line
+/// - Per-line size ceiling ([`crate::json_util::MAX_NDJSON_LINE_BYTES`])
+/// - No pretty-print mixing; root of each step must be an object after normalize
 pub fn parse_run_script(text: &str) -> Result<Vec<Value>, CliError> {
+    let text = crate::json_util::strip_utf8_bom(text);
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
@@ -174,7 +191,7 @@ pub fn parse_run_script(text: &str) -> Result<Vec<Value>, CliError> {
 
     // Whole-file JSON array (common agent shape).
     if trimmed.starts_with('[') {
-        match serde_json::from_str::<Value>(trimmed) {
+        match crate::json_util::value_from_str(trimmed) {
             Ok(Value::Array(items)) => {
                 return normalize_step_values(items, "script array");
             }
@@ -205,7 +222,8 @@ pub fn parse_run_script(text: &str) -> Result<Vec<Value>, CliError> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let v: Value = serde_json::from_str(line).map_err(|e| {
+        crate::json_util::check_ndjson_line_len(line, lineno + 1)?;
+        let v: Value = crate::json_util::value_from_str(line).map_err(|e| {
             CliError::with_suggestion(
                 ErrorKind::Data,
                 format!("script line {}: invalid JSON: {e}", lineno + 1),
@@ -308,6 +326,23 @@ mod parse_script_tests {
         let steps = parse_run_script(text).unwrap();
         assert_eq!(steps.len(), 1);
     }
+
+    #[test]
+    fn parses_ndjson_with_utf8_bom() {
+        let text = "\u{FEFF}{\"cmd\":\"goto\",\"url\":\"https://example.com\"}\n";
+        let steps = parse_run_script(text).unwrap();
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0]["cmd"], "goto");
+    }
+
+    #[test]
+    fn rejects_oversized_ndjson_line() {
+        let huge = format!(
+            "{{\"cmd\":\"eval\",\"expression\":\"{}\"}}",
+            "x".repeat(crate::json_util::MAX_NDJSON_LINE_BYTES)
+        );
+        assert!(parse_run_script(&huge).is_err());
+    }
 }
 
 /// Feature flags for multi-step `run` (mirrors global CLI gates).
@@ -321,6 +356,8 @@ pub struct RunFlags {
     pub category_webmcp: bool,
     /// GAP-020: emit one NDJSON line per step on stdout during run.
     pub json_steps: bool,
+    /// Per-step wall-clock timeout seconds (0 = no per-step override).
+    pub step_timeout_secs: u64,
 }
 
 impl RunFlags {
@@ -333,6 +370,7 @@ impl RunFlags {
         category_third_party: bool,
         category_webmcp: bool,
         json_steps: bool,
+        step_timeout_secs: u64,
     ) -> Self {
         Self {
             experimental_vision,
@@ -342,6 +380,7 @@ impl RunFlags {
             category_third_party,
             category_webmcp,
             json_steps,
+            step_timeout_secs,
         }
     }
 }
@@ -354,12 +393,20 @@ pub async fn run_script_with_flags(
     capture: CaptureOpts,
     flags: RunFlags,
 ) -> Result<Value, CliError> {
-    let text = std::fs::read_to_string(script_path).map_err(|e| {
-        CliError::with_suggestion(
-            ErrorKind::NoInput,
-            format!("cannot read script {}: {e}", script_path.display()),
-            "Pass an existing NDJSON/JSONL or JSON-array file to --script",
-        )
+    let text = crate::json_util::read_text_file_limited(
+        script_path,
+        crate::json_util::MAX_JSON_FILE_BYTES,
+    )
+    .map_err(|e| {
+        if e.kind() == ErrorKind::Io || e.kind() == ErrorKind::NoInput {
+            CliError::with_suggestion(
+                ErrorKind::NoInput,
+                format!("cannot read script {}: {}", script_path.display(), e.message()),
+                "Pass an existing NDJSON/JSONL or JSON-array file to --script",
+            )
+        } else {
+            e
+        }
     })?;
 
     // GAP-A003: accept NDJSON (one object per line) OR a single JSON array of steps.
@@ -374,20 +421,48 @@ pub async fn run_script_with_flags(
     }
 
     let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-    if let Ok(mut ledger) = life.ledger.lock() {
-        ledger.chrome_launched = true;
-        ledger.chrome_pid = session.chrome_pid();
-    }
+    life.record_chrome(session.chrome_pid());
 
     let mut results: Vec<Value> = Vec::new();
     for (idx, step) in steps.iter().enumerate() {
+        // Cooperative cancel between steps (SIGINT/SIGTERM → exit 130).
+        if life.is_cancelled() {
+            let _ = session.shutdown().await;
+            life.clear_chrome();
+            return Err(CliError::with_suggestion(
+                ErrorKind::Cancelled,
+                "cancelled by signal (SIGINT/SIGTERM) between run steps",
+                "Re-run the command; previous invocation was interrupted (exit 130)",
+            ));
+        }
+
         let cmd = step
             .get("cmd")
             .or_else(|| step.get("action"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let step_res = execute_step(&mut session, cmd, step, robots, flags).await;
+        let step_fut = execute_step(&mut session, cmd, step, robots, flags);
+        let step_res = if flags.step_timeout_secs > 0 {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(flags.step_timeout_secs),
+                step_fut,
+            )
+            .await
+            {
+                Ok(inner) => inner,
+                Err(_) => Err(CliError::with_suggestion(
+                    ErrorKind::Timeout,
+                    format!(
+                        "run step {idx} cmd={cmd} exceeded --step-timeout {}s",
+                        flags.step_timeout_secs
+                    ),
+                    "Raise --step-timeout / --timeout or split the script",
+                )),
+            }
+        } else {
+            step_fut.await
+        };
         match step_res {
             Ok(data) => {
                 let row = json!({
@@ -399,19 +474,15 @@ pub async fn run_script_with_flags(
                     "result": data,
                 });
                 // GAP-020: stream NDJSON per step when --json-steps is set.
+                // Compact encode only; propagate encode errors (never swallow).
                 if flags.json_steps {
-                    if let Ok(line) = serde_json::to_string(&row) {
-                        println!("{line}");
-                    }
+                    crate::output::write_json_line_ser(&row)?;
                 }
                 results.push(row);
             }
             Err(e) => {
                 let _ = session.shutdown().await;
-                if let Ok(mut ledger) = life.ledger.lock() {
-                    ledger.chrome_launched = false;
-                    ledger.chrome_pid = None;
-                }
+                life.clear_chrome();
                 // Fail-fast keeps partial steps so agents retain context (GAP-006/016).
                 let row = json!({
                     "index": idx,
@@ -425,9 +496,7 @@ pub async fn run_script_with_flags(
                     }
                 });
                 if flags.json_steps {
-                    if let Ok(line) = serde_json::to_string(&row) {
-                        println!("{line}");
-                    }
+                    crate::output::write_json_line_ser(&row)?;
                 }
                 results.push(row);
                 return Ok(json!({
@@ -448,10 +517,7 @@ pub async fn run_script_with_flags(
     }
 
     let close = session.shutdown().await;
-    if let Ok(mut ledger) = life.ledger.lock() {
-        ledger.chrome_launched = false;
-        ledger.chrome_pid = None;
-    }
+    life.clear_chrome();
     close?;
 
     // GAP-020: final envelope always includes per-step results for --json agents.
@@ -643,7 +709,7 @@ async fn execute_step(
                     CliError::new(ErrorKind::Usage, "fill-form requires fields array or json")
                 })?;
             let items = if let Some(s) = arr.as_str() {
-                serde_json::from_str::<Value>(s).map_err(|e| {
+                crate::json_util::value_from_str(s).map_err(|e| {
                     CliError::new(ErrorKind::Usage, format!("fill-form json: {e}"))
                 })?
             } else {
@@ -755,6 +821,7 @@ async fn execute_step(
         "view" => {
             let verbose = step
                 .get("verbose")
+                .or_else(|| step.get("detailed"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             let allow_empty = step
@@ -1101,7 +1168,7 @@ async fn execute_step(
                         .ok_or_else(|| {
                             CliError::new(ErrorKind::Usage, "console dump requires path")
                         })?;
-                    session.console_dump(Path::new(path))
+                    session.console_dump(Path::new(path)).await
                 }
                 other => Err(CliError::new(
                     ErrorKind::Usage,
@@ -1161,7 +1228,7 @@ async fn execute_step(
                         .get("response_path")
                         .and_then(|v| v.as_str())
                         .map(Path::new);
-                    session.net_get(&id, request_path, response_path)
+                    session.net_get(&id, request_path, response_path).await
                 }
                 other => Err(CliError::new(
                     ErrorKind::Usage,
@@ -1786,7 +1853,8 @@ pub fn argv_to_step(args: &[String]) -> Result<Value, CliError> {
                         obj.insert("ms".into(), json!(n));
                     }
                 }
-                "view" if a == "verbose" => {
+                // CLI flag is --detailed; JSON/tool-ref key remains verbose.
+                "view" if a == "verbose" || a == "detailed" || a == "--detailed" => {
                     obj.insert("verbose".into(), json!(true));
                 }
                 "net" | "page" | "console" | "dialog" | "perf" | "heap" | "extension"
@@ -1824,10 +1892,7 @@ pub async fn run_one_step(
     flags: RunFlags,
 ) -> Result<Value, CliError> {
     let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
-    if let Ok(mut ledger) = life.ledger.lock() {
-        ledger.chrome_launched = true;
-        ledger.chrome_pid = session.chrome_pid();
-    }
+    life.record_chrome(session.chrome_pid());
     let cmd = step
         .get("cmd")
         .or_else(|| step.get("action"))
@@ -1836,10 +1901,7 @@ pub async fn run_one_step(
         .to_string();
     let step_res = execute_step(&mut session, &cmd, &step, robots, flags).await;
     let close = session.shutdown().await;
-    if let Ok(mut ledger) = life.ledger.lock() {
-        ledger.chrome_launched = false;
-        ledger.chrome_pid = None;
-    }
+    life.clear_chrome();
     close?;
     step_res.map(|data| {
         json!({

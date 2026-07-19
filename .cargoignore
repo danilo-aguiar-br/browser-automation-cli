@@ -1,0 +1,2 @@
+# Paths excluded from cargo package / crate tree hygiene
+.setting.cyber/

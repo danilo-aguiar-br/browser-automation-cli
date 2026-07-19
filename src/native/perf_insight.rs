@@ -5,13 +5,21 @@
 //! - NDJSON lines, each an array of trace events
 //! - A single JSON array of events
 //! - Nested arrays from `Tracing.dataCollected` value payloads
+//!
+//! # Workload
+//!
+//! **CPU-light → CPU-bound when large:** typical agent traces stay sequential
+//! (PAR-69, cost ≪ Rayon). Top-level event arrays with length ≥
+//! [`crate::concurrency::CPU_MAP_THRESHOLD`] fold via [`crate::concurrency::map_cpu`]
+//! into partial [`Acc`] shards then merge (PAR-86). Nested walk remains sequential
+//! (shared counters + rare nesting).
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use serde_json::{json, Value};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Acc {
     event_count: u64,
     by_name: HashMap<String, u64>,
@@ -26,6 +34,47 @@ struct Acc {
     cls_score: Option<f64>,
     long_tasks: u64,
     layout_shifts: u64,
+}
+
+impl Acc {
+    fn merge(&mut self, other: Acc) {
+        self.event_count += other.event_count;
+        for (k, v) in other.by_name {
+            *self.by_name.entry(k).or_insert(0) += v;
+        }
+        for (k, v) in other.by_cat {
+            *self.by_cat.entry(k).or_insert(0) += v;
+        }
+        for (k, v) in other.durations_ms {
+            let e = self.durations_ms.entry(k).or_insert(0.0);
+            if v > *e {
+                *e = v;
+            }
+        }
+        if self.navigation_start.is_none() {
+            self.navigation_start = other.navigation_start;
+        }
+        if self.fcp_ms.is_none() {
+            self.fcp_ms = other.fcp_ms;
+        }
+        if self.lcp_ms.is_none() {
+            self.lcp_ms = other.lcp_ms;
+        }
+        if self.dcl_ms.is_none() {
+            self.dcl_ms = other.dcl_ms;
+        }
+        if self.load_ms.is_none() {
+            self.load_ms = other.load_ms;
+        }
+        if self.ttfb_ms.is_none() {
+            self.ttfb_ms = other.ttfb_ms;
+        }
+        if self.cls_score.is_none() {
+            self.cls_score = other.cls_score;
+        }
+        self.long_tasks += other.long_tasks;
+        self.layout_shifts += other.layout_shifts;
+    }
 }
 
 /// Analyze a trace file written by `perf stop` (NDJSON of event arrays).
@@ -72,16 +121,17 @@ pub fn analyze_text(
         acc.by_name.retain(|k, _| k.contains(filter));
     }
 
+    // PAR-106: top-N sorts use sort_*_cpu when the histogram is large.
     let mut top_events: Vec<(String, u64)> = acc.by_name.into_iter().collect();
-    top_events.sort_by_key(|b| std::cmp::Reverse(b.1));
+    crate::concurrency::sort_by_key_cpu(&mut top_events, |b| std::cmp::Reverse(b.1));
     top_events.truncate(25);
 
     let mut top_cats: Vec<(String, u64)> = acc.by_cat.into_iter().collect();
-    top_cats.sort_by_key(|b| std::cmp::Reverse(b.1));
+    crate::concurrency::sort_by_key_cpu(&mut top_cats, |b| std::cmp::Reverse(b.1));
     top_cats.truncate(15);
 
     let mut slowest: Vec<(String, f64)> = acc.durations_ms.into_iter().collect();
-    slowest.sort_by(|a, b| match b.1.partial_cmp(&a.1) {
+    crate::concurrency::sort_by_cpu(&mut slowest, |a, b| match b.1.partial_cmp(&a.1) {
         Some(o) => o,
         None => std::cmp::Ordering::Equal,
     });
@@ -118,6 +168,19 @@ pub fn analyze_text(
 fn walk_value(v: &Value, acc: &mut Acc) {
     match v {
         Value::Array(items) => {
+            // PAR-86: flat object arrays ≥ threshold → map_cpu shard + merge.
+            let all_objects = !items.is_empty() && items.iter().all(|i| i.is_object());
+            if all_objects && items.len() >= crate::concurrency::CPU_MAP_THRESHOLD {
+                let partials = crate::concurrency::map_cpu(items, |item| {
+                    let mut local = Acc::default();
+                    ingest_event(item, &mut local);
+                    local
+                });
+                for p in partials {
+                    acc.merge(p);
+                }
+                return;
+            }
             for item in items {
                 if item.is_array() {
                     walk_value(item, acc);

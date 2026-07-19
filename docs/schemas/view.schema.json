@@ -5,11 +5,16 @@
   "type": "object",
   "description": "Accessibility snapshot with @eN refs",
   "properties": {
+    "detailed": {
+      "description": "CLI alias of verbose for one-shot argv (maps to verbose in handlers)",
+      "type": "boolean"
+    },
     "path": {
       "description": "Optional file to write tree text",
       "type": "string"
     },
     "verbose": {
+      "description": "Full a11y tree (run/JSON tool-ref). CLI flag is --detailed (avoids shadowing global --verbose).",
       "type": "boolean"
     }
   },

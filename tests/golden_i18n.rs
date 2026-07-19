@@ -23,6 +23,10 @@ fn commands_json_has_schema_and_stable_shape() {
         stdout.contains("goto") || stdout.contains("scrape"),
         "stdout={stdout}"
     );
+    assert!(
+        stdout.contains("locale"),
+        "commands --json must list locale: {stdout}"
+    );
 }
 
 #[test]
@@ -37,6 +41,7 @@ fn lang_pt_br_changes_suggestion_on_usage_error() {
             "--json",
         ])
         .env("NO_COLOR", "1")
+        .env_remove("BROWSER_AUTOMATION_CLI_LANG")
         .output()
         .expect("spawn");
     let pt = Command::new(BIN)
@@ -49,6 +54,7 @@ fn lang_pt_br_changes_suggestion_on_usage_error() {
             "--json",
         ])
         .env("NO_COLOR", "1")
+        .env_remove("BROWSER_AUTOMATION_CLI_LANG")
         .output()
         .expect("spawn");
     // Usage errors use sysexits-style code 2 in this CLI (ErrorKind::Usage).
@@ -74,14 +80,66 @@ fn lifecycle_signal_kinds_documented() {
 
 #[test]
 fn pt_br_suggestions_use_accents() {
-    use browser_automation_cli::i18n::suggestion_key;
-    let v = suggestion_key("vision_required", Some("pt"));
+    use browser_automation_cli::i18n::{Idioma, Mensagem};
+    let v = Mensagem::VisionRequired.texto(Idioma::PtBr);
     assert!(
         v.contains("invocação"),
         "expected accented pt-BR invocação: {v}"
     );
-    let r = suggestion_key("robots_dual", Some("pt"));
+    let r = Mensagem::RobotsDual.texto(Idioma::PtBr);
     assert!(r.contains("propósito"), "expected propósito: {r}");
-    let u = suggestion_key("run_fail_fast", Some("pt"));
+    let u = Mensagem::RunFailFast.texto(Idioma::PtBr);
     assert!(u.contains("não"), "expected não: {u}");
+}
+
+#[test]
+fn locale_subcommand_json_shape() {
+    let out = Command::new(BIN)
+        .args(["--lang", "pt-BR", "locale", "--json"])
+        .env("NO_COLOR", "1")
+        .env_remove("BROWSER_AUTOMATION_CLI_LANG")
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code().unwrap_or(-1), 0, "stderr={}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    // Envelope or raw
+    let data = v.get("data").cloned().unwrap_or(v);
+    assert_eq!(data.get("resolved").and_then(|x| x.as_str()), Some("pt-BR"));
+    assert_eq!(data.get("source").and_then(|x| x.as_str()), Some("flag"));
+    assert!(data.get("available").is_some());
+    assert_eq!(
+        data.get("lang_env_key").and_then(|x| x.as_str()),
+        Some("BROWSER_AUTOMATION_CLI_LANG")
+    );
+}
+
+#[test]
+fn env_lang_override_without_flag() {
+    let out = Command::new(BIN)
+        .args(["locale", "--json"])
+        .env("NO_COLOR", "1")
+        .env("BROWSER_AUTOMATION_CLI_LANG", "pt-BR")
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code().unwrap_or(-1), 0);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("pt-BR") && stdout.contains("\"source\""),
+        "stdout={stdout}"
+    );
+    // source should be env when no --lang
+    assert!(
+        stdout.contains("\"env\"") || stdout.contains("env"),
+        "expected env source: {stdout}"
+    );
+}
+
+#[test]
+fn mensagem_parity_en_pt_via_public_api() {
+    use browser_automation_cli::i18n::{Idioma, Mensagem};
+    for m in Mensagem::ALL {
+        assert!(!m.texto(Idioma::En).is_empty());
+        assert!(!m.texto(Idioma::PtBr).is_empty());
+    }
 }

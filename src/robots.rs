@@ -1,12 +1,55 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! robots.txt honor for one-shot invocations (no cross-process cache).
 //!
 //! Default policy is honor. Override requires BOTH `--ignore-robots` and
 //! `--i-accept-robots-risk`. Uses `robotstxt::DefaultMatcher` (Google port).
+//!
+//! # Workload
+//!
+//! **I/O-bound** (network GET of `/robots.txt`). Reuses process-wide
+//! [`shared_http_client`] so keep-alive / TLS session cache survive batch scrapes.
+//! Not CPU-bound → no rayon. Not a long-lived daemon → no connection pool beyond
+//! reqwest's internal pool for this one-shot process.
+
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use robotstxt::DefaultMatcher;
 use url::Url;
 
 use crate::error::{CliError, ErrorKind};
+
+/// Product User-Agent for shared HTTP (aligned with scrape engine).
+const DEFAULT_HTTP_UA: &str = concat!(
+    "browser-automation-cli/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/danilo-aguiar-br/browser-automation-cli; local-scrape)"
+);
+
+/// Process-wide async HTTP client (rules: create `reqwest::Client` once, reuse).
+///
+/// Default timeout 30s; callers may override per-request (e.g. robots 5s).
+///
+/// Uses `get_or_init` (stable). `get_or_try_init` is still unstable (`once_cell_try`);
+/// on first failure we surface the error without poisoning the lock.
+pub fn shared_http_client() -> Result<&'static reqwest::Client, CliError> {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(c) = CLIENT.get() {
+        return Ok(c);
+    }
+    let built = reqwest::Client::builder()
+        .user_agent(DEFAULT_HTTP_UA)
+        .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .pool_max_idle_per_host(4)
+        // Explicit TCP_NODELAY: reduce small-response latency on robots/scrape
+        // (rules_rust_latencia_reduzir — socket options on owned HTTP path).
+        // CDP WebSocket is owned by chromiumoxide; not configurable here.
+        .tcp_nodelay(true)
+        .build()
+        .map_err(|e| CliError::new(ErrorKind::Software, format!("http client: {e}")))?;
+    Ok(CLIENT.get_or_init(|| built))
+}
 
 /// Effective robots policy for one invocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,17 +145,24 @@ pub async fn enforce_robots(
     let origin = parsed.origin().ascii_serialization();
     let robots_url = format!("{origin}/robots.txt");
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .user_agent(user_agent)
-        .build()
-        .map_err(|e| CliError::new(ErrorKind::Software, format!("http client: {e}")))?;
-
-    let resp = match client.get(&robots_url).send().await {
+    // Reuse process-wide client; short per-request timeout for robots only.
+    let client = shared_http_client()?;
+    let resp = match client
+        .get(&robots_url)
+        .header(reqwest::header::USER_AGENT, user_agent)
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
-            // PRD: fetch failure → allow with warning on stderr
-            eprintln!("robots: fetch failed for {robots_url}: {e}; treating as allow");
+            // PRD: fetch failure → allow with warning (tracing → stderr / optional file).
+            tracing::warn!(
+                target: "browser_automation_cli::robots",
+                robots_url = %robots_url,
+                error = %e,
+                "robots fetch failed; treating as allow"
+            );
             return Ok(());
         }
     };

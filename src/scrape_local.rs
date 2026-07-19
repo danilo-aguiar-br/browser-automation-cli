@@ -1,25 +1,48 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Local scrape/crawl/map/search/parse (one-shot HTTP and file extract; no SaaS).
 //!
 //! Engines:
 //! - `http` — reqwest + scraper HTML (no Chrome)
 //! - `browser` — chromiumoxide via [`crate::browser::OneShotSession`]
+//!
+//! # Workload
+//!
+//! - **HTTP engine:** **I/O-bound** network + **CPU** HTML parse off-async.
+//!   Fan-out via `tokio::task::JoinSet` + `Arc<Semaphore>::acquire_owned` gated by
+//!   [`crate::concurrency::effective_limit`]
+//!   (or per-command `--concurrency`, `0` = process budget). Hard cap
+//!   [`crate::concurrency::HARD_CAP`]. Parse uses `spawn_blocking` (docsrs:
+//!   CPU work must not starve Tokio workers; bound by the same permit).
+//! - **Browser engine:** **I/O-bound** CDP (subprocess Chrome). Sequential per
+//!   shared session (product law one residual); use `--engine http` for fan-out.
+//! - **Crawl:** BFS with **bounded parallel frontier** (JoinSet + budget);
+//!   link discovery stays **inside** the permit; `abort_all` at limit; cancel token.
+//! - Shared [`crate::robots::shared_http_client`] avoids per-request Client build.
+//! - Compiled `Regex` patterns live in `OnceLock` (never recompile per call).
 
 use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Duration;
 
+use regex::Regex;
 use scraper::{Html, Selector};
 use serde_json::{json, Value};
 use url::Url;
 
 use crate::cache::{self, HttpCache};
 use crate::error::{CliError, ErrorKind};
-use crate::robots::RobotsPolicy;
+use crate::robots::{shared_http_client, RobotsPolicy};
 
 /// Identifiable product User-Agent for HTTP scrapes (PRD politeness).
-pub const HTTP_USER_AGENT: &str =
-    "browser-automation-cli/0.1.3 (+https://github.com/danilo-aguiar-br/browser-automation-cli; local-scrape)";
+///
+/// Version segment tracks `env!("CARGO_PKG_VERSION")` so releases stay in sync.
+pub const HTTP_USER_AGENT: &str = concat!(
+    "browser-automation-cli/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/danilo-aguiar-br/browser-automation-cli; local-scrape)"
+);
 
 /// Reject `file://`, bare paths, and other non-HTTP(S) targets for the HTTP engine (GAP-A004).
 pub fn reject_non_http_scheme_for_http_engine(url: &str) -> Result<(), CliError> {
@@ -146,7 +169,9 @@ pub async fn scrape_http(
     if let Ok(cache) = cache::default_cache() {
         if let Ok(Some(entry)) = HttpCache::get(cache.as_ref(), &cache_key) {
             if let Ok(html) = String::from_utf8(entry.body) {
-                let mut payload = build_scrape_payload(url, 200, &html, opts, robots);
+                let mut payload =
+                    build_scrape_payload_blocking(url.to_string(), 200, html, opts.clone(), robots)
+                        .await?;
                 if let Some(obj) = payload.as_object_mut() {
                     obj.insert("cache_hit".into(), json!(true));
                 }
@@ -155,12 +180,8 @@ pub async fn scrape_http(
         }
     }
 
-    let client = reqwest::Client::builder()
-        .user_agent(HTTP_USER_AGENT)
-        .timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|e| CliError::new(ErrorKind::Software, format!("http client: {e}")))?;
+    // Process-wide client (keep-alive + TLS session reuse across batch/crawl).
+    let client = shared_http_client()?;
 
     // GAP-013: retry transient HTTP failures with named policy.
     let cfg = crate::retry::RetryConfig::http();
@@ -201,24 +222,62 @@ pub async fn scrape_http(
             ),
         ));
     }
-    let html = String::from_utf8_lossy(&bytes).into_owned();
+    // Pre-reserve before UTF-8 lossy copy (rules: try_reserve on external bodies).
+    let mut html = String::new();
+    html.try_reserve(bytes.len()).map_err(|e| {
+        CliError::new(
+            ErrorKind::Unavailable,
+            format!("scrape body reserve failed ({} bytes): {e}", bytes.len()),
+        )
+    })?;
+    html.push_str(&String::from_utf8_lossy(&bytes));
     if let Ok(cache) = cache::default_cache() {
+        let mut body = Vec::new();
+        if body.try_reserve_exact(html.len()).is_ok() {
+            body.extend_from_slice(html.as_bytes());
+        } else {
+            body = html.as_bytes().to_vec();
+        }
         let _ = HttpCache::put(
             cache.as_ref(),
             &cache_key,
             cache::CacheEntry {
-                body: html.as_bytes().to_vec(),
+                body,
                 content_type: Some("text/html".into()),
                 expires_unix: cache::expires_after(Duration::from_secs(3600)),
             },
         );
     }
-    let mut payload = build_scrape_payload(&final_url, status, &html, opts, robots);
+    // CPU-bound HTML parse off the async worker (rules + docsrs spawn_blocking).
+    let mut payload =
+        build_scrape_payload_blocking(final_url, status, html, opts.clone(), robots).await?;
     if let Some(obj) = payload.as_object_mut() {
         obj.insert("cache_hit".into(), json!(false));
         obj.insert("http_attempts".into(), json!(attempt));
     }
     Ok(payload)
+}
+
+/// Run [`build_scrape_payload`] on Tokio's blocking pool (CPU-bound HTML parse).
+///
+/// Bound by the caller's Semaphore permit when used from batch/crawl tasks so
+/// `max_blocking_threads` cannot be saturated independently of I/O admits.
+async fn build_scrape_payload_blocking(
+    source_url: String,
+    status: u16,
+    html: String,
+    opts: ScrapeOpts,
+    robots: RobotsPolicy,
+) -> Result<Value, CliError> {
+    tokio::task::spawn_blocking(move || build_scrape_payload(&source_url, status, &html, &opts, robots))
+        .await
+        .map_err(|e| {
+            if e.is_panic() {
+                CliError::new(ErrorKind::Software, "scrape HTML parse task panicked")
+            } else {
+                CliError::new(ErrorKind::Software, format!("scrape HTML parse join: {e}"))
+            }
+        })
 }
 
 /// Build agent envelope data from HTML.
@@ -313,7 +372,7 @@ fn extract_json_ld_product(html: &str) -> Value {
     };
     for el in doc.select(&sel) {
         let raw = el.text().collect::<String>();
-        if let Ok(v) = serde_json::from_str::<Value>(&raw) {
+        if let Ok(v) = crate::json_util::value_from_str(&raw) {
             if is_product_ld(&v) {
                 return json!({ "found": true, "json_ld": v });
             }
@@ -348,13 +407,36 @@ fn is_product_ld(v: &Value) -> bool {
     }
 }
 
+/// Compiled once: hex color samples in branding heuristics.
+fn re_hex_color() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"#[0-9A-Fa-f]{3,8}\b").expect("hex color regex"))
+}
+
+/// Compiled once: email / phone / card-like PII redaction.
+struct PiiRegexes {
+    email: Regex,
+    phone: Regex,
+    card: Regex,
+}
+
+fn pii_regexes() -> &'static PiiRegexes {
+    static RE: OnceLock<PiiRegexes> = OnceLock::new();
+    RE.get_or_init(|| PiiRegexes {
+        email: Regex::new(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+            .expect("email regex"),
+        phone: Regex::new(
+            r"\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{4}\b",
+        )
+        .expect("phone regex"),
+        card: Regex::new(r"\b(?:\d[ -]*?){13,19}\b").expect("card regex"),
+    })
+}
+
 fn extract_branding_hints(html: &str, title: &str) -> Value {
     let mut colors = BTreeSet::new();
-    let re = regex::Regex::new(r"#[0-9A-Fa-f]{3,8}\b").ok();
-    if let Some(re) = re {
-        for m in re.find_iter(html).take(32) {
-            colors.insert(m.as_str().to_string());
-        }
+    for m in re_hex_color().find_iter(html).take(32) {
+        colors.insert(m.as_str().to_string());
     }
     json!({
         "title": title,
@@ -365,22 +447,10 @@ fn extract_branding_hints(html: &str, title: &str) -> Value {
 
 /// Redact common PII patterns in text (email, phone, card-like digits).
 pub fn redact_pii(text: &str) -> String {
-    let email = regex::Regex::new(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}").ok();
-    let phone = regex::Regex::new(
-        r"\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{4}\b",
-    )
-    .ok();
-    let card = regex::Regex::new(r"\b(?:\d[ -]*?){13,19}\b").ok();
-    let mut out = text.to_string();
-    if let Some(re) = email {
-        out = re.replace_all(&out, "[REDACTED_EMAIL]").into_owned();
-    }
-    if let Some(re) = phone {
-        out = re.replace_all(&out, "[REDACTED_PHONE]").into_owned();
-    }
-    if let Some(re) = card {
-        out = re.replace_all(&out, "[REDACTED_CARD]").into_owned();
-    }
+    let re = pii_regexes();
+    let mut out = re.email.replace_all(text, "[REDACTED_EMAIL]").into_owned();
+    out = re.phone.replace_all(&out, "[REDACTED_PHONE]").into_owned();
+    out = re.card.replace_all(&out, "[REDACTED_CARD]").into_owned();
     out
 }
 
@@ -501,35 +571,72 @@ fn extract_links(base: &str, doc: &Html) -> Vec<Value> {
     out
 }
 
-/// Batch scrape N URLs (HTTP engine, sequential by default).
+/// Batch scrape N URLs (HTTP engine, bounded JoinSet + Semaphore fan-out).
+///
+/// `concurrency == 0` uses the process budget ([`crate::concurrency::effective_limit`]).
+///
+/// # Bound (rules_rust_paralelismo)
+///
+/// Gate is `Arc<Semaphore>` with [`acquire_owned`](tokio::sync::Semaphore::acquire_owned)
+/// moved into each spawned task (RAII permit). Never unbounded `spawn` loops.
+#[tracing::instrument(level = "debug", skip(urls, opts), fields(n = urls.len(), concurrency))]
 pub async fn batch_scrape_http(
     urls: &[String],
     robots: RobotsPolicy,
     opts: &ScrapeOpts,
     concurrency: usize,
 ) -> Result<Value, CliError> {
-    let concurrency = concurrency.clamp(1, 16);
-    let mut results = Vec::new();
+    let concurrency = crate::concurrency::resolve_permits(concurrency);
+    // Pre-size for known fan-out (rules: with_capacity when length is known).
+    let mut results = Vec::with_capacity(urls.len());
     let mut errors = Vec::new();
-    // Bounded concurrency via JoinSet (shutdown-friendly).
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
     use tokio::task::JoinSet;
+    let sem = Arc::new(Semaphore::new(concurrency));
+    tracing::debug!(
+        available_permits = sem.available_permits(),
+        concurrency,
+        n = urls.len(),
+        "batch_scrape_http fan-out"
+    );
     let mut set: JoinSet<Result<Value, CliError>> = JoinSet::new();
-    let mut in_flight = 0usize;
-    let mut idx = 0usize;
-    while idx < urls.len() || in_flight > 0 {
-        while in_flight < concurrency && idx < urls.len() {
-            let u = urls[idx].clone();
-            idx += 1;
-            let opts = opts.clone();
-            set.spawn(async move { scrape_http(&u, robots, &opts).await });
-            in_flight += 1;
+    let cancel = crate::lifecycle::current_cancel();
+    for u in urls {
+        if cancel.is_cancelled() {
+            errors.push(json!({ "error": "cancelled", "url": u }));
+            break;
         }
-        if let Some(joined) = set.join_next().await {
-            in_flight = in_flight.saturating_sub(1);
-            match joined {
-                Ok(Ok(v)) => results.push(v),
-                Ok(Err(e)) => errors.push(json!({ "error": e.to_string() })),
-                Err(e) => errors.push(json!({ "error": format!("join: {e}") })),
+        // Acquire before spawn so peak in-flight never exceeds permits
+        // (even if JoinSet buffers handles).
+        let permit = Arc::clone(&sem)
+            .acquire_owned()
+            .await
+            .map_err(|_| CliError::new(ErrorKind::Software, "concurrency semaphore closed"))?;
+        let u = u.clone();
+        let opts = opts.clone();
+        set.spawn(async move {
+            let _permit = permit; // drop at end of task → permit returns (incl. panic)
+            scrape_http(&u, robots, &opts).await
+        });
+    }
+    if cancel.is_cancelled() {
+        set.abort_all();
+    }
+    while let Some(joined) = set.join_next().await {
+        match joined {
+            Ok(Ok(v)) => results.push(v),
+            Ok(Err(e)) => errors.push(json!({ "error": e.to_string() })),
+            Err(e) => {
+                // Distinguish panic vs cancel for agent diagnostics.
+                let kind = if e.is_panic() {
+                    "panic"
+                } else if e.is_cancelled() {
+                    "cancelled"
+                } else {
+                    "join"
+                };
+                errors.push(json!({ "error": format!("{kind}: {e}") }));
             }
         }
     }
@@ -540,11 +647,20 @@ pub async fn batch_scrape_http(
         "results": results,
         "errors": errors,
         "engine": "http",
+        "concurrency": concurrency,
+        "gate": "Arc<Semaphore>::acquire_owned",
         "robots_policy": robots.as_str(),
+        "cancelled": cancel.is_cancelled(),
     }))
 }
 
-/// BFS crawl from seed URL (HTTP), limited by `limit` and `max_depth`.
+/// BFS crawl from seed URL (HTTP) with **bounded parallel frontier**.
+///
+/// # Workload
+///
+/// **I/O-bound.** Ready URLs are fetched concurrently up to
+/// [`crate::concurrency::effective_limit`] via `JoinSet` + `Arc<Semaphore>`
+/// (`acquire_owned` moved into each task; never unbounded spawn).
 pub async fn crawl_http(
     seed: &str,
     robots: RobotsPolicy,
@@ -555,6 +671,7 @@ pub async fn crawl_http(
 ) -> Result<Value, CliError> {
     let limit = limit.clamp(1, 500);
     let max_depth = max_depth.min(10);
+    let concurrency = crate::concurrency::effective_limit();
     let seed_url = Url::parse(seed)
         .map_err(|e| CliError::new(ErrorKind::Usage, format!("invalid seed URL: {e}")))?;
     let seed_host = seed_url.host_str().map(|s| s.to_string());
@@ -565,55 +682,99 @@ pub async fn crawl_http(
     seen.insert(seed.to_string());
 
     let mut pages = Vec::new();
-    while let Some((url, depth)) = queue.pop_front() {
-        if pages.len() >= limit {
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+    use tokio::task::JoinSet;
+    let sem = Arc::new(Semaphore::new(concurrency));
+    // Task returns (url, depth, page_result, discovered_hrefs under same permit).
+    let mut set: JoinSet<(String, usize, Result<Value, CliError>, Vec<String>)> = JoinSet::new();
+    let mut in_flight = 0usize;
+    let cancel = crate::lifecycle::current_cancel();
+
+    while pages.len() < limit && (!queue.is_empty() || in_flight > 0) {
+        if cancel.is_cancelled() {
+            set.abort_all();
             break;
         }
-        match scrape_http(&url, robots, opts).await {
-            Ok(mut page) => {
-                page["depth"] = json!(depth);
-                if let Some(links) = page.get("links").and_then(|v| v.as_array()).cloned() {
+        while in_flight < concurrency && pages.len() + in_flight < limit {
+            if cancel.is_cancelled() {
+                break;
+            }
+            let Some((url, depth)) = queue.pop_front() else {
+                break;
+            };
+            // try_acquire_owned: if no permit, wait for a join_next (backpressure).
+            let permit = match Arc::clone(&sem).try_acquire_owned() {
+                Ok(p) => p,
+                Err(_) => break,
+            };
+            let opts = opts.clone();
+            let need_discovery = depth < max_depth && opts.format != ScrapeFormat::Links;
+            set.spawn(async move {
+                let _permit = permit;
+                let result = scrape_http(&url, robots, &opts).await;
+                // Link discovery under the **same** permit (never re-fetch on the
+                // collector without admission control — PAR-31).
+                let mut discovered = Vec::new();
+                if let Ok(ref page) = result {
                     if depth < max_depth {
-                        for link in links {
-                            let Some(href) = link.get("url").and_then(|v| v.as_str()) else {
-                                continue;
-                            };
-                            if !seen.insert(href.to_string()) {
-                                continue;
-                            }
-                            if same_host {
-                                if let (Some(ref sh), Ok(u)) = (&seed_host, Url::parse(href)) {
-                                    if u.host_str() != Some(sh.as_str()) {
-                                        continue;
-                                    }
-                                }
-                            }
-                            queue.push_back((href.to_string(), depth + 1));
-                        }
-                    }
-                } else if depth < max_depth {
-                    // Re-scrape as links format for discovery when current format has no links.
-                    let mut link_opts = opts.clone();
-                    link_opts.format = ScrapeFormat::Links;
-                    if let Ok(lp) = scrape_http(&url, robots, &link_opts).await {
-                        if let Some(links) = lp.get("links").and_then(|v| v.as_array()) {
+                        if let Some(links) = page.get("links").and_then(|v| v.as_array()) {
                             for link in links {
-                                let Some(href) = link.get("url").and_then(|v| v.as_str()) else {
-                                    continue;
-                                };
-                                if !seen.insert(href.to_string()) {
-                                    continue;
+                                if let Some(href) = link.get("url").and_then(|v| v.as_str()) {
+                                    discovered.push(href.to_string());
                                 }
-                                if same_host {
-                                    if let (Some(ref sh), Ok(u)) = (&seed_host, Url::parse(href)) {
-                                        if u.host_str() != Some(sh.as_str()) {
-                                            continue;
+                            }
+                        } else if need_discovery {
+                            let mut link_opts = opts.clone();
+                            link_opts.format = ScrapeFormat::Links;
+                            if let Ok(lp) = scrape_http(&url, robots, &link_opts).await {
+                                if let Some(links) = lp.get("links").and_then(|v| v.as_array()) {
+                                    for link in links {
+                                        if let Some(href) =
+                                            link.get("url").and_then(|v| v.as_str())
+                                        {
+                                            discovered.push(href.to_string());
                                         }
                                     }
                                 }
-                                queue.push_back((href.to_string(), depth + 1));
                             }
                         }
+                    }
+                }
+                (url, depth, result, discovered)
+            });
+            in_flight += 1;
+        }
+
+        let Some(joined) = set.join_next().await else {
+            break;
+        };
+        in_flight = in_flight.saturating_sub(1);
+        let (url, depth, result, discovered) = match joined {
+            Ok(t) => t,
+            Err(e) => {
+                pages.push(json!({
+                    "error": format!("join: {e}"),
+                    "join_panic": e.is_panic(),
+                    "join_cancelled": e.is_cancelled(),
+                }));
+                continue;
+            }
+        };
+
+        match result {
+            Ok(mut page) => {
+                page["depth"] = json!(depth);
+                if depth < max_depth {
+                    for href in discovered {
+                        crawl_enqueue_link(
+                            &href,
+                            depth,
+                            same_host,
+                            seed_host.as_deref(),
+                            &mut seen,
+                            &mut queue,
+                        );
                     }
                 }
                 pages.push(page);
@@ -627,6 +788,45 @@ pub async fn crawl_http(
             }
         }
     }
+    // At limit or cancel: abort remaining work (PAR-36); then drain JoinError.
+    if pages.len() >= limit || cancel.is_cancelled() {
+        set.abort_all();
+    }
+    while let Some(joined) = set.join_next().await {
+        if pages.len() >= limit {
+            continue;
+        }
+        match joined {
+            Ok((url, depth, result, discovered)) => match result {
+                Ok(mut page) => {
+                    page["depth"] = json!(depth);
+                    if depth < max_depth {
+                        for href in discovered {
+                            crawl_enqueue_link(
+                                &href,
+                                depth,
+                                same_host,
+                                seed_host.as_deref(),
+                                &mut seen,
+                                &mut queue,
+                            );
+                        }
+                    }
+                    pages.push(page);
+                }
+                Err(e) => pages.push(json!({
+                    "source_url": url,
+                    "depth": depth,
+                    "error": e.to_string(),
+                })),
+            },
+            Err(e) if e.is_cancelled() => {}
+            Err(e) => pages.push(json!({
+                "error": format!("join: {e}"),
+                "join_panic": e.is_panic(),
+            })),
+        }
+    }
 
     Ok(json!({
         "seed": seed,
@@ -634,10 +834,34 @@ pub async fn crawl_http(
         "limit": limit,
         "max_depth": max_depth,
         "same_host": same_host,
+        "concurrency": concurrency,
+        "gate": "Arc<Semaphore>::try_acquire_owned",
         "pages": pages,
         "robots_policy": robots.as_str(),
         "engine": "http",
+        "cancelled": cancel.is_cancelled(),
     }))
+}
+
+fn crawl_enqueue_link(
+    href: &str,
+    depth: usize,
+    same_host: bool,
+    seed_host: Option<&str>,
+    seen: &mut BTreeSet<String>,
+    queue: &mut VecDeque<(String, usize)>,
+) {
+    if !seen.insert(href.to_string()) {
+        return;
+    }
+    if same_host {
+        if let (Some(sh), Ok(u)) = (seed_host, Url::parse(href)) {
+            if u.host_str() != Some(sh) {
+                return;
+            }
+        }
+    }
+    queue.push_back((href.to_string(), depth + 1));
 }
 
 /// Map site: collect unique URLs via BFS without full content (links format).
@@ -958,7 +1182,11 @@ fn parse_spreadsheet(path: &Path) -> Result<(&'static str, String, &'static str)
     let mut workbook = open_workbook_auto(path)
         .map_err(|e| CliError::new(ErrorKind::Data, format!("spreadsheet open: {e}")))?;
     let mut lines = Vec::new();
-    let sheets = workbook.sheet_names().to_vec();
+    // PAR-59: multi-sheet is sequential — calamine `Reader` is not Sync; opening
+    // once and ranging sheets in order is correct and cost ≪ coordination for
+    // typical agent workbooks. Do not `par_iter` worksheet_range on &mut self.
+    // calamine::Reader::sheet_names returns owned `Vec<String>` — do not re-clone.
+    let sheets = workbook.sheet_names();
     for name in sheets {
         if let Ok(range) = workbook.worksheet_range(&name) {
             lines.push(format!("# sheet: {name}"));

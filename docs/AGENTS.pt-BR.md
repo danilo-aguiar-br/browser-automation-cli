@@ -13,7 +13,8 @@
 - Superfície local de scrape / crawl / map / search / parse embarca como subcomandos de primeira classe
 - Helpers de artefato (`print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) e chaves LLM XDG estendem fluxos de agente sem daemons
 - Defaults duráveis vivem em flags e XDG `config path|init|show|set|get`
-- Hard-close v0.1.4 de contratos de agente: `--json-steps`, wait multi/url, pick/select-option, assert console, schema posicional, MITM capture-url, erros de usage clap em JSON
+- v0.1.5 residual-zero em disco: GC Singleton em BORN + FINALIZE, doctor `residual_disk` / JSON `residual`, meta `locale` e `man`, inventário 63
+- Carry-forward dos contratos de agente da v0.1.4: `--json-steps`, wait multi/url, pick/select-option, assert console, schema posicional, MITM capture-url, erros de usage clap em JSON
 
 
 ## Economia
@@ -59,9 +60,9 @@
 - Passe sempre `--json` para parsing por máquina
 - Leia envelopes de sucesso e erro no stdout
 - Mantenha stderr só para logs humanos ou debug
-- Use `commands --json` para descobrir o inventário vivo (**61 nomes de agente**)
-- O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, select-option, pick e tools de paridade DevTools (61 no total; e2e 53 tools)
-- Nota: `select-option` e `pick` são superfície multi-passo/schema only (não subcomandos clap standalone; help clap de topo lista 59 sem eles)
+- Use `commands --json` para descobrir o inventário vivo (**63 nomes de agente**)
+- O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, select-option, pick, locale, man e tools de paridade DevTools (63 no total; e2e 53 tools)
+- Nota: `select-option` e `pick` são superfície multi-passo/schema only (não subcomandos clap standalone; help clap de topo lista **61** sem eles)
 - Use `schema <name> --json` ou `schema --cmd <name> --json` antes de gerar argv de comandos pouco familiares
 - Prefira flags para controle pontual
 - Use `config init|set|get|path|show|list-keys` para defaults XDG duráveis
@@ -85,7 +86,9 @@
 - Imprima PDF com `print-pdf --url … --path …` (também dentro de `run`)
 - Páginas em branco no view: passe `--allow-empty` só quando for intencional
 - Extract LLM falha fechado sem XDG `openrouter_api_key`
-- Localize sugestões humanas com `--lang pt-BR` ou `config set lang pt-BR`
+- Localize sugestões humanas com `--lang pt-BR` ou `config set lang pt-BR` (só flags + XDG)
+- Inspecione locale resolvido com `locale --json`; gere man page com `man`
+- Após trabalho browser, espere residual-zero em disco: check do doctor `residual_disk` e topo `residual` (`cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`)
 - Erros de usage clap emitem JSON quando `--json` já está no argv
 - Diálogo soft: `dialog accept --if-present` / `dialog dismiss --if-present`
 - Beforeunload: `goto` / `reload` com `--handle-before-unload accept|dismiss`
@@ -118,7 +121,7 @@ fn main() {
 
 
 ## Descoberta de Superfície para Agentes
-- Inventário: `browser-automation-cli commands --json` (61 nomes de agente)
+- Inventário: `browser-automation-cli commands --json` (**63** nomes de agente)
 - Fragments de input: `browser-automation-cli schema <name> --json` ou `schema --cmd <name> --json`
 - Paths de config: `browser-automation-cli config path --json`
 - Chaves de config: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
@@ -128,18 +131,20 @@ fn main() {
 - Superfície local de scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
 - Artefatos e IO local: `print-pdf`, `monitor check`, `qr encode|decode`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
 - Multi-passo only: `select-option`, `pick`
+- Meta: `locale` (diagnósticos de locale de UI), `man` (página man roff; sem Chrome)
 - Extract LLM: `extract --llm --question …` (só chaves XDG)
-- Saúde: `doctor --json` (reporta descoberta de Chrome, XDG browsers_dir, origem do lighthouse e `cache_redis` quando configurado)
+- Saúde: `doctor --json` (descoberta de Chrome, XDG browsers_dir, origem do lighthouse, `cache_redis` quando configurado, higiene residual de disco)
+- Residual: topo `residual` + check `residual_disk` com campos `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
 - Cache: XDG `cache_backend` (`sqlite|memory|redis`) e `cache_redis_url` (somente `redis://`; `rediss://` fail-closed)
 - Lighthouse: flag → XDG `lighthouse_path` → PATH; envelope `binary_source` é `real` ou `mock`
 
 
-## Inventário Completo de Comandos (61)
-- Fonte viva: `browser-automation-cli commands --json` (61 nomes voltados a agentes)
-- Help clap de topo lista 59 sem `select-option` e `pick` como standalone
+## Inventário Completo de Comandos (63)
+- Fonte viva: `browser-automation-cli commands --json` (**63** nomes voltados a agentes)
+- Help clap de topo lista **61** sem `select-option` e `pick` como standalone
 - O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53)
 - Lista completa de comandos de agente:
-  - Meta: `doctor`, `commands`, `schema`, `version`, `completions`
+  - Meta / descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
   - Multi-passo / schema only: `select-option`, `pick`
@@ -156,11 +161,15 @@ fn main() {
 ## Ciclo de Vida
 - Slogan (English): BORN EXECUTE FINALIZE DIE
 - Um processo possui uma sessão Chrome do launch até o FINALIZE
-- FINALIZE é idempotente (Browser.close, wait, kill fallback)
+- BORN faz scavenge de Chromium tmp Singleton-only stale (age floor 60s)
+- FINALIZE é idempotente (Browser.close, wait, kill fallback) e faz dual scavenge: janela de invocação + orphans Singleton stale
+- Contrato residual para agentes: após DIE espere zero processos marker CLI vivos, zero dirs marker CLI, zero lixo Singleton-only de Chromium tmp owned
+- Chrome Flatpak do host **nunca** é morto ou apagado pelo GC residual do produto
 - Não espere sessão ou refs `@eN` sobreviverem ao exit do processo
+- Verifique com `doctor --offline --quick --json` → `residual` / check `residual_disk`
 
 
-## Contrato Técnico (v0.1.4)
+## Contrato Técnico (v0.1.5)
 ### REQUIRED
 - Passe `--json` para consumo programático
 - Trate um processo como um ciclo de vida de Chrome (BORN EXECUTE FINALIZE DIE)
@@ -170,20 +179,23 @@ fn main() {
 - Cheque exit code do processo antes de confiar no stdout
 - Ramifique no campo `ok` do envelope
 - Mantenha gates de categoria e experimental explícitos quando necessários
-- Configure settings duráveis de produto só via `config` / flags
+- Configure settings duráveis de produto só via `config` / flags (`--lang` + XDG para idioma)
 - Descubra comandos desconhecidos com `commands --json` e `schema <cmd>` ou `schema --cmd`
+- Após one-shots browser, trate residual-zero como parte do sucesso: inspecione `residual` do doctor ao diagnosticar leaks
 
 ### FORBIDDEN
 - Não mantenha daemon entre turns do agente
 - Não invente aliases de produto como `bac`, `click` ou `screenshot`
 - Não reutilize refs `@eN` entre launches de processo separados
 - Não parseie stderr como canal primário de sucesso
+- Não peça à CLI que mate ou apague residual de Chrome Flatpak do host
 - Não habilite bypass de robots sem a política dual-flag
 - Use só flags e `config` para settings de produto — **nunca** variáveis de ambiente de produto
 - Não passe path posicional para `grab`; use `--path`
 - Não invente preset `--device` em `emulate`; use `--user-agent`, `--viewport`, `--network-conditions`
 - Não trate `select-option` / `pick` como subcomandos clap standalone; use passos de `run` / `exec`
 - Não assuma sucesso silencioso de `view` vazio em about:blank sem `--allow-empty`
+- Não assuma sucesso de `print-pdf` sem página navegada ou `url` explícito (GAP-013); smokes residual podem usar `print-pdf --url about:blank` como one-shot leve quando `url` está presente
 
 ### Correct Pattern
 ```bash
@@ -209,6 +221,8 @@ browser-automation-cli -q --capture-console --json assert console-empty
 browser-automation-cli -q --json dialog accept --if-present
 browser-automation-cli -q --json goto https://example.com --handle-before-unload accept
 browser-automation-cli -q --json page new --isolated-context
+browser-automation-cli -q --json locale
+browser-automation-cli -q --json doctor --offline --quick
 ```
 
 

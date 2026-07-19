@@ -29,6 +29,40 @@
 - Valide o binário no seu host com `doctor --json` após o install
 
 
+## Cascata de Descoberta de Browser
+
+Ordem de resolução (sem variáveis de ambiente de produto — lei do produto é **flags + XDG**):
+
+1. XDG `chrome_path` (`config set chrome_path /caminho/absoluto`) se o arquivo for executável
+2. Cache de browsers do produto sob XDG data (`browsers/`)
+3. Nomes no `$PATH`: `google-chrome`, `google-chrome-stable|beta|unstable`, `chromium`, `microsoft-edge`, `msedge`, `brave-browser`, …
+4. Layouts absolutos conhecidos por SO (abaixo)
+5. Caches locais Puppeteer / Playwright em `~/.cache/`
+
+Override: `browser-automation-cli config set chrome_path /path/to/chrome`  
+Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `executable` e `host_environment`.
+
+### Paths conhecidos Linux
+- `/usr/bin/google-chrome`, variantes beta/unstable, `chromium`, `chromium-browser`
+- `/opt/google/chrome/chrome`, Edge em `/opt/microsoft/msedge/msedge`
+- Snap: `/snap/bin/chromium` (emite **warn** de sandbox — prefira APT/RPM)
+- Flatpak: `/var/lib/flatpak/exports/bin/com.google.Chrome` e user `~/.local/share/flatpak/…`
+
+### Paths conhecidos macOS
+- `/Applications/Google Chrome.app/…`, Beta, Canary, Chromium, Edge, Brave
+- `~/Applications/Google Chrome.app/…` (install por usuário)
+
+### Paths conhecidos Windows
+- `%ProgramFiles%` / `%ProgramFiles(x86)%` / `%LOCALAPPDATA%` + Chrome / Beta / Canary / Edge / Brave
+- Fallback hardcoded `C:\Program Files\…` só se as env vars faltarem
+- Boot de console: code page UTF-8 **65001** + VT ANSI; Job Objects para residual Chrome
+- Basenames reservados Windows (`CON`, `NUL`, `COM1`, …) rejeitados em **todos** os hosts
+
+### Sandboxes Snap / Flatpak
+- Detectados por prefixo de path e `$SNAP` / `$FLATPAK_ID`
+- Doctor marca **warn** quando o sandbox restringe automação CDP
+
+
 ## Notas Linux
 - Binários comuns incluem `chromium-browser`, `chromium` e `google-chrome`
 - Rode `doctor` após o install do pacote para confirmar descoberta
@@ -36,6 +70,12 @@
 - Headless é default para runs locais de agente
 - Em Alpine ou outros hosts musl, faça cross-compile ou build nativo para o target musl
 - Forneça um binário real de Chrome ou Chromium; a CLI não embute browser
+- Containers adicionam `--no-sandbox` e `--disable-dev-shm-usage` quando root ou marcadores docker/podman/k8s estão presentes
+- Higiene residual de disco (v0.1.5): BORN + FINALIZE scavenge Chromium tmp Singleton-only owned sob o temp do processo (comumente `/tmp/org.chromium.Chromium.*` e `/tmp/.org.chromium.Chromium.*`)
+- Age floor do GC Singleton stale é **60s**; só dirs same-uid Singleton-only (ou vazios) sem holder vivo em `/proc` são apagados
+- Markers CLI usam prefixo `browser-automation-cli-chrome-*` sob o temp do processo
+- Prefixos temp de Chrome Flatpak do host **nunca** são apagados pelo GC residual do produto
+- Inspecione com `doctor --offline --quick --json` → topo `residual` e check `residual_disk`
 
 
 ## Notas macOS
@@ -43,6 +83,7 @@
 - Prefira path completo do binário via XDG `chrome_path` só quando a descoberta por PATH falhar
 - Apple Silicon e Intel usam descoberta de Chrome do sistema
 - Conceda permissões de acessibilidade ou tela só se usar debug headed fora de agentes
+- Universal binary / notarização são **ops de release** (não exigidos para build a partir do source)
 
 
 ## Notas Windows
@@ -52,6 +93,8 @@
 - Quote paths com espaços: `"C:\Users\me\out.png"`
 - Prefira `grab --path` com path completo em vez de depender do cwd
 - Helpers de processo Windows ficam atrás de `cfg(windows)` e não mudam o contrato JSON
+- Higiene residual de **processo** usa Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) para árvores Chrome morrerem com o processo da CLI
+- Campos de relatório residual de disco (`residual` / `residual_disk`) permanecem disponíveis via doctor para diagnósticos de marker e temp
 
 
 ## Containers
@@ -61,6 +104,13 @@
 - Não assuma arquivo de settings de produto montado do host fora do XDG; use flags e mounts XDG se necessário
 - Forma de exemplo: empacote `browser-automation-cli` mais Chromium, depois chame `doctor --json`
 - Opcional: servidor Redis ao testar `cache_backend redis`; binário Lighthouse ou mock para auditorias
+- Probe de host: `doctor --json` → `host_environment.container` / `.wsl` / `.ci` / `.termux`
+
+
+## Probe de ambiente do host
+- Módulo `platform::HostEnvironment` detecta WSL, container, CI, Termux, Flatpak, Snap
+- Usado por doctor e flags de launch do Chrome
+- Chaves de env de CI são só observabilidade — nunca settings de produto
 
 
 ## Suporte de Shell
@@ -87,7 +137,9 @@ browser-automation-cli completions powershell
 - Journals de workflow ficam sob XDG state (`workflows`)
 - Chave de cifragem é definida com `config set encryption_key <value>`
 - Chaves completas de config (16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
-- Settings de produto usam **só** flags e CLI XDG (`config path|init|show|set|get|list-keys`) — **nunca** variáveis de ambiente de produto
+- Settings de produto usam só flags e CLI XDG (`config path|init|show|set|get|list-keys`) — nunca variáveis de ambiente de produto
+- Idioma das sugestões humanas: só `--lang` ou XDG `lang`
+- Inventário completo de comandos (63) e padrões de agente: [docs/HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
 - Cache Redis: `cache_backend redis` + `cache_redis_url redis://…` apenas (`rediss://` fail-closed)
 - Logging de produto: `--verbose` / `--debug` / `-q` ou XDG `log_level`
 - Cor: `config set color`; path do Chrome: `config set chrome_path`

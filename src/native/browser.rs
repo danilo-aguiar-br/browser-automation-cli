@@ -1,10 +1,19 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! High-level native browser session (tabs, navigation, CDP attach).
+//!
+//! # Workload
+//!
+//! **I/O-bound (CDP):** multi-target attach uses
+//! [`crate::concurrency::join_bounded_ordered`] under the process budget.
+//! Single-tab navigation/interaction stays sequential (one Page session).
+//! Profile cleanup uses `spawn_blocking` so Drop/async paths do not pin workers.
 #![allow(missing_docs)]
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::broadcast;
 
 use super::cdp::chrome::LaunchOptions;
 use super::cdp::client::CdpClient;
@@ -293,20 +302,25 @@ impl BrowserProcess {
         }
     }
 
-    /// Non-blocking check whether the browser process has exited.
+    /// Non-blocking check whether the browser process has exited (or was reaped).
     pub fn has_exited(&mut self) -> bool {
         match self {
-            BrowserProcess::Lightpanda(_) => false,
+            BrowserProcess::Lightpanda(p) => p.has_exited(),
         }
     }
 
+    /// OS process id while still owned; `None` after kill/reap.
     pub fn id(&self) -> Option<u32> {
         match self {
-            BrowserProcess::Lightpanda(_) => None,
+            BrowserProcess::Lightpanda(p) => p.id(),
         }
     }
 }
 
+/// Owns the CDP client, optional child browser process, and page registry.
+///
+/// Drop / explicit FINALIZE must reap Chrome; treat as a resource owner.
+#[must_use = "BrowserManager owns Chrome/CDP resources; shut down before discard"]
 pub struct BrowserManager {
     pub client: Arc<CdpClient>,
     browser_process: Option<BrowserProcess>,
@@ -525,19 +539,32 @@ impl BrowserManager {
             self.active_page_index = 0;
             self.enable_domains(&attach_result.session_id).await?;
         } else {
-            for target in &page_targets {
-                let attach_result: AttachToTargetResult = self
-                    .client
-                    .send_command_typed(
-                        "Target.attachToTarget",
-                        &AttachToTargetParams {
-                            target_id: target.target_id.clone(),
-                            flatten: true,
-                        },
-                        None,
-                    )
-                    .await?;
-
+            // Parallel attach (I/O CDP) then assign tab ids in stable target order.
+            let cdp_limit = crate::concurrency::effective_limit_capped(32);
+            let client = std::sync::Arc::clone(&self.client);
+            let attach_futs: Vec<_> = page_targets
+                .iter()
+                .map(|target| {
+                    let client = std::sync::Arc::clone(&client);
+                    let tid = target.target_id.clone();
+                    async move {
+                        client
+                            .send_command_typed::<_, AttachToTargetResult>(
+                                "Target.attachToTarget",
+                                &AttachToTargetParams {
+                                    target_id: tid,
+                                    flatten: true,
+                                },
+                                None,
+                            )
+                            .await
+                    }
+                })
+                .collect();
+            let attach_results =
+                crate::concurrency::join_bounded_ordered(attach_futs, cdp_limit).await;
+            for (target, attach_result) in page_targets.iter().zip(attach_results) {
+                let attach_result = attach_result?;
                 let tab_id = self.next_tab_id;
                 self.next_tab_id += 1;
                 self.pages.push(PageInfo {
@@ -1268,7 +1295,11 @@ impl BrowserManager {
                         )
                         .await
                     {
-                        eprintln!("Browser.setContentsSize failed (experimental CDP): {e}");
+                        tracing::warn!(
+                            target: "browser_automation_cli::native::browser",
+                            error = %e,
+                            "Browser.setContentsSize failed (experimental CDP)"
+                        );
                     }
                 }
             }
@@ -1401,7 +1432,7 @@ impl BrowserManager {
         selector: &str,
         files: &[String],
         ref_map: &RefMap,
-        iframe_sessions: &HashMap<String, String>,
+        iframe_sessions: &rustc_hash::FxHashMap<String, String>,
     ) -> Result<(), String> {
         let session_id = self.active_session_id()?;
 
@@ -1565,7 +1596,9 @@ async fn poll_network_idle(
     rx: &mut broadcast::Receiver<CdpEvent>,
     overall_timeout: tokio::time::Duration,
 ) -> Result<(), String> {
-    let pending = Arc::new(Mutex::new(HashSet::<String>::new()));
+    // Single-task state: no Arc/Mutex (rules: do not wrap local exclusive state
+    // in interior mutability — plain `mut HashSet` is enough).
+    let mut pending = HashSet::<String>::new();
 
     tokio::time::timeout(overall_timeout, async {
         let mut idle_start: Option<tokio::time::Instant> = None;
@@ -1579,25 +1612,24 @@ async fn poll_network_idle(
                     if event.session_id.is_none()
                         || event.session_id.as_deref() == Some(session_id) =>
                 {
-                    let mut p = pending.lock().await;
                     match event.method.as_str() {
                         "Network.requestWillBeSent" => {
                             if let Some(id) = event.params.get("requestId").and_then(|v| v.as_str())
                             {
-                                p.insert(id.to_string());
+                                pending.insert(id.to_string());
                                 idle_start = None;
                             }
                         }
                         "Network.loadingFinished" | "Network.loadingFailed" => {
                             if let Some(id) = event.params.get("requestId").and_then(|v| v.as_str())
                             {
-                                p.remove(id);
-                                if p.is_empty() {
+                                pending.remove(id);
+                                if pending.is_empty() {
                                     idle_start = Some(tokio::time::Instant::now());
                                 }
                             }
                         }
-                        "Page.loadEventFired" if p.is_empty() => {
+                        "Page.loadEventFired" if pending.is_empty() => {
                             idle_start = Some(tokio::time::Instant::now());
                         }
                         _ => {}
@@ -1612,8 +1644,7 @@ async fn poll_network_idle(
                     // immediately.  This prevents false-positive idle
                     // detection when the subscription starts after the page
                     // has already loaded (e.g. cached pages).
-                    let p = pending.lock().await;
-                    if p.is_empty() && idle_start.is_none() {
+                    if pending.is_empty() && idle_start.is_none() {
                         idle_start = Some(tokio::time::Instant::now());
                     }
                 }

@@ -23,7 +23,9 @@
 - Golden i18n and cold-start helpers (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Optional e2e CDP event coverage when Chrome is available (`tests/e2e_cdp_events.rs`)
 - Full **53-tool** DevTools e2e script (legacy filename): `scripts/e2e_all_52_tools.sh`
-- Live CLI inventory is **61 agent names** (`commands --json`) — broader than the 53 tool-ref e2e set; includes multi-step-only `select-option` and `pick`
+- Live CLI inventory is **63 agent names** (`commands --json`) — broader than the 53 tool-ref e2e set; includes multi-step-only `select-option` and `pick`, plus meta `locale` and `man`
+- Residual integration suite: `tests/residual_one_shot.rs` (marker zero, Singleton non-growth, BORN fixture wipe, doctor residual fields)
+- Local residual gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (no CI/GHA requirement)
 - Vendored tool-ref fixture: `tests/fixtures/tool-reference.md`
 
 
@@ -31,6 +33,8 @@
 ```bash
 timeout 300 cargo test --locked
 timeout 300 cargo test --lib --locked
+timeout 120 cargo test --lib residual:: --locked
+timeout 120 cargo test --test residual_one_shot --locked
 timeout 120 cargo test --test parity_run_inventory --locked
 timeout 120 cargo test --test clap_command_debug_assert --locked
 timeout 120 cargo clippy --all-targets --locked -- -D warnings
@@ -50,11 +54,30 @@ bash scripts/e2e_all_52_tools.sh
 - Exercises DevTools-parity tools against the local fixture page under `scripts/fixtures/e2e_page/`
 - Writes a report under a temp workdir and prints PASS/FAIL/SKIP counts
 - Maintainer evidence for v0.1.4: 53 PASS / 0 FAIL on a local host with Chrome (residual A001 closed; GAP-001…025 hard-close)
+- Maintainer evidence for v0.1.5: residual-zero disk closed (RES-01…12); `cargo test --lib residual::` + `cargo test --test residual_one_shot` + local residual-check PASS
 - The 52-tool suite does not replace residual smokes for commands outside the tool-ref set
 
 
+## Residual-Zero Disk Gates (v0.1.5)
+```bash
+cargo build --release --locked
+cargo test --lib residual:: --locked
+cargo test --test residual_one_shot --locked
+bash scripts/residual-check.sh
+# optional stress of N one-shots:
+# bash scripts/residual-stress.sh
+```
+- `residual_one_shot` covers: CLI marker zero after goto, Chromium Singleton non-growth after print-pdf, BORN wipe of stale Singleton fixture, doctor residual fields
+- `residual-check.sh` runs doctor (BORN GC path-light) + one-shot print-pdf + asserts zero CLI markers and doctor JSON `residual`
+- `residual-stress.sh` repeats one-shot work to stress residual hygiene locally
+- Doctor check id under test: `residual_disk` (path-light residual disk hygiene)
+- Doctor top-level JSON field under test: `residual` (`ResidualDiskReport`)
+- Doctor residual fields under test: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Age floor for production stale GC is 60s; tests may use zero-age library helpers for fixtures
+
+
 ## Residual PRD Smokes (beyond 53 tools)
-Run after e2e when validating the full 61-name inventory:
+Run after e2e when validating the full **63**-name inventory:
 
 ```bash
 # print-pdf artifact (one-shot + run)
@@ -153,9 +176,16 @@ browser-automation-cli page new --help | rg isolated-context
 # JSON
 # browser-automation-cli --timeout 60 --json run --script /tmp/pdf.run.json
 # schema already covered
+
+# locale / man meta (inventory 63)
+browser-automation-cli --json locale
+browser-automation-cli --json man >/tmp/browser-automation-cli.1
+
+# residual doctor fields (v0.1.5)
+browser-automation-cli doctor --offline --quick --json | jaq '.residual'
 ```
 - Also useful: browser format scrape, `config path`, `mitm start`, doctor XDG, i18n `--lang pt-BR`
-- Contract tests to cite in evidence: `parity_run_inventory`, `clap_command_debug_assert`
+- Contract tests to cite in evidence: `parity_run_inventory`, `clap_command_debug_assert`, `residual_one_shot`, residual lib tests
 
 
 ## Lighthouse Mock
@@ -175,7 +205,7 @@ browser-automation-cli --json lighthouse https://example.com \
 - Browser-backed tests require Chrome or Chromium installed locally
 - Validation runs locally with cargo and e2e scripts on the maintainer machine
 - Keep crates.io publish blocked without explicit maintainer approval
-- Optional pillar smokes after e2e: `run` + `--json-steps`, residual PRD commands above, `config path`, `mitm capture-url`, doctor XDG
+- Optional pillar smokes after e2e: `run` + `--json-steps`, residual PRD commands above, residual-check, `config path`, `mitm capture-url`, doctor XDG + residual
 
 
 ## Documentation Schema and Bilingual Audit
@@ -205,7 +235,8 @@ bash scripts/audit_bilingual_docs.sh
 - Schema gate failures: update both code and `docs/schemas/` in the same change
 - Command schema drift: re-run `bash scripts/generate_command_schemas.sh` after changing `meta.rs`
 - Bilingual fence drift: re-run `bash scripts/audit_bilingual_docs.sh` and align EN and `.pt-BR` command blocks
-- Inventory drift: refresh against `commands --json` (61) and `tests/fixtures/tool-reference.md` (53 tools)
+- Inventory drift: refresh against `commands --json` (63) and `tests/fixtures/tool-reference.md` (53 tools)
+- Residual disk leaks: re-run `cargo test --test residual_one_shot` and `bash scripts/residual-check.sh`; inspect doctor `residual`
 - Run inventory drift: refresh `RUN_DISPATCHED_CMDS` and re-run `cargo test --test parity_run_inventory`
 - Clap assert failures: fix `GlobalOpts` / subcommand definitions then re-run `cargo test --test clap_command_debug_assert`
 - E2E script missing binary: run `cargo build --release --locked` first so `target/release/browser-automation-cli` exists
