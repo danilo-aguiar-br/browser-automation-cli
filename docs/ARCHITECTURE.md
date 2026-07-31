@@ -4,25 +4,25 @@
 
 - One-shot Chrome CDP automation for AI agents
 - Lifecycle is always: BORN → EXECUTE → FINALIZE → DIE (single process; no daemon)
-- Full agent command list (63 names): see [docs/HOW_TO_USE.md](HOW_TO_USE.md) and `browser-automation-cli commands --json`
+- Full agent command list (**65** names): see [docs/HOW_TO_USE.md](HOW_TO_USE.md) and `browser-automation-cli commands --json`
 
 ## Layers
 
 | Layer | Path | Role |
 |-------|------|------|
 | Binary thin | `src/main.rs` | panic hook, `run_from_args`, exit code |
-| Lib entry | `src/lib.rs` | `run` / `run_from_args`, telemetry hold, lifecycle |
-| CLI surface | `src/cli.rs` | Clap derive (`Parser` / `Subcommand`); help = agent UX |
-| Dispatch | `src/commands_prd/` | PRD handlers (`mod.rs` match + `meta` + `run`) |
+| Lib entry | `src/lib.rs` | `run` / `run_from_args`, tracing_local guard hold, lifecycle |
+| CLI surface | `src/cli/` | Clap derive (`Parser` / `Subcommand`); help = agent UX |
+| Dispatch | `src/commands/` | PRD handlers (`mod.rs` match + `meta` + `run`) |
 | Session | `src/browser/` | One-shot Chrome session, actions, residual ledger hooks |
 | Native CDP | `src/native/` | chromiumoxide client, snapshot, heap, cookies, … |
 | Contract I/O | `src/output.rs`, `src/envelope.rs`, `src/json_util.rs` | stdout envelopes; BrokenPipe → 141 |
-| Lifecycle | `src/lifecycle.rs` | cancel token, BORN/FINALIZE orchestration, SIGINT/SIGTERM |
-| Residual disk/process | `src/residual.rs` | marker + Chromium tmp Singleton GC; `ResidualDiskReport` |
-| Telemetry | `src/telemetry.rs` | tracing dual sink (stderr + optional rotated JSON) |
-| XDG config | `src/xdg.rs`, `src/config.rs` | product settings: flags + XDG `config` only |
+| Lifecycle | `src/lifecycle/` | cancel token, BORN/FINALIZE orchestration, SIGINT/SIGTERM |
+| Residual disk/process | `src/residual/` | marker + Chromium tmp Singleton GC; `ResidualDiskReport` |
+| Local tracing | `src/tracing_local/` | tracing dual sink (stderr + optional rotated JSON) |
+| XDG config | `src/xdg/`, `src/config.rs` | product settings: flags + XDG `config` only |
 | i18n | `src/i18n/`, `locales/*.ftl` | `--lang` + XDG `lang` → negotiate → OnceLock; human suggestions only |
-| Platform | `src/platform.rs` | PATH `which_bin`, console UTF-8/VT, HostEnvironment, browser sandbox |
+| Platform | `src/platform/` | PATH `which_bin`, console UTF-8/VT, HostEnvironment, browser sandbox |
 | Windows jobs | `src/win_job.rs` | Job Object residual process kill (stubs on non-Windows) |
 
 ## Residual product law (process + disk)
@@ -35,7 +35,7 @@ Product law residual-zero covers **both** live Chrome trees and **disk** hygiene
 
 Never kill or wipe **host Flatpak** Chrome trees (for example `com.google.Chrome.*` temp prefixes). Cross-run GC is Singleton-shape + uid + age + no live holder only.
 
-### Role of `src/residual.rs`
+### Role of `src/residual/`
 
 - Marker prefix and Chromium tmp prefix constants (public, anti-hardcode).
 - Discovery of invocation-window side-channels (pid/profile attribution).
@@ -64,13 +64,13 @@ FINALIZE dual scavenge = invocation-window orphans **plus** stale Singleton GC s
   - `live_cli_marker_processes` — live processes whose cmdline contains the CLI chrome marker prefix
 - Status: `fail` if live marker processes; `warn` if marker dirs or singleton orphans remain; else `pass`.
 
-Local maintainer gates (no CI/GHA requirement): `scripts/residual-check.sh`, `scripts/residual-stress.sh`.
+Local maintainer gates (local maintainer scripts only): `scripts/residual-check.sh`, `scripts/residual-stress.sh`.
 
 ## i18n (human suggestions)
 
 Precedence for product docs and agents: **`--lang` → XDG `lang` → OS locale (`sys-locale` + `fluent-langneg`) → default `en`**.
 
-- MVP packs: `en` + `pt-BR` (`Idioma` / `Mensagem` exhaustive match + FTL parity).
+- MVP packs: `en` + `pt-BR` (`UiLocale` / `UiMessage` exhaustive match + FTL parity).
 - Machine JSON `error.message` and tracing stay English (agent contract).
 - Optional packs: features `i18n-cjk` / `i18n-rtl` / `i18n-europe` / `i18n-full` (scaffold).
 - Diagnostics: subcommand `locale` (+ `--json`).
@@ -78,11 +78,50 @@ Precedence for product docs and agents: **`--lang` → XDG `lang` → OS locale 
 
 Product settings (including language) use **flags + XDG only**. Do not invent or promote product environment variables for durable config.
 
-## Module map (`commands_prd`)
+## Module map (`commands`)
 
 - `mod.rs` — `dispatch` match on `Commands` + browser/session handlers  
-- `meta.rs` — `commands` / `schema` inventory for agents (**63** names via `commands --json`)  
-- `run.rs` — multi-step `run` / `exec` script engine (NDJSON steps)
+- `meta/` — `commands` / `schema` inventory for agents (**65** names via `commands --json`; schema SRP dir)  
+- `run/` — multi-step `run` / `exec` script engine (NDJSON steps)
+
+### Dialog multi-tab and settle (v0.1.6)
+
+- **`dialog_map_key`:** pure helper maps open JS dialogs by CDP session identity. Event `session_id` wins; browser-scoped `None` falls back to the active page session id.
+- **Page forwarders stamp `Page::session_id`:** so `Page.javascriptDialogOpening` / `Closed` from non-active tabs do not collide with the active tab map entry. Multi-tab isolation is via `Page::session_id` / `dialog_map_key`.
+- **`dialog_settled`:** after accept/dismiss, the session waits up to XDG `dialog_settle_ms` for `javascriptDialogClosed`, then returns a compact boolean (agent-first; no invented post-settle wait by consumers). GAP-054.
+- **`dialog_settle_ms`:** XDG config key only (`config set dialog_settle_ms`); never a product env var.
+- **`tab_switch` domain enable budget:** when switching tabs under a page-modal dialog, domain enable is best-effort under `TAB_SWITCH_DOMAIN_ENABLE_BUDGET_MS` so modal ownership does not hang the switch path.
+
+### Run wait / scrape / select (v0.1.6)
+
+- **`wait_timeout_ms`:** public key on run wait steps (GAP-053); parser honors it (not silent discard).
+- **Scrape `format`/`formats` in run:** without HTML monster when only text is requested (GAP-057).
+- **Native select:** `pick` / `select-option` dispatch `input` then `change`, report `via: native_select` (GAP-055).
+- **`grab` encode:** **png|jpeg|webp** only; AVIF removed (breaking).
+- Inventory **65** includes `submit` + `storage`; clap product surface is 63 (`pick` / `select-option` are inventory/run multi-step names).
+
+### Lighthouse LHR pure parse (v0.1.6)
+
+- **`scores_from_lhr`:** pure function extracts category scores from Lighthouse Result JSON (0–1 or null audits). Unit fixtures: `scripts/fixtures/lighthouse/minimal_lhr.json` and real sanitized `chrome_captured_lhr.json`. E2e mock path stays SKIP (not a parser PASS claim). GAP-021 partial.
+- **GAP-022 residual:** ~53 multi-version dups accepted (cheap prune exhausted).
+- **GAP-023/024:** intentional PRD divergences in `parity_intentional_divergences.json`.
+- Residual-zero disk law from 0.1.5 still current.
+- Product config: flags + XDG only (never product env vars).
+
+## Full agent inventory (65)
+
+Discover live: `browser-automation-cli commands --json`
+
+```
+assert attr back batch-scrape click-at commands completions config console cookie
+crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+find-paths forward goto grab heap hover keys lighthouse locale man map mitm monitor
+net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+upload version view wait webmcp workflow write
+```
+
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 63.
 
 Large handler surface remains in `mod.rs` by design (single match table for agent
 parity). Prefer extracting **new** command families into sibling modules rather
@@ -114,7 +153,7 @@ Puppeteer/Playwright caches.
 - residual zero after DIE: Chrome process + CLI markers + Chromium Singleton tmp (process **and** disk)  
 - never kill host Flatpak Chrome residual  
 - product settings: flags + XDG only (no product env catalogs)  
-- no GitHub Actions / CD in-repo (local gates under `scripts/*-check.sh`)  
+- no remote release orchestration pipelines in-repo (local gates under `scripts/*-check.sh`)  
 - host-only Chrome CDP (no WASM automation target)
 
 ## Related docs
@@ -122,7 +161,7 @@ Puppeteer/Playwright caches.
 - `docs/COOKBOOK.md` — agent recipes
 - `docs/TESTING.md` — how to run gates
 - `docs/CROSS_PLATFORM.md` — OS matrix, browser paths, sandboxes
-- `docs/HOW_TO_USE.md` — full inventory of 63 commands
+- `docs/HOW_TO_USE.md` — full inventory of 65 commands
 - `docs/ARCHITECTURE.pt-BR.md` — Portuguese mirror
-- `gaps.md` — `/r-auditoria` catalogue (RES-01…12 closed Pass 27)
+- `gaps.md` — Status v0.1.6 residual DoD + historical 0.1.5 audit catalogue
 - `PRIVACY.md` — local-only data handling

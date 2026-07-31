@@ -6,35 +6,50 @@
   "description": "Scrape many URLs from a file (HTTP or browser engine, one-shot)",
   "properties": {
     "concurrency": {
-      "minimum": 1,
+      "argv": "--concurrency",
+      "default": 0,
+      "description": "Concurrent HTTP fetches (`0` = use global `--max-concurrency` / auto)",
+      "required": false,
+      "source": "parser",
+      "step_key": "concurrency",
+      "surfaces": [
+        "argv"
+      ],
       "type": "integer"
     },
     "engine": {
-      "description": "Default http; browser uses CDP per URL (GAP-010)",
-      "enum": [
-        "http",
-        "browser"
+      "argv": "--engine",
+      "default": "http",
+      "description": "http (default) or browser (CDP per URL; GAP-010)",
+      "required": false,
+      "source": "parser",
+      "step_key": "engine",
+      "surfaces": [
+        "argv"
       ],
       "type": "string"
     },
     "format": {
-      "description": "Single format or CSV multi-format when supported",
-      "enum": [
-        "text",
-        "markdown",
-        "html",
-        "links",
-        "metadata",
-        "raw-html",
-        "screenshot",
-        "summary",
-        "product",
-        "branding"
+      "argv": "--format",
+      "default": "text",
+      "description": "Output format applied to every URL",
+      "required": false,
+      "source": "parser",
+      "step_key": "format",
+      "surfaces": [
+        "argv"
       ],
       "type": "string"
     },
     "urls_file": {
-      "description": "Path to file with one URL per line",
+      "argv": "--urls-file",
+      "description": "File with one absolute URL per line",
+      "required": true,
+      "source": "parser",
+      "step_key": "urls_file",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     }
   },

@@ -34,12 +34,37 @@ fi
 
 # 3) Prefer generics: no macro_rules! *definitions* in src after Pass 16
 # (CDP forwarders are generic fns). Comments may still mention the ban.
+#
+# DECLARED EXCEPTIONS. Each entry states why generics/traits cannot express the
+# construct. An undocumented entry is how an exception list becomes a hiding
+# place, so the justification lives here and not in a commit message.
+#
+#   src/xdg/policy/knobs/expand.rs — `policy_knobs!`
+#     Generates, from ONE table row, six things that must stay in lockstep: a
+#     serde struct field, a `key` constant, the default reader, the `config get`
+#     arm, the `config set` arm, and the `config list-keys` entry. Generics
+#     cannot declare struct fields or match arms, and a trait cannot mint a
+#     `const` name per row. The alternative is 86 rows x 6 hand-written sites,
+#     which is exactly the drift this macro exists to prevent.
+#
+#   src/commands/meta/schema/derive.rs — `is_type!`
+#     Compares a clap `ValueParser` type id against a probe built for a Rust
+#     TYPE. The type is the argument, so a generic fn cannot take it without
+#     naming `AnyValueId`, which clap does not re-export. Function-local and
+#     three lines long.
+MACRO_EXCEPTIONS='src/xdg/policy/knobs/expand\.rs|src/commands/meta/schema/derive\.rs'
 rules_hits=$(rg -n '^\s*macro_rules!\s+\w+' src/ --glob '*.rs' || true)
-if [ -z "$rules_hits" ]; then
-  pass "no macro_rules! definitions in src/ (generics/build.rs preferred)"
+rules_unexcused=$(echo "$rules_hits" | rg -v "$MACRO_EXCEPTIONS" | rg . || true)
+if [ -z "$rules_unexcused" ]; then
+  if [ -n "$rules_hits" ]; then
+    pass "macro_rules! only in declared exceptions (see justifications above)"
+    echo "$rules_hits" | sed 's/^/      /'
+  else
+    pass "no macro_rules! definitions in src/ (generics/build.rs preferred)"
+  fi
 else
   bad "macro_rules! definition present — exhaust generics/traits first or document justification"
-  echo "$rules_hits"
+  echo "$rules_unexcused"
 fi
 
 # 4) No proc-macro crate declaration (would be a different product surface)
@@ -50,7 +75,8 @@ else
 fi
 
 # 5) CDP generation path: build.rs + include!(concat!(env!(OUT_DIR)))
-if rg -n 'include!\(\s*concat!\(\s*env!\("OUT_DIR"\)' src/native/cdp/types.rs >/dev/null; then
+# Pass G: types live under cdp/types/ (include! in types/mod.rs).
+if rg -n 'include!\(\s*concat!\(\s*env!\("OUT_DIR"\)' src/native/cdp/types/ >/dev/null 2>&1; then
   pass "CDP types via include!(concat!(env!(OUT_DIR)))"
 else
   bad "missing include! of OUT_DIR cdp_generated.rs"
@@ -78,7 +104,8 @@ else
 fi
 
 # 8) Generic CDP forwarder present (replacement for macro_rules! fwd)
-if rg -n 'fn spawn_cdp_event_forwarder' src/native/cdp/client.rs >/dev/null; then
+# Pass G: forwarder lives in cdp/client/forwarders.rs.
+if rg -n 'fn spawn_cdp_event_forwarder' src/native/cdp/client/ >/dev/null; then
   pass "spawn_cdp_event_forwarder generic helper present"
 else
   bad "missing generic CDP event forwarder"
@@ -86,14 +113,55 @@ fi
 
 # 9) panic! only allowed in tests / human_panic setup / intentional test helpers
 # Flag non-test panic! outside cfg(test) blocks is soft: list for review
-panic_prod=$(rg -n 'panic!\(' src/ --glob '*.rs' | rg -v 'tests?\.rs|cfg\(test\)|human_panic|// ' || true)
-# Always pass if only main.rs human_panic / known test modules; hard-fail only on unexpected modules
-unexpected=$(echo "$panic_prod" | rg -v 'src/main\.rs|src/cache\.rs|src/lifecycle\.rs' || true)
+panic_prod=$(rg -n 'panic!\(' src/ --glob '*.rs' | rg -v 'tests?\.rs|/tests\.rs|cfg\(test\)|human_panic|// ' || true)
+# Allow main human_panic + known test helpers after Pass F/G dir splits.
+unexpected=$(echo "$panic_prod" | rg -v 'src/main\.rs|src/cache/|src/lifecycle/|src/concurrency/|src/sync_util\.rs' || true)
 if [ -z "$unexpected" ]; then
   pass "panic! surface limited (main human_panic / test helpers)"
 else
   bad "unexpected panic! in production modules"
   echo "$unexpected"
+fi
+
+# 10) Pass J: single-source HTTP_USER_AGENT via compile-time CARGO_PKG_* (not product env)
+if rg -n 'pub const HTTP_USER_AGENT' src/constants/ >/dev/null \
+  && rg -n 'env!\("CARGO_PKG_NAME"\)' src/constants/ >/dev/null \
+  && rg -n 'env!\("CARGO_PKG_VERSION"\)' src/constants/ >/dev/null \
+  && rg -n 'env!\("CARGO_PKG_HOMEPAGE"\)' src/constants/ >/dev/null; then
+  pass "HTTP_USER_AGENT in constants uses CARGO_PKG_NAME/VERSION/HOMEPAGE"
+else
+  bad "HTTP_USER_AGENT missing or not built from CARGO_PKG_* in constants.rs"
+fi
+
+# 11) Pass J: no hard-coded package name inside concat! UA fragments
+ua_hard=$(rg -n 'concat!\(\s*"browser-automation-cli/' src/ --glob '*.rs' || true)
+if [ -z "$ua_hard" ]; then
+  pass "no hard-coded package name in concat! UA fragments"
+else
+  bad "hard-coded package name in concat! (use env!(CARGO_PKG_NAME))"
+  echo "$ua_hard"
+fi
+
+# 12) Pass J: XDG APPLICATION + sheet temp prefix track package name
+if rg -n 'APPLICATION:\s*&str\s*=\s*env!\("CARGO_PKG_NAME"\)' src/xdg/paths.rs >/dev/null; then
+  pass "XDG APPLICATION = env!(CARGO_PKG_NAME)"
+else
+  bad "XDG APPLICATION must be env!(CARGO_PKG_NAME)"
+fi
+
+if rg -n 'XLSX_TMP_NAME_PREFIX|env!\("CARGO_PKG_NAME"\)' src/constants/ >/dev/null \
+  && rg -n 'XLSX_TMP_NAME_PREFIX' src/sheet_local.rs >/dev/null; then
+  pass "xlsx temp prefix uses XLSX_TMP_NAME_PREFIX / CARGO_PKG_NAME"
+else
+  bad "sheet_local temp prefix not wired to XLSX_TMP_NAME_PREFIX"
+fi
+
+# 13) Pass J: consumers share constants UA (no DEFAULT_HTTP_UA local)
+if rg -n 'DEFAULT_HTTP_UA' src/ --glob '*.rs' >/dev/null; then
+  bad "DEFAULT_HTTP_UA still present — use constants::HTTP_USER_AGENT"
+  rg -n 'DEFAULT_HTTP_UA' src/ --glob '*.rs' || true
+else
+  pass "no DEFAULT_HTTP_UA local (shared HTTP_USER_AGENT)"
 fi
 
 if [ "$fail" -ne 0 ]; then

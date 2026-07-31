@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
 # Local residual hygiene gate for browser-automation-cli (PRD §5N).
 # No GitHub Actions / CD — run by humans or agents on the workstation.
+#
+# The verdict comes from the product's own residual report, not from an ad-hoc
+# temp-dir glob. Two reasons (GAP-002 / GAP-003):
+#   - profiles live under the XDG cache root, not only under /tmp, so a glob over
+#     /tmp alone reports a clean host while residue accumulates elsewhere;
+#   - a live *sibling* invocation is healthy, so counting live marker processes
+#     as failures made this gate fail whenever two runs overlapped.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,53 +28,45 @@ if [[ -z "$BIN" ]]; then
   fi
 fi
 
+WORKDIR="${TMPDIR:-/tmp}/browser-automation-cli-residual-check-$$"
+mkdir -p "$WORKDIR"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+# Raw stdout to disk before analysis; exit code in its own variable; jaq only.
+source "$ROOT/scripts/lib/e2e_common.sh"
+
 echo "== residual-check: bin=$BIN =="
 
-count_markers() {
-  # shellcheck disable=SC2012
-  (shopt -s nullglob; set -- /tmp/browser-automation-cli-chrome-*; echo "$#")
+residual_line() {
+  e2e_jaq_raw '.data.residual | "markers=\(.cli_marker_dirs) orphans=\(.orphan_marker_dirs) singleton=\(.chromium_tmp_singleton_orphans) siblings=\(.sibling_live_processes)"'
 }
 
-count_chromium_tmp() {
-  # shellcheck disable=SC2012
-  (shopt -s nullglob; set -- /tmp/org.chromium.Chromium.* /tmp/.org.chromium.Chromium.*; echo "$#")
-}
+# Path-light: BORN GC only.
+e2e_run "doctor_born" --json doctor --quick --offline
+if ! e2e_expect_rc 0 "doctor_born"; then
+  echo "FAIL: BORN doctor exited non-zero; $(e2e_fail_detail)" >&2
+  exit 1
+fi
+if ! e2e_expect_jaq '.data.residual != null' "doctor_born"; then
+  echo "FAIL: doctor JSON missing residual report; $(e2e_fail_detail)" >&2
+  exit 1
+fi
+echo "after BORN doctor: $(residual_line)"
 
-before_m="$(count_markers)"
-before_c="$(count_chromium_tmp)"
-echo "before markers=$before_m chromium_tmp=$before_c"
-
-# Path-light: BORN GC only
-"$BIN" --json doctor --quick --offline >/tmp/browser-automation-cli-doctor-residual.json
-
-after_born_m="$(count_markers)"
-after_born_c="$(count_chromium_tmp)"
-echo "after BORN doctor markers=$after_born_m chromium_tmp=$after_born_c"
-
-# One-shot browser work
-PDF="/tmp/browser-automation-cli-residual-check.pdf"
-"$BIN" --json print-pdf --url about:blank --path "$PDF" >/tmp/browser-automation-cli-print-pdf-residual.json
-
-after_m="$(count_markers)"
-after_c="$(count_chromium_tmp)"
-echo "after print-pdf markers=$after_m chromium_tmp=$after_c"
-
-if [[ "$after_m" != "0" ]]; then
-  echo "FAIL: CLI chrome markers remain: $after_m" >&2
+# One-shot browser work.
+PDF="$WORKDIR/residual-check.pdf"
+e2e_run "print_pdf" --json print-pdf --url about:blank --path "$PDF"
+if ! e2e_expect_rc 0 "print_pdf"; then
+  echo "FAIL: print-pdf exited non-zero; $(e2e_fail_detail)" >&2
   exit 1
 fi
 
-# Live CLI automation processes must be zero
-if pgrep -af 'browser-automation-cli-chrome' 2>/dev/null | grep -v pgrep | grep -q .; then
-  echo "FAIL: live browser-automation-cli-chrome process" >&2
-  pgrep -af 'browser-automation-cli-chrome' || true
+# Final verdict: zero orphan markers and zero Chromium Singleton orphans.
+if ! e2e_assert_residual_zero "doctor_final"; then
+  echo "FAIL: residual gate; $(e2e_fail_detail)" >&2
   exit 1
 fi
-
-if ! grep -q residual /tmp/browser-automation-cli-doctor-residual.json; then
-  echo "FAIL: doctor JSON missing residual" >&2
-  exit 1
-fi
+echo "after print-pdf: $(residual_line)"
 
 echo "PASS residual-check"
 exit 0

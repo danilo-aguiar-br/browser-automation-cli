@@ -1,0 +1,85 @@
+<!doctype html>
+<!--
+  Fixture for `select-option` / `pick` (see tests/option_pick_gate.rs).
+
+  Two controls, on purpose:
+
+    #trigger + the role=option list — a custom popover, which is what `pick`
+    was added for. The options only exist AFTER the trigger is pressed, so a
+    command that clicked the option directly without opening the popover would
+    find nothing.
+
+    #native — a plain <select>, the shape a caller is most likely to reach for.
+
+  Both write the chosen value into #chosen from their OWN handler, so the
+  assertion is on what the page decided rather than on what the envelope says.
+  A command that reported success without choosing anything leaves it at `none`.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>option pick</title>
+    <style>
+      #menu[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">option pick</h1>
+
+    <button id="trigger" type="button">Priority</button>
+    <ul id="menu" role="listbox" hidden>
+      <li role="option" id="opt-low">Low</li>
+      <li role="option" id="opt-high">High</li>
+    </ul>
+
+    <select id="native">
+      <option value="">--</option>
+      <option value="alpha">Alpha</option>
+      <option value="beta">Beta</option>
+    </select>
+
+    <p id="chosen">none</p>
+    <!--
+      Both events are recorded separately from the value. A native <select> has
+      to receive `input` AND `change`: reactive forms listen for the first and
+      plain handlers for the second, so dispatching only one of them looks
+      correct to half the pages in existence.
+    -->
+    <p id="events">none</p>
+    <script>
+      (function () {
+        var chosen = document.getElementById('chosen');
+        var events = document.getElementById('events');
+        var menu = document.getElementById('menu');
+
+        function note(name) {
+          events.textContent = events.textContent === 'none'
+            ? name
+            : events.textContent + ',' + name;
+        }
+
+        document.getElementById('trigger').addEventListener('click', function () {
+          menu.hidden = false;
+        });
+
+        // Only reachable once the popover is open, which is what makes the
+        // recorded value evidence that the trigger was pressed first.
+        menu.addEventListener('click', function (e) {
+          if (e.target && e.target.getAttribute('role') === 'option') {
+            chosen.textContent = 'popover:' + e.target.textContent;
+            menu.hidden = true;
+          }
+        });
+
+        var native = document.getElementById('native');
+        native.addEventListener('input', function () {
+          note('input');
+        });
+        native.addEventListener('change', function (e) {
+          note('change');
+          chosen.textContent = 'native:' + e.target.value;
+        });
+      })();
+    </script>
+  </body>
+</html>

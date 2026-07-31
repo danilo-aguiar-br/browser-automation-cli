@@ -6,10 +6,26 @@
   "description": "Local search (HTTP SERP links or URL map)",
   "properties": {
     "limit": {
-      "minimum": 1,
+      "argv": "--limit",
+      "default": 10,
+      "description": "Maximum number of results to return",
+      "required": false,
+      "source": "parser",
+      "step_key": "limit",
+      "surfaces": [
+        "argv"
+      ],
       "type": "integer"
     },
     "query": {
+      "argv": "<QUERY>",
+      "description": "Search terms sent to the configured HTML endpoint",
+      "required": true,
+      "source": "parser",
+      "step_key": "query",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     }
   },

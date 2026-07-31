@@ -3,10 +3,17 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/man.schema.json",
   "title": "man command input",
   "type": "object",
-  "description": "Generate man page (roff) via clap_mangen (no Chrome)",
+  "description": "Generate man page (roff) via clap_mangen (path-level, no Chrome)",
   "properties": {
     "out": {
-      "description": "Optional output path; default stdout",
+      "argv": "--out",
+      "description": "Write man page to PATH instead of stdout",
+      "required": false,
+      "source": "parser",
+      "step_key": "out",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     }
   },

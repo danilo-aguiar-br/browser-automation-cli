@@ -3,15 +3,148 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/extension.schema.json",
   "title": "extension command input",
   "type": "object",
-  "description": "Extension tools (requires --category-extensions)",
+  "description": "Chrome extension tools (requires --category-extensions)",
   "properties": {
     "action": {
+      "actions": {
+        "install": {
+          "description": "Launch Chrome with an unpacked extension directory loaded",
+          "properties": {
+            "path": {
+              "argv": "<PATH>",
+              "description": "Unpacked extension directory (the one holding `manifest.json`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "list": {
+          "description": "List extensions loaded in this one-shot process",
+          "properties": {}
+        },
+        "reload": {
+          "description": "Reload a loaded extension by id",
+          "properties": {
+            "id": {
+              "argv": "<ID>",
+              "description": "Extension id reported by `extension list`",
+              "required": true,
+              "source": "parser",
+              "step_key": "id",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Unpacked extension dir so one-shot can --load-extension before reload",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "trigger": {
+          "description": "Trigger an extension action via its service worker",
+          "properties": {
+            "id": {
+              "argv": "<ID>",
+              "description": "Extension id reported by `extension list`",
+              "required": true,
+              "source": "parser",
+              "step_key": "id",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Unpacked extension dir so one-shot can --load-extension before trigger",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "uninstall": {
+          "description": "Uninstall an extension by id",
+          "properties": {
+            "id": {
+              "argv": "<ID>",
+              "description": "Extension id reported by `extension list`",
+              "required": true,
+              "source": "parser",
+              "step_key": "id",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
+      "enum": [
+        "list",
+        "install",
+        "reload",
+        "trigger",
+        "uninstall"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "id": {
+      "source": "catalog",
+      "step_key": "id",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "path": {
+      "source": "catalog",
+      "step_key": "path",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

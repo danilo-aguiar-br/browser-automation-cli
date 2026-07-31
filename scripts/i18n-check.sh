@@ -48,6 +48,107 @@ fi
 
 echo "FTL parity: ${#EN_KEYS[@]} keys OK"
 
+# Pass K: headers point at UiMessage (not legacy mensagem.rs)
+if grep -q 'mensagem\.rs' "$EN" "$PT" 2>/dev/null; then
+  echo "FAIL: FTL still references mensagem.rs (use ui_message.rs)" >&2
+  exit 1
+fi
+if ! grep -q 'ui_message.rs' "$EN" || ! grep -q 'ui_message.rs' "$PT"; then
+  echo "FAIL: FTL headers must reference ui_message.rs" >&2
+  exit 1
+fi
+echo "PASS  FTL headers reference ui_message.rs"
+
+# GAP-047: every emitted suggestion key must exist in BOTH catalogs.
+# Source of truth: suggestion_key("<k>") call sites and UiMessage::from_suggestion_key arms.
+MISSING_KEYS=0
+while IFS= read -r sk; do
+  [[ -z "$sk" ]] && continue
+  # Catalog id is the kebab-case form of the snake_case suggestion key.
+  ftl_id="${sk//_/-}"
+  if ! rg -q "^${ftl_id}[[:space:]]*=" "$EN"; then
+    echo "FAIL: suggestion_key(\"$sk\") has no '$ftl_id' key in locales/en.ftl" >&2
+    MISSING_KEYS=1
+  fi
+  if ! rg -q "^${ftl_id}[[:space:]]*=" "$PT"; then
+    echo "FAIL: suggestion_key(\"$sk\") has no '$ftl_id' key in locales/pt-BR.ftl" >&2
+    MISSING_KEYS=1
+  fi
+  # Anchored on the symbol across src/i18n, not on one file: the catalog
+  # was a single ui_message.rs and is now a module, and a path-pinned
+  # check would fail for the wrong reason after any such move.
+  if ! rg -q "\"$sk\" => UiMessage::" src/i18n/; then
+    echo "FAIL: suggestion_key(\"$sk\") has no UiMessage variant in src/i18n/" >&2
+    MISSING_KEYS=1
+  fi
+done < <(rg -o -r '$1' 'suggestion_key\("([a-z0-9_]+)"' src/ --no-filename | sort -u)
+if [[ "$MISSING_KEYS" -ne 0 ]]; then
+  echo "FAIL: emitted suggestions without catalog coverage" >&2
+  exit 1
+fi
+echo "PASS  every emitted suggestion_key has en/pt-BR catalog coverage"
+
+# GAP-047: every ftl_id() declared in UiMessage must exist in BOTH catalogs.
+MISSING_IDS=0
+while IFS= read -r id; do
+  [[ -z "$id" ]] && continue
+  if ! rg -q "^${id}[[:space:]]*=" "$EN" || ! rg -q "^${id}[[:space:]]*=" "$PT"; then
+    echo "FAIL: UiMessage ftl_id '$id' missing from a catalog" >&2
+    MISSING_IDS=1
+  fi
+done < <(rg -o -r '$1' 'UiMessage::\w+ => "([a-z0-9-]+)",' src/i18n/ --no-filename | sort -u)
+if [[ "$MISSING_IDS" -ne 0 ]]; then
+  exit 1
+fi
+echo "PASS  every UiMessage ftl_id has en/pt-BR catalog coverage"
+
+# Pass K: config set validates lang; bare pt rejected
+if ! rg -n 'validate_lang_token' src/xdg/config_ops/set.rs src/i18n/mod.rs >/dev/null; then
+  echo "FAIL: missing validate_lang_token wiring" >&2
+  exit 1
+fi
+echo "PASS  validate_lang_token present"
+
+if ! rg -n 'parse_token\("pt"\), None' src/i18n/ui_locale.rs >/dev/null; then
+  echo "FAIL: bare pt must be rejected in parse_token tests" >&2
+  exit 1
+fi
+echo "PASS  bare pt rejection covered"
+
+# Pass K: feature gates route through the catalog, never EN literals.
+# Anchored on the whole tree, not one file: the gate logic moved from
+# dispatch/gates.rs to capability/ and a path-pinned check went stale silently.
+if rg -n 'Pass --experimental-screencast|Pass --category-memory|Pass --category-extensions|Pass --category-third-party|Pass --category-webmcp' \
+  src/ --glob '!src/i18n/**' --glob '!src/**/tests.rs' >/dev/null; then
+  echo "FAIL: a feature gate still carries hard-coded EN catalog text outside src/i18n" >&2
+  rg -n 'Pass --experimental-screencast|Pass --category-memory|Pass --category-extensions|Pass --category-third-party|Pass --category-webmcp' \
+    src/ --glob '!src/i18n/**' --glob '!src/**/tests.rs' >&2
+  exit 1
+fi
+for gate_key in screencast_flag category_memory category_extensions third_party_flag webmcp_flag; do
+  if ! rg -q "\"${gate_key}\"" src/ --glob '!src/i18n/**'; then
+    echo "FAIL: feature gate key '${gate_key}' is not referenced outside src/i18n" >&2
+    exit 1
+  fi
+done
+echo "PASS  feature gates route through the suggestion catalog"
+
+# Pass K: early locale on clap error path
+if ! rg -n 'scan_lang_flag_from_argv' src/lib.rs src/i18n/mod.rs >/dev/null; then
+  echo "FAIL: missing early lang scan for clap errors" >&2
+  exit 1
+fi
+echo "PASS  early locale scan for clap errors"
+
+# GAP-047: source audit of with_suggestion call sites.
+# Catches a hand-written English literal, which the key-coverage checks above
+# cannot see. Parsing lives in src/i18n/catalog_audit.rs so it is Rust-aware.
+if ! cargo test --lib i18n::catalog_audit --quiet; then
+  echo "FAIL: with_suggestion source audit (raw literal added, or catalog text hand-copied)" >&2
+  exit 1
+fi
+echo "PASS  with_suggestion source audit (no new raw literals, no hand-copied catalog text)"
+
 # Compile-time + unit surface
 cargo test --lib i18n:: --quiet
 cargo test --test golden_i18n --quiet

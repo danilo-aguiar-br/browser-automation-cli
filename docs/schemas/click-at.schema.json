@@ -6,15 +6,55 @@
   "description": "Click at page CSS coordinates (requires --experimental-vision)",
   "properties": {
     "dblclick": {
+      "argv": "--dblclick",
+      "description": "Send a double click instead of a single click",
+      "required": false,
+      "source": "parser",
+      "step_key": "dblclick",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "include_snapshot": {
+      "argv": "--include-snapshot",
+      "description": "Attach slim a11y snapshot after the click",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "x": {
+      "argv": "--x",
+      "description": "Horizontal page CSS pixel coordinate",
+      "required": true,
+      "source": "parser",
+      "step_key": "x",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "number"
     },
     "y": {
+      "argv": "--y",
+      "description": "Vertical page CSS pixel coordinate",
+      "required": true,
+      "source": "parser",
+      "step_key": "y",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "number"
     }
   },

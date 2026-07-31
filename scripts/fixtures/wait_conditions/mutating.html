@@ -1,0 +1,51 @@
+<!doctype html>
+<!--
+  Fixture for the `wait` DOM-stability condition (see tests/wait_conditions_gate.rs).
+
+  The document mutates on a timer and then stops. A DOM-stability window can
+  only be satisfied AFTER the mutations stop, so the observed wall time carries
+  the proof that the window was honoured rather than skipped.
+
+  The mutation appends a node each tick, so it changes both halves of the
+  fingerprint `src/browser/session/wait_emulate/wait.rs` computes (element count
+  and serialized length). A mutation that only rewrote text to the same length
+  would be invisible to that fingerprint, and this fixture deliberately does not
+  rely on such a case.
+
+  Query parameters:
+    churn=N   milliseconds of mutation before the document settles (default 0)
+    every=N   milliseconds between mutations (default 100)
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>mutating</title>
+  </head>
+  <body>
+    <h1>mutating</h1>
+    <div id="churn"></div>
+    <p id="status">churning</p>
+    <script>
+      (function () {
+        var q = new URLSearchParams(location.search);
+        var churn = parseInt(q.get('churn') || '0', 10);
+        var every = parseInt(q.get('every') || '100', 10);
+        var started = Date.now();
+        if (churn <= 0) {
+          document.getElementById('status').textContent = 'settled';
+          return;
+        }
+        var timer = setInterval(function () {
+          if (Date.now() - started >= churn) {
+            clearInterval(timer);
+            document.getElementById('status').textContent = 'settled';
+            return;
+          }
+          var span = document.createElement('span');
+          span.textContent = 'x';
+          document.getElementById('churn').appendChild(span);
+        }, every);
+      })();
+    </script>
+  </body>
+</html>

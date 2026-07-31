@@ -3,10 +3,50 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/reload.schema.json",
   "title": "reload command input",
   "type": "object",
-  "description": "Reload page",
+  "description": "Reload current page",
   "properties": {
+    "handle_before_unload": {
+      "argv": "--handle-before-unload",
+      "description": "Auto-handle beforeunload: accept | dismiss (GAP-003; flag alone = accept)",
+      "enum": [
+        "accept",
+        "dismiss"
+      ],
+      "required": false,
+      "source": "parser",
+      "step_key": "handle_before_unload",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
+    },
     "ignore_cache": {
+      "argv": "--ignore-cache",
+      "description": "Bypass the HTTP cache (hard reload)",
+      "required": false,
+      "source": "parser",
+      "step_key": "ignore_cache",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
+    },
+    "init_script": {
+      "argv": "--init-script",
+      "description": "JS to run before navigation/reload (tool-ref initScript)",
+      "required": false,
+      "source": "parser",
+      "step_key": "init_script",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
     }
   },
   "required": [],

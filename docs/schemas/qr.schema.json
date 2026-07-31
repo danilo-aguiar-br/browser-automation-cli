@@ -6,9 +6,74 @@
   "description": "QR encode/decode one-shot (no Chrome)",
   "properties": {
     "action": {
+      "actions": {
+        "decode": {
+          "description": "Decode QR payload from an image file",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Image file containing the QR code",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "encode": {
+          "description": "Encode text to PNG, SVG, or terminal matrix",
+          "properties": {
+            "format": {
+              "argv": "--format",
+              "default": "png",
+              "description": "png | svg | terminal",
+              "required": false,
+              "source": "parser",
+              "step_key": "format",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Output file; omit to write the terminal matrix to stdout",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "argv": "--text",
+              "description": "Payload encoded into the QR code",
+              "required": true,
+              "source": "parser",
+              "step_key": "text",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "encode",
         "decode"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
       ],
       "type": "string"
     },
@@ -18,12 +83,21 @@
         "svg",
         "terminal"
       ],
+      "source": "catalog",
+      "step_key": "format",
+      "surfaces": [],
       "type": "string"
     },
     "path": {
+      "source": "catalog",
+      "step_key": "path",
+      "surfaces": [],
       "type": "string"
     },
     "text": {
+      "source": "catalog",
+      "step_key": "text",
+      "surfaces": [],
       "type": "string"
     }
   },

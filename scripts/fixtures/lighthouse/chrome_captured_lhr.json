@@ -1,0 +1,88 @@
+{
+  "lighthouseVersion": "13.4.1",
+  "requestedUrl": "https://example.com/",
+  "finalUrl": "https://example.com/",
+  "fetchTime": "2026-07-31T09:53:09.624Z",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/150.0.0.0 Safari/537.36",
+  "categories": {
+    "performance": {
+      "id": "performance",
+      "title": "Performance",
+      "score": 1
+    },
+    "accessibility": {
+      "id": "accessibility",
+      "title": "Accessibility",
+      "score": 0.96
+    },
+    "best-practices": {
+      "id": "best-practices",
+      "title": "Best Practices",
+      "score": 0.96
+    },
+    "seo": {
+      "id": "seo",
+      "title": "SEO",
+      "score": 0.8
+    }
+  },
+  "audits": {
+    "is-on-https": {
+      "id": "is-on-https",
+      "title": "Uses HTTPS",
+      "score": 1,
+      "scoreDisplayMode": "binary"
+    },
+    "redirects-http": {
+      "id": "redirects-http",
+      "title": "Redirects HTTP traffic to HTTPS",
+      "score": null,
+      "scoreDisplayMode": "notApplicable"
+    },
+    "landmark-one-main": {
+      "id": "landmark-one-main",
+      "title": "Document does not have a main landmark.",
+      "score": 0,
+      "scoreDisplayMode": "binary"
+    },
+    "first-contentful-paint": {
+      "id": "first-contentful-paint",
+      "title": "First Contentful Paint",
+      "score": 1,
+      "scoreDisplayMode": "numeric"
+    },
+    "largest-contentful-paint": {
+      "id": "largest-contentful-paint",
+      "title": "Largest Contentful Paint",
+      "score": 1,
+      "scoreDisplayMode": "numeric"
+    },
+    "speed-index": {
+      "id": "speed-index",
+      "title": "Speed Index",
+      "score": 1,
+      "scoreDisplayMode": "numeric"
+    },
+    "screenshot-thumbnails": {
+      "id": "screenshot-thumbnails",
+      "title": "Screenshot Thumbnails",
+      "score": 1,
+      "scoreDisplayMode": "informative"
+    },
+    "final-screenshot": {
+      "id": "final-screenshot",
+      "title": "Final Screenshot",
+      "score": 1,
+      "scoreDisplayMode": "informative"
+    }
+  },
+  "configSettings": {
+    "formFactor": "mobile",
+    "gatherMode": false
+  },
+  "_fixture_meta": {
+    "source": "npx lighthouse capture against https://example.com",
+    "captured_host": "linux",
+    "note": "Sanitized subset for scores_from_lhr unit tests; full artifacts stripped (agent-native)."
+  }
+}

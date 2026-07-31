@@ -23,7 +23,8 @@
 - `0.1.2` fecha gaps agent-first e adiciona `print-pdf`, `monitor`, `qr`, `find-paths`, tipos de documento no parse, extract LLM e chaves de config expandidas
 - `0.1.3` fecha residual-zero e contratos de agente: `run` NDJSON|array JSON, reload/beforeunload/init_script CDP, honestidade Redis/Lighthouse, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 comandos de topo; 53 tools DevTools e2e)
 - `0.1.4` fecha gaps agent-first: `--json-steps`, `wait` url/navigation/multi-seletor, `select-option`/`pick` (run/schema), assert `console_*`, `schema <cmd>` posicional, MITM `capture-url` + `--mitm*`, scrape multi-formato, batch/crawl `--engine browser`, `print-pdf` no `run`
-- `0.1.5` fecha residual-zero de disco (RES-01…12): BORN auto-GC de dirs Chromium Singleton-only em `/tmp` (piso de idade 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + campo de topo `residual` (`ResidualDiskReport`), nunca mata Chrome Flatpak do host; honestidade de inventário com `locale`/`man` (**63** nomes de agente via `commands --json`; clap de topo **61** sem `select-option`/`pick` standalone)
+- `0.1.5` fecha residual-zero de disco (RES-01…12): BORN auto-GC de dirs Chromium Singleton-only em `/tmp` (piso de idade 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + campo de topo `residual` (`ResidualDiskReport`), nunca mata Chrome Flatpak do host; honestidade de inventário com `locale`/`man`
+- `0.1.6` fecha confiança agent-first de diálogo/select/scrape/wait: booleano `dialog_settled` + XDG `dialog_settle_ms`, isolamento multi-aba de diálogo por `session_id` com gate e2e, select nativo `input`+`change`, `wait_timeout_ms` em `run`, scrape `format`/`formats` em `run`, grab só `png|jpeg|webp` (encode AVIF removido); inventário **65** nomes via `commands --json` (inclui `submit`, `storage`, `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (mock lighthouse SKIP honesto)
 - Ferramentas experimentais exigem `--experimental-vision` ou `--experimental-screencast`
 
 ## Tabela Resumo
@@ -115,6 +116,16 @@ echo "$out" | jaq -e '.ok == true'
   - BORN auto-GC: `scavenge_stale_singleton_orphans` de dirs `/tmp` `org.chromium.Chromium.*` Singleton-only com mais de 60s
   - FINALIZE dual scavenge + re-scan de dirs marker owned (prefixo `browser-automation-cli-chrome-`); nunca mata Chrome Flatpak do host
   - Checagem doctor `residual_disk` + campo JSON de topo `residual` (`ResidualDiskReport`): `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
-  - Gates locais de residual: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (somente local; sem requisito de CI)
+  - Gates locais de residual: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (somente local)
   - Honestidade de descoberta: inventário inclui `locale` e `man`
-  - Inventário: **63** nomes de agente via `commands --json` (inclui `locale`, `man`, `select-option`, `pick`); clap de topo **61** sem `select-option`/`pick` como standalone
+  - Inventário (histórico 0.1.5): **63** nomes de agente via `commands --json`
+- `0.1.6`:
+  - Diálogo: `dialog accept|dismiss` emite booleano `.data.dialog_settled` no happy path; XDG `config set dialog_settle_ms` orça a espera por `Page.javascriptDialogClosed`
+  - Isolamento multi-aba: forwarders carimbam `session_id`; gate `tests/dialog_multitab_gate.rs`; `tab_switch` com enable de domínios best-effort sob diálogo modal aberto
+  - Select: `input`+`change` nativos para `pick` / `select-option` (helper de dispatch compartilhado)
+  - Run: `wait_timeout_ms` público nos passos wait; scrape com `format`/`formats` (texto compacto sem monstro HTML quando só text)
+  - Grab: `--format png|jpeg|webp` apenas — encode AVIF removido
+  - Lighthouse: fixtures unitárias com LHR capturado (forma 13.4.1); e2e mock permanece SKIP (nunca alegar PASS de parser a partir do mock)
+  - Inventário: **65** nomes de agente via `commands --json` (inclui `submit`, `storage`, `select-option`, `pick`, `locale`, `man`, …)
+  - Descubra o conjunto completo de chaves com `config list-keys --json` (não é contagem fixa de 16)
+  - Residual intencional: GAP-022 ~53 multi-versões de dependência; GAP-023/024 wishlist PRD sem paridade completa

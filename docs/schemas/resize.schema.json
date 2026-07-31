@@ -3,18 +3,59 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/resize.schema.json",
   "title": "resize command input",
   "type": "object",
-  "description": "Resize viewport",
+  "description": "Resize page viewport",
   "properties": {
     "height": {
+      "argv": "--height",
+      "description": "Viewport height in CSS pixels",
+      "required": true,
+      "source": "parser",
+      "step_key": "height",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     },
     "mobile": {
+      "argv": "--mobile",
+      "description": "Enable mobile metrics emulation",
+      "required": false,
+      "source": "parser",
+      "step_key": "mobile",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "scale": {
+      "argv": "--scale",
+      "default": 1.0,
+      "description": "Device pixel ratio",
+      "required": false,
+      "source": "parser",
+      "step_key": "scale",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "number"
     },
     "width": {
+      "argv": "--width",
+      "description": "Viewport width in CSS pixels",
+      "required": true,
+      "source": "parser",
+      "step_key": "width",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     }
   },

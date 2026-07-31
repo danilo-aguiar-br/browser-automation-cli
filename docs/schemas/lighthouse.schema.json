@@ -3,21 +3,73 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/lighthouse.schema.json",
   "title": "lighthouse command input",
   "type": "object",
-  "description": "External lighthouse audit with JSON scores",
+  "description": "Run Lighthouse audit (external binary)",
   "properties": {
     "device": {
+      "argv": "--device",
+      "default": "desktop",
+      "description": "Form factor preset: desktop | mobile",
+      "required": false,
+      "source": "parser",
+      "step_key": "device",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "lighthouse_path": {
+      "argv": "--lighthouse-path",
+      "description": "Absolute path to the lighthouse binary; overrides PATH and XDG",
+      "required": false,
+      "source": "parser",
+      "step_key": "lighthouse_path",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "mode": {
+      "argv": "--mode",
+      "default": "navigation",
+      "description": "navigation (default) or snapshot (maps to navigation in one-shot CLI)",
+      "required": false,
+      "source": "parser",
+      "step_key": "mode",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "out_dir": {
+      "argv": "--out-dir",
+      "description": "Directory for the generated report files",
+      "required": false,
+      "source": "parser",
+      "step_key": "out_dir",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "url": {
+      "argv": "<URL>",
+      "description": "Absolute URL to audit",
+      "required": true,
+      "source": "parser",
+      "step_key": "url",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

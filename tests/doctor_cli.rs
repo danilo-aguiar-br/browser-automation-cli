@@ -37,14 +37,11 @@ fn doctor_offline_quick_json_emits_valid_payload() {
     // Exit code 0 (all pass) or 1 (one or more fails) are both valid outcomes.
     assert!(
         code == 0 || code == 1,
-        "unexpected exit code {}\nstdout:\n{}\nstderr:\n{}",
-        code,
-        stdout,
-        stderr,
+        "unexpected exit code {code}\nstdout:\n{stdout}\nstderr:\n{stderr}",
     );
 
     let payload: serde_json::Value = serde_json::from_str(&stdout)
-        .unwrap_or_else(|e| panic!("stdout was not JSON: {}\n---\n{}", e, stdout));
+        .unwrap_or_else(|e| panic!("stdout was not JSON: {e}\n---\n{stdout}"));
 
     assert_eq!(payload["schema_version"], 1);
     assert!(payload.get("ok").is_some(), "missing ok field");
@@ -60,19 +57,16 @@ fn doctor_offline_quick_json_emits_valid_payload() {
     for c in checks {
         assert!(
             c["id"].as_str().is_some_and(|s| !s.is_empty()),
-            "check missing id: {}",
-            c
+            "check missing id: {c}"
         );
         let status = c["status"].as_str().expect("status should be string");
         assert!(
             ["pass", "warn", "fail", "info"].contains(&status),
-            "unexpected status {:?}",
-            status
+            "unexpected status {status:?}"
         );
         assert!(
             c["message"].as_str().is_some_and(|s| !s.is_empty()),
-            "check missing message: {}",
-            c
+            "check missing message: {c}"
         );
     }
 
@@ -81,9 +75,7 @@ fn doctor_offline_quick_json_emits_valid_payload() {
         let id = c["id"].as_str().unwrap();
         assert!(
             seen.insert(id.to_string()),
-            "duplicate check id in JSON output: {}\nfull payload:\n{}",
-            id,
-            stdout
+            "duplicate check id in JSON output: {id}\nfull payload:\n{stdout}"
         );
     }
 
@@ -132,9 +124,7 @@ fn doctor_help_describes_flags_and_examples() {
     ] {
         assert!(
             stdout.contains(needle),
-            "doctor --help output missing {:?}\n---\n{}",
-            needle,
-            stdout
+            "doctor --help output missing {needle:?}\n---\n{stdout}"
         );
     }
 }

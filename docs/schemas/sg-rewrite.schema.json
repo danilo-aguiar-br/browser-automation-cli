@@ -3,15 +3,31 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/sg-rewrite.schema.json",
   "title": "sg-rewrite command input",
   "type": "object",
-  "description": "Structural rewrite dry-run/apply for safe patterns only (one-shot; no Chrome)",
+  "description": "Structural rewrite for known-safe fixes (dry-run default; `--apply` writes)",
   "properties": {
     "apply": {
+      "argv": "--apply",
+      "description": "Apply changes (default is dry-run report only)",
+      "required": false,
+      "source": "parser",
+      "step_key": "apply",
+      "surfaces": [
+        "argv"
+      ],
       "type": "boolean"
     },
     "paths": {
+      "argv": "<PATHS>",
+      "description": "Roots to rewrite (default: `.`)",
       "items": {
         "type": "string"
       },
+      "required": false,
+      "source": "parser",
+      "step_key": "paths",
+      "surfaces": [
+        "argv"
+      ],
       "type": "array"
     }
   },

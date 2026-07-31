@@ -23,7 +23,7 @@ fn chrome_available() -> bool {
 fn spawn_robots_disallow_server() -> (String, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().unwrap();
-    let base = format!("http://{}", addr);
+    let base = format!("http://{addr}");
     let handle = thread::spawn(move || {
         // Serve a few requests then exit.
         for _ in 0..8 {
@@ -55,16 +55,42 @@ fn spawn_robots_disallow_server() -> (String, thread::JoinHandle<()>) {
     (base, handle)
 }
 
+/// Isolated XDG config home with `robots_loopback_exempt = false`.
+///
+/// GAP-033 exempts loopback from robots.txt by default, and a hermetic fixture
+/// server is necessarily loopback — so with the default the block path is
+/// unreachable and this test would assert nothing. The knob is turned off
+/// through the product's own `config set`, which also keeps the test honest
+/// about the supported way to change policy.
+fn strict_loopback_config_home() -> tempfile::TempDir {
+    let home = tempfile::tempdir().expect("tempdir");
+    let out = Command::new(BIN)
+        .args(["config", "set", "robots_loopback_exempt", "false", "--json"])
+        .env("XDG_CONFIG_HOME", home.path())
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("spawn config set");
+    assert!(
+        out.status.success(),
+        "config set failed: {}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    home
+}
+
 #[test]
 fn http_disallow_blocks_goto_without_override() {
     if !chrome_available() {
         eprintln!("skip: no chrome");
         return;
     }
+    let config_home = strict_loopback_config_home();
     let (base, _jh) = spawn_robots_disallow_server();
     let url = format!("{base}/");
     let out = Command::new(BIN)
         .args(["goto", &url, "--json"])
+        .env("XDG_CONFIG_HOME", config_home.path())
         .env("NO_COLOR", "1")
         .output()
         .expect("spawn");

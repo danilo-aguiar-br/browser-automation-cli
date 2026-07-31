@@ -6,17 +6,41 @@
   "description": "Pick option from custom select / badge popover / role=option (GAP-023)",
   "properties": {
     "include_snapshot": {
+      "source": "catalog",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "option": {
       "description": "Option text, CSS selector, or role label",
+      "source": "catalog",
+      "step_key": "option",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "target": {
       "description": "Trigger control (badge/button)",
+      "source": "catalog",
+      "step_key": "target",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "value": {
+      "source": "catalog",
+      "step_key": "value",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

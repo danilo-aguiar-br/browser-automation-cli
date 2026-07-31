@@ -5,8 +5,22 @@
   "type": "object",
   "description": "List available commands",
   "properties": {
+    "detail": {
+      "argv": "--detail",
+      "description": "Emit command objects (description, category, surfaces) instead of names",
+      "required": false,
+      "source": "parser",
+      "step_key": "detail",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
     "json": {
       "description": "Global envelope flag --json (not a local commands flag)",
+      "source": "catalog",
+      "step_key": "json",
+      "surfaces": [],
       "type": "boolean"
     }
   },

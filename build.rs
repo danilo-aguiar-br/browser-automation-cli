@@ -23,7 +23,7 @@ use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::Path;
-use std::process::Command as ProcessCommand;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() {
     // Build metadata for `version` / agent diagnostics (rules_rust_cli_com_clap).
@@ -86,7 +86,25 @@ fn main() {
     .collect();
 
     let mut output = String::new();
-    output.push_str("use serde::{Deserialize, Serialize};\n\n");
+    // GAP-046: the generated wire surface carries its own documentation policy.
+    // Emitting the header here (instead of a comment in build.rs) keeps the
+    // justification attached to the artifact a reader actually opens.
+    output.push_str(concat!(
+        "// CDP wire types generated from `cdp-protocol/*.json` by `build.rs`.\n",
+        "//\n",
+        "// DO NOT EDIT: this file lives in `OUT_DIR` and is rewritten on every\n",
+        "// build. Change `build.rs` or the protocol JSON instead.\n",
+        "//\n",
+        "// Each item mirrors a Chrome DevTools Protocol type 1:1; the\n",
+        "// authoritative documentation is the protocol itself:\n",
+        "// https://chromedevtools.github.io/devtools-protocol/\n",
+        "//\n",
+        "// `missing_docs` is allowed for these items by the including module\n",
+        "// (`src/native/cdp/types/mod.rs`), which carries the justification.\n",
+        "// Inner attributes cannot live here: `include!` splices items only.\n",
+        "\n",
+        "use serde::{Deserialize, Serialize};\n\n",
+    ));
 
     for domain in &all_domains {
         generate_domain(domain, &domain_types, &recursive_fields, &mut output);
@@ -252,7 +270,7 @@ fn map_type_in_domain(
     if let Some(ref r) = prop.ref_type {
         let type_name = resolve_ref(r, current_domain, domain_types);
         if prop.optional {
-            format!("Option<{}>", type_name)
+            format!("Option<{type_name}>")
         } else {
             type_name
         }
@@ -277,7 +295,7 @@ fn map_type_in_domain(
                             _ => "serde_json::Value".to_string(),
                         }
                     };
-                    format!("Vec<{}>", inner)
+                    format!("Vec<{inner}>")
                 } else {
                     "Vec<serde_json::Value>".to_string()
                 }
@@ -285,7 +303,7 @@ fn map_type_in_domain(
             _ => "serde_json::Value".to_string(),
         };
         if prop.optional {
-            format!("Option<{}>", base)
+            format!("Option<{base}>")
         } else {
             base
         }
@@ -348,8 +366,7 @@ fn generate_domain(
 ) {
     let mod_name = to_snake_case(&domain.domain);
     output.push_str(&format!(
-        "#[allow(dead_code, non_snake_case, non_camel_case_types, clippy::enum_variant_names)]\npub mod cdp_{} {{\n",
-        mod_name
+        "#[allow(dead_code, non_snake_case, non_camel_case_types, clippy::enum_variant_names)]\npub mod cdp_{mod_name} {{\n"
     ));
     output.push_str("    use super::*;\n\n");
 
@@ -365,12 +382,11 @@ fn generate_domain(
                     variant = "SelfValue".to_string();
                 }
                 if variant.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                    variant = format!("V{}", variant);
+                    variant = format!("V{variant}");
                 }
                 if seen_variants.insert(variant.clone()) {
                     output.push_str(&format!(
-                        "        #[serde(rename = \"{}\")]\n        {},\n",
-                        val, variant
+                        "        #[serde(rename = \"{val}\")]\n        {variant},\n"
                     ));
                 }
             }
@@ -383,7 +399,7 @@ fn generate_domain(
             for prop in &type_def.properties {
                 let field_name = to_snake_case(&prop.name);
                 let field_name = if is_rust_keyword(&field_name) {
-                    format!("r#{}", field_name)
+                    format!("r#{field_name}")
                 } else {
                     field_name
                 };
@@ -397,9 +413,9 @@ fn generate_domain(
                 )) {
                     if rust_type.starts_with("Option<") {
                         let inner = &rust_type[7..rust_type.len() - 1];
-                        rust_type = format!("Option<Box<{}>>", inner);
+                        rust_type = format!("Option<Box<{inner}>>");
                     } else {
-                        rust_type = format!("Box<{}>", rust_type);
+                        rust_type = format!("Box<{rust_type}>");
                     }
                 }
 
@@ -407,7 +423,7 @@ fn generate_domain(
                     output
                         .push_str("        #[serde(skip_serializing_if = \"Option::is_none\")]\n");
                 }
-                output.push_str(&format!("        pub {}: {},\n", field_name, rust_type));
+                output.push_str(&format!("        pub {field_name}: {rust_type},\n"));
             }
             output.push_str("    }\n\n");
         } else if type_def.type_kind == "object" && type_def.properties.is_empty() {
@@ -436,11 +452,11 @@ fn generate_domain(
             output.push_str(
                 "    #[derive(Debug, Clone, Serialize, Deserialize)]\n    #[serde(rename_all = \"camelCase\")]\n",
             );
-            output.push_str(&format!("    pub struct {}Params {{\n", pascal_name));
+            output.push_str(&format!("    pub struct {pascal_name}Params {{\n"));
             for param in &cmd.parameters {
                 let field_name = to_snake_case(&param.name);
                 let field_name = if is_rust_keyword(&field_name) {
-                    format!("r#{}", field_name)
+                    format!("r#{field_name}")
                 } else {
                     field_name
                 };
@@ -449,7 +465,7 @@ fn generate_domain(
                     output
                         .push_str("        #[serde(skip_serializing_if = \"Option::is_none\")]\n");
                 }
-                output.push_str(&format!("        pub {}: {},\n", field_name, rust_type));
+                output.push_str(&format!("        pub {field_name}: {rust_type},\n"));
             }
             output.push_str("    }\n\n");
         }
@@ -458,11 +474,11 @@ fn generate_domain(
             output.push_str(
                 "    #[derive(Debug, Clone, Serialize, Deserialize)]\n    #[serde(rename_all = \"camelCase\")]\n",
             );
-            output.push_str(&format!("    pub struct {}Result {{\n", pascal_name));
+            output.push_str(&format!("    pub struct {pascal_name}Result {{\n"));
             for ret in &cmd.returns {
                 let field_name = to_snake_case(&ret.name);
                 let field_name = if is_rust_keyword(&field_name) {
-                    format!("r#{}", field_name)
+                    format!("r#{field_name}")
                 } else {
                     field_name
                 };
@@ -471,7 +487,7 @@ fn generate_domain(
                     output
                         .push_str("        #[serde(skip_serializing_if = \"Option::is_none\")]\n");
                 }
-                output.push_str(&format!("        pub {}: {},\n", field_name, rust_type));
+                output.push_str(&format!("        pub {field_name}: {rust_type},\n"));
             }
             output.push_str("    }\n\n");
         }
@@ -483,11 +499,11 @@ fn generate_domain(
             output.push_str(
                 "    #[derive(Debug, Clone, Serialize, Deserialize)]\n    #[serde(rename_all = \"camelCase\")]\n",
             );
-            output.push_str(&format!("    pub struct {}Event {{\n", pascal_name));
+            output.push_str(&format!("    pub struct {pascal_name}Event {{\n"));
             for param in &event.parameters {
                 let field_name = to_snake_case(&param.name);
                 let field_name = if is_rust_keyword(&field_name) {
-                    format!("r#{}", field_name)
+                    format!("r#{field_name}")
                 } else {
                     field_name
                 };
@@ -496,7 +512,7 @@ fn generate_domain(
                     output
                         .push_str("        #[serde(skip_serializing_if = \"Option::is_none\")]\n");
                 }
-                output.push_str(&format!("        pub {}: {},\n", field_name, rust_type));
+                output.push_str(&format!("        pub {field_name}: {rust_type},\n"));
             }
             output.push_str("    }\n\n");
         }
@@ -505,46 +521,113 @@ fn generate_domain(
     output.push_str("}\n\n");
 }
 
-/// Embed short git SHA / dirty flag / UTC timestamp as `cargo:rustc-env` keys.
+/// Embed short git SHA / UTC timestamp as `cargo:rustc-env` keys.
 ///
-/// Missing git is non-fatal (`unknown`); rebuild when `.git/HEAD` changes.
+/// **Native-only** (rules_rust crates nativas): never shells out to `git` or `date`.
+/// SHA is resolved by reading `.git/HEAD` (+ loose ref or `packed-refs`). Missing
+/// `.git` is non-fatal (`unknown`). Rebuild when HEAD / refs change.
+///
+/// Dirty worktree suffix is intentionally omitted: detecting uncommitted changes
+/// without the git CLI would require a full index/worktree walk (or a heavy
+/// `gix` build-dep). Agents still get a stable short SHA for `version --json`.
 fn emit_git_build_meta() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");
+    println!("cargo:rerun-if-changed=.git/packed-refs");
+    // Reproducible builds when the environment provides an epoch (OS concern).
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
 
-    let sha = ProcessCommand::new("git")
-        .args(["rev-parse", "--short=12", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown".into());
+    let sha = read_git_head_sha().unwrap_or_else(|| "unknown".into());
+    let ts = utc_timestamp_now();
 
-    let dirty = ProcessCommand::new("git")
-        .args(["status", "--porcelain"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| !o.stdout.is_empty())
-        .unwrap_or(false);
-
-    let sha_out = if dirty && sha != "unknown" {
-        format!("{sha}-dirty")
-    } else {
-        sha
-    };
-
-    let ts = ProcessCommand::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "unknown".into());
-
-    println!("cargo:rustc-env=GIT_SHA={sha_out}");
+    println!("cargo:rustc-env=GIT_SHA={sha}");
     println!("cargo:rustc-env=BUILD_TIMESTAMP={ts}");
+}
+
+/// Short (12-hex) SHA from `.git` filesystem — no `Command::new("git")`.
+fn read_git_head_sha() -> Option<String> {
+    let head = fs::read_to_string(".git/HEAD").ok()?;
+    let head = head.trim();
+    if let Some(refname) = head.strip_prefix("ref: ") {
+        let refname = refname.trim();
+        let loose = Path::new(".git").join(refname);
+        if let Ok(sha) = fs::read_to_string(&loose) {
+            return short_sha(sha.trim());
+        }
+        // Fall back to packed-refs (common after `git gc` / shallow clones).
+        if let Ok(packed) = fs::read_to_string(".git/packed-refs") {
+            for line in packed.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') || line.starts_with('^') {
+                    continue;
+                }
+                let mut parts = line.split_whitespace();
+                let Some(sha) = parts.next() else {
+                    continue;
+                };
+                let Some(name) = parts.next() else {
+                    continue;
+                };
+                if name == refname {
+                    return short_sha(sha);
+                }
+            }
+        }
+        None
+    } else {
+        // Detached HEAD: raw SHA in HEAD.
+        short_sha(head)
+    }
+}
+
+fn short_sha(s: &str) -> Option<String> {
+    let s = s.trim();
+    if s.len() < 7 || !s.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let n = s.len().min(12);
+    Some(s[..n].to_string())
+}
+
+/// UTC `YYYY-MM-DDTHH:MM:SSZ` without the `date` CLI (rules: chrono/`std::time`).
+///
+/// Prefers `SOURCE_DATE_EPOCH` (seconds) for reproducible builds; otherwise
+/// wall-clock via [`SystemTime`].
+fn utc_timestamp_now() -> String {
+    let secs = env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .map(|d| d.as_secs())
+        })
+        .unwrap_or(0);
+    format_unix_secs_utc(secs)
+}
+
+/// Civil date from Unix epoch seconds (Howard Hinnant algorithm) — pure `std`.
+fn format_unix_secs_utc(mut secs: u64) -> String {
+    const SECS_PER_DAY: u64 = 86_400;
+    let days = secs / SECS_PER_DAY;
+    secs %= SECS_PER_DAY;
+    let hour = secs / 3_600;
+    secs %= 3_600;
+    let min = secs / 60;
+    let sec = secs % 60;
+
+    // days since Unix epoch → proleptic Gregorian (civil_from_days).
+    let z = days as i64 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+
+    format!("{y:04}-{m:02}-{d:02}T{hour:02}:{min:02}:{sec:02}Z")
 }

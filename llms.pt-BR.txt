@@ -22,28 +22,27 @@ browser-automation-cli é uma CLI Rust de processo único que lança Chrome ou C
 - [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): mapa expandido de descoberta (EN)
 - [llms-full pt-BR](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.pt-BR.txt): mapa expandido de descoberta
 
-## Superfície de Comandos (v0.1.5)
+## Superfície de Comandos (v0.1.6)
+- Inventário completo (**65** nomes via `commands --json`, ordenados): assert, attr, back, batch-scrape, click-at, commands, completions, config, console, cookie, crawl, devtools3p, dialog, doctor, drag, emulate, eval, exec, extension, extract, find-paths, fill-form, forward, goto, grab, heap, hover, keys, lighthouse, locale, man, map, mitm, monitor, net, page, parse, perf, pick, press, print-pdf, qr, reload, resize, run, schema, scrape, screencast, scroll, search, select-option, sg-rewrite, sg-scan, sheet-write, storage, submit, text, type, upload, version, view, wait, webmcp, workflow, write
 - Descoberta: doctor (browsers_dir, origem lighthouse, cache_redis, residual_disk + JSON residual), commands, schema (`schema <cmd>` ou `schema --cmd`), version, locale, man, completions
-- Inventário: **63** nomes de agente via `commands --json` (inclui `locale`, `man`, `select-option`, `pick`); clap de topo lista **61** sem `select-option`/`pick` como standalone; 53 tools DevTools e2e
-- Config XDG: config init|path|show|get|set|list-keys
-- Navegação: goto, back, forward, reload (CDP Page.reload + ignoreCache; init_script removido após nav; `--handle-before-unload accept|dismiss`)
-- Scrape/crawl/map/search/parse local: scrape (--format multi/CSV text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding, --engine http|browser; file:// + http → Usage), batch-scrape (--engine http|browser), crawl (--engine http|browser), map, search (limpa uddg), parse (PDF/DOCX/xlsx/ods, --redact-pii)
-- Interação: view, press, write, type, keys, wait (multi --text OR; multi-seletor CSS OR; url/url_contains/navigation), hover, drag, fill-form, select-option/pick (run/schema), upload, click-at
-- Observação: extract (--llm/--question/--schema-json), text, scroll (aliases dy/dx no run), attr (fallback property), assert (url_contains/text_contains; console_empty/console_no_match), grab --path
-- PDF/monitor/utils: print-pdf (também em `run`), monitor check, qr encode|decode, find-paths (--glob), sheet-write, sg-scan, sg-rewrite
-- Abas: page (incl. tab-id), dialog (accept|dismiss; --if-present), cookie
-- Captura: console, net
-- MITM: mitm init-ca|start|status|list|get|har|export|domains|apis|capture-url|graphql|ws|block|allow|redact (+ flags globais --mitm*)
-- Workflow: workflow run|resume|status
-- Avançado: eval, emulate, resize, perf, lighthouse (flag→XDG→PATH; binary_source real|mock), screencast, heap, extension, devtools3p, webmcp, run (NDJSON ou array JSON; --json-steps; data.steps parciais no fail-fast), exec
-- Residual-zero de disco: BORN auto-GC de dirs Chromium Singleton-only em `/tmp` (piso 60s); FINALIZE dual scavenge + re-scan; nunca mata Chrome Flatpak do host; prefixo de marker `browser-automation-cli-chrome-`
-- Ciclo de vida: BORN, EXECUTE, FINALIZE (scavenge de órfãos Chromium /tmp owned), DIE; product law residual-zero de processo + disco
+- Config XDG: config init|path|show|get|set|list-keys (descubra todas as chaves com `config list-keys --json`)
+- Navegação: goto, back, forward, reload (CDP Page.reload + ignoreCache; `--handle-before-unload accept|dismiss`)
+- Scrape: scrape (--format/--formats multi/CSV; --engine http|browser; format/formats no run), batch-scrape, crawl, map, search (limpa uddg), parse (PDF/DOCX/xlsx/ods, --redact-pii)
+- Interação: view, press, write, type, keys, wait (multi --text OR; url/url_contains/navigation/wait_timeout_ms no run), hover, drag, fill-form, select-option, pick (select nativo + HIG), submit, upload, click-at
+- Observação: extract (--llm/--question/--schema-json), text, scroll (dy/dx no run), attr, assert, grab (png|jpeg|webp apenas; AVIF removido)
+- Abas/Diálogos: page, dialog accept|dismiss (`.data.dialog_settled`; isolamento multi-aba por session_id; --if-present), cookie, storage
+- Captura/utils: console, net, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite
+- Avançado: eval, emulate, resize, perf, lighthouse (flag→XDG→PATH; fixtures unitárias com LHR 13.4.1 capturado; e2e mock SKIP), screencast, heap, extension, devtools3p, webmcp, mitm, workflow, run, exec
+- Residual-zero de disco (0.1.5 RES-01…12 ainda verdadeiro): BORN auto-GC Singleton-only em `/tmp` (piso 60s); FINALIZE dual scavenge + re-scan; nunca mata Chrome Flatpak do host
+- Residual intencional: GAP-022 ~53 dups; GAP-023/024 divergências de PRD
+- Ciclo de vida: BORN, EXECUTE, FINALIZE, DIE; product law residual-zero de processo + disco
 
 ## Contrato de Settings
 - Settings de produto: flags da CLI + XDG via `config path|init|show|set|get|list-keys` apenas
-- Chaves de config (16): lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, log_to_file, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url
+- Chaves importantes: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_*, cache_backend, cache_redis_url, lang, log_level — lista completa via `config list-keys --json` (contagem não é mais fixa em 16)
 - Logging: `--verbose`/`--debug`/`-q` ou `config set log_level` / `log_to_file`
 - Cor: `config set color true|false`
 - Chrome / Lighthouse: path do shell ou `config set chrome_path|lighthouse_path` (lighthouse também por flag)
+- Settle de diálogo: `config set dialog_settle_ms`; leia `.data.dialog_settled` após dialog accept|dismiss
 - Cache Redis: `config set cache_backend redis` + `cache_redis_url` (somente `redis://`; `rediss://` fail-closed)
 - Lang: `--lang pt-BR` ou `config set lang` localiza sugestões

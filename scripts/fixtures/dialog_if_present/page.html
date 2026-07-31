@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  Fixture for `dialog --if-present` (see tests/dialog_if_present_gate.rs).
+
+  Pressing #ask opens a real `confirm()`. The answer is written to #answer, so
+  the page itself records whether the dialog was accepted or dismissed — a
+  command that reported success without answering anything would leave #answer
+  at its initial value.
+
+  Nothing on this page opens a dialog on load, which is what makes it usable for
+  the two cases that need NO dialog pending.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>dialog</title>
+  </head>
+  <body>
+    <h1 id="title">dialog</h1>
+    <button id="ask" type="button">Ask</button>
+    <p id="answer">none</p>
+    <script>
+      document.getElementById('ask').addEventListener('click', function () {
+        var accepted = confirm('proceed?');
+        document.getElementById('answer').textContent = accepted
+          ? 'accepted'
+          : 'dismissed';
+      });
+    </script>
+  </body>
+</html>

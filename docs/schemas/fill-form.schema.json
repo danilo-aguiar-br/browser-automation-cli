@@ -3,21 +3,57 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/fill-form.schema.json",
   "title": "fill-form command input",
   "type": "object",
-  "description": "Fill multiple fields from JSON array",
+  "description": "Fill multiple form fields from JSON `[{target|uid,value},...]`",
   "properties": {
     "fields": {
       "description": "Preferred run-script form: array of {target|uid,value}",
+      "source": "catalog",
+      "step_key": "fields",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "array"
     },
     "fields_json": {
-      "description": "CLI long name --fields-json (avoids shadowing global --json)",
+      "argv": "--fields-json",
+      "description": "JSON array payload (not the global envelope flag `--json`)",
+      "required": true,
+      "source": "parser",
+      "step_key": "fields_json",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
+    },
+    "include_snapshot": {
+      "argv": "--include-snapshot",
+      "description": "Attach slim a11y snapshot after fill-form",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "boolean"
     },
     "json": {
       "description": "JSON array of {target,value} objects (run/JSON key). CLI flag: --fields-json",
+      "source": "catalog",
+      "step_key": "json",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },
-  "required": [],
+  "required": [
+    "fields_json"
+  ],
   "additionalProperties": false
 }

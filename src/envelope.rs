@@ -34,6 +34,9 @@ pub struct SuccessEnvelope {
     pub schema_version: u32,
     /// Always `true` for this shape.
     pub ok: bool,
+    /// Optional agent correlation id (from `--correlation-id`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
     /// Command-specific payload (dynamic by design at the CLI boundary).
     pub data: Value,
 }
@@ -59,6 +62,9 @@ pub struct ErrorEnvelope {
     pub schema_version: u32,
     /// Always `false` for this shape.
     pub ok: bool,
+    /// Optional agent correlation id (from `--correlation-id`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
     /// Structured error.
     pub error: ErrorBody,
     /// Optional partial data (e.g. fail-fast `run` steps already completed).
@@ -67,25 +73,60 @@ pub struct ErrorEnvelope {
 }
 
 /// Print a success envelope with arbitrary JSON `data` and flush a single line.
+///
+/// # Errors
+///
+/// Returns [`CliError`] with [`ErrorKind::BrokenPipe`](crate::error::ErrorKind::BrokenPipe)
+/// when stdout is closed mid-write (exit **141** for agents).
+///
+/// # Examples
+///
+/// ```no_run
+/// use browser_automation_cli::envelope::print_success_json;
+/// use serde_json::json;
+///
+/// print_success_json(json!({"ok_detail": true})).expect("stdout");
+/// ```
 pub fn print_success_json(data: Value) -> Result<(), CliError> {
     let env = SuccessEnvelope {
-        schema_version: 1,
+        schema_version: crate::constants::ENVELOPE_SCHEMA_VERSION,
         ok: true,
+        correlation_id: crate::agent_context::correlation_id(),
         data,
     };
     output::write_json_line_ser(&env)
 }
 
 /// Print an error envelope derived from [`CliError`].
+///
+/// # Errors
+///
+/// Propagates stdout write failures as [`CliError`] (typically broken pipe).
 pub fn print_error_json(err: &CliError) -> Result<(), CliError> {
     print_error_json_with_data(err, err.data().cloned())
 }
 
 /// Print an error envelope with optional partial `data` (e.g. fail-fast `run` steps).
+///
+/// # Errors
+///
+/// Propagates stdout write failures as [`CliError`] (typically broken pipe).
+///
+/// # Examples
+///
+/// ```no_run
+/// use browser_automation_cli::envelope::print_error_json_with_data;
+/// use browser_automation_cli::error::{CliError, ErrorKind};
+/// use serde_json::json;
+///
+/// let err = CliError::new(ErrorKind::Unavailable, "chrome not found");
+/// print_error_json_with_data(&err, Some(json!({"steps": []}))).ok();
+/// ```
 pub fn print_error_json_with_data(err: &CliError, data: Option<Value>) -> Result<(), CliError> {
     let env = ErrorEnvelope {
-        schema_version: 1,
+        schema_version: crate::constants::ENVELOPE_SCHEMA_VERSION,
         ok: false,
+        correlation_id: crate::agent_context::correlation_id(),
         error: ErrorBody {
             kind: err.kind().as_str().to_string(),
             message: err.message().to_string(),
@@ -106,13 +147,17 @@ mod tests {
     #[test]
     fn success_envelope_roundtrip_shape() {
         let env = SuccessEnvelope {
-            schema_version: 1,
+            schema_version: crate::constants::ENVELOPE_SCHEMA_VERSION,
             ok: true,
+            correlation_id: None,
             data: json!({"x": 1}),
         };
         let s = crate::json_util::to_compact_string(&env).unwrap();
         let v: Value = crate::json_util::from_str(&s).unwrap();
-        assert_eq!(v["schema_version"], 1);
+        assert_eq!(
+            v["schema_version"],
+            crate::constants::ENVELOPE_SCHEMA_VERSION
+        );
         assert_eq!(v["ok"], true);
         assert_eq!(v["data"]["x"], 1);
         assert!(!s.contains('\n'));
@@ -122,8 +167,9 @@ mod tests {
     fn error_envelope_omits_empty_suggestion() {
         let err = CliError::new(ErrorKind::Data, "bad");
         let env = ErrorEnvelope {
-            schema_version: 1,
+            schema_version: crate::constants::ENVELOPE_SCHEMA_VERSION,
             ok: false,
+            correlation_id: None,
             error: ErrorBody {
                 kind: err.kind().as_str().to_string(),
                 message: err.message().to_string(),

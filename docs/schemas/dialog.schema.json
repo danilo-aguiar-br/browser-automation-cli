@@ -3,21 +3,94 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/dialog.schema.json",
   "title": "dialog command input",
   "type": "object",
-  "description": "Accept or dismiss open dialog",
+  "description": "Accept or dismiss dialogs",
   "properties": {
     "action": {
+      "actions": {
+        "accept": {
+          "description": "Accept the open dialog, optionally answering a prompt",
+          "properties": {
+            "if_present": {
+              "argv": "--if-present",
+              "description": "Soft-ok when no dialog is showing (GAP-006)",
+              "required": false,
+              "source": "parser",
+              "step_key": "if_present",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            },
+            "text": {
+              "argv": "--text",
+              "description": "Text typed into a `prompt` before accepting",
+              "required": false,
+              "source": "parser",
+              "step_key": "text",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "dismiss": {
+          "description": "Dismiss the open dialog",
+          "properties": {
+            "if_present": {
+              "argv": "--if-present",
+              "description": "Soft-ok when no dialog is showing (GAP-006)",
+              "required": false,
+              "source": "parser",
+              "step_key": "if_present",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "accept",
         "dismiss"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
       ],
       "type": "string"
     },
     "if_present": {
       "description": "Soft-ok when no dialog is showing (GAP-006); envelope dialog_shown:false",
+      "source": "catalog",
+      "step_key": "if_present",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "text": {
       "description": "Optional prompt response text (accept only)",
+      "source": "catalog",
+      "step_key": "text",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

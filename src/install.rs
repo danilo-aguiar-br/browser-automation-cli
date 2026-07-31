@@ -16,10 +16,11 @@ use std::path::{Path, PathBuf};
 ///
 /// Path: `$XDG_CACHE_HOME/browser-automation-cli/browsers` (via `directories`).
 pub fn get_browsers_dir() -> PathBuf {
+    // Fail closed to XDG only — never product storage under OS temp.
     crate::xdg::browsers_dir().unwrap_or_else(|_| {
-        std::env::temp_dir()
-            .join("browser-automation-cli")
-            .join("browsers")
+        // Last-resort relative path under cwd is still wrong; prefer empty and let
+        // callers treat missing dir as "not installed". Use XDG cache when available.
+        PathBuf::from("browsers-unconfigured")
     })
 }
 
@@ -82,16 +83,16 @@ pub fn find_installed_chrome() -> Option<PathBuf> {
     for entry in versions {
         let dir = entry.path();
         if let Some(bin) = chrome_binary_in_dir(&dir) {
-            let exists = bin.exists();
+            let ok = crate::platform::is_executable_file(&bin);
             if debug {
                 let _ = writeln!(
                     io::stderr(),
-                    "[chrome-search] candidate {} exists={}",
+                    "[chrome-search] candidate {} executable={}",
                     bin.display(),
-                    exists
+                    ok
                 );
             }
-            if exists {
+            if ok {
                 return Some(bin);
             }
         } else if debug {
@@ -112,50 +113,28 @@ pub fn find_installed_chrome() -> Option<PathBuf> {
 fn chrome_binary_in_dir(dir: &Path) -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        let app =
-            dir.join("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing");
-        if app.exists() {
-            return Some(app);
-        }
-        let inner = dir.join(
-            "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-        );
-        if inner.exists() {
-            return Some(inner);
-        }
-        let inner_x64 = dir.join(
-            "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-        );
-        if inner_x64.exists() {
-            return Some(inner_x64);
-        }
-        None
+        let candidates = [
+            dir.join("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"),
+            dir.join(
+                "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+            ),
+            dir.join(
+                "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+            ),
+        ];
+        return crate::platform::first_existing_executable(candidates.iter().map(|p| p.as_path()));
     }
 
     #[cfg(target_os = "linux")]
     {
-        let bin = dir.join("chrome");
-        if bin.exists() {
-            return Some(bin);
-        }
-        let inner = dir.join("chrome-linux64/chrome");
-        if inner.exists() {
-            return Some(inner);
-        }
-        None
+        let candidates = [dir.join("chrome"), dir.join("chrome-linux64/chrome")];
+        crate::platform::first_existing_executable(candidates.iter().map(|p| p.as_path()))
     }
 
     #[cfg(target_os = "windows")]
     {
-        let bin = dir.join("chrome.exe");
-        if bin.exists() {
-            return Some(bin);
-        }
-        let inner = dir.join("chrome-win64/chrome.exe");
-        if inner.exists() {
-            return Some(inner);
-        }
-        None
+        let candidates = [dir.join("chrome.exe"), dir.join("chrome-win64/chrome.exe")];
+        return crate::platform::first_existing_executable(candidates.iter().map(|p| p.as_path()));
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -189,11 +168,15 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn chrome_binary_in_dir_finds_linux_layout() {
+        use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         let nested = tmp.path().join("chrome-linux64");
         fs::create_dir_all(&nested).unwrap();
         let bin = nested.join("chrome");
         fs::write(&bin, b"x").unwrap();
+        let mut perms = fs::metadata(&bin).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&bin, perms).unwrap();
         assert_eq!(chrome_binary_in_dir(tmp.path()).as_ref(), Some(&bin));
     }
 }

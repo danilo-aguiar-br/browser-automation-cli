@@ -6,14 +6,38 @@
   "description": "Map site URLs from a seed (HTTP)",
   "properties": {
     "limit": {
-      "minimum": 1,
+      "argv": "--limit",
+      "default": 50,
+      "description": "Maximum number of URLs to return",
+      "required": false,
+      "source": "parser",
+      "step_key": "limit",
+      "surfaces": [
+        "argv"
+      ],
       "type": "integer"
     },
     "max_depth": {
-      "minimum": 0,
+      "argv": "--max-depth",
+      "default": 2,
+      "description": "Maximum link depth from the seed",
+      "required": false,
+      "source": "parser",
+      "step_key": "max_depth",
+      "surfaces": [
+        "argv"
+      ],
       "type": "integer"
     },
     "url": {
+      "argv": "<URL>",
+      "description": "Seed URL to expand into a URL list",
+      "required": true,
+      "source": "parser",
+      "step_key": "url",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     }
   },

@@ -55,7 +55,7 @@ browser-automation-cli doctor --offline --quick --json
 - Keep product settings documented as flags plus `config` XDG only
 - Do not invent or document product environment variables for settings
 - When adding commands, update README Commands, INTEGRATIONS New Flags, llms.txt / llms-full Command Surface (EN+pt-BR), COOKBOOK recipes, skills, MIGRATION, and inventory counts
-- Inventory as of 0.1.5: **63** agent names via `commands --json` (includes `locale`, `man`, plus `select-option` and `pick` as multi-step/schema surface; they are not standalone clap subcommands — clap top-level help lists **61** without `select-option`/`pick`); **53** e2e DevTools tools
+- Inventory as of 0.1.6: **65** agent names via `commands --json` (includes `submit`, `storage`, `select-option`, `pick`, `locale`, `man`, and the full live surface — always re-measure with `commands --json`); **53** e2e DevTools tools with placar PASS=52 SKIP=1 when lighthouse mock is the only skip
 
 ## Report Bugs
 - Open a GitHub issue with `browser-automation-cli --version`

@@ -3,12 +3,45 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/upload.schema.json",
   "title": "upload command input",
   "type": "object",
-  "description": "Upload a regular file to a file input",
+  "description": "Upload a file to a file input",
   "properties": {
+    "include_snapshot": {
+      "argv": "--include-snapshot",
+      "description": "Attach slim a11y snapshot after upload",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "boolean"
+    },
     "path": {
+      "argv": "<PATH>",
+      "description": "Local file to attach to the input",
+      "required": true,
+      "source": "parser",
+      "step_key": "path",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "target": {
+      "argv": "<TARGET>",
+      "description": "CSS selector or `@eN` snapshot ref of the file input",
+      "required": true,
+      "source": "parser",
+      "step_key": "target",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

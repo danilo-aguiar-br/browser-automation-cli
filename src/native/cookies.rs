@@ -6,33 +6,54 @@
 //! **I/O-bound single session:** list/set/clear are one CDP command each
 //! (batch set via `Network.setCookies`). No multi-item fan-out; cookie vectors
 //! are owned by one browser session (sequential_justified N-138).
-#![allow(missing_docs)]
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::cdp::client::CdpClient;
 
+/// One cookie, in the shape CDP `Network.Cookie` uses.
+///
+/// Both read and written: it deserializes browser state and serializes the
+/// `cookie set --cookies-json` payload, which is why every field carries a
+/// `#[serde(default)]` — a caller setting a cookie supplies a name, a value and
+/// little else.
+///
+/// The `value` is a credential. It is never logged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cookie {
+    /// Cookie name.
     pub name: String,
+    /// Cookie value. Treated as a secret: never written to logs or traces.
     pub value: String,
+    /// Domain the cookie is scoped to. A leading dot includes subdomains.
     pub domain: String,
+    /// Path prefix the cookie is sent for.
     pub path: String,
+    /// Expiry as a Unix timestamp in seconds. `-1` means a session cookie.
     #[serde(default)]
     pub expires: f64,
+    /// Size in bytes as the browser accounts it. Read-only; ignored on set.
     #[serde(default)]
     pub size: i64,
+    /// Hidden from `document.cookie`, so script cannot read it.
     #[serde(default)]
     pub http_only: bool,
+    /// Sent over HTTPS only.
     #[serde(default)]
     pub secure: bool,
+    /// Dies with the browser session rather than at `expires`.
     #[serde(default)]
     pub session: bool,
+    /// `Strict`, `Lax` or `None`. Absent means the browser default applies.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub same_site: Option<String>,
 }
 
+/// Every cookie in the browser profile, across all origins.
+///
+/// Not limited to the current page: use [`get_cookies`] when the caller only
+/// cares about the site it is on.
 pub async fn get_all_cookies(client: &CdpClient, session_id: &str) -> Result<Vec<Cookie>, String> {
     let result = client
         .send_command_no_params("Network.getAllCookies", Some(session_id))
@@ -46,6 +67,10 @@ pub async fn get_all_cookies(client: &CdpClient, session_id: &str) -> Result<Vec
     Ok(cookies)
 }
 
+/// Cookies that would be sent to the given URLs.
+///
+/// `None` or an empty list falls back to the current page's URL, which is what
+/// makes the no-argument form useful.
 pub async fn get_cookies(
     client: &CdpClient,
     session_id: &str,
@@ -68,6 +93,10 @@ pub async fn get_cookies(
     Ok(cookies)
 }
 
+/// Write cookies in one CDP call.
+///
+/// Batched on purpose: `Network.setCookies` takes the whole vector, so a
+/// per-cookie loop would pay a round-trip each and still not be atomic.
 pub async fn set_cookies(
     client: &CdpClient,
     session_id: &str,
@@ -100,6 +129,7 @@ pub async fn set_cookies(
     Ok(())
 }
 
+/// Remove every cookie from the browser profile.
 pub async fn clear_cookies(client: &CdpClient, session_id: &str) -> Result<(), String> {
     client
         .send_command_no_params("Network.clearBrowserCookies", Some(session_id))

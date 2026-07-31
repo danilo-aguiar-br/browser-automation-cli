@@ -215,7 +215,7 @@ Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/
 ### Inventário e gates de contrato
 - Inventário vivo é **61** nomes de agente via `commands --json` (inclui `select-option`, `pick`)
 - Honesty carregada (fechada antes, ainda obrigatória em 0.1.4): lighthouse `binary_source` real|mock (GAP-008); `extract --llm` fail-closed só com chaves XDG (GAP-015)
-- Help clap de topo lista **59** sem `select-option`/`pick` como standalone
+Superfície clap de produto é **63** nomes (exclui `select-option` / `pick` de inventário de agente)
 - E2e DevTools tool-ref permanece **53 tools**
 - Gates: `tests/parity_run_inventory.rs`, `tests/clap_command_debug_assert.rs`
 - Auditoria clap: `GlobalOpts` usa `Args` + flatten; `ArgAction::SetTrue` explícito; `value_hint`; help headings; `after_help` examples; alias `-v`
@@ -242,11 +242,11 @@ Hard-close de higiene residual-zero em **disco** (RES-01…12, Pass 27) e superf
 
 ### Inventário e comandos meta
 - Inventário vivo é **63** nomes de agente via `commands --json`
-- Help clap de topo lista **61** sem `select-option` / `pick` como standalone
+Superfície clap de produto é **63** nomes (exclui `select-option` / `pick` de inventário de agente)
 - Meta já no binário e no inventário: `locale` (diagnósticos de locale de UI), `man` (roff via clap_mangen; sem Chrome)
 - E2e DevTools tool-ref permanece **53 tools**
 
-### Gates locais residual (sem exigência de CI/GHA)
+### Gates locais residual (só scripts locais do mantenedor)
 - Integração: `tests/residual_one_shot.rs`
 - Scripts de mantenedor: `scripts/residual-check.sh`, `scripts/residual-stress.sh`
 - Cobertura unit residual sob `cargo test --lib residual::`
@@ -254,6 +254,78 @@ Hard-close de higiene residual-zero em **disco** (RES-01…12, Pass 27) e superf
 ### Chaves de config (lista completa de 16 inalterada em 0.1.5)
 - `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Idioma continua só flags + XDG: `--lang` ou `config set lang` (sem catálogos de env de produto)
+- A lei residual-zero de disco introduzida aqui permanece **corrente** até a 0.1.6 (GC Singleton em BORN + FINALIZE, doctor `residual`)
+
+
+## 0.1.5 → 0.1.6
+Settle de diálogo agent-first, eventos nativos de select, format de scrape em run, honesty de prazo de wait, crescimento de inventário e notas residuais intencionais:
+
+### O Que Muda
+- **`dialog_settled` (GAP-054):** envelope de dados de `dialog accept|dismiss` real inclui booleano `dialog_settled`. Happy path é `true` após `Page.javascriptDialogClosed`. Agentes **não** devem inventar wait artificial antes do próximo passo de página quando settled for true
+- **`dialog_settle_ms` (XDG):** `config set dialog_settle_ms <ms>` limita a espera por Closed após responder um diálogo JS (só flags + XDG; nunca env de produto)
+- **Isolamento multi-aba de diálogo:** forwarders de evento de página carimbam `Page::session_id`; chaves do mapa de diálogo isolam por aba; browser-level `None` cai na sessão ativa
+- **Select nativo (GAP-055):** `pick` / `select-option` em `<select>` nativo despacham `input` e depois `change` e reportam `via: native_select` (`DISPATCH_INPUT_AND_CHANGE` compartilhado)
+- **`wait_timeout_ms` (GAP-053):** passos wait de run honram a chave pública de prazo (parser não descarta mais em silêncio)
+- **Formats de scrape em run (GAP-057):** passos de run aceitam `format` / `formats`; pedidos só de texto não devem despejar campos `html` grandes
+- **Encode AVIF removido (breaking):** `grab` suporta só **png | jpeg | webp** (features do crate `image` sem avif / core2 yanked)
+- **Inventário 65:** `commands --json` lista **65** nomes de agente (adiciona **`submit`**, **`storage`**); clap de topo **63** sem `select-option`/`pick` standalone
+- **`submit`:** envio de formulário por form ou campo; espera navegação/requisição
+- **`storage`:** `export|import --path` para cookies + localStorage + sessionStorage (path explícito)
+- **Descoberta de chaves de config:** **não** alegue contagem fixa de “16 chaves” — sempre descubra com `config list-keys --json` (inclui `dialog_settle_ms` e mais)
+- **Lighthouse (GAP-021 parcial↑):** fixtures unit `minimal_lhr.json` + `chrome_captured_lhr.json` (LHR real); e2e mock permanece **SKIP** — nunca alegue PASS completo do parser lighthouse em e2e
+- **GAP-022 dups residuais:** ~53 multi-versão medidas; poda barata esgotada; residual aceito na 0.1.6
+- **GAP-023/024 intencionais:** flags/comandos wishlist do PRD permanecem divergências em `parity_intentional_divergences.json` — não paridade PRD completa
+- **Residual-zero de disco:** lei de produto da 0.1.5 (RES-01…12) **ainda corrente**
+
+### Inventário completo de agente (65) — v0.1.6
+
+Descubra ao vivo: `browser-automation-cli commands --json`
+
+```
+assert attr back batch-scrape click-at commands completions config console cookie
+crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+find-paths forward goto grab heap hover keys lighthouse locale man map mitm monitor
+net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+upload version view wait webmcp workflow write
+```
+
+Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é 63. Nomes frequentemente ausentes em docs antigos: `click-at`, `completions`, `cookie`, `devtools3p`, `drag`, `fill-form`, `hover`, `net`, `resize`, `upload`, `webmcp`, `back`, `forward`.
+
+### Migração passo a passo para agentes
+1. Rebuild/instale `0.1.6` (`cargo install --path . --force --locked`)
+2. Confirme versão e inventário:
+```bash
+browser-automation-cli --version   # 0.1.6
+browser-automation-cli --json commands | jaq '.data.commands | length'  # 65
+```
+3. Após respostas reais de diálogo, parseie `dialog_settled`; remova waits inventados pós-diálogo quando true
+4. Se o host precisar de orçamento Closed maior: `config set dialog_settle_ms <ms>` (XDG)
+5. Atualize scripts wait de run para usar `wait_timeout_ms` público quando um prazo for intencional
+6. Atualize passos scrape de run para passar `format` / `formats` (espere sem monstro HTML para `text`)
+7. Substitua qualquer `grab --format avif` por `png`, `jpeg` ou `webp`
+8. Adote `submit` / `storage` quando envio de form ou estado de auth portátil for necessário
+9. Re-descubra chaves de config: `config list-keys --json` (não fixe contagens)
+10. Trate lighthouse e2e mock como SKIP honesto; confie nas fixtures unit LHR para confiança do parser
+11. Mantenha checks residual-zero da 0.1.5 (`doctor residual`, scripts residual locais)
+12. Não assuma que flags/comandos PRD de GAP-023/024 existam salvo listados por `commands --json`
+
+### Descoberta de chaves de config
+```bash
+browser-automation-cli --json config list-keys
+browser-automation-cli --json config set dialog_settle_ms 2000
+browser-automation-cli --json config get dialog_settle_ms
+```
+
+### Notas de rollback
+- Se reverter de `0.1.6` para `0.1.5`, remova premissas de que:
+  - `dialog_settled` está sempre presente após respostas de diálogo
+  - `dialog_settle_ms` é chave de config
+  - wait de run honra `wait_timeout_ms` como chave pública de passo
+  - scrape de run honra `format`/`formats`
+  - inventário é 65 / inclui `submit` e `storage`
+  - grab recusa AVIF (0.1.5 pode ainda aceitar conforme features do build)
+- Campos residual-zero de disco permanecem válidos ao reverter só se permanecer em 0.1.5+
 
 ## Migração Passo a Passo
 ### De qualquer tree antiga para 0.1.1
@@ -335,6 +407,19 @@ bash scripts/residual-check.sh
 - Idioma e todos os settings de produto permanecem só flags + XDG (`--lang` / `config set lang`)
 - Reexecute validação local: `cargo test --lib`, suite residual acima, `parity_run_inventory`, `clap_command_debug_assert`, script e2e 53 tools
 
+### De 0.1.5 para 0.1.6
+- Rebuild/instale `0.1.6`
+- Leia `dialog_settled` após respostas reais de diálogo; remova waits inventados quando true
+- Defina `dialog_settle_ms` só via XDG quando necessário
+- Use `wait_timeout_ms` em passos wait de run para prazos públicos
+- Passe `format`/`formats` em passos scrape de run
+- Pare de usar `grab --format avif` (só png|jpeg|webp)
+- Descubra `submit` e `storage` via `commands --json` / `schema`
+- Confirme inventário **65**; regenere schemas se empacotar docs
+- Espere lighthouse e2e mock **SKIP** (não PASS)
+- Mantenha a lei residual-zero de disco da 0.1.5
+- Reexecute gates locais: `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate`, suite residual, script e2e 53 tools
+
 ## Mudanças de JSON Schema
 - Antes: prosa livre ou JSON ad-hoc sem `schema_version`
 - Depois no sucesso:
@@ -355,6 +440,7 @@ bash scripts/residual-check.sh
 - Adições estáticas de v0.1.3 incluem `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths` ganha `glob`; chaves de config incluem cache/log_to_file
 - v0.1.4: fragments wait/assert/schema/run expandem multi-seletor, wait url, console asserts, json-steps; inventário adiciona `select-option`/`pick` como nomes run/schema
 - v0.1.5: campos residual do doctor; inventário adiciona `locale` / `man` (meta); contrato residual-zero em disco
+- v0.1.6: settle de diálogo / `dialog_settled`; `dialog_settle_ms`; run `wait_timeout_ms` + scrape `format`/`formats`; inventário **65** (`submit`, `storage`); grab remove AVIF; fixtures unit LHR de lighthouse; e2e lighthouse mock SKIP
 
 
 ## Notas de Compatibilidade
@@ -367,13 +453,16 @@ bash scripts/residual-check.sh
 - Exit codes permanecem no estilo sysexits: `0`, `2`, `65`, `66`, `69`, `70`, `74`, `78`, `124`, `130`, `141`
 - Agentes que assumiam `batch-scrape` só HTTP devem aceitar `--engine browser` opcional em 0.1.4
 - Agentes que só checavam residual de processo em 0.1.3/0.1.4 devem também parsear campos de disco `residual` do doctor em 0.1.5
-- Tamanho do inventário move 61 → **63** (`locale`, `man`)
+- Tamanho do inventário move 61 → **63** (`locale`, `man`) em 0.1.5, depois **63 → 65** (`submit`, `storage`) em 0.1.6
 - Agentes que tratavam `select-option`/`pick` como subcomandos clap devem usar passos `run`/`exec`
+- Agentes que hardcoded “16 chaves de config” devem migrar para `config list-keys --json`
+- Duplicatas residuais GAP-022 e divergências wishlist PRD GAP-023/024 são intencionais na 0.1.6 (não paridade PRD completa)
 
 
 ## Rollback
 - Fixe o commit local anterior ou o path do binário instalado
 - Mantenha scripts compatíveis com os campos `ok` e `schema_version` do envelope
+- Se reverter de `0.1.6` para `0.1.5`, remova premissas sobre `dialog_settled`, `dialog_settle_ms`, honesty de `wait_timeout_ms` / scrape `format` em run, inventário 65 / `submit`+`storage` e remoção de AVIF
 - Se reverter de `0.1.5` para `0.1.4`, remova premissas de que o doctor sempre emite topo `residual` / check `residual_disk`, de que BORN faz GC automático de Singleton tmp stale com age ≥ 60s, de que o inventário é 63, e de que `locale`/`man` estão sempre presentes em trees antigas sem esses cmds
 - Se reverter de `0.1.4` para `0.1.3`, remova o uso de `--json-steps`, wait `url`/`url_contains`/`navigation`, arrays multi-seletor de wait, passos `select-option`/`pick`, assert `console_empty`/`console_no_match`, fluxos só-posicionais de `schema <cmd>`, `mitm capture-url` / `graphql` / `ws` / `block` / `allow` / `redact`, flags globais `--mitm*`, premissas de scrape multi-formato, `batch-scrape`/`crawl` `--engine browser`, `view --allow-empty`, recusa de PDF em branco, `page new --isolated-context`, `--handle-before-unload accept|dismiss`, e premissas de erro de usage clap em JSON
 - Se reverter de `0.1.3` para `0.1.2`, remova o uso de `sheet-write`, `sg-scan`, `sg-rewrite`, `find-paths --glob`, scripts `run` só em array JSON, chaves XDG de cache e premissas de `binary_source`

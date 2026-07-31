@@ -3,29 +3,105 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/cookie.schema.json",
   "title": "cookie command input",
   "type": "object",
-  "description": "Cookie list/set/clear for the one-shot browser process",
+  "description": "Cookie jar helpers for the active page (Network domain)",
   "properties": {
     "action": {
+      "actions": {
+        "clear": {
+          "description": "Clear all browser cookies in this one-shot process",
+          "properties": {}
+        },
+        "list": {
+          "description": "List cookies (optional URL filter)",
+          "properties": {
+            "url": {
+              "argv": "--url",
+              "description": "Only return cookies scoped to this URL",
+              "required": false,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "set": {
+          "description": "Set cookies from a JSON array of cookie objects",
+          "properties": {
+            "cookies_json": {
+              "argv": "--cookies-json",
+              "description": "JSON array: [{\"name\":\"a\",\"value\":\"b\",\"url\":\"https://...\"}] (long name avoids shadowing global envelope `--json`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "cookies_json",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "list",
         "set",
         "clear"
       ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "cookies": {
       "description": "Preferred run-script form for set",
+      "source": "catalog",
+      "step_key": "cookies",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "array"
     },
     "cookies_json": {
       "description": "CLI long name --cookies-json (avoids shadowing global --json)",
+      "source": "catalog",
+      "step_key": "cookies_json",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "json": {
       "description": "JSON array for set (run/JSON key). CLI flag: --cookies-json",
+      "source": "catalog",
+      "step_key": "json",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "url": {
+      "source": "catalog",
+      "step_key": "url",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

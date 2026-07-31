@@ -3,73 +3,170 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/wait.schema.json",
   "title": "wait command input",
   "type": "object",
-  "description": "Wait ms and/or text and/or CSS selector (comma OR / array) and/or URL and/or load state (GAP-019/024)",
+  "description": "Wait for ms and/or text and/or selector and/or load state",
   "properties": {
+    "dom_stable_ms": {
+      "argv": "--dom-stable",
+      "description": "Resolve when the serialized DOM has not changed for this many ms. Bare flag (or 0) uses the built-in window (GAP-032)",
+      "required": false,
+      "source": "parser",
+      "step_key": "dom_stable_ms",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "integer"
+    },
     "include_snapshot": {
+      "argv": "--include-snapshot",
+      "description": "Attach slim a11y snapshot after the wait succeeds",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
+    "min_count": {
+      "argv": "--min-count",
+      "description": "Minimum number of nodes --selector must match (default 1; GAP-032)",
+      "required": false,
+      "source": "parser",
+      "step_key": "min_count",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "integer"
+    },
     "ms": {
-      "minimum": 0,
+      "argv": "--ms",
+      "default": 0,
+      "description": "Unconditional sleep in milliseconds before evaluating other conditions",
+      "required": false,
+      "source": "parser",
+      "step_key": "ms",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     },
     "navigation": {
       "description": "Wait for load lifecycle (GAP-024)",
+      "source": "catalog",
+      "step_key": "navigation",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
+    "network_idle_ms": {
+      "argv": "--network-idle",
+      "description": "Resolve when no request has been in flight for this many ms. Bare flag (or 0) uses the built-in window (GAP-032)",
+      "required": false,
+      "source": "parser",
+      "step_key": "network_idle_ms",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "integer"
+    },
     "selector": {
-      "oneOf": [
-        {
-          "description": "CSS selector; comma-separated OR supported (GAP-019)",
-          "type": "string"
-        },
-        {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      ]
+      "argv": "--selector",
+      "description": "CSS selector that must match before the wait resolves",
+      "required": false,
+      "source": "parser",
+      "step_key": "selector",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
     },
     "selectors": {
       "description": "OR list of CSS selectors",
       "items": {
         "type": "string"
       },
+      "source": "catalog",
+      "step_key": "selectors",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "array"
     },
     "state": {
-      "enum": [
-        "load",
-        "domcontentloaded",
-        "networkidle",
-        "none"
+      "argv": "--state",
+      "description": "Page lifecycle: load | domcontentloaded | networkidle | none",
+      "required": false,
+      "source": "parser",
+      "step_key": "state",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
       ],
       "type": "string"
     },
     "text": {
-      "description": "Repeatable --text values; any match wins (OR)",
-      "oneOf": [
-        {
-          "type": "string"
-        },
-        {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      ]
+      "argv": "--text",
+      "description": "Text to wait for (repeatable; resolves when any value appears — tool-ref OR)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "text",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "array"
     },
     "url": {
       "description": "Exact location.href match (GAP-024)",
+      "source": "catalog",
+      "step_key": "url",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "url_contains": {
       "description": "Substring match on location.href (GAP-024)",
+      "source": "catalog",
+      "step_key": "url_contains",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "wait_timeout_ms": {
-      "minimum": 0,
+      "argv": "--wait-timeout-ms",
+      "description": "Max wait time in milliseconds for text/selector/state (0 = default)",
+      "required": false,
+      "source": "parser",
+      "step_key": "wait_timeout_ms",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     }
   },

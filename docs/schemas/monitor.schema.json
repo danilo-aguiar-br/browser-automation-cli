@@ -6,13 +6,76 @@
   "description": "One-shot change check against a baseline file (hash/text)",
   "properties": {
     "action": {
+      "actions": {
+        "check": {
+          "description": "Compare URL body hash/text to a baseline file and exit",
+          "properties": {
+            "baseline": {
+              "argv": "--baseline",
+              "description": "Baseline file path (created on first run if missing when --write-baseline)",
+              "required": true,
+              "source": "parser",
+              "step_key": "baseline",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "engine": {
+              "argv": "--engine",
+              "default": "http",
+              "description": "Use browser engine instead of HTTP",
+              "required": false,
+              "source": "parser",
+              "step_key": "engine",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "argv": "--url",
+              "description": "URL to fetch/scrape one-shot",
+              "required": true,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "write_baseline": {
+              "argv": "--write-baseline",
+              "description": "Write/update baseline after check",
+              "required": false,
+              "source": "parser",
+              "step_key": "write_baseline",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "check"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
       ],
       "type": "string"
     },
     "baseline": {
       "description": "Baseline file path",
+      "source": "catalog",
+      "step_key": "baseline",
+      "surfaces": [],
       "type": "string"
     },
     "engine": {
@@ -20,12 +83,21 @@
         "http",
         "browser"
       ],
+      "source": "catalog",
+      "step_key": "engine",
+      "surfaces": [],
       "type": "string"
     },
     "url": {
+      "source": "catalog",
+      "step_key": "url",
+      "surfaces": [],
       "type": "string"
     },
     "write_baseline": {
+      "source": "catalog",
+      "step_key": "write_baseline",
+      "surfaces": [],
       "type": "boolean"
     }
   },

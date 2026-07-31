@@ -7,35 +7,40 @@
 //! - **Portuguese appears only as catalog string literals** for human `suggestion`
 //!   UI text when locale resolves to `pt-BR` (not in identifiers or logs).
 //! - Agent-stable JSON `error.message` remains English regardless of locale.
-//! - Prefer [`Mensagem`] / [`suggestion_key`] over hardcoding UI strings at call sites.
+//! - Prefer [`UiMessage`](crate::i18n::UiMessage) / [`suggestion_key`](crate::i18n::suggestion_key) over hardcoding UI strings at call sites.
 //! - Stdout JSON envelopes are **not** translated (machine contract).
 //!
-//! # Boot order (rules multi-idioma)
+//! # Boot order (multi-language UI rules)
 //!
-//! 1. Windows console UTF-8 ([`configure_console_utf8`])
+//! 1. Windows console UTF-8 ([`configure_console_utf8`](crate::i18n::configure_console_utf8))
 //! 2. TTY / plain / screen-reader hints (see [`crate::color`])
-//! 3. OS locale via `sys-locale` inside [`resolve_locale`]
+//! 3. OS locale via `sys-locale` inside [`resolve_locale`](crate::i18n::resolve_locale)
 //! 4. Parse → `LanguageIdentifier` (`unic-langid`)
 //! 5. Negotiate against compiled packs (`fluent-langneg`)
-//! 6. Publish in [`OnceLock`] via [`set_effective_idioma`]
+//! 6. Publish in [`OnceLock`](std::sync::OnceLock) via [`set_effective_ui_locale`](crate::i18n::set_effective_ui_locale)
 //!
-//! # Precedence (5 layers)
+//! # Precedence (4 layers — product-law: no product env vars)
 //!
-//! `--lang` → `BROWSER_AUTOMATION_CLI_LANG` → XDG `lang` → system → default `en`
+//! `--lang` → XDG `lang` (`config set lang`) → system (`sys-locale`) → default `en`
 
+mod catalog_audit;
 mod detect;
+mod diagnostics;
 mod en;
 mod ftl;
-mod idioma;
-mod mensagem;
 mod pt_br;
+mod suggestion;
+mod ui_locale;
+mod ui_message;
 
 pub use detect::{
-    detect_system_langid, negotiate, parse_langid, resolve, LocaleSource, ResolvedLocale, LANG_ENV,
+    detect_system_langid, negotiate, parse_langid, resolve, LocaleSource, ResolvedLocale,
 };
+pub use diagnostics::{locale_diagnostics, truncate_graphemes};
 pub use ftl::{format_ftl, ftl_keys, ftl_source};
-pub use idioma::{Direcao, Idioma, ScriptEscrita};
-pub use mensagem::{ftl_id, Mensagem};
+pub use suggestion::{localize_error_suggestion, suggestion_for, suggestion_key};
+pub use ui_locale::{TextDirection, UiLocale, WritingScript};
+pub use ui_message::{ftl_id, UiMessage};
 
 use std::sync::OnceLock;
 
@@ -44,7 +49,7 @@ use std::sync::OnceLock;
 /// # Concurrency
 ///
 /// `OnceLock` is `Sync`; first successful `set` wins. Concurrent readers see
-/// either the initialized value or the default [`Idioma::En`] via [`effective_idioma`].
+/// either the initialized value or the default [`UiLocale::En`] via [`effective_ui_locale`].
 static EFFECTIVE: OnceLock<ResolvedLocale> = OnceLock::new();
 
 /// Configure Windows console to UTF-8 (and VT) before any user-facing I/O.
@@ -54,7 +59,7 @@ pub fn configure_console_utf8() {
     crate::platform::configure_console();
 }
 
-/// Resolve language from CLI flag, then env, XDG, OS locale (see [`resolve`]).
+/// Resolve language from CLI flag, then XDG, OS locale (see [`resolve`]).
 pub fn resolve_locale(cli_lang: Option<&str>) -> ResolvedLocale {
     let xdg = crate::xdg::load_config()
         .ok()
@@ -63,23 +68,55 @@ pub fn resolve_locale(cli_lang: Option<&str>) -> ResolvedLocale {
     resolve(cli_lang, xdg.as_deref())
 }
 
+/// Validate a `config set lang` / flag token (`en` | `pt-BR` and regional `en-*`).
+///
+/// Rejects bare `pt` and unknown tags with a machine-English usage error.
+pub fn validate_lang_token(raw: &str) -> Result<UiLocale, crate::error::CliError> {
+    UiLocale::parse_token(raw).ok_or_else(|| {
+        crate::error::CliError::with_suggestion(
+            crate::error::ErrorKind::Usage,
+            format!("invalid lang {raw:?}; expected en or pt-BR (bare pt is not accepted)"),
+            "Use: config set lang en   or   config set lang pt-BR   or   --lang pt-BR",
+        )
+    })
+}
+
+/// Scan raw argv for `--lang <token>` or `--lang=<token>` (pre-clap parse path).
+///
+/// Used so clap usage errors can still localize human suggestions after OS/XDG resolve.
+pub fn scan_lang_flag_from_argv(args: &[impl AsRef<std::ffi::OsStr>]) -> Option<String> {
+    let mut iter = args.iter().map(|a| a.as_ref());
+    while let Some(arg) = iter.next() {
+        let s = arg.to_string_lossy();
+        if s == "--lang" {
+            return iter.next().map(|v| v.to_string_lossy().into_owned());
+        }
+        if let Some(rest) = s.strip_prefix("--lang=") {
+            if !rest.is_empty() {
+                return Some(rest.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Store effective locale for the process (call once from `run()`).
-pub fn set_effective_idioma(resolved: ResolvedLocale) {
+pub fn set_effective_ui_locale(resolved: ResolvedLocale) {
     // Clone fields needed for tracing before move into OnceLock (owned system_raw).
-    let idioma = resolved.idioma;
+    let ui_locale = resolved.ui_locale;
     let source = resolved.source;
     let system = resolved.system_raw.clone();
     let _ = EFFECTIVE.set(resolved);
     if source == LocaleSource::Default && system.is_none() {
         // Detection failed or empty chain — local observability only.
         tracing::debug!(
-            idioma = idioma.bcp47(),
+            ui_locale = ui_locale.bcp47(),
             source = source.as_str(),
             "UI locale defaulted to en"
         );
     } else {
         tracing::debug!(
-            idioma = idioma.bcp47(),
+            ui_locale = ui_locale.bcp47(),
             source = source.as_str(),
             system = system.as_deref().unwrap_or(""),
             "UI locale resolved"
@@ -87,18 +124,15 @@ pub fn set_effective_idioma(resolved: ResolvedLocale) {
     }
 }
 
-/// Current effective idioma (defaults to `en` if unset).
-pub fn effective_idioma() -> Idioma {
-    EFFECTIVE
-        .get()
-        .map(|r| r.idioma)
-        .unwrap_or(Idioma::En)
+/// Current effective UI locale (defaults to `en` if unset).
+pub fn effective_ui_locale() -> UiLocale {
+    EFFECTIVE.get().map(|r| r.ui_locale).unwrap_or(UiLocale::En)
 }
 
 /// Full resolved snapshot (for `locale` subcommand).
 pub fn effective_resolved() -> ResolvedLocale {
     EFFECTIVE.get().cloned().unwrap_or(ResolvedLocale {
-        idioma: Idioma::En,
+        ui_locale: UiLocale::En,
         source: LocaleSource::Default,
         system_raw: None,
     })
@@ -108,8 +142,8 @@ pub fn effective_resolved() -> ResolvedLocale {
 
 /// Normalize lang token to legacy `"en"` or `"pt"`.
 pub fn normalize_lang(lang: Option<&str>) -> &'static str {
-    match lang.and_then(Idioma::parse_token) {
-        Some(Idioma::PtBr) => "pt",
+    match lang.and_then(UiLocale::parse_token) {
+        Some(UiLocale::PtBr) => "pt",
         _ => "en",
     }
 }
@@ -118,16 +152,16 @@ pub fn normalize_lang(lang: Option<&str>) -> &'static str {
 ///
 /// Returns legacy `"en"` / `"pt"` tokens for older call sites.
 pub fn resolve_lang(cli_lang: Option<&str>) -> &'static str {
-    resolve_locale(cli_lang).idioma.legacy_token()
+    resolve_locale(cli_lang).ui_locale.legacy_token()
 }
 
 /// Store effective language for the process (call once from `run()`).
 ///
-/// Accepts legacy `"en"` / `"pt"` / BCP47 tokens.
+/// Accepts `"en"` / `"pt-BR"` / BCP47 tokens (`parse_token`). Bare `"pt"` is rejected → `en`.
 pub fn set_effective_lang(lang: &'static str) {
-    let idioma = Idioma::parse_token(lang).unwrap_or(Idioma::En);
-    set_effective_idioma(ResolvedLocale {
-        idioma,
+    let ui_locale = UiLocale::parse_token(lang).unwrap_or(UiLocale::En);
+    set_effective_ui_locale(ResolvedLocale {
+        ui_locale,
         source: LocaleSource::Flag,
         system_raw: None,
     });
@@ -135,159 +169,8 @@ pub fn set_effective_lang(lang: &'static str) {
 
 /// Current effective language legacy token (defaults to `en` if unset).
 pub fn effective_lang() -> &'static str {
-    effective_idioma().legacy_token()
-}
-
-/// Localized suggestion for a known kind key.
-pub fn suggestion_for(kind: &str, lang: Option<&str>) -> Option<&'static str> {
-    let idioma = lang
-        .and_then(Idioma::parse_token)
-        .unwrap_or_else(effective_idioma);
-    Mensagem::from_error_kind(kind).map(|m| m.texto(idioma))
-}
-
-/// Catalog of stable suggestion keys (preferred over hard-coded English).
-pub fn suggestion_key(key: &str, lang: Option<&str>) -> &'static str {
-    let idioma = lang
-        .and_then(Idioma::parse_token)
-        .unwrap_or_else(effective_idioma);
-    Mensagem::from_suggestion_key(key).texto(idioma)
-}
-
-/// Apply kind-based localized suggestion when none is set, or re-map known EN strings.
-pub fn localize_error_suggestion(err: &crate::error::CliError) -> crate::error::CliError {
-    let idioma = effective_idioma();
-    if idioma == Idioma::En {
-        return err.clone();
-    }
-    // Prefer catalog by kind when suggestion is missing.
-    if err.suggestion().is_none() {
-        if let Some(s) = suggestion_for(err.kind().as_str(), Some(idioma.legacy_token())) {
-            let mut out = crate::error::CliError::with_suggestion(err.kind(), err.message(), s);
-            if let Some(d) = err.data() {
-                out = out.with_data(d.clone());
-            }
-            return out;
-        }
-        return err.clone();
-    }
-    let s = err.suggestion().unwrap_or("");
-    // Map common English suggestions to Portuguese via enum catalog.
-    let mapped = match s {
-        "Pass --experimental-vision on the same invocation" => {
-            Mensagem::VisionRequired.texto(idioma)
-        }
-        "Pass both flags together when you intentionally skip robots.txt" => {
-            Mensagem::RobotsDual.texto(idioma)
-        }
-        "Pass --category-memory (heap take/summary/close work without deep graph ops)" => {
-            Mensagem::CategoryMemory.texto(idioma)
-        }
-        "Pass --category-extensions on the same invocation" => {
-            Mensagem::CategoryExtensions.texto(idioma)
-        }
-        "Pass --experimental-screencast on the same invocation" => {
-            Mensagem::ScreencastFlag.texto(idioma)
-        }
-        "Pass --category-webmcp on the same invocation" => Mensagem::WebmcpFlag.texto(idioma),
-        "Pass --category-third-party on the same invocation" => {
-            Mensagem::ThirdPartyFlag.texto(idioma)
-        }
-        "Pass --capture-network before run/net" => Mensagem::CaptureNetwork.texto(idioma),
-        "Pass --capture-console before run/console" => Mensagem::CaptureConsole.texto(idioma),
-        "Fix the failing step; subsequent steps were not executed" => {
-            Mensagem::RunFailFast.texto(idioma)
-        }
-        other if other.contains("lighthouse") && other.contains("npm") => {
-            Mensagem::LighthouseMissing.texto(idioma)
-        }
-        other if other.contains("lighthouse") && other.contains("config set") => {
-            Mensagem::LighthouseMissing.texto(idioma)
-        }
-        _ => {
-            return err.clone();
-        }
-    };
-    let mut out = crate::error::CliError::with_suggestion(err.kind(), err.message(), mapped);
-    if let Some(d) = err.data() {
-        out = out.with_data(d.clone());
-    }
-    out
-}
-
-/// JSON-ready diagnostics for `locale` subcommand (machine keys English).
-pub fn locale_diagnostics() -> serde_json::Value {
-    let r = effective_resolved();
-    let sys = sys_locale::get_locale();
-    serde_json::json!({
-        "resolved": r.idioma.bcp47(),
-        "legacy": r.idioma.legacy_token(),
-        "source": r.source.as_str(),
-        "direction": match r.idioma.direcao() {
-            Direcao::Ltr => "ltr",
-            Direcao::Rtl => "rtl",
-        },
-        "script": format!("{:?}", r.idioma.script()).to_ascii_lowercase(),
-        "available": Idioma::DISPONIVEIS.iter().map(|i| i.bcp47()).collect::<Vec<_>>(),
-        "system_locale": sys,
-        "env_override": std::env::var(LANG_ENV).ok(),
-        "lang_env_key": LANG_ENV,
-        "product_note": "error.message and stdout JSON stay English; suggestions localize",
-    })
-}
-
-/// Grapheme-aware truncation for terminal width (CJK-safe boundary).
-pub fn truncate_graphemes(s: &str, max: usize) -> String {
-    use unicode_segmentation::UnicodeSegmentation;
-    if max == 0 {
-        return String::new();
-    }
-    let mut out = String::new();
-    for (i, g) in s.graphemes(true).enumerate() {
-        if i >= max {
-            break;
-        }
-        out.push_str(g);
-    }
-    out
+    effective_ui_locale().legacy_token()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn all_mensagem_non_empty_both_locales() {
-        for m in Mensagem::ALL {
-            let en = m.texto(Idioma::En);
-            let pt = m.texto(Idioma::PtBr);
-            assert!(!en.is_empty(), "empty en for {m:?}");
-            assert!(!pt.is_empty(), "empty pt-BR for {m:?}");
-            assert_ne!(en, "", "{m:?}");
-        }
-    }
-
-    #[test]
-    fn pt_br_has_accents_on_critical_keys() {
-        assert!(Mensagem::VisionRequired.texto(Idioma::PtBr).contains("invocação"));
-        assert!(Mensagem::RobotsDual.texto(Idioma::PtBr).contains("propósito"));
-        assert!(Mensagem::RunFailFast.texto(Idioma::PtBr).contains("não"));
-        assert!(Mensagem::UsageSuggestion.texto(Idioma::PtBr).contains("obrigatórios"));
-    }
-
-    #[test]
-    fn texto_api_no_global_required() {
-        // Tests must not depend on process OnceLock.
-        assert_eq!(
-            Mensagem::UsageSuggestion.texto(Idioma::En),
-            "Check --help and required arguments"
-        );
-    }
-
-    #[test]
-    fn truncate_respects_graphemes() {
-        let s = "ação";
-        assert_eq!(truncate_graphemes(s, 2), "aç");
-        assert_eq!(truncate_graphemes(s, 10), "ação");
-    }
-}
+mod tests;

@@ -3,10 +3,10 @@
 #
 # Phases (sequential; abort on failure):
 #   1. cargo check
-#   2. cargo doc --no-deps (stable / active toolchain) with docsrs cfg
-#   3. optional: cargo +nightly doc --no-deps (doc_cfg feature gate)
+#   2. cargo doc --no-deps --features docs-mermaid (stable; Mermaid opt-in)
+#   3. optional: cargo +nightly doc --no-deps --features docs-mermaid (doc_cfg)
 #   4. optional: rustdoc JSON via nightly unstable options
-#   5. coverage audit: crate-level sections + aquamarine dep + metadata
+#   5. coverage audit: docs-mermaid feature + optional aquamarine + metadata
 #   6. emit NDJSON progress on stdout; human logs on stderr
 #
 # Explicitly OUT OF SCOPE (user / product law):
@@ -23,6 +23,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+source "$ROOT/scripts/lib/module_paths.sh"
+module_paths_self_test || exit 65
+# Crate docs = lib.rs plus whatever it splices in with include_str!.
+CRATE_DOC_FILES="$(crate_doc_files)"
 
 TIMEOUT_SECS="${DOCS_CHECK_TIMEOUT:-600}"
 RUN_NIGHTLY="${DOCS_CHECK_NIGHTLY:-1}"
@@ -86,19 +91,20 @@ progress "1_check" "ok" "cargo check clean"
 # --- Phase 2: HTML via cargo doc (stable / active toolchain) ---
 # Do NOT pass --cfg docsrs on stable: `#![feature(doc_cfg)]` is nightly-only.
 # docs.rs always builds with nightly + rustdoc-args from Cargo.toml.
-log "Phase 2 — cargo doc --no-deps (stable/public API, no docsrs cfg)"
-progress "2_html" "start" "cargo doc --no-deps"
-run_with_soft_timeout "cargo doc" env -u RUSTDOCFLAGS cargo doc --no-deps
+# Enable docs-mermaid so aquamarine processes Mermaid (default build omits it).
+log "Phase 2 — cargo doc --no-deps --features docs-mermaid (stable/public API, no docsrs cfg)"
+progress "2_html" "start" "cargo doc --no-deps --features docs-mermaid"
+run_with_soft_timeout "cargo doc" env -u RUSTDOCFLAGS cargo doc --no-deps --features docs-mermaid
 progress "2_html" "ok" "HTML under ${DOCS_OUT}"
 
 # --- Phase 3: nightly docs.rs simulation (doc_cfg gate) ---
 if [[ "${RUN_NIGHTLY}" == "1" ]] && command -v rustup >/dev/null 2>&1 && rustup toolchain list | grep -q '^nightly'; then
-  log "Phase 3 — cargo +nightly doc --no-deps (docsrs + doc_cfg)"
+  log "Phase 3 — cargo +nightly doc --no-deps --features docs-mermaid (docsrs + doc_cfg)"
   progress "3_nightly" "start" "cargo +nightly doc --cfg docsrs"
   # Mirror package.metadata.docs.rs rustdoc-args on nightly.
   if run_with_soft_timeout "nightly doc" \
       env RUSTDOCFLAGS="--cfg docsrs --generate-link-to-definition -Z unstable-options" \
-      cargo +nightly doc --no-deps; then
+      cargo +nightly doc --no-deps --features docs-mermaid; then
     progress "3_nightly" "ok" "nightly rustdoc with docsrs + doc_cfg"
   else
     die 70 "nightly cargo doc failed (doc_cfg / rustdoc)"
@@ -120,7 +126,7 @@ if [[ "${RUN_JSON}" == "1" ]] && command -v rustup >/dev/null 2>&1 && rustup too
   run_with_soft_timeout "rustdoc json" \
     env CARGO_TARGET_DIR="${JSON_TARGET}" \
         RUSTDOCFLAGS="--cfg docsrs -Z unstable-options --output-format json" \
-    cargo +nightly rustdoc --lib
+    cargo +nightly rustdoc --lib --features docs-mermaid
   json_ec=$?
   set -e
   if [[ $json_ec -eq 0 ]] && find "${JSON_TARGET}" -name '*.json' 2>/dev/null | head -1 | grep -q .; then
@@ -135,16 +141,31 @@ else
   progress "4_json" "skip" "json disabled or no nightly"
 fi
 
-# --- Phase 5: embed / deps (aquamarine present) ---
-log "Phase 5 — aquamarine + docs.rs metadata audit"
-progress "5_mermaid" "start" "Cargo.toml + aquamarine"
+# --- Phase 5: embed / deps (optional docs-mermaid + aquamarine) ---
+log "Phase 5 — docs-mermaid feature + aquamarine + docs.rs metadata audit"
+progress "5_mermaid" "start" "Cargo.toml + aquamarine optional"
+if ! grep -q 'docs-mermaid' Cargo.toml; then
+  die 65 "docs-mermaid feature missing from Cargo.toml"
+fi
 if ! grep -q 'aquamarine' Cargo.toml; then
-  die 65 "aquamarine missing from Cargo.toml (Mermaid inline required)"
+  die 65 "aquamarine missing from Cargo.toml (optional Mermaid dep required)"
 fi
-if ! grep -q 'aquamarine' src/lib.rs; then
-  die 65 "aquamarine not referenced in src/lib.rs"
+if ! grep -qE 'aquamarine = \{ version = "0\.6", optional = true \}' Cargo.toml; then
+  die 65 "aquamarine must be optional so default builds skip proc-macro-error2"
 fi
-progress "5_mermaid" "ok" "aquamarine wired"
+if ! grep -qE 'docs-mermaid\s*=\s*\["dep:aquamarine"\]' Cargo.toml; then
+  die 65 "docs-mermaid must enable dep:aquamarine"
+fi
+# This pair is about CODE, not prose: the `aquamarine` attribute must exist and
+# must sit behind the feature. It decorates whichever item carries the diagram,
+# so it travels when that item is moved — search the tree, not a file.
+if ! rg -q 'aquamarine' src/ --glob '*.rs'; then
+  die 65 "aquamarine attribute absent from src/"
+fi
+if ! rg -q 'feature = "docs-mermaid".*aquamarine|aquamarine.*feature = "docs-mermaid"' src/ --glob '*.rs'; then
+  die 65 "aquamarine must be gated behind feature docs-mermaid in the same attribute"
+fi
+progress "5_mermaid" "ok" "docs-mermaid optional aquamarine wired"
 
 # --- Phase 6: canonical section / metadata coverage ---
 log "Phase 6 — crate-level docs + Cargo metadata"
@@ -163,13 +184,15 @@ need_in_lib=(
   "feature(doc_cfg)"
 )
 for needle in "${need_in_lib[@]}"; do
-  if ! grep -qF "${needle}" src/lib.rs; then
+  # shellcheck disable=SC2086
+  if ! rg -qF "${needle}" $CRATE_DOC_FILES; then
     die 65 "crate-level docs missing section/token: ${needle}"
   fi
 done
 
 # Must NOT reintroduce removed feature gate.
-if grep -q 'feature(doc_auto_cfg)' src/lib.rs; then
+# shellcheck disable=SC2086
+if rg -q 'feature\(doc_auto_cfg\)' $CRATE_DOC_FILES; then
   die 65 "doc_auto_cfg still present — migrate to doc_cfg only (Oct 2025)"
 fi
 

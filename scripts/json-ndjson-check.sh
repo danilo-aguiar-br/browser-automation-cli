@@ -4,6 +4,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+source "$ROOT/scripts/lib/module_paths.sh"
+module_paths_self_test || exit 65
 fail=0
 ok() { printf 'PASS  %s\n' "$*"; }
 bad() { printf 'FAIL  %s\n' "$*"; fail=1; }
@@ -53,14 +56,17 @@ else
 fi
 
 # 5) NDJSON run path uses line limit + BOM-aware parse
-if rg -n 'check_ndjson_line_len|json_util' src/commands_prd/run.rs >/dev/null; then
+if rg -n 'check_ndjson_line_len|json_util' src/commands/run/ >/dev/null; then
   ok "run script path uses json_util (BOM / line limits)"
 else
   bad "run.rs not wired to json_util"
 fi
 
 # 6) json_steps must not swallow encode errors
-if rg -n 'if let Ok\(line\) = serde_json::to_string' src/commands_prd/run.rs >/dev/null; then
+# Binding name is free: the violation is discarding the Err arm, not the word
+# chosen for the Ok binding (an identifier-anchored pattern would go green on a
+# rename while the bug stayed).
+if rg -n 'if let Ok\((?:mut )?[A-Za-z_][A-Za-z0-9_]*\) = serde_json::to_string' src/commands/run/ >/dev/null; then
   bad "run json_steps still swallows encode errors"
 else
   ok "run json_steps propagates encode errors"
@@ -87,7 +93,53 @@ else
   bad "json_util not in lib.rs"
 fi
 
-# 10) Unit tests (one FILTERNAME per cargo test invocation)
+# 10) Untrusted product parsers must use json_util (BOM / limits), not raw serde_json::from_str
+# `rg` on a path that does not exist also returns non-zero, so a plain
+# else-branch here reported "no raw serde_json::from_str" for modules that had
+# been split into directories and no longer existed under those names. The gate
+# was green while asserting a property about nothing. Resolve the module first
+# and fail loudly when it is gone.
+for base in src/native/perf_insight src/native/cdp/discovery src/commands/ops/lighthouse src/llm_local; do
+  if ! f="$(mod_path "$base")"; then
+    bad "$base: module not found as .rs or directory (gate cannot assert on it)"
+    continue
+  fi
+  if rg -q 'serde_json::from_str' "$f"; then
+    bad "$f still calls serde_json::from_str directly (use json_util)"
+  else
+    ok "$f: no raw serde_json::from_str"
+  fi
+done
+
+# 11) XDG keys for JSON size ceilings (anti-hardcode product law)
+for key in max_json_file_bytes max_ndjson_line_bytes max_cli_json_payload_bytes; do
+  if rg -n "\"$key\"" src/xdg >/dev/null; then
+    ok "xdg config key $key"
+  else
+    bad "xdg missing config key $key"
+  fi
+  if rg -n "resolve_$key|resolve_max_" src/xdg >/dev/null; then
+    :
+  fi
+done
+for fn in resolve_max_json_file_bytes resolve_max_ndjson_line_bytes resolve_max_cli_json_payload_bytes; do
+  if rg -n "fn $fn" src/xdg >/dev/null; then
+    ok "xdg has $fn"
+  else
+    bad "xdg missing $fn"
+  fi
+done
+
+# 12) Named defaults live in constants (not magic literals only in json_util)
+for c in DEFAULT_MAX_JSON_FILE_BYTES DEFAULT_MAX_NDJSON_LINE_BYTES DEFAULT_MAX_CLI_JSON_PAYLOAD_BYTES ENVELOPE_SCHEMA_VERSION; do
+  if rg -n "$c" src/constants/ >/dev/null; then
+    ok "constants has $c"
+  else
+    bad "constants missing $c"
+  fi
+done
+
+# 13) Unit tests (one FILTERNAME per cargo test invocation)
 echo "--- cargo test (json_util / envelope / parse_script) ---"
 ut_ok=1
 for filter in json_util envelope parse_script; do

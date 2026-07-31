@@ -2,13 +2,17 @@
 # Product law: no runtime product secrets via env; audit advisories still apply.
 
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
+# cargo-deny 0.19 schema: `vulnerability` and `notice` were removed (advisories
+# are always an error now) and `unmaintained` became a scope selector.
+# `workspace` flags unmaintained crates we depend on directly — actionable here.
+# `all` would also fire on transitive crates we cannot fix, which would make a
+# blocking gate noisy without improving security posture.
+unmaintained = "workspace"
 yanked = "warn"
-notice = "warn"
 
 [licenses]
-unlicensed = "deny"
+# `unlicensed` was removed in cargo-deny 0.19: any crate whose license is not in
+# `allow` below is already rejected.
 allow = [
   "MIT",
   "Apache-2.0",
@@ -23,8 +27,18 @@ allow = [
   "OpenSSL",
   "CC0-1.0",
   "BSL-1.0",
+  # webpki-roots / webpki-root-certs ship Mozilla's CA bundle under CDLA-
+  # Permissive-2.0 (a permissive *data* license). Unavoidable for the rustls +
+  # webpki-roots TLS stack that both reqwest and hudsucker pull in.
+  "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
+
+# Scoped exception instead of allowing NCSA project-wide: libfuzzer-sys is a
+# fuzzing-only crate that never links into the shipped binary.
+[[licenses.exceptions]]
+name = "libfuzzer-sys"
+allow = ["NCSA"]
 
 [bans]
 multiple-versions = "warn"

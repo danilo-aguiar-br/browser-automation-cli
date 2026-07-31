@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Chromiumoxide launch + FINALIZE helpers (PRD: Browser::launch only, no connect).
-#![allow(missing_docs)]
 //!
 //! System Chrome/Chromium only — no BrowserFetcher embedded (PRD L56 / L387).
 //! Launch flags come from `build_chrome_args` so proxy/webgpu/extensions are live.
@@ -23,9 +22,13 @@ use super::chrome::{build_chrome_args, find_chrome, LaunchOptions};
 
 /// Launch result before the CDP client takes ownership of the handler task.
 pub struct OxideLaunch {
+    /// Live browser handle used to issue commands.
     pub browser: Browser,
+    /// Event pump. It must be driven for the connection to make progress.
     pub handler: OxideHandler,
+    /// Chrome binary that was actually launched, as resolved by discovery.
     pub executable: Option<PathBuf>,
+    /// DevTools websocket URL of this browser.
     pub ws_url: String,
     /// Temp user-data-dir created for this one-shot (cleanup after FINALIZE).
     pub temp_user_data_dir: Option<PathBuf>,
@@ -42,6 +45,11 @@ pub async fn launch_with_oxide(options: &LaunchOptions) -> Result<OxideLaunch, S
         crate::concurrency::create_dir_all_blocking(dir.clone())
             .await
             .map_err(|e| format!("Failed to create temp profile dir: {e}"))?;
+        // GAP-052: stamp the owning CLI pid so residual GC resolves liveness by
+        // exact pid instead of substring-matching whole command lines.
+        if let Err(e) = crate::residual::write_owner_pid(dir) {
+            tracing::debug!(error = %e, dir = %dir.display(), "owner-pid marker not written");
+        }
     }
 
     let mut builder = BrowserConfig::builder();
@@ -109,6 +117,11 @@ pub async fn launch_with_oxide(options: &LaunchOptions) -> Result<OxideLaunch, S
 }
 
 /// FINALIZE: close + wait + kill fallback on a shared browser mutex.
+///
+/// Uses [`tokio::sync::Mutex`] because the guard is held across `.await`
+/// (`close` / `wait` / `kill`). That also **serializes** concurrent CDP work
+/// on the shared [`Browser`] — required by chromiumoxide's async execute API
+/// (do not replace with `std::sync::Mutex`).
 pub async fn finalize_browser(browser: Arc<Mutex<Browser>>) -> Result<(), String> {
     let mut browser = match Arc::try_unwrap(browser) {
         Ok(m) => m.into_inner(),
@@ -118,7 +131,14 @@ pub async fn finalize_browser(browser: Arc<Mutex<Browser>>) -> Result<(), String
                 let _ = guard.kill().await;
                 return Err(format!("chromiumoxide close: {e}"));
             }
-            match tokio::time::timeout(Duration::from_secs(5), guard.wait()).await {
+            match tokio::time::timeout(
+                Duration::from_secs(crate::xdg::policy::policy_u64(
+                    crate::xdg::policy::key::BROWSER_CLOSE_WAIT_SECS,
+                )),
+                guard.wait(),
+            )
+            .await
+            {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
                     let _ = guard.kill().await;
@@ -137,7 +157,14 @@ pub async fn finalize_browser(browser: Arc<Mutex<Browser>>) -> Result<(), String
         return Err(format!("chromiumoxide close: {e}"));
     }
 
-    match tokio::time::timeout(Duration::from_secs(5), browser.wait()).await {
+    match tokio::time::timeout(
+        Duration::from_secs(crate::xdg::policy::policy_u64(
+            crate::xdg::policy::key::BROWSER_CLOSE_WAIT_SECS,
+        )),
+        browser.wait(),
+    )
+    .await
+    {
         Ok(Ok(_)) => {}
         Ok(Err(e)) => {
             let _ = browser.kill().await;

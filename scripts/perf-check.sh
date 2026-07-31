@@ -52,7 +52,42 @@ if ! rg -q '\[profile\.bench\]' Cargo.toml; then
   echo "FAIL: missing [profile.bench]" >&2
   exit 65
 fi
-echo "    release / release-size / bench profiles OK"
+if ! rg -q '\[profile\.release\.package\."\*"\]' Cargo.toml; then
+  echo "FAIL: missing [profile.release.package.\"*\"] opt-level pin" >&2
+  exit 65
+fi
+if ! rg -q 'opt-level\s*=\s*3' Cargo.toml; then
+  echo "FAIL: opt-level = 3 required in release stack" >&2
+  exit 65
+fi
+if ! rg -q 'debug\s*=\s*false' Cargo.toml; then
+  echo "FAIL: release should set debug = false" >&2
+  exit 65
+fi
+if ! rg -q 'incremental\s*=\s*false' Cargo.toml; then
+  echo "FAIL: release should set incremental = false" >&2
+  exit 65
+fi
+echo "    release / release-size / release.package.* / bench profiles OK"
+
+echo "==> Trusted in-process maps prefer FxHash (heap / perf insight)"
+if ! rg -q 'FxHashMap' src/native/heap_snapshot; then
+  echo "FAIL: heap_snapshot should use FxHashMap for trusted graph keys" >&2
+  exit 65
+fi
+if ! rg -q 'FxHashMap' src/native/perf_insight.rs; then
+  echo "FAIL: perf_insight should use FxHashMap for trusted trace keys" >&2
+  exit 65
+fi
+echo "    FxHashMap hot-path maps OK"
+
+echo "==> No unjustified #[inline(always)]"
+if rg -n 'inline\(always\)' src/ --glob '*.rs' | rg -v '^\s*//|///|//!' >/dev/null 2>&1; then
+  echo "FAIL: #[inline(always)] present without inventory gate (measure first)" >&2
+  rg -n 'inline\(always\)' src/ --glob '*.rs' || true
+  exit 65
+fi
+echo "    no inline(always) OK"
 
 echo "==> Global allocator (mimalloc)"
 if ! rg -q 'mimalloc::MiMalloc' src/main.rs; then

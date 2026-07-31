@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/storage.schema.json",
+  "title": "storage command input",
+  "type": "object",
+  "description": "Export or import portable auth state (cookies + localStorage + sessionStorage)",
+  "properties": {
+    "action": {
+      "actions": {
+        "export": {
+          "description": "Write cookies, localStorage and sessionStorage to an explicit path (mode 0600)",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Destination file; never implicit, never under XDG by default",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "argv": "--url",
+              "description": "Navigate here first so the export sees the authenticated origin",
+              "required": false,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "import": {
+          "description": "Restore cookies and per-origin storage from an explicit path",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Source file produced by `storage export`",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "argv": "--url",
+              "description": "Navigate here after the import so the restored state applies",
+              "required": false,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
+      "enum": [
+        "export",
+        "import"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

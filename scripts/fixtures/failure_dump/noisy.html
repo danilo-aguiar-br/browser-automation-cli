@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  Fixture for the failure-evidence dump (see tests/failure_dump_gate.rs).
+
+  The page emits two console messages with tokens that exist nowhere else in the
+  repository, and fetches a sibling file so the network ring has a real entry.
+  The tokens are what make the artifact evidence rather than decoration: a dump
+  that wrote an empty or synthesized payload would carry the right KEYS and
+  still not carry these strings.
+
+  The page itself never fails. The failure is caused by the script that drives
+  it, so the fixture stays reusable for cases that must succeed.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>noisy</title>
+  </head>
+  <body>
+    <h1 id="title">noisy</h1>
+    <script>
+      console.log('EVIDENCE_LOG_A1B2');
+      console.warn('EVIDENCE_WARN_C3D4');
+      // A real subresource request, so the network ring is not empty on a
+      // file:// origin where navigation alone produces very little.
+      fetch('payload.txt')
+        .then(function () {})
+        .catch(function () {});
+    </script>
+  </body>
+</html>

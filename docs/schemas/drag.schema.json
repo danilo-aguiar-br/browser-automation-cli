@@ -3,18 +3,103 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/drag.schema.json",
   "title": "drag command input",
   "type": "object",
-  "description": "Drag from one target to another",
+  "description": "Drag from one target to another (HTML5 drag-and-drop; GAP-030)",
   "properties": {
+    "anchor": {
+      "argv": "--anchor",
+      "default": "center",
+      "description": "Where in the destination rect to drop: center | before | after. Edge anchors disambiguate insertion order in a sorted list",
+      "required": false,
+      "source": "parser",
+      "step_key": "anchor",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
+    },
     "from": {
+      "argv": "--from",
+      "description": "Source CSS selector or `@eN` snapshot ref to drag",
+      "required": true,
+      "source": "parser",
+      "step_key": "from",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
+    },
+    "include_snapshot": {
+      "argv": "--include-snapshot",
+      "description": "Attach slim a11y snapshot after drag",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "boolean"
+    },
+    "synthetic_payload": {
+      "argv": "--synthetic-payload",
+      "description": "Inject this CDP DragData instead of the DataTransfer the page builds. Opt-in: it bypasses the page's own dragstart handler",
+      "required": false,
+      "source": "parser",
+      "step_key": "synthetic_payload",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "to": {
+      "argv": "--to",
+      "description": "Destination CSS selector or @eN (omit only when using --to-x/--to-y)",
+      "required": false,
+      "source": "parser",
+      "step_key": "to",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
+    },
+    "to_x": {
+      "argv": "--to-x",
+      "description": "Absolute drop X in page CSS pixels (overrides the destination rect)",
+      "required": false,
+      "source": "parser",
+      "step_key": "to_x",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "number"
+    },
+    "to_y": {
+      "argv": "--to-y",
+      "description": "Absolute drop Y in page CSS pixels (overrides the destination rect)",
+      "required": false,
+      "source": "parser",
+      "step_key": "to_y",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "number"
     }
   },
   "required": [
-    "from",
-    "to"
+    "from"
   ],
   "additionalProperties": false
 }

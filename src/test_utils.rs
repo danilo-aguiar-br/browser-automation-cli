@@ -23,10 +23,19 @@ pub struct EnvGuard<'a> {
 }
 
 impl EnvGuard<'_> {
+    /// Take the global env lock and snapshot `var_names` for restore on drop.
+    ///
+    /// Register EVERY variable the fixture touches, including `HOME`:
+    /// `directories::ProjectDirs` falls back to it when the XDG vars are unset,
+    /// so redirecting only `XDG_*` leaves the real home reachable.
+    ///
+    /// Bind the guard to a named local (`let guard = ...`). `let _ = ...` drops
+    /// it immediately and silently reintroduces the race it exists to prevent.
     pub fn new(var_names: &[&str]) -> Self {
-        let lock = ENV_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let lock = ENV_MUTEX.lock().unwrap_or_else(|poisoned| {
+            // Test isolation must not sticky-fail if a prior test panicked.
+            poisoned.into_inner()
+        });
         let vars = var_names
             .iter()
             .map(|&name| (name.to_string(), std::env::var(name).ok()))
@@ -34,6 +43,12 @@ impl EnvGuard<'_> {
         Self { _lock: lock, vars }
     }
 
+    /// Set a registered variable for the lifetime of this guard.
+    ///
+    /// # Panics
+    ///
+    /// Debug builds assert the variable was registered in [`EnvGuard::new`];
+    /// an unregistered write would never be restored.
     pub fn set(&self, name: &str, value: &str) {
         debug_assert!(
             self.vars.iter().any(|(n, _)| n == name),
@@ -42,6 +57,11 @@ impl EnvGuard<'_> {
         std::env::set_var(name, value);
     }
 
+    /// Unset a registered variable for the lifetime of this guard.
+    ///
+    /// # Panics
+    ///
+    /// Debug builds assert the variable was registered in [`EnvGuard::new`].
     pub fn remove(&self, name: &str) {
         debug_assert!(
             self.vars.iter().any(|(n, _)| n == name),

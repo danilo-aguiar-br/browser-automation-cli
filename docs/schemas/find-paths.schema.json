@@ -3,34 +3,109 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/find-paths.schema.json",
   "title": "find-paths command input",
   "type": "object",
-  "description": "Discover filesystem paths (fd-like; no Chrome)",
+  "description": "Discover filesystem paths (fd-like UX; binary remains browser-automation-cli)",
   "properties": {
+    "entry_type": {
+      "argv": "--type",
+      "description": "Entry type: f|d",
+      "required": false,
+      "source": "parser",
+      "step_key": "entry_type",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
     "extension": {
+      "argv": "--extension",
+      "description": "Filter by extension (e.g. rs, html)",
+      "required": false,
+      "source": "parser",
+      "step_key": "extension",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "glob": {
-      "description": "Shell-style glob e.g. **/*.rs",
+      "argv": "--glob",
+      "description": "Shell-style glob filter (e.g. `**/*.rs`) — GAP-A011 / §5AE",
+      "required": false,
+      "source": "parser",
+      "step_key": "glob",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "hidden": {
+      "argv": "--hidden",
+      "description": "Include hidden files",
+      "required": false,
+      "source": "parser",
+      "step_key": "hidden",
+      "surfaces": [
+        "argv"
+      ],
       "type": "boolean"
     },
     "limit": {
+      "argv": "--limit",
+      "default": 10000,
+      "description": "Max results",
+      "required": false,
+      "source": "parser",
+      "step_key": "limit",
+      "surfaces": [
+        "argv"
+      ],
       "type": "integer"
     },
     "max_depth": {
+      "argv": "--max-depth",
+      "description": "Max directory depth",
+      "required": false,
+      "source": "parser",
+      "step_key": "max_depth",
+      "surfaces": [
+        "argv"
+      ],
       "type": "integer"
     },
     "no_ignore": {
+      "argv": "--no-ignore",
+      "description": "Do not respect .gitignore",
+      "required": false,
+      "source": "parser",
+      "step_key": "no_ignore",
+      "surfaces": [
+        "argv"
+      ],
       "type": "boolean"
     },
     "paths": {
+      "argv": "<PATHS>",
+      "description": "Root paths to search",
       "items": {
         "type": "string"
       },
+      "required": false,
+      "source": "parser",
+      "step_key": "paths",
+      "surfaces": [
+        "argv"
+      ],
       "type": "array"
     },
     "pattern": {
+      "argv": "<PATTERN>",
+      "description": "Regex pattern on name/path (optional)",
+      "required": false,
+      "source": "parser",
+      "step_key": "pattern",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "type": {
@@ -38,6 +113,9 @@
         "f",
         "d"
       ],
+      "source": "catalog",
+      "step_key": "type",
+      "surfaces": [],
       "type": "string"
     }
   },

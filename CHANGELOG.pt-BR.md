@@ -8,6 +8,40 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
+
+## [0.1.6] - 2026-07-31
+
+### Adicionado
+- Booleano `dialog_settled` no caminho feliz de accept/dismiss de diálogo (GAP-054); sinal compacto agent-native — sem espera artificial após o settle
+- Chave XDG `dialog_settle_ms` (espera máxima após resposta a diálogo JS por `Page.javascriptDialogClosed`)
+- Isolamento de diálogo multi-aba: page forwarders carimbam `Page::session_id`; helper puro `dialog_map_key`; cobertura unitária (2 session ids, fallback, vazio, isolamento de mapa)
+- Gate `tests/dialog_multitab_gate.rs` (isolamento tab1 + accept no dono; `tab_switch` com enable best-effort de domínio sob diálogo aberto e orçamento)
+- Fixture Lighthouse `chrome_captured_lhr.json` (Lighthouse 13.4.1 real, sanitizado) + unit `scores_from_lhr` com fixtures mínima + chrome-captured (GAP-021 parcial↑)
+- Campo de passo `wait_timeout_ms` honrado em steps de wait no `run` (GAP-053)
+- Scrape `format`/`formats` no multi-passo `run` via `build_formats_map` compartilhado (GAP-057)
+- Eventos nativos de select em DRY: `DISPATCH_INPUT_AND_CHANGE` compartilhado por pick + fill-form select (GAP-055)
+- Honestidade de inventário: **65** nomes de comando de agente via `commands --json` (inclui `submit`, `storage`, `select-option`, `pick`, `locale`, `man`, …)
+
+### Corrigido
+- GAP-054: suprime Opening + listener `Page.javascriptDialogClosed` (browser+page); dialog settle sob carga 20/20
+- GAP-055: `input`+`change` nativos para option pick / select
+- GAP-050: caminho de produção do doctor sem `.unwrap()`
+- Diálogo multi-aba: carimbo de `session_id` para diálogos em abas não ativas mapearem corretamente
+- `tab_switch` sob diálogo page-modal aberto: enable best-effort de domínios `Page.enable` com orçamento de timeout, url/title em cache
+
+### Alterado
+- Versão `0.1.6`
+- **Quebra (encode):** `grab --format` é somente `png|jpeg|webp` — encode AVIF removido (crate `image` sem avif/core2 na cadeia yanked)
+- GAP-022: ~53 resíduos multi-versão de dependências aceitos (lopdf/hudsucker/human-panic/criterion/tungstenite) — medido, prune barato esgotado
+- GAP-023/024: flags/comandos wishlist do PRD permanecem divergências intencionais (`parity_intentional_divergences.json`) — não reivindicar paridade total com o PRD
+- GAP-052: caminho residual/doctor `contains` tipado via marcadores de cmdline (classificação intencional de processo)
+- Placar e2e: TOTAL=53 PASS=52 FAIL=0 SKIP=1 (lighthouse mock SKIP honesto, nunca PASS de parser)
+
+### Documentação
+- Docs públicos bilíngues sincronizados com 0.1.6 (este release)
+- Skills EN/PT com playbooks operacionais para `dialog_settled`, formatos do grab, XDG `dialog_settle_ms`, superfície completa de comandos
+- `gaps.md` Status v0.1.6 placar + disclaimer do arquivo histórico 0.1.5
+
 ## [0.1.5] - 2026-07-19
 
 ### Adicionado

@@ -3,7 +3,7 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/version.schema.json",
   "title": "version command input",
   "type": "object",
-  "description": "Print CLI version (JSON when --json)",
+  "description": "Print CLI version",
   "properties": {},
   "required": [],
   "additionalProperties": false

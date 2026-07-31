@@ -6,11 +6,29 @@
   "description": "Print current page to PDF via CDP Page.printToPDF (one-shot)",
   "properties": {
     "path": {
-      "description": "Output PDF path",
+      "argv": "--path",
+      "description": "Output path for the PDF artifact",
+      "required": false,
+      "source": "parser",
+      "step_key": "path",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "url": {
-      "description": "Optional URL to navigate before print",
+      "argv": "--url",
+      "description": "Optional URL to navigate before printing (one-shot)",
+      "required": false,
+      "source": "parser",
+      "step_key": "url",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

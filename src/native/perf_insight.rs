@@ -1,5 +1,4 @@
 //! Offline analysis of Chrome Tracing event dumps produced by `perf stop`.
-#![allow(missing_docs)]
 //!
 //! Input formats supported:
 //! - NDJSON lines, each an array of trace events
@@ -11,20 +10,22 @@
 //! **CPU-light → CPU-bound when large:** typical agent traces stay sequential
 //! (PAR-69, cost ≪ Rayon). Top-level event arrays with length ≥
 //! [`crate::concurrency::CPU_MAP_THRESHOLD`] fold via [`crate::concurrency::map_cpu`]
-//! into partial [`Acc`] shards then merge (PAR-86). Nested walk remains sequential
+//! into partial `Acc` shards then merge (PAR-86). Nested walk remains sequential
 //! (shared counters + rare nesting).
 
-use std::collections::HashMap;
 use std::path::Path;
 
+use rustc_hash::FxHashMap;
 use serde_json::{json, Value};
 
+// Trusted in-process Chrome Tracing keys (not untrusted network maps).
+// FxHashMap: integer/string digests without SipHash DoS tax (rules_rust_eficiencia).
 #[derive(Default, Clone)]
 struct Acc {
     event_count: u64,
-    by_name: HashMap<String, u64>,
-    by_cat: HashMap<String, u64>,
-    durations_ms: HashMap<String, f64>,
+    by_name: FxHashMap<String, u64>,
+    by_cat: FxHashMap<String, u64>,
+    durations_ms: FxHashMap<String, f64>,
     navigation_start: Option<f64>,
     fcp_ms: Option<f64>,
     lcp_ms: Option<f64>,
@@ -79,7 +80,10 @@ impl Acc {
 
 /// Analyze a trace file written by `perf stop` (NDJSON of event arrays).
 pub fn analyze_file(path: &Path, name_filter: Option<&str>) -> Result<Value, String> {
-    let raw = std::fs::read_to_string(path).map_err(|e| format!("trace read: {e}"))?;
+    // Size-bounded + BOM-stripped read (rules_rust_json_e_ndjson / memory ceilings).
+    let raw =
+        crate::json_util::read_text_file_limited(path, crate::xdg::resolve_max_json_file_bytes())
+            .map_err(|e| format!("trace read: {}", e.message()))?;
     analyze_text(&raw, name_filter, Some(path.to_string_lossy().as_ref()))
 }
 
@@ -90,7 +94,8 @@ pub fn analyze_text(
     path: Option<&str>,
 ) -> Result<Value, String> {
     let mut acc = Acc::default();
-    let trimmed = raw.trim();
+    let text = crate::json_util::strip_utf8_bom(raw);
+    let trimmed = text.trim();
     if trimmed.is_empty() {
         return Ok(json!({
             "perf": "insight",
@@ -102,16 +107,25 @@ pub fn analyze_text(
         }));
     }
 
-    // Prefer whole-file JSON array first.
-    if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+    let max_line = crate::xdg::resolve_max_ndjson_line_bytes();
+
+    // Prefer whole-file JSON array first (BOM-aware via json_util).
+    if let Ok(v) = crate::json_util::value_from_str(trimmed) {
         walk_value(&v, &mut acc);
     } else {
-        for line in raw.lines() {
+        for (lineno, line) in text.lines().enumerate() {
             let line = line.trim();
             if line.is_empty() {
                 continue;
             }
-            if let Ok(v) = serde_json::from_str::<Value>(line) {
+            if line.len() > max_line {
+                return Err(format!(
+                    "NDJSON line {}: line too large ({} bytes > {max_line})",
+                    lineno + 1,
+                    line.len()
+                ));
+            }
+            if let Ok(v) = crate::json_util::value_from_str(line) {
                 walk_value(&v, &mut acc);
             }
         }

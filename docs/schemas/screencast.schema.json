@@ -3,16 +3,70 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/screencast.schema.json",
   "title": "screencast command input",
   "type": "object",
-  "description": "Screencast start|stop (requires --experimental-screencast)",
+  "description": "Screencast start/stop (experimental)",
   "properties": {
     "action": {
+      "actions": {
+        "start": {
+          "description": "Start capturing screencast frames (requires --experimental-screencast)",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Directory frames are buffered into",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "stop": {
+          "description": "Stop the screencast and write frames or an encoded video",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Output path (.webm/.mp4 encodes via ffmpeg; otherwise PNG frames dir)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "start",
         "stop"
       ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "path": {
+      "source": "catalog",
+      "step_key": "path",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

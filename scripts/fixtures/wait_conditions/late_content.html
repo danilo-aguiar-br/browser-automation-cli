@@ -1,0 +1,42 @@
+<!doctype html>
+<!--
+  Fixture for the `wait` late-content condition (see tests/wait_conditions_gate.rs).
+
+  The wrapper is present from the first paint and the cards arrive later, which
+  is the exact shape the gap describes: `#list` existing is NOT evidence that
+  the content is there.
+
+  Query parameters:
+    delay=N   milliseconds before the cards are appended (default 0)
+    cards=N   how many cards to append (default 3)
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>late content</title>
+  </head>
+  <body>
+    <h1>late content</h1>
+    <!-- Present immediately and EMPTY. Waiting on `#list` alone succeeds early. -->
+    <ul id="list"></ul>
+    <p id="status">pending</p>
+    <script>
+      (function () {
+        var q = new URLSearchParams(location.search);
+        var delay = parseInt(q.get('delay') || '0', 10);
+        var cards = parseInt(q.get('cards') || '3', 10);
+        setTimeout(function () {
+          var list = document.getElementById('list');
+          for (var i = 0; i < cards; i++) {
+            var li = document.createElement('li');
+            li.className = 'card';
+            li.id = 'card-' + i;
+            li.textContent = 'card ' + i;
+            list.appendChild(li);
+          }
+          document.getElementById('status').textContent = 'ready';
+        }, delay);
+      })();
+    </script>
+  </body>
+</html>

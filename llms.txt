@@ -22,31 +22,29 @@ browser-automation-cli is a single-process Rust CLI that launches system Chrome 
 - [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): expanded discovery map
 - [llms-full pt-BR](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.pt-BR.txt): mapa expandido em português
 
-## Command Surface (v0.1.5)
+## Command Surface (v0.1.6)
+- Full inventory (**65** names via `commands --json`, sorted): assert, attr, back, batch-scrape, click-at, commands, completions, config, console, cookie, crawl, devtools3p, dialog, doctor, drag, emulate, eval, exec, extension, extract, find-paths, fill-form, forward, goto, grab, heap, hover, keys, lighthouse, locale, man, map, mitm, monitor, net, page, parse, perf, pick, press, print-pdf, qr, reload, resize, run, schema, scrape, screencast, scroll, search, select-option, sg-rewrite, sg-scan, sheet-write, storage, submit, text, type, upload, version, view, wait, webmcp, workflow, write
 - Discovery: doctor (browsers_dir, lighthouse source, cache_redis, residual_disk + residual JSON), commands, schema (`schema <cmd>` or `schema --cmd`), version, locale, man, completions
-- Inventory: **63** agent names via `commands --json` (includes `locale`, `man`, `select-option`, `pick`); clap top-level lists **61** without `select-option`/`pick` as standalone subcommands; 53 DevTools e2e tools
-- Config XDG: config init|path|show|get|set|list-keys
-- Navigate: goto (init-script, handle-before-unload accept|dismiss), back, forward, reload (CDP Page.reload + ignoreCache; init_script removed after nav)
-- Local scrape/crawl/map/search/parse: scrape (multi-format --format CSV/repeatable; --engine http|browser; file:// + http → Usage), batch-scrape (--engine http|browser), crawl (--engine http|browser), map, search (uddg clean), parse (PDF/DOCX/xlsx/ods, --redact-pii)
-- Interact: view (--allow-empty), press, write, type, keys, wait (multi --text OR; CSS multi-selector OR; run url/url_contains/navigation), hover, drag, fill-form, upload, click-at
-- Multi-step only: select-option, pick (run/schema; not standalone clap)
-- Observe: extract (--llm/--question/--schema-json), text, scroll (dy/dx aliases in run), attr (property fallback), assert (url_contains/text_contains; console_empty/console_no_match), grab --path
-- PDF/monitor/utils: print-pdf (one-shot + run; refuse blank without content), monitor check, qr encode|decode, find-paths (--glob), sheet-write, sg-scan, sg-rewrite
-- Tabs: page (incl. tab-id), dialog accept|dismiss (--if-present), cookie
-- Capture: console (dump always valid JSON array), net
-- MITM: mitm status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact; global --mitm*
-- Workflow: workflow run|resume|status
-- Advanced: eval, emulate, resize, perf, lighthouse (flag→XDG→PATH; binary_source real|mock), screencast, heap, extension, devtools3p, webmcp
+- Config XDG: config init|path|show|get|set|list-keys (discover full keys via `config list-keys --json`)
+- Navigate: goto (init-script, handle-before-unload accept|dismiss), back, forward, reload (CDP Page.reload + ignoreCache)
+- Scrape: scrape (multi-format --format/--formats; --engine http|browser; format/formats in run), batch-scrape, crawl, map, search (uddg clean), parse (PDF/DOCX/xlsx/ods, --redact-pii)
+- Interact: view, press, write, type, keys, wait (multi --text OR; run url/url_contains/navigation/wait_timeout_ms), hover, drag, fill-form, select-option, pick (native select + HIG), submit, upload, click-at
+- Observe: extract (--llm/--question/--schema-json), text, scroll (dy/dx in run), attr, assert, grab (png|jpeg|webp only; AVIF removed)
+- Tabs/Dialogs: page, dialog accept|dismiss (`.data.dialog_settled`; multi-tab session_id isolation; --if-present), cookie, storage
+- Capture/utils: console, net, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite
+- Advanced: eval, emulate, resize, perf, lighthouse (flag→XDG→PATH; unit fixtures incl. chrome-captured LHR 13.4.1; e2e mock SKIP), screencast, heap, extension, devtools3p, webmcp, mitm, workflow
 - Multi-step: run (NDJSON or JSON array; --json full steps[]; --json-steps stream; partial data.steps on fail-fast), exec
-- Residual-zero disk: BORN auto-GC of stale Singleton-only Chromium `/tmp` dirs (age floor 60s); FINALIZE dual scavenge + re-scan; never kills host Flatpak Chrome; marker prefix `browser-automation-cli-chrome-`
-- Lifecycle: BORN, EXECUTE, FINALIZE (scavenge owned Chromium /tmp orphans), DIE; product law residual-zero process + disk
+- Residual-zero disk (0.1.5 RES-01…12 still true): BORN auto-GC Singleton-only Chromium `/tmp` (60s floor); FINALIZE dual scavenge + re-scan; never kills host Flatpak Chrome
+- Intentional residual: GAP-022 ~53 dups; GAP-023/024 PRD divergences
+- Lifecycle: BORN, EXECUTE, FINALIZE, DIE; product law residual-zero process + disk
 
 ## Settings Contract
 - Product settings: CLI flags + XDG via `config path|init|show|set|get|list-keys` only
-- Config keys (16): lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, log_to_file, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url
+- Important keys: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_*, cache_backend, cache_redis_url, lang, log_level — full list via `config list-keys --json` (count is not fixed at 16)
 - Logging: `--verbose`/`--debug`/`-q` or `config set log_level` / `log_to_file`
 - Color: `config set color true|false`
 - Chrome / Lighthouse: shell path or `config set chrome_path|lighthouse_path` (lighthouse also flag)
+- Dialog settle: `config set dialog_settle_ms`; read `.data.dialog_settled` after dialog accept|dismiss
 - Cache Redis: `config set cache_backend redis` + `cache_redis_url` (`redis://` only; `rediss://` fail-closed)
 - MITM globals: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
 - Lang: `--lang pt-BR` or `config set lang` localizes suggestions

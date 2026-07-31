@@ -3,15 +3,45 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/write.schema.json",
   "title": "write command input",
   "type": "object",
-  "description": "Smart fill: text, select option, checkbox/radio true|false",
+  "description": "Fill an input value (select/checkbox/radio/text smart fill)",
   "properties": {
     "include_snapshot": {
+      "argv": "--include-snapshot",
+      "description": "Attach slim a11y snapshot after fill",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "target": {
+      "argv": "<TARGET>",
+      "description": "CSS selector or `@eN` snapshot ref of the field to fill",
+      "required": true,
+      "source": "parser",
+      "step_key": "target",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "value": {
+      "argv": "<VALUE>",
+      "description": "Value to set (select option, checkbox state, or text)",
+      "required": true,
+      "source": "parser",
+      "step_key": "value",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

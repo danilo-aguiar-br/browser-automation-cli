@@ -6,33 +6,82 @@
   "description": "Crawl from a seed URL (HTTP BFS or browser, one-shot)",
   "properties": {
     "engine": {
-      "description": "Default http; browser engine for JS-rendered crawl (GAP-010)",
-      "enum": [
-        "http",
-        "browser"
+      "argv": "--engine",
+      "default": "http",
+      "description": "http (default) or browser (GAP-010)",
+      "required": false,
+      "source": "parser",
+      "step_key": "engine",
+      "surfaces": [
+        "argv"
       ],
       "type": "string"
     },
     "format": {
+      "argv": "--format",
+      "default": "text",
+      "description": "Output format applied to every page",
+      "required": false,
+      "source": "parser",
+      "step_key": "format",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "limit": {
-      "minimum": 1,
+      "argv": "--limit",
+      "default": 20,
+      "description": "Maximum number of pages to fetch",
+      "required": false,
+      "source": "parser",
+      "step_key": "limit",
+      "surfaces": [
+        "argv"
+      ],
       "type": "integer"
     },
     "max_depth": {
-      "minimum": 0,
+      "argv": "--max-depth",
+      "default": 2,
+      "description": "Maximum link depth from the seed",
+      "required": false,
+      "source": "parser",
+      "step_key": "max_depth",
+      "surfaces": [
+        "argv"
+      ],
       "type": "integer"
     },
     "max_pages": {
       "description": "Alias of limit",
       "minimum": 1,
+      "source": "catalog",
+      "step_key": "max_pages",
+      "surfaces": [],
       "type": "integer"
     },
     "same_host": {
+      "argv": "--same-host",
+      "default": true,
+      "description": "Stay on seed host",
+      "required": false,
+      "source": "parser",
+      "step_key": "same_host",
+      "surfaces": [
+        "argv"
+      ],
       "type": "boolean"
     },
     "url": {
+      "argv": "<URL>",
+      "description": "Seed URL the breadth-first crawl starts from",
+      "required": true,
+      "source": "parser",
+      "step_key": "url",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     }
   },

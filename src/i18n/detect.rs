@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Cross-platform locale detection + negotiation (single boot path).
+//!
+//! Product-law: **no product environment variables**. Locale comes from
+//! `--lang` → XDG `lang` → OS (`sys-locale`) → default `en`.
+
+use std::sync::OnceLock;
 
 use fluent_langneg::negotiate::NegotiationStrategy;
 use fluent_langneg::negotiate_languages;
 use unic_langid::LanguageIdentifier;
 
-use super::idioma::Idioma;
-
-/// Product env override: `BROWSER_AUTOMATION_CLI_LANG` (rules: `<CRATE_UPPER>_LANG`).
-pub const LANG_ENV: &str = "BROWSER_AUTOMATION_CLI_LANG";
+use super::ui_locale::UiLocale;
 
 /// Where the effective UI locale came from (diagnostics / `locale` subcommand).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,8 +18,6 @@ pub const LANG_ENV: &str = "BROWSER_AUTOMATION_CLI_LANG";
 pub enum LocaleSource {
     /// Global `--lang` argv flag.
     Flag,
-    /// `BROWSER_AUTOMATION_CLI_LANG` process environment.
-    Env,
     /// XDG config `lang` key.
     Xdg,
     /// OS locale via `sys-locale` + negotiation.
@@ -27,11 +27,10 @@ pub enum LocaleSource {
 }
 
 impl LocaleSource {
-    /// Stable machine token for JSON diagnostics (`flag` / `env` / `xdg` / `system` / `default`).
+    /// Stable machine token for JSON diagnostics (`flag` / `xdg` / `system` / `default`).
     pub const fn as_str(self) -> &'static str {
         match self {
             LocaleSource::Flag => "flag",
-            LocaleSource::Env => "env",
             LocaleSource::Xdg => "xdg",
             LocaleSource::System => "system",
             LocaleSource::Default => "default",
@@ -39,29 +38,36 @@ impl LocaleSource {
     }
 }
 
-/// Result of the 5-layer resolution chain.
+/// Result of the 4-layer resolution chain.
 ///
 /// # Ownership
 ///
 /// Owned fields only — never `Box::leak` / artificial `'static` for diagnostics
 /// (rules_rust_ownership: `'static` only for true program-lifetime data).
-/// `idioma` / `source` are `Copy`; `system_raw` is an owned `String` when present.
+/// `ui_locale` / `source` are `Copy`; `system_raw` is an owned `String` when present.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedLocale {
     /// Compiled UI pack selected for human suggestions.
-    pub idioma: Idioma,
-    /// Which precedence layer produced `idioma`.
+    pub ui_locale: UiLocale,
+    /// Which precedence layer produced `ui_locale`.
     pub source: LocaleSource,
     /// Raw OS string from `sys-locale` when consulted (owned; not always set).
     pub system_raw: Option<String>,
 }
 
 /// Available language identifiers for negotiation (static MVP packs).
-fn available_langids() -> Vec<LanguageIdentifier> {
-    Idioma::DISPONIVEIS
-        .iter()
-        .map(|i| i.language_identifier())
-        .collect()
+///
+/// Cached once — negotiate runs at boot / tests only (memory: no per-call `Vec` rebuild).
+fn available_langids() -> &'static [LanguageIdentifier] {
+    static AVAIL: OnceLock<Vec<LanguageIdentifier>> = OnceLock::new();
+    AVAIL
+        .get_or_init(|| {
+            UiLocale::AVAILABLE
+                .iter()
+                .map(|i| i.language_identifier())
+                .collect()
+        })
+        .as_slice()
 }
 
 /// Normalize raw OS / user locale strings into a [`LanguageIdentifier`].
@@ -85,24 +91,34 @@ pub fn parse_langid(raw: &str) -> Option<LanguageIdentifier> {
 }
 
 /// Negotiate requested identifiers against compiled packs; always returns a pack.
-pub fn negotiate(requested: &[LanguageIdentifier]) -> Idioma {
+///
+/// `fluent-langneg` may map bare `pt` → available `pt-BR`. Product rules forbid
+/// treating bare `pt` (or non-BR Portuguese regions) as a `pt-BR` substitute, so
+/// we only keep the PtBr pack when a request explicitly carries region `BR`.
+pub fn negotiate(requested: &[LanguageIdentifier]) -> UiLocale {
     let available = available_langids();
-    let default = Idioma::En.language_identifier();
+    let default = UiLocale::En.language_identifier();
     let matched = negotiate_languages(
         requested,
-        &available,
+        available,
         Some(&default),
         NegotiationStrategy::Filtering,
     );
-    matched
+    let ui = matched
         .first()
-        .and_then(|id| Idioma::from_langid(id))
-        .or_else(|| {
-            // Language-only fallback (e.g. requested pt-PT → no pack → try language pt → None
-            // then default en; requested pt-BR → pack).
-            requested.iter().find_map(Idioma::from_langid)
-        })
-        .unwrap_or(Idioma::En)
+        .and_then(|id| UiLocale::from_langid(id))
+        .or_else(|| requested.iter().find_map(UiLocale::from_langid))
+        .unwrap_or(UiLocale::En);
+
+    if ui == UiLocale::PtBr {
+        let explicit_pt_br = requested.iter().any(|id| {
+            id.language.as_str() == "pt" && id.region.as_ref().map(|r| r.as_str()) == Some("BR")
+        });
+        if !explicit_pt_br {
+            return UiLocale::En;
+        }
+    }
+    ui
 }
 
 /// Read OS locale once via `sys-locale` (never direct `LANG` reads in portable code).
@@ -111,56 +127,36 @@ pub fn detect_system_langid() -> Option<LanguageIdentifier> {
     parse_langid(&raw)
 }
 
-/// Full 5-layer resolution:
+/// Full 4-layer resolution (product-law: no product env vars):
 /// 1. `--lang` flag
-/// 2. `BROWSER_AUTOMATION_CLI_LANG`
-/// 3. XDG `lang`
-/// 4. OS via `sys-locale` + fluent-langneg
-/// 5. default `en`
+/// 2. XDG `lang` (`config set lang …`)
+/// 3. OS via `sys-locale` + fluent-langneg
+/// 4. default `en`
 ///
 /// When the system layer is consulted, `system_raw` holds an **owned** copy of the
 /// OS locale string for `locale` diagnostics (no process-lifetime leak).
-pub fn resolve(
-    cli_lang: Option<&str>,
-    xdg_lang: Option<&str>,
-) -> ResolvedLocale {
+pub fn resolve(cli_lang: Option<&str>, xdg_lang: Option<&str>) -> ResolvedLocale {
     // Layer 1 — flag
     if let Some(raw) = cli_lang.map(str::trim).filter(|s| !s.is_empty()) {
-        if let Some(idioma) = Idioma::parse_token(raw) {
+        if let Some(ui_locale) = UiLocale::parse_token(raw) {
             return ResolvedLocale {
-                idioma,
+                ui_locale,
                 source: LocaleSource::Flag,
                 system_raw: None,
             };
         }
         // Invalid flag value: fall through but do not panic (clap may pre-validate).
-        tracing::warn!(value = raw, "invalid --lang value; continuing resolution chain");
+        tracing::warn!(
+            value = raw,
+            "invalid --lang value; continuing resolution chain"
+        );
     }
 
-    // Layer 2 — product lang env (explicitly allowed for i18n; not general config).
-    if let Ok(raw) = std::env::var(LANG_ENV) {
-        let t = raw.trim();
-        if !t.is_empty() {
-            if let Some(idioma) = Idioma::parse_token(t) {
-                return ResolvedLocale {
-                    idioma,
-                    source: LocaleSource::Env,
-                    system_raw: None,
-                };
-            }
-            tracing::warn!(
-                env = LANG_ENV,
-                value = t,
-                "invalid BROWSER_AUTOMATION_CLI_LANG; continuing resolution chain"
-            );
-        }
-    }
-
-    // Layer 3 — XDG persisted preference
+    // Layer 2 — XDG persisted preference
     if let Some(raw) = xdg_lang.map(str::trim).filter(|s| !s.is_empty()) {
-        if let Some(idioma) = Idioma::parse_token(raw) {
+        if let Some(ui_locale) = UiLocale::parse_token(raw) {
             return ResolvedLocale {
-                idioma,
+                ui_locale,
                 source: LocaleSource::Xdg,
                 system_raw: None,
             };
@@ -168,15 +164,14 @@ pub fn resolve(
         tracing::warn!(value = raw, "invalid XDG lang; continuing resolution chain");
     }
 
-    // Layer 4 — OS locale (sys-locale abstracts LC_ALL/LC_MESSAGES/LANG / Win32 / CF)
+    // Layer 3 — OS locale (sys-locale abstracts LC_ALL/LC_MESSAGES/LANG / Win32 / CF)
     match sys_locale::get_locale() {
         Some(raw) => {
             // Own the OS string once; never Box::leak for Copy convenience.
             if let Some(id) = parse_langid(&raw) {
-                let idioma = negotiate(std::slice::from_ref(&id));
-                // If OS said something we could not map better than default and raw was C, still default.
+                let ui_locale = negotiate(std::slice::from_ref(&id));
                 return ResolvedLocale {
-                    idioma,
+                    ui_locale,
                     source: LocaleSource::System,
                     system_raw: Some(raw),
                 };
@@ -186,7 +181,7 @@ pub fn resolve(
                 "OS locale unparsable; falling back to default en"
             );
             ResolvedLocale {
-                idioma: Idioma::En,
+                ui_locale: UiLocale::En,
                 source: LocaleSource::Default,
                 system_raw: Some(raw),
             }
@@ -195,7 +190,7 @@ pub fn resolve(
             // Signal detection failure to local observability (no remote telemetry).
             tracing::debug!("sys-locale returned None; using default en");
             ResolvedLocale {
-                idioma: Idioma::En,
+                ui_locale: UiLocale::En,
                 source: LocaleSource::Default,
                 system_raw: None,
             }
@@ -223,19 +218,41 @@ mod tests {
     #[test]
     fn negotiate_pt_br_prefers_pack() {
         let id: LanguageIdentifier = "pt-BR".parse().unwrap();
-        assert_eq!(negotiate(&[id]), Idioma::PtBr);
+        assert_eq!(negotiate(&[id]), UiLocale::PtBr);
     }
 
     #[test]
     fn negotiate_unknown_falls_to_en() {
         let id: LanguageIdentifier = "ja-JP".parse().unwrap();
-        assert_eq!(negotiate(&[id]), Idioma::En);
+        assert_eq!(negotiate(&[id]), UiLocale::En);
+    }
+
+    #[test]
+    fn bare_pt_system_does_not_map_to_pt_br_pack() {
+        let id: LanguageIdentifier = "pt".parse().unwrap();
+        assert!(UiLocale::from_langid(&id).is_none());
+        assert_eq!(negotiate(&[id]), UiLocale::En);
+    }
+
+    #[test]
+    fn flag_bare_pt_falls_through() {
+        // Invalid bare `pt` is not Flag layer — continues chain (here XDG en).
+        let r = resolve(Some("pt"), Some("en"));
+        assert_eq!(r.ui_locale, UiLocale::En);
+        assert_eq!(r.source, LocaleSource::Xdg);
     }
 
     #[test]
     fn flag_layer_wins() {
         let r = resolve(Some("pt-BR"), Some("en"));
-        assert_eq!(r.idioma, Idioma::PtBr);
+        assert_eq!(r.ui_locale, UiLocale::PtBr);
         assert_eq!(r.source, LocaleSource::Flag);
+    }
+
+    #[test]
+    fn xdg_layer_wins_without_flag() {
+        let r = resolve(None, Some("pt-BR"));
+        assert_eq!(r.ui_locale, UiLocale::PtBr);
+        assert_eq!(r.source, LocaleSource::Xdg);
     }
 }

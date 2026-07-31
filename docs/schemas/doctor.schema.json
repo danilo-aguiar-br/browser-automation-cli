@@ -3,22 +3,46 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/doctor.schema.json",
   "title": "doctor command input",
   "type": "object",
-  "description": "Diagnose local Chrome install and one-shot readiness. Success envelopes may include top-level residual (ResidualDiskReport) and check residual_disk (cli_marker_dirs, chromium_tmp_singleton_orphans, scavenge_safe_candidates, live_cli_marker_processes).",
+  "description": "Diagnose Chrome install and one-shot readiness",
   "properties": {
     "fix": {
-      "description": "Apply safe repairs when possible",
+      "argv": "--fix",
+      "description": "Attach a suggested repair command to each failing check",
+      "required": false,
+      "source": "parser",
+      "step_key": "fix",
+      "surfaces": [
+        "argv"
+      ],
       "type": "boolean"
     },
     "json": {
       "description": "Global envelope flag --json (not a local doctor flag)",
+      "source": "catalog",
+      "step_key": "json",
+      "surfaces": [],
       "type": "boolean"
     },
     "offline": {
-      "description": "Skip network probes",
+      "argv": "--offline",
+      "description": "Skip network probes and record `offline` mode in the report",
+      "required": false,
+      "source": "parser",
+      "step_key": "offline",
+      "surfaces": [
+        "argv"
+      ],
       "type": "boolean"
     },
     "quick": {
-      "description": "Skip live launch test",
+      "argv": "--quick",
+      "description": "Skip the Chrome launch probe (fastest readiness signal)",
+      "required": false,
+      "source": "parser",
+      "step_key": "quick",
+      "surfaces": [
+        "argv"
+      ],
       "type": "boolean"
     }
   },

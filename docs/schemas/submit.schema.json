@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/submit.schema.json",
+  "title": "submit command input",
+  "type": "object",
+  "description": "Submit a form, or the form owning a field, and wait for its outcome (GAP-036)",
+  "properties": {
+    "include_snapshot": {
+      "argv": "--include-snapshot",
+      "description": "Attach slim a11y snapshot after the outcome",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
+    "target": {
+      "argv": "<TARGET>",
+      "description": "CSS selector or @eN of the `<form>` or of any field inside it",
+      "required": true,
+      "source": "parser",
+      "step_key": "target",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "timeout_ms": {
+      "argv": "--timeout-ms",
+      "description": "Max time to wait for navigation or a completed request",
+      "required": false,
+      "source": "parser",
+      "step_key": "timeout_ms",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "integer"
+    }
+  },
+  "required": [
+    "target"
+  ],
+  "additionalProperties": false
+}

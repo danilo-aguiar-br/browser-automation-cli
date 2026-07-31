@@ -8,20 +8,22 @@ use std::time::Duration;
 const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
 
 fn chrome_discoverable() -> bool {
-    // Match discovery used by native launch loosely: common binaries.
+    // Pure PATH walk — never shell out to `which` (rules_rust crates nativas).
+    let paths = match std::env::var_os("PATH") {
+        Some(p) => p,
+        None => return false,
+    };
     for name in [
         "google-chrome",
         "google-chrome-stable",
         "chromium",
         "chromium-browser",
     ] {
-        if Command::new("which")
-            .arg(name)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
-            return true;
+        for dir in std::env::split_paths(&paths) {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return true;
+            }
         }
     }
     false

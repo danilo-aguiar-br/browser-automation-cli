@@ -3,9 +3,367 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/mitm.schema.json",
   "title": "mitm command input",
   "type": "object",
-  "description": "MITM capture / CA / HAR (one-shot local 127.0.0.1)",
+  "description": "MITM capture / CA / HAR (one-shot local)",
   "properties": {
     "action": {
+      "actions": {
+        "allow": {
+          "description": "Allowlist host for TLS intercept",
+          "properties": {
+            "host": {
+              "argv": "--host",
+              "description": "Host added to the TLS intercept allowlist",
+              "required": true,
+              "source": "parser",
+              "step_key": "host",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "apis": {
+          "description": "REST/GraphQL endpoint discovery",
+          "properties": {
+            "capture_path": {
+              "argv": "--capture-path",
+              "description": "Read a capture written by another invocation (GAP-009 explicit path)",
+              "required": false,
+              "source": "parser",
+              "step_key": "capture_path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "kind": {
+              "argv": "--kind",
+              "description": "Only report endpoints of this kind (for example `rest`, `graphql`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "kind",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "block": {
+          "description": "Short-circuit block host/path (persists for next start/capture-url in same process config note)",
+          "properties": {
+            "host": {
+              "argv": "--host",
+              "description": "Host to short-circuit",
+              "required": false,
+              "source": "parser",
+              "step_key": "host",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Restrict the block to this path prefix",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "capture-url": {
+          "description": "One-shot: proxy + Chrome + navigate URL + capture (GAP-011 / GAP-019)",
+          "properties": {
+            "har": {
+              "argv": "--har",
+              "description": "Optional HAR output path",
+              "required": false,
+              "source": "parser",
+              "step_key": "har",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "hosts": {
+              "argv": "--hosts",
+              "description": "Optional host allowlist for TLS intercept",
+              "required": false,
+              "source": "parser",
+              "step_key": "hosts",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "seconds": {
+              "argv": "--seconds",
+              "default": 30,
+              "description": "Max seconds for the whole one-shot (default 30)",
+              "required": false,
+              "source": "parser",
+              "step_key": "seconds",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "url": {
+              "argv": "<URL>",
+              "description": "Target URL to open through the MITM proxy",
+              "required": true,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "domains": {
+          "description": "Unique hosts seen",
+          "properties": {
+            "capture_path": {
+              "argv": "--capture-path",
+              "description": "Read a capture written by another invocation (GAP-009 explicit path)",
+              "required": false,
+              "source": "parser",
+              "step_key": "capture_path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "export": {
+          "description": "Export capture as JSON/NDJSON",
+          "properties": {
+            "capture_path": {
+              "argv": "--capture-path",
+              "description": "Read a capture written by another invocation (GAP-009 explicit path)",
+              "required": false,
+              "source": "parser",
+              "step_key": "capture_path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "format": {
+              "argv": "--format",
+              "default": "json",
+              "description": "Output encoding: json | ndjson",
+              "required": false,
+              "source": "parser",
+              "step_key": "format",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Destination file",
+              "required": true,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "get": {
+          "description": "Get one exchange by id",
+          "properties": {
+            "capture_path": {
+              "argv": "--capture-path",
+              "description": "Read a capture written by another invocation (GAP-009 explicit path)",
+              "required": false,
+              "source": "parser",
+              "step_key": "capture_path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "id": {
+              "argv": "<ID>",
+              "description": "Exchange id from `mitm list`",
+              "required": true,
+              "source": "parser",
+              "step_key": "id",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            }
+          }
+        },
+        "graphql": {
+          "description": "GraphQL operations discovered in capture",
+          "properties": {
+            "capture_path": {
+              "argv": "--capture-path",
+              "description": "Read a capture written by another invocation (GAP-009 explicit path)",
+              "required": false,
+              "source": "parser",
+              "step_key": "capture_path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "limit": {
+              "argv": "--limit",
+              "default": 100,
+              "description": "Maximum operations to return",
+              "required": false,
+              "source": "parser",
+              "step_key": "limit",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            }
+          }
+        },
+        "har": {
+          "description": "Export HAR 1.2 JSON",
+          "properties": {
+            "capture_path": {
+              "argv": "--capture-path",
+              "description": "Read a capture written by another invocation (GAP-009 explicit path)",
+              "required": false,
+              "source": "parser",
+              "step_key": "capture_path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Destination `.har` file",
+              "required": true,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "init-ca": {
+          "description": "Ensure local CA under XDG data",
+          "properties": {}
+        },
+        "list": {
+          "description": "List captured exchanges",
+          "properties": {
+            "capture_path": {
+              "argv": "--capture-path",
+              "description": "Read a capture written by another invocation (GAP-009 explicit path)",
+              "required": false,
+              "source": "parser",
+              "step_key": "capture_path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "host": {
+              "argv": "--host",
+              "description": "Only list exchanges with this host",
+              "required": false,
+              "source": "parser",
+              "step_key": "host",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "limit": {
+              "argv": "--limit",
+              "default": 100,
+              "description": "Maximum exchanges to return",
+              "required": false,
+              "source": "parser",
+              "step_key": "limit",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            }
+          }
+        },
+        "redact": {
+          "description": "Show or set redact-secrets policy for exports",
+          "properties": {
+            "secrets": {
+              "argv": "--secrets",
+              "default": true,
+              "description": "When true, redact Authorization/Cookie (default true)",
+              "required": false,
+              "source": "parser",
+              "step_key": "secrets",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "start": {
+          "description": "Start one-shot MITM proxy on 127.0.0.1 (ephemeral port); captures until timeout",
+          "properties": {
+            "seconds": {
+              "argv": "--seconds",
+              "default": 30,
+              "description": "Seconds to keep the proxy alive (one-shot; default 30)",
+              "required": false,
+              "source": "parser",
+              "step_key": "seconds",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            }
+          }
+        },
+        "status": {
+          "description": "CA paths, capture count, bind policy",
+          "properties": {
+            "capture_path": {
+              "argv": "--capture-path",
+              "description": "Read a capture written by another invocation (GAP-009 explicit path)",
+              "required": false,
+              "source": "parser",
+              "step_key": "capture_path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "ws": {
+          "description": "WebSocket frames from capture",
+          "properties": {}
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "status",
         "list",
@@ -15,22 +373,46 @@
         "domains",
         "apis",
         "init-ca",
-        "start"
+        "start",
+        "capture-url",
+        "graphql",
+        "ws",
+        "block",
+        "allow",
+        "redact"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
       ],
       "type": "string"
     },
     "id": {
+      "source": "catalog",
+      "step_key": "id",
+      "surfaces": [],
       "type": "string"
     },
     "limit": {
       "minimum": 1,
+      "source": "catalog",
+      "step_key": "limit",
+      "surfaces": [],
       "type": "integer"
     },
     "out": {
+      "source": "catalog",
+      "step_key": "out",
+      "surfaces": [],
       "type": "string"
     },
     "seconds": {
       "minimum": 1,
+      "source": "catalog",
+      "step_key": "seconds",
+      "surfaces": [],
       "type": "integer"
     }
   },

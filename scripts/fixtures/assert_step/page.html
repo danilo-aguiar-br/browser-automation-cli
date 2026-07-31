@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  Fixture for the `assert` step (see tests/assert_step_gate.rs).
+
+  The page is deliberately quiet by default so the console assertions have a
+  clean baseline, and becomes noisy on demand. Both halves are needed: an
+  assertion that only ever saw a noisy page could not tell "no errors" from
+  "never looked".
+
+  Query parameters:
+    noisy=1   emit one console.error carrying ASSERT_TOKEN_E5F6
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>assert</title>
+  </head>
+  <body>
+    <h1 id="headline">Verdict OK</h1>
+    <p id="detail">status: pass</p>
+    <script>
+      (function () {
+        var q = new URLSearchParams(location.search);
+        if (q.get('noisy') === '1') {
+          console.error('ASSERT_TOKEN_E5F6 something broke');
+        }
+      })();
+    </script>
+  </body>
+</html>

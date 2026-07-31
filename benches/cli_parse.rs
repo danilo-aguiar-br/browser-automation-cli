@@ -48,6 +48,7 @@ fn envelope_success_compact(c: &mut Criterion) {
     let env = SuccessEnvelope {
         schema_version: 1,
         ok: true,
+        correlation_id: None,
         data: json!({"status": "ok", "n": 1}),
     };
     c.bench_function("envelope_success_to_compact_string", |b| {
@@ -63,6 +64,7 @@ fn envelope_error_compact(c: &mut Criterion) {
     let env = ErrorEnvelope {
         schema_version: 1,
         ok: false,
+        correlation_id: None,
         error: ErrorBody {
             kind: "software".into(),
             message: "example".into(),

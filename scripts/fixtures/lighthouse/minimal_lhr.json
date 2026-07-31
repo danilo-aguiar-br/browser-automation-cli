@@ -1,0 +1,23 @@
+{
+  "lighthouseVersion": "12.0.0",
+  "requestedUrl": "https://example.com/",
+  "finalUrl": "https://example.com/",
+  "fetchTime": "2026-07-31T00:00:00.000Z",
+  "categories": {
+    "performance": { "id": "performance", "title": "Performance", "score": 0.9 },
+    "accessibility": { "id": "accessibility", "title": "Accessibility", "score": 1.0 },
+    "seo": { "id": "seo", "title": "SEO", "score": 0.9 },
+    "best-practices": { "id": "best-practices", "title": "Best Practices", "score": 0.95 }
+  },
+  "audits": {
+    "first-contentful-paint": { "id": "first-contentful-paint", "score": 1.0 },
+    "largest-contentful-paint": { "id": "largest-contentful-paint", "score": 0.5 },
+    "color-contrast": { "id": "color-contrast", "score": 1.0 },
+    "meta-description": { "id": "meta-description", "score": 1.0 },
+    "unscored": { "id": "unscored", "score": null }
+  },
+  "configSettings": {
+    "formFactor": "desktop",
+    "gatherMode": "navigation"
+  }
+}

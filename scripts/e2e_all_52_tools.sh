@@ -37,6 +37,10 @@ SC_DIR="$WORKDIR/frames"
 PASS=0
 FAIL=0
 SKIP=0
+# GAP-021: a line validated only against a mock binary is NOT evidence that the
+# real report parser works. Counted separately so the scoreboard cannot present
+# simulated coverage as real coverage.
+SIMULATED=0
 
 log() { printf '%s\n' "$*" >&2; }
 
@@ -48,6 +52,9 @@ record() {
     FAIL) FAIL=$((FAIL + 1)); log "FAIL  $tool  $note" ;;
     SKIP) SKIP=$((SKIP + 1)); log "SKIP  $tool  $note" ;;
   esac
+  case "$note" in
+    *source=mock*) SIMULATED=$((SIMULATED + 1)) ;;
+  esac
 }
 
 need_bin() {
@@ -57,50 +64,40 @@ need_bin() {
   fi
 }
 
+# GAP-037/GAP-040: raw stdout to disk before analysis, exit code in its own
+# variable, stderr kept separate, raw path named in every failure.
+source "$ROOT/scripts/lib/e2e_common.sh"
+
 run_cli() {
-  # args... ; captures last exit in RC, stdout+stderr to LAST_OUT
-  set +e
-  LAST_OUT="$(timeout 180 "$BIN" "$@" 2>&1)"
-  RC=$?
-  set -e
-  printf '%s\n' "$LAST_OUT" >"$WORKDIR/logs/last.out"
+  # args... ; RC holds the CLI exit code, LAST_OUT holds RAW stdout only.
+  # The raw capture already lives on disk at "$E2E_RAW_FILE" before we parse.
+  e2e_run "${E2E_LABEL:-cli}" "$@"
+  RC="$E2E_RC"
+  LAST_OUT="$E2E_OUT"
   return 0
 }
 
 ok_json() {
-  # true if LAST_OUT looks successful
-  printf '%s' "$LAST_OUT" | jaq -e '
+  # true if the RAW stdout capture looks successful
+  e2e_jaq '
     (type == "object" and (.ok == true or .ok == null) and (.error != true))
     or (type == "array" and length > 0)
-  ' >/dev/null 2>&1
+  '
 }
 
 contains() {
-  printf '%s' "$LAST_OUT" | rg -q -- "$1"
+  rg -q -- "$1" "$E2E_RAW_FILE"
 }
 
 # Strict agent envelope: schema_version + ok
 require_envelope() {
-  local label="$1" body="$2"
-  if ! printf '%s' "$body" | jaq -e '
-    type == "object"
-    and .schema_version == 1
-    and .ok == true
-    and (.data != null)
-  ' >/dev/null 2>&1; then
-    log "ENVELOPE_FAIL $label"
-    return 1
-  fi
-  return 0
+  local label="$1"
+  e2e_expect_envelope "$label"
 }
 
 # Require every step in run multi-step output to be ok when steps[] present
 require_steps_ok() {
-  local body="$1"
-  printf '%s' "$body" | jaq -e '
-    ((.data.steps // .steps // null) == null)
-    or ((.data.steps // .steps) | type == "array" and all(.ok == true))
-  ' >/dev/null 2>&1
+  e2e_expect_steps_ok
 }
 
 # --- preflight ---
@@ -451,10 +448,25 @@ if [[ -n "$LH_PATH" ]]; then
   RC_LH=$?
   set -e
   printf '%s\n' "$OUT_LH" >"$WORKDIR/logs/lighthouse.json"
-  if [[ $RC_LH -eq 0 ]] || printf '%s' "$OUT_LH" | rg -q 'score|categories|lighthouse|report|binary_source'; then
-    record "lighthouse_audit" PASS "source=$LH_SOURCE path=$LH_PATH exit=$RC_LH"
+  # The previous criterion accepted any output containing the word
+  # `lighthouse`, which the FAILURE message also contains. It could record a
+  # broken run as PASS. Read the envelope instead.
+  ENV_OK="$(printf '%s' "$OUT_LH" | jaq -r '.ok // false' 2>/dev/null || echo false)"
+  ENV_SRC="$(printf '%s' "$OUT_LH" | jaq -r '.data.binary_source // ""' 2>/dev/null || echo '')"
+  if [[ $RC_LH -eq 0 && "$ENV_OK" == "true" ]]; then
+    if [[ -n "$ENV_SRC" && "$ENV_SRC" != "$LH_SOURCE" ]]; then
+      record "lighthouse_audit" FAIL \
+        "envelope binary_source=$ENV_SRC contradicts invoked source=$LH_SOURCE"
+    elif [[ "$LH_SOURCE" == "mock" ]]; then
+      # GAP-021: mock proves CLI wiring only — do not count as real parser PASS.
+      record "lighthouse_audit" SKIP \
+        "source=mock path=$LH_PATH exit=$RC_LH CONTRACT-ONLY: real report parser NOT exercised"
+    else
+      record "lighthouse_audit" PASS "source=real path=$LH_PATH exit=$RC_LH"
+    fi
   else
-    record "lighthouse_audit" FAIL "source=$LH_SOURCE exit=$RC_LH"
+    record "lighthouse_audit" FAIL \
+      "source=$LH_SOURCE exit=$RC_LH ok=$ENV_OK raw=$WORKDIR/logs/lighthouse.json"
   fi
 else
   record "lighthouse_audit" FAIL "no lighthouse binary and no mock"
@@ -613,54 +625,37 @@ for t in "${EXPECTED[@]}"; do
 done
 
 TOTAL=$((PASS + FAIL + SKIP))
-log "TOTAL=$TOTAL PASS=$PASS FAIL=$FAIL SKIP=$SKIP MISSING_MARKER=$MISSING"
+log "TOTAL=$TOTAL PASS=$PASS FAIL=$FAIL SKIP=$SKIP SIMULATED=$SIMULATED MISSING_MARKER=$MISSING"
+if [[ $SIMULATED -gt 0 ]]; then
+  log "WARNING: $SIMULATED line(s) passed against a mock binary only; those do NOT support a parity claim (GAP-021)"
+fi
 log "Report: $REPORT"
 log "Logs:   $WORKDIR/logs/"
 
 # ============================================================
-# GAP-017: dedicated residual assert (CLI marker only — never host Chrome)
+# Dedicated residual assert (CLI marker only — never host Chrome)
 # ============================================================
-set +e
-OUT_RES="$(timeout 90 "$BIN" --json goto about:blank 2>&1)"
-RC_RES=$?
-set -e
-printf '%s\n' "$OUT_RES" >"$WORKDIR/logs/residual_goto.json"
-MARKER_COUNT="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'browser-automation-cli-chrome-*' 2>/dev/null | wc -l | tr -d ' ')"
-# GAP-A001: count only real Chrome argv with our user-data-dir marker.
-# Never use `ps | rg pattern` — the scanner argv self-matches and false-fails.
-LIVE_MARKER_PROCS=0
-# Under `set -o pipefail`, empty grep matches must not abort the harness.
-if command -v pgrep >/dev/null 2>&1; then
-  # -a: full cmdline; -f: match against full command line.
-  # Filter to chromium/chrome binaries that own our marker profile.
-  LIVE_MARKER_PROCS="$(
-    {
-      pgrep -af -- 'browser-automation-cli-chrome-' 2>/dev/null \
-        | grep -E '[Cc]hrom(e|ium)|msedge|brave|opera' \
-        | grep -F -- '--user-data-dir=' \
-        | grep -vE 'pgrep|grep|e2e_all_52|rg ' \
-        || true
-    } | wc -l | tr -d ' '
-  )"
-  LIVE_MARKER_PROCS="${LIVE_MARKER_PROCS:-0}"
-elif command -v ps >/dev/null 2>&1; then
-  LIVE_MARKER_PROCS="$(
-    {
-      ps -eo args= 2>/dev/null \
-        | grep -F 'browser-automation-cli-chrome-' \
-        | grep -E '[Cc]hrom(e|ium)|msedge|brave|opera' \
-        | grep -F -- '--user-data-dir=' \
-        | grep -vE 'pgrep|grep|e2e_all_52|rg ' \
-        || true
-    } | wc -l | tr -d ' '
-  )"
-  LIVE_MARKER_PROCS="${LIVE_MARKER_PROCS:-0}"
-fi
-if [[ "$RC_RES" -eq 0 && "$MARKER_COUNT" -eq 0 && "$LIVE_MARKER_PROCS" -eq 0 ]]; then
-  record "residual_one_shot" PASS "markers=0 live_marker_procs=0"
+# One clean one-shot, then ask the CLI itself for the residual verdict.
+#
+# Scope note: this block covers DISK RESIDUE after DIE. It says nothing about
+# help text on subcommands, about `run` dispatch coverage, or about console and
+# network capture surviving shutdown — a green verdict here is not evidence for
+# any of those.
+#
+# GAP-002/GAP-006: the host process table is read by the product, not by an ad-hoc
+# `ps | grep` pipeline. A live sibling invocation is informational; only a marker
+# dir past the age floor whose owner pid is dead counts as a leak.
+E2E_LABEL="residual_goto" run_cli --json goto about:blank
+RC_RES="$E2E_RC"
+RES_GOTO_RAW="$E2E_RAW_FILE"
+
+if [[ "$RC_RES" -ne 0 ]]; then
+  record "residual_one_shot" FAIL "goto_rc=$RC_RES raw_stdout=$RES_GOTO_RAW"
+elif e2e_assert_residual_zero "residual_doctor"; then
+  record "residual_one_shot" PASS "orphan_markers=0 singleton_orphans=0"
 else
   # record() already increments FAIL — do not double-count (GAP-A001).
-  record "residual_one_shot" FAIL "goto_rc=$RC_RES markers=$MARKER_COUNT live=$LIVE_MARKER_PROCS"
+  record "residual_one_shot" FAIL "residual doctor gate failed; raw_stdout=$E2E_RAW_FILE"
 fi
 
 # Print table

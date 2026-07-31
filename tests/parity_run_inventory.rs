@@ -1,8 +1,11 @@
-//! GAP-017: every browser-side top-level command is either in `run` dispatch or intentional exclude.
+//! `run` dispatch inventory: every browser-side top-level command is either in
+//! `run` dispatch or in the intentional-exclude list.
+//!
+//! Scope note: this gate reads command NAMES. It does not look at the help text
+//! attached to those commands, so a green run here is not evidence that every
+//! subcommand carries a description.
 
-use browser_automation_cli::commands_prd::run::{
-    INTENTIONAL_RUN_EXCLUDE, RUN_DISPATCHED_CMDS,
-};
+use browser_automation_cli::commands::run::{INTENTIONAL_RUN_EXCLUDE, RUN_DISPATCHED_CMDS};
 
 /// Browser-side commands that agents may expect inside multi-step `run`.
 const BROWSER_SIDE_TOP_LEVEL: &[&str] = &[
@@ -48,7 +51,7 @@ const BROWSER_SIDE_TOP_LEVEL: &[&str] = &[
 fn print_pdf_is_dispatched_in_run() {
     assert!(
         RUN_DISPATCHED_CMDS.contains(&"print-pdf") || RUN_DISPATCHED_CMDS.contains(&"print_pdf"),
-        "GAP-001: print-pdf must be in RUN_DISPATCHED_CMDS"
+        "print-pdf must be in RUN_DISPATCHED_CMDS"
     );
 }
 
@@ -56,10 +59,8 @@ fn print_pdf_is_dispatched_in_run() {
 fn browser_side_top_level_covered_by_run_or_exclude() {
     let dispatched: std::collections::BTreeSet<&str> =
         RUN_DISPATCHED_CMDS.iter().copied().collect();
-    let excluded: std::collections::BTreeSet<&str> = INTENTIONAL_RUN_EXCLUDE
-        .iter()
-        .map(|(c, _)| *c)
-        .collect();
+    let excluded: std::collections::BTreeSet<&str> =
+        INTENTIONAL_RUN_EXCLUDE.iter().map(|(c, _)| *c).collect();
     let mut missing = Vec::new();
     for cmd in BROWSER_SIDE_TOP_LEVEL {
         let underscored = cmd.replace('-', "_");
@@ -81,9 +82,6 @@ fn browser_side_top_level_covered_by_run_or_exclude() {
 fn intentional_exclude_has_reasons() {
     for (cmd, reason) in INTENTIONAL_RUN_EXCLUDE {
         assert!(!cmd.is_empty());
-        assert!(
-            !reason.is_empty(),
-            "exclude {cmd} must document a reason"
-        );
+        assert!(!reason.is_empty(), "exclude {cmd} must document a reason");
     }
 }

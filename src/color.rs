@@ -50,10 +50,7 @@ pub fn is_enabled() -> bool {
         if env::var_os("NO_COLOR").is_some() {
             return false;
         }
-        if env::var_os("CLICOLOR")
-            .map(|v| v == "0")
-            .unwrap_or(false)
-        {
+        if env::var_os("CLICOLOR").map(|v| v == "0").unwrap_or(false) {
             return false;
         }
         if env::var_os("CLICOLOR_FORCE")
@@ -75,7 +72,7 @@ pub fn is_enabled() -> bool {
 /// Format text in red (errors)
 pub fn red(text: &str) -> String {
     if is_enabled() {
-        format!("\x1b[31m{}\x1b[0m", text)
+        format!("\x1b[31m{text}\x1b[0m")
     } else {
         text.to_string()
     }
@@ -84,7 +81,7 @@ pub fn red(text: &str) -> String {
 /// Format text in green (success)
 pub fn green(text: &str) -> String {
     if is_enabled() {
-        format!("\x1b[32m{}\x1b[0m", text)
+        format!("\x1b[32m{text}\x1b[0m")
     } else {
         text.to_string()
     }
@@ -93,7 +90,7 @@ pub fn green(text: &str) -> String {
 /// Format text in yellow (warnings)
 pub fn yellow(text: &str) -> String {
     if is_enabled() {
-        format!("\x1b[33m{}\x1b[0m", text)
+        format!("\x1b[33m{text}\x1b[0m")
     } else {
         text.to_string()
     }
@@ -102,7 +99,7 @@ pub fn yellow(text: &str) -> String {
 /// Format text in cyan (info)
 pub fn cyan(text: &str) -> String {
     if is_enabled() {
-        format!("\x1b[36m{}\x1b[0m", text)
+        format!("\x1b[36m{text}\x1b[0m")
     } else {
         text.to_string()
     }
@@ -111,7 +108,7 @@ pub fn cyan(text: &str) -> String {
 /// Format text in bold
 pub fn bold(text: &str) -> String {
     if is_enabled() {
-        format!("\x1b[1m{}\x1b[0m", text)
+        format!("\x1b[1m{text}\x1b[0m")
     } else {
         text.to_string()
     }
@@ -120,7 +117,7 @@ pub fn bold(text: &str) -> String {
 /// Format text dimmed
 pub fn dim(text: &str) -> String {
     if is_enabled() {
-        format!("\x1b[2m{}\x1b[0m", text)
+        format!("\x1b[2m{text}\x1b[0m")
     } else {
         text.to_string()
     }

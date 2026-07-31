@@ -3,25 +3,107 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/scroll.schema.json",
   "title": "scroll command input",
   "type": "object",
-  "description": "Scroll window or element by pixel deltas",
+  "description": "Scroll page or element by delta pixels (PRD §7 `scroll`)",
   "properties": {
     "delta_x": {
+      "argv": "--delta-x",
+      "default": 0.0,
+      "description": "Horizontal scroll delta in page CSS pixels",
+      "required": false,
+      "source": "parser",
+      "step_key": "delta_x",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "number"
     },
     "delta_y": {
+      "argv": "--delta-y",
+      "default": 0.0,
+      "description": "Vertical scroll delta in page CSS pixels",
+      "required": false,
+      "source": "parser",
+      "step_key": "delta_y",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "number"
     },
     "dx": {
       "description": "Alias for delta_x",
+      "source": "catalog",
+      "step_key": "dx",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "number"
     },
     "dy": {
       "description": "Alias for delta_y",
+      "source": "catalog",
+      "step_key": "dy",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "number"
     },
+    "include_snapshot": {
+      "argv": "--include-snapshot",
+      "description": "Attach slim a11y snapshot after the scroll",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "boolean"
+    },
     "target": {
-      "description": "Optional CSS/@eN",
+      "argv": "--target",
+      "description": "CSS selector or @eN (optional; omit for window scroll)",
+      "required": false,
+      "source": "parser",
+      "step_key": "target",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
+    },
+    "to_x": {
+      "argv": "--to-x",
+      "description": "Absolute horizontal offset; wins over --delta-x on that axis (GAP-031)",
+      "required": false,
+      "source": "parser",
+      "step_key": "to_x",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "number"
+    },
+    "to_y": {
+      "argv": "--to-y",
+      "description": "Absolute vertical offset; wins over --delta-y on that axis (GAP-031)",
+      "required": false,
+      "source": "parser",
+      "step_key": "to_y",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "number"
     }
   },
   "required": [],

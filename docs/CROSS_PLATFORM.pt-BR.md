@@ -35,12 +35,13 @@ Ordem de resolução (sem variáveis de ambiente de produto — lei do produto �
 
 1. XDG `chrome_path` (`config set chrome_path /caminho/absoluto`) se o arquivo for executável
 2. Cache de browsers do produto sob XDG data (`browsers/`)
-3. Nomes no `$PATH`: `google-chrome`, `google-chrome-stable|beta|unstable`, `chromium`, `microsoft-edge`, `msedge`, `brave-browser`, …
-4. Layouts absolutos conhecidos por SO (abaixo)
-5. Caches locais Puppeteer / Playwright em `~/.cache/`
+3. **Somente Windows:** `HKLM` depois `HKCU` `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{chrome.exe|msedge.exe|brave.exe}` (descoberta via registro OS com `windows-sys`, não config de produto)
+4. Nomes no `$PATH`: `google-chrome`, `google-chrome-stable|beta|unstable`, `chromium`, `chromium-browser`, `chrome`, `microsoft-edge`, `msedge`, `brave-browser`, …
+5. Layouts absolutos conhecidos por SO (abaixo)
+6. Caches locais Puppeteer / Playwright em `~/.cache/`
 
 Override: `browser-automation-cli config set chrome_path /path/to/chrome`  
-Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `executable` e `host_environment`.
+Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `executable`, `version` (smoke `--version`), `windows_job_object` e `host_environment`.
 
 ### Paths conhecidos Linux
 - `/usr/bin/google-chrome`, variantes beta/unstable, `chromium`, `chromium-browser`
@@ -53,6 +54,7 @@ Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `exec
 - `~/Applications/Google Chrome.app/…` (install por usuário)
 
 ### Paths conhecidos Windows
+- Registro **App Paths** (`chrome.exe` / `msedge.exe` / `brave.exe`) antes do walk de `$PATH`
 - `%ProgramFiles%` / `%ProgramFiles(x86)%` / `%LOCALAPPDATA%` + Chrome / Beta / Canary / Edge / Brave
 - Fallback hardcoded `C:\Program Files\…` só se as env vars faltarem
 - Boot de console: code page UTF-8 **65001** + VT ANSI; Job Objects para residual Chrome
@@ -71,7 +73,7 @@ Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `exec
 - Em Alpine ou outros hosts musl, faça cross-compile ou build nativo para o target musl
 - Forneça um binário real de Chrome ou Chromium; a CLI não embute browser
 - Containers adicionam `--no-sandbox` e `--disable-dev-shm-usage` quando root ou marcadores docker/podman/k8s estão presentes
-- Higiene residual de disco (v0.1.5): BORN + FINALIZE scavenge Chromium tmp Singleton-only owned sob o temp do processo (comumente `/tmp/org.chromium.Chromium.*` e `/tmp/.org.chromium.Chromium.*`)
+- Higiene residual de disco (lei v0.1.5 ainda corrente na 0.1.6): BORN + FINALIZE scavenge Chromium tmp Singleton-only owned sob o temp do processo (comumente `/tmp/org.chromium.Chromium.*` e `/tmp/.org.chromium.Chromium.*`)
 - Age floor do GC Singleton stale é **60s**; só dirs same-uid Singleton-only (ou vazios) sem holder vivo em `/proc` são apagados
 - Markers CLI usam prefixo `browser-automation-cli-chrome-*` sob o temp do processo
 - Prefixos temp de Chrome Flatpak do host **nunca** são apagados pelo GC residual do produto
@@ -136,14 +138,39 @@ browser-automation-cli completions powershell
 - Material de CA do MITM fica sob XDG data (`mitm/ca`); capturas sob XDG state (`mitm/`)
 - Journals de workflow ficam sob XDG state (`workflows`)
 - Chave de cifragem é definida com `config set encryption_key <value>`
-- Chaves completas de config (16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
+- Descubra chaves vivas de config com `config list-keys --json` (inclui `dialog_settle_ms`; não fixe contagem como “16 chaves”)
 - Settings de produto usam só flags e CLI XDG (`config path|init|show|set|get|list-keys`) — nunca variáveis de ambiente de produto
 - Idioma das sugestões humanas: só `--lang` ou XDG `lang`
-- Inventário completo de comandos (63) e padrões de agente: [docs/HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
+- Inventário completo de comandos (**65**) e padrões de agente: [docs/HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
 - Cache Redis: `cache_backend redis` + `cache_redis_url redis://…` apenas (`rediss://` fail-closed)
 - Logging de produto: `--verbose` / `--debug` / `-q` ou XDG `log_level`
 - Cor: `config set color`; path do Chrome: `config set chrome_path`
 
+## Superfície de agente v0.1.6 (compacta)
+
+- Booleano **`dialog_settled`** após accept/dismiss real de diálogo (GAP-054); isolamento multi-aba via `Page::session_id` / `dialog_map_key`
+- **`dialog_settle_ms`** só via XDG `config set` (flags + XDG; nunca env de produto)
+- Chave pública **`wait_timeout_ms`** nos passos wait de run (GAP-053)
+- Scrape `format`/`formats` em run sem monstro HTML (GAP-057)
+- Select nativo `pick`/`select-option` despacha `input` e depois `change`, `via: native_select` (GAP-055)
+- **Encode do `grab`:** só png|jpeg|webp; AVIF removido (breaking)
+- Inventário **65** inclui `submit` + `storage`; lei residual-zero de disco da 0.1.5 ainda corrente
+- GAP-021 parcial (fixtures unit LHR; e2e lighthouse mock SKIP); GAP-022 residual ~53 dups aceitos; GAP-023/024 intencionais em `parity_intentional_divergences.json`
+
+## Inventário completo de agente (65)
+
+Descubra ao vivo: `browser-automation-cli commands --json`
+
+```
+assert attr back batch-scrape click-at commands completions config console cookie
+crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+find-paths forward goto grab heap hover keys lighthouse locale man map mitm monitor
+net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+upload version view wait webmcp workflow write
+```
+
+Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é 63.
 
 ## Performance por Target
 - Desktop e servidores Linux são o alvo primário de otimização

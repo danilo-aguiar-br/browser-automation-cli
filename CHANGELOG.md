@@ -8,6 +8,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.1.6] - 2026-07-31
+
+### Added
+- `dialog_settled` boolean on dialog accept/dismiss happy path (GAP-054); agent-native compact signal — no artificial wait after settle
+- XDG key `dialog_settle_ms` (max wait after JS dialog answer for `Page.javascriptDialogClosed`)
+- Multi-tab dialog isolation: page forwarders stamp `Page::session_id`; pure helper `dialog_map_key`; unit coverage (2 session ids, fallback, empty, map isolation)
+- Gate `tests/dialog_multitab_gate.rs` (isolation tab1 + accept owner; `tab_switch` best-effort domain enable under open dialog with budget)
+- Lighthouse fixture `chrome_captured_lhr.json` (Lighthouse 13.4.1 real, sanitized) + unit `scores_from_lhr` with minimal + chrome-captured fixtures (GAP-021 partial↑)
+- Run step field `wait_timeout_ms` honored for wait steps (GAP-053)
+- Scrape `format`/`formats` in multi-step `run` via shared `build_formats_map` (GAP-057)
+- Native select events DRY: `DISPATCH_INPUT_AND_CHANGE` shared by pick + fill-form select (GAP-055)
+- Inventory honesty: **65** agent command names via `commands --json` (includes `submit`, `storage`, `select-option`, `pick`, `locale`, `man`, …)
+
+### Fixed
+- GAP-054: suppress Opening + listener `Page.javascriptDialogClosed` (browser+page); dialog settle under load 20/20
+- GAP-055: native `input`+`change` for option pick / select
+- GAP-050: doctor production path without `.unwrap()`
+- Multi-tab dialog: session_id stamping so non-active tab dialogs map correctly
+- `tab_switch` under open page-modal dialog: best-effort `Page.enable` domains with timeout budget, cached url/title
+
+### Changed
+- Version `0.1.6`
+- **Breaking (encode):** `grab --format` is `png|jpeg|webp` only — AVIF encode removed (crate `image` without avif/core2 yanked chain)
+- GAP-022 dependency duplicates ~53 multi-version residual accepted (lopdf/hudsucker/human-panic/criterion/tungstenite) — measured, cheap prune exhausted
+- GAP-023/024 PRD wishlist flags/commands remain intentional divergences (`parity_intentional_divergences.json`) — do not claim full PRD parity
+- GAP-052 residual/doctor path `contains` typed via cmdline markers (intentional process classification)
+- e2e placar: TOTAL=53 PASS=52 FAIL=0 SKIP=1 (lighthouse mock SKIP honest, never PASS of parser)
+
+### Documentation
+- Public bilingual docs synchronized to 0.1.6 (this release)
+- Skills EN/PT operational playbooks for `dialog_settled`, grab formats, XDG `dialog_settle_ms`, full command surface
+- `gaps.md` Status v0.1.6 placar + historical 0.1.5 archive disclaimer
+
 ## [0.1.5] - 2026-07-19
 
 ### Added

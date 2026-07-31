@@ -79,7 +79,7 @@ pub fn encode(text: &str, format: &str, path: Option<&Path>) -> Result<Value, Cl
         other => Err(CliError::with_suggestion(
             ErrorKind::Usage,
             format!("unknown qr format: {other}"),
-            "Use png|svg|terminal",
+            crate::i18n::suggestion_key("use_listed_value", None),
         )),
     }
 }
@@ -99,7 +99,7 @@ pub fn decode(path: &Path) -> Result<Value, CliError> {
         return Err(CliError::with_suggestion(
             ErrorKind::Data,
             "no QR code detected in image",
-            "Use a clear PNG/JPEG of a QR with quiet zone",
+            crate::i18n::suggestion_key("qr_image_quality", None),
         ));
     }
     let mut payloads = Vec::new();

@@ -3,9 +3,72 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/config.schema.json",
   "title": "config command input",
   "type": "object",
-  "description": "XDG config and path management (no product env at runtime)",
+  "description": "XDG config and path management (no .env at runtime)",
   "properties": {
     "action": {
+      "actions": {
+        "get": {
+          "description": "Get one config key",
+          "properties": {
+            "key": {
+              "argv": "<KEY>",
+              "description": "Config key to read; omit to dump every key",
+              "required": false,
+              "source": "parser",
+              "step_key": "key",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "init": {
+          "description": "Create XDG layout + default config.toml",
+          "properties": {}
+        },
+        "list-keys": {
+          "description": "List supported config keys and defaults (GAP-018)",
+          "properties": {}
+        },
+        "path": {
+          "description": "Print resolved XDG paths",
+          "properties": {}
+        },
+        "set": {
+          "description": "Set a config key (lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|log_to_file|chrome_path|lighthouse_path|ffmpeg_path|lighthouse_timeout_secs|ffmpeg_timeout_secs|openrouter_api_key|llm_base_url|llm_model|cache_backend|cache_redis_url|search_base_url)",
+          "properties": {
+            "key": {
+              "argv": "<KEY>",
+              "description": "Config key from `config list-keys`",
+              "required": true,
+              "source": "parser",
+              "step_key": "key",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "argv": "<VALUE>",
+              "description": "New value; validated per key before it is persisted",
+              "required": true,
+              "source": "parser",
+              "step_key": "value",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "show": {
+          "description": "Show config values",
+          "properties": {}
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "path",
         "init",
@@ -14,13 +77,25 @@
         "get",
         "list-keys"
       ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "key": {
-      "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|log_to_file|chrome_path|lighthouse_path|openrouter_api_key|llm_base_url|llm_model|cache_backend|cache_redis_url",
+      "description": "For set/get: lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|log_to_file|max_log_files|log_rotation|chrome_path|lighthouse_path|ffmpeg_path|lighthouse_timeout_secs|ffmpeg_timeout_secs|openrouter_api_key|llm_base_url|llm_model|cache_backend|cache_redis_url|search_base_url|lightpanda_startup_timeout_secs|lightpanda_session_timeout_secs|max_json_file_bytes|max_ndjson_line_bytes|max_cli_json_payload_bytes|default_jpeg_quality|event_pump_slice_ms|screencast_jpeg_quality|interact_settle_ms|dialog_settle_ms|cdp_connection_probe_timeout_secs|http_ssrf_mode|http_timeout_secs|http_connect_timeout_secs|scrape_max_body_bytes|llm_http_timeout_secs|redis_allow_remote|redis_connect_timeout_secs|chrome_search_paths|allowed_roots|robots_loopback_exempt|redis_io_timeout_secs|cache_max_resp_bulk_bytes|cache_max_resp_line_bytes|scrape_http_cache_ttl_secs|file_parse_cache_ttl_secs|cdp_discovery_max_body_bytes|cdp_event_broadcast_capacity|cdp_event_drain_poll_ms|cdp_network_idle_settle_ms|cdp_target_event_wait_ms|cdp_discovery_timeout_secs|event_tracker_max_entries|extension_attach_poll_ms|screencast_ffmpeg_framerate|robots_probe_timeout_secs|robots_max_body_bytes|browser_scrape_max_body_bytes|http_redirect_max|http_pool_max_idle_per_host|webhook_post_timeout_secs|webhook_retry_base_delay_ms|webhook_max_attempts|heap_snapshot_max_bytes|heap_max_retainers|heap_max_edges|heap_max_paths|heap_max_path_depth|heap_max_class_nodes|heap_dominator_max_states|heap_outer_iters|heap_inner_iters|heap_final_iters|browser_close_wait_secs|platform_child_wait_secs|shutdown_poll_ms|shutdown_deadline_secs|lightpanda_poll_interval_ms|lightpanda_discovery_timeout_ms|lightpanda_max_log_lines|lightpanda_ready_slice_ms|lightpanda_cdp_connect_timeout_secs|lightpanda_target_init_timeout_secs|screencast_start_pump_iters|screencast_stop_pump_iters|mitm_list_limit_max|mitm_proxy_seconds_max|mitm_chrome_settle_ms|mitm_capture_wait_min_ms|mitm_capture_wait_max_ms|mitm_ws_frames_cap|mitm_ws_preview_chars|mitm_ca_cache_size|max_sg_file_bytes|scrape_crawl_limit_max|scrape_crawl_max_depth|scrape_search_limit_max|scrape_max_parse_bytes|retry_default_max_attempts|retry_base_delay_ms|retry_max_delay_secs|retry_budget_secs|retry_cdp_max_attempts|retry_cdp_base_delay_ms|retry_cdp_max_delay_secs|retry_cdp_budget_secs|retry_http_max_attempts|retry_http_base_delay_ms|retry_http_max_delay_secs|retry_http_budget_secs|retry_llm_max_attempts|retry_llm_base_delay_ms|retry_llm_max_delay_secs|retry_llm_budget_secs|eval_drain_slice_ms|support_settle_ms|nav_micro_settle_ms|perf_autostop_settle_ms|perf_trace_inner_slice_ms|perf_trace_outer_slice_ms|perf_trace_outer_iters|perf_trace_inner_iters|state_collect_deadline_secs|state_event_recv_secs|state_load_settle_ms|default_viewport_width|default_viewport_height",
+      "source": "catalog",
+      "step_key": "key",
+      "surfaces": [],
       "type": "string"
     },
     "value": {
+      "source": "catalog",
+      "step_key": "value",
+      "surfaces": [],
       "type": "string"
     }
   },

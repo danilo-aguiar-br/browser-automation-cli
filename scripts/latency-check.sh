@@ -43,9 +43,12 @@ rg -q 'mimalloc::MiMalloc' src/main.rs || fail 'missing #[global_allocator] mima
 echo "    mimalloc OK"
 
 echo "==> Bounded browser runtime (not num_cpus multi_thread)"
-rg -q 'BROWSER_WORKER_THREADS' src/runtime_util.rs || fail 'missing BROWSER_WORKER_THREADS'
+# Pass H: workers live in concurrency::browser_worker_threads (not a const in runtime_util).
+rg -q 'fn browser_worker_threads' src/concurrency/ || fail 'missing fn browser_worker_threads'
+rg -q 'fn browser_max_blocking_threads' src/concurrency/ || fail 'missing fn browser_max_blocking_threads'
+rg -q 'browser_worker_threads' src/runtime_util.rs || fail 'runtime_util must call browser_worker_threads'
 rg -q 'max_blocking_threads' src/runtime_util.rs || fail 'missing max_blocking_threads cap'
-rg -q 'build_browser_runtime' src/browser/mod.rs || fail 'block_on_browser_timeout must use build_browser_runtime'
+rg -q 'build_browser_runtime' src/browser/ src/runtime_util.rs || fail 'block_on_browser_timeout must use build_browser_runtime'
 # Forbid ad-hoc multi_thread without worker_threads in product sources (tests OK).
 if rg -n 'new_multi_thread\(\)' src --glob '*.rs' | rg -v 'runtime_util\.rs' | rg -q .; then
   # Only runtime_util (or browser via helper) may construct multi_thread.
@@ -57,10 +60,11 @@ if rg -n 'new_multi_thread\(\)' src --glob '*.rs' | rg -v 'runtime_util\.rs' | r
 fi
 echo "    browser runtime bounded OK"
 
-echo "==> I/O paths use current_thread block_on_io"
+echo "==> I/O paths use budgeted multi-thread block_on_io"
 rg -q 'fn block_on_io' src/runtime_util.rs || fail 'missing block_on_io'
-rg -q 'runtime_util::block_on_io' src/commands_prd/mod.rs || fail 'extract_llm must use block_on_io'
-rg -q 'runtime_util::block_on_io' src/workflow_local.rs || fail 'workflow offline must use block_on_io'
+rg -q 'runtime_util::block_on_io' src/commands || fail 'extract_llm must use block_on_io'
+# Pass G split: workflow_local is a directory (offline path uses block_on_io).
+rg -q 'runtime_util::block_on_io' src/workflow_local/ || fail 'workflow offline must use block_on_io'
 # No remaining ad-hoc current_thread builders for scrape
 if rg -n 'new_current_thread\(\)' src --glob '*.rs' | rg -v 'runtime_util\.rs' | rg -q .; then
   bad=$(rg -n 'new_current_thread\(\)' src --glob '*.rs' | rg -v 'runtime_util\.rs' || true)
@@ -72,7 +76,14 @@ fi
 echo "    I/O runtime OK"
 
 echo "==> HTTP TCP_NODELAY on shared client"
-rg -q 'tcp_nodelay\(true\)' src/robots.rs || fail 'shared_http_client missing tcp_nodelay(true)'
+# Anchored on the function name (API surface), not on the file path: the shared
+# client may move modules without weakening the invariant.
+SHARED_CLIENT_FILE="$(rg -l 'fn shared_http_client' src/ --glob '*.rs' | head -1)"
+if [[ -z "$SHARED_CLIENT_FILE" ]]; then
+  fail 'shared_http_client not found in src/'
+fi
+rg -q 'tcp_nodelay\(true\)' "$SHARED_CLIENT_FILE" \
+  || fail "shared_http_client missing tcp_nodelay(true) in $SHARED_CLIENT_FILE"
 echo "    tcp_nodelay OK"
 
 echo "==> No target-cpu=native in committed cargo config"

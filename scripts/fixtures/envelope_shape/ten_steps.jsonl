@@ -1,0 +1,10 @@
+{"cmd":"goto","url":"about:blank"}
+{"cmd":"view","allow_empty":true}
+{"cmd":"eval","expression":"1+1"}
+{"cmd":"eval","expression":"'a'+'b'"}
+{"cmd":"scroll","dy":10}
+{"cmd":"eval","expression":"document.title"}
+{"cmd":"view","allow_empty":true}
+{"cmd":"eval","expression":"2*21"}
+{"cmd":"scroll","dy":-10}
+{"cmd":"eval","expression":"'done'"}

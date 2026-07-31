@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Legacy string keys mapped onto [`UiMessage`] variants.
+//!
+//! Two pre-enum entry points survive: suggestion keys spelled at call
+//! sites, and `error.kind` strings taken from the envelope. Both are
+//! lookup tables, so they sit apart from the enum itself.
+
+use super::UiMessage;
+
+impl UiMessage {
+    /// Map a legacy suggestion catalog key to a message (or usage fallback).
+    pub fn from_suggestion_key(key: &str) -> UiMessage {
+        match key {
+            "vision_required" => UiMessage::VisionRequired,
+            "robots_dual" => UiMessage::RobotsDual,
+            "category_memory" => UiMessage::CategoryMemory,
+            "category_extensions" => UiMessage::CategoryExtensions,
+            "screencast_flag" => UiMessage::ScreencastFlag,
+            "webmcp_flag" => UiMessage::WebmcpFlag,
+            "third_party_flag" => UiMessage::ThirdPartyFlag,
+            "capture_network" => UiMessage::CaptureNetwork,
+            "capture_console" => UiMessage::CaptureConsole,
+            "run_fail_fast" => UiMessage::RunFailFast,
+            "lighthouse_missing" => UiMessage::LighthouseMissing,
+            "lighthouse_timeout" => UiMessage::LighthouseTimeout,
+            "ffmpeg_timeout" => UiMessage::FfmpegTimeout,
+            "binary_unsafe_windows" => UiMessage::BinaryUnsafeWindows,
+            "ssrf_blocked" => UiMessage::SsrfBlocked,
+            "http_body_too_large" => UiMessage::HttpBodyTooLarge,
+            "http_connect_timeout" => UiMessage::HttpConnectTimeout,
+            "redis_host_blocked" => UiMessage::RedisHostBlocked,
+            "url_absolute_http" => UiMessage::UrlAbsoluteHttp,
+            "target_ref_from_view" => UiMessage::TargetRefFromView,
+            "navigate_first" => UiMessage::NavigateFirst,
+            "json_array_objects" => UiMessage::JsonArrayObjects,
+            "json_object_payload" => UiMessage::JsonObjectPayload,
+            "raise_size_limit" => UiMessage::RaiseSizeLimit,
+            "raise_timeout" => UiMessage::RaiseTimeout,
+            "external_binary_path" => UiMessage::ExternalBinaryPath,
+            "llm_config_required" => UiMessage::LlmConfigRequired,
+            "redis_config_required" => UiMessage::RedisConfigRequired,
+            "config_list_keys" => UiMessage::ConfigListKeys,
+            "use_listed_value" => UiMessage::UseListedValue,
+            "file_path_invalid" => UiMessage::FilePathInvalid,
+            "heap_snapshot_input" => UiMessage::HeapSnapshotInput,
+            "extension_unpacked_dir" => UiMessage::ExtensionUnpackedDir,
+            "extension_list_first" => UiMessage::ExtensionListFirst,
+            "run_script_multi_step" => UiMessage::RunScriptMultiStep,
+            "cdp_key_name" => UiMessage::CdpKeyName,
+            "dialog_open_required" => UiMessage::DialogOpenRequired,
+            "console_assert_threshold" => UiMessage::ConsoleAssertThreshold,
+            "retry_after_cancel" => UiMessage::RetryAfterCancel,
+            "workflow_cycle" => UiMessage::WorkflowCycle,
+            "chrome_search_paths_format" => UiMessage::ChromeSearchPathsFormat,
+            "webhook_unreachable" => UiMessage::WebhookUnreachable,
+            "qr_image_quality" => UiMessage::QrImageQuality,
+            "pdf_input_invalid" => UiMessage::PdfInputInvalid,
+            "sheet_input_format" => UiMessage::SheetInputFormat,
+            "viewport_spec_format" => UiMessage::ViewportSpecFormat,
+            "commands_discovery" => UiMessage::CommandsDiscovery,
+            "schema_command_required" => UiMessage::SchemaCommandRequired,
+            "scrape_engine_choice" => UiMessage::ScrapeEngineChoice,
+            "chrome_launch_failed" => UiMessage::ChromeLaunchFailed,
+            "step_field_unknown" => UiMessage::StepFieldUnknown,
+            "xdg_home_required" => UiMessage::XdgHomeRequired,
+            "heap_capture_failed" => UiMessage::HeapCaptureFailed,
+            "path_outside_roots" => UiMessage::PathOutsideRoots,
+            "mitm_capture_path" => UiMessage::MitmCapturePath,
+            "drag_same_frame" => UiMessage::DragSameFrame,
+            "drag_destination_required" => UiMessage::DragDestinationRequired,
+            "submit_needs_form" => UiMessage::SubmitNeedsForm,
+            "submit_validation_failed" => UiMessage::SubmitValidationFailed,
+            "include_cycle" => UiMessage::IncludeCycle,
+            "include_depth" => UiMessage::IncludeDepth,
+            "include_path_required" => UiMessage::IncludePathRequired,
+            "assert_step_path" => UiMessage::AssertStepPath,
+            "assert_step_order" => UiMessage::AssertStepOrder,
+            "assert_step_operator" => UiMessage::AssertStepOperator,
+            "assert_step_inspect" => UiMessage::AssertStepInspect,
+            _ => UiMessage::UsageSuggestion,
+        }
+    }
+
+    /// Map error kind string to a human suggestion message.
+    pub fn from_error_kind(kind: &str) -> Option<UiMessage> {
+        match kind {
+            "usage" => Some(UiMessage::UsageSuggestion),
+            "broken-pipe" => Some(UiMessage::BrokenPipeSuggestion),
+            "unavailable" => Some(UiMessage::UnavailableSuggestion),
+            "data" => Some(UiMessage::DataSuggestion),
+            "browser" => Some(UiMessage::BrowserSuggestion),
+            _ => None,
+        }
+    }
+}

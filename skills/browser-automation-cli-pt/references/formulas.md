@@ -1,565 +1,99 @@
-# browser-automation-cli — Catálogo Completo de Fórmulas Executáveis
+# browser-automation-cli — Fórmulas de Argv
 
-Companheiro OBRIGATÓRIO de `SKILL.md`. CADA comando do inventário DEVE ter ao menos uma linha executável.
-DEVE copiar argv as-is salvo quando `schema <cmd> --json` forçar mudança.
-DEVE passar `--json` global em invocações programáticas.
-Nome do binário é exatamente `browser-automation-cli` (NUNCA alias `bac`).
-NUNCA invente env vars de produto — só flags + XDG via `config`.
-Inventário OBRIGATÓRIO: exatamente **63** nomes de comando de topo.
-DEVE tratar `select-option` e `pick` como executáveis SOMENTE dentro de `run`/`exec` (NÃO clap standalone).
-Comandos e flags permanecem em inglês (superfície CLI).
+## Uso
+- DEVE copiar fórmulas literalmente; trocar só placeholders; binário `browser-automation-cli` por extenso; `--json` SEMPRE
+- DEVE parsear só stdout; checar exit antes de confiar; validar `.ok` com `jaq`; descobrir com `commands --json`, `schema <cmd> --json`, `config list-keys --json`
+- NUNCA invente alias, env de produto ou flag ausente
 
-## Meta / descoberta / locale / man / residual_disk
+## Contrato
+- Após `dialog accept|dismiss` real leia `.data.dialog_settled`; se true NÃO wait artificial; multi-aba por `session_id`; settle via `config set dialog_settle_ms`
+- run wait usa `wait_timeout_ms`; run scrape usa `format|formats` (text sem html monstro); grab só png|jpeg|webp; lighthouse `binary_source` real|mock
+- select nativo → input+change e `via: native_select`; submit espera nav/request; storage `--path` obrigatório mode 0600 FORA de run
+- mitm/storage/extension install|uninstall FORA de run; `exec` = passo único; multi-passo = `run --script`
 
-```bash
-browser-automation-cli doctor --offline --quick --json
-browser-automation-cli doctor --json
-browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.cli_marker_dirs == 0'
-browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.chromium_tmp_singleton_orphans == 0'
-browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.live_cli_marker_processes == 0'
-browser-automation-cli doctor --offline --quick --json | jaq -e '[.data.checks[] | select(.id=="residual_disk") | .status][0] == "pass"'
-browser-automation-cli doctor --offline --quick --json | jaq -e '[.data.checks[] | select(.id=="residual_disk")] | length == 1'
-browser-automation-cli commands --json
-browser-automation-cli schema goto --json
-browser-automation-cli schema run --json
-browser-automation-cli schema --cmd pick --json
-browser-automation-cli schema --cmd select-option --json
-browser-automation-cli schema --cmd sheet-write --json
-browser-automation-cli schema --cmd sg-scan --json
-browser-automation-cli schema --cmd sg-rewrite --json
-browser-automation-cli schema --cmd find-paths --json
-browser-automation-cli schema --cmd config --json
-browser-automation-cli schema --cmd wait --json
-browser-automation-cli schema --cmd assert --json
-browser-automation-cli schema --cmd mitm --json
-browser-automation-cli schema locale --json
-browser-automation-cli schema man --json
-browser-automation-cli version --json
-browser-automation-cli locale --json
-browser-automation-cli --lang en locale --json
-browser-automation-cli --lang pt-BR locale --json
-browser-automation-cli man
-browser-automation-cli man --out /tmp/browser-automation-cli.1
-browser-automation-cli completions bash
-browser-automation-cli completions zsh
-browser-automation-cli completions fish
-```
+## Globais
+- DEVE executar `browser-automation-cli --json --json-steps --timeout 90 --step-timeout 20 --capture-console --capture-network run --script /tmp/steps.jsonl`
+- DEVE executar `browser-automation-cli --json -q --plain --max-concurrency 4 --artifacts-dir /tmp/arts --correlation-id req-42 goto https://example.com`
+- DEVE passar `--verbose|--debug` ou `config set log_level`; `--headed` só debug; `--lang en|pt-BR`
+- DEVE passar `--category-memory` (heap), `--category-extensions` (extension), `--category-third-party` (devtools3p), `--category-webmcp` (webmcp), `--experimental-vision` (click-at), `--experimental-screencast` (screencast)
+- DEVE passar `--mitm` + `--mitm-har|--mitm-hosts|--mitm-ca-dir|--mitm-ws|--mitm-max-body-bytes|--mitm-no-media-bodies|--mitm-redact-secrets` só quando intercepção exigir
+- DEVE contornar robots só com ambas `--ignore-robots --i-accept-robots-risk`
 
-## Navegação / wait / page isolated-context / reload
+## Meta
+- DEVE executar `browser-automation-cli --json doctor --offline --quick` e `doctor --fix` só se reparo for necessário
+- DEVE executar `browser-automation-cli --json commands`; `schema goto`; `schema --cmd wait`; `version`; `locale`
+- DEVE executar `browser-automation-cli completions bash` (zsh|fish|elvish|powershell); `man --out /tmp/browser-automation-cli.1`
 
-```bash
-browser-automation-cli --json goto https://example.com
-browser-automation-cli --timeout 60 --json goto https://example.com --init-script 'window.__ready=true' --handle-before-unload accept --navigation-timeout-ms 15000
-browser-automation-cli --timeout 60 --json goto https://example.com --handle-before-unload dismiss
-browser-automation-cli --json back
-browser-automation-cli --json forward
-# reload DEVE usar --ignore-cache para limpar cache de rede; NUNCA invente goto --ignore-cache
-browser-automation-cli --json reload --ignore-cache
-browser-automation-cli --json page info
-browser-automation-cli --json page list
-browser-automation-cli --json page new --url https://example.com
-# page new --isolated-context (flag sozinha = contexto isolado default; valor nomeado quando OBRIGATÓRIO)
-browser-automation-cli --json page new --isolated-context
-browser-automation-cli --json page new --isolated-context sessao-a --url https://example.com
-browser-automation-cli --json page new --isolated-context sessao-b --background --url https://example.org
-browser-automation-cli --json page select 0 --bring-to-front
-browser-automation-cli --json page close --index 0
-browser-automation-cli --json page tab-id
-browser-automation-cli --json wait --ms 500
-browser-automation-cli --json wait --text Example --text Demo --ms 1000
-browser-automation-cli --json wait --selector "h1" --state load
-browser-automation-cli --json wait --selector "h1, main, #content" --ms 0
-browser-automation-cli --json reload --ignore-cache
-# PROIBIDO: inventar goto --ignore-cache (só reload possui --ignore-cache)
-# wait multi-seletor OR / multi-text OR / url / url_contains / navigation — superfície completa via passos run
-# sucesso de multi-seletor DEVE expor matched_selector quando um seletor resolver — SEMPRE inspecione
-```
+## Config XDG
+- DEVE executar `browser-automation-cli --json config init|path|show|list-keys`; `config get`; `config get timeout`; `config set <k> <v>`
+- DEVE setar (após list-keys) — lang, timeout, artifacts_dir, ignore_robots, namespace, encryption_key, color, log_level, log_to_file, max_log_files, log_rotation, chrome_path, lighthouse_path, ffmpeg_path, lighthouse_timeout_secs, ffmpeg_timeout_secs, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, search_base_url, lightpanda_startup_timeout_secs, lightpanda_session_timeout_secs, max_json_file_bytes, max_ndjson_line_bytes, max_cli_json_payload_bytes, default_jpeg_quality, event_pump_slice_ms, screencast_jpeg_quality, interact_settle_ms, dialog_settle_ms, cdp_connection_probe_timeout_secs, http_ssrf_mode, http_timeout_secs, http_connect_timeout_secs, scrape_max_body_bytes, llm_http_timeout_secs, redis_allow_remote, redis_connect_timeout_secs, robots_loopback_exempt, allowed_roots, chrome_search_paths, redis_io_timeout_secs, cache_max_resp_bulk_bytes, cache_max_resp_line_bytes, scrape_http_cache_ttl_secs, file_parse_cache_ttl_secs, cdp_discovery_max_body_bytes, cdp_event_broadcast_capacity, cdp_event_drain_poll_ms, cdp_network_idle_settle_ms, cdp_target_event_wait_ms, cdp_discovery_timeout_secs, event_tracker_max_entries, extension_attach_poll_ms, screencast_ffmpeg_framerate, robots_probe_timeout_secs, robots_max_body_bytes, browser_scrape_max_body_bytes, http_redirect_max, http_pool_max_idle_per_host, webhook_post_timeout_secs, webhook_retry_base_delay_ms, webhook_max_attempts, heap_snapshot_max_bytes, heap_max_retainers, heap_max_edges, heap_max_paths, heap_max_path_depth, heap_max_class_nodes, heap_dominator_max_states, heap_outer_iters, heap_inner_iters, heap_final_iters, browser_close_wait_secs, platform_child_wait_secs, shutdown_poll_ms, shutdown_deadline_secs, lightpanda_poll_interval_ms, lightpanda_discovery_timeout_ms, lightpanda_max_log_lines, lightpanda_ready_slice_ms, lightpanda_cdp_connect_timeout_secs, lightpanda_target_init_timeout_secs, screencast_start_pump_iters, screencast_stop_pump_iters, mitm_list_limit_max, mitm_proxy_seconds_max, mitm_chrome_settle_ms, mitm_capture_wait_min_ms, mitm_capture_wait_max_ms, mitm_ws_frames_cap, mitm_ws_preview_chars, mitm_ca_cache_size, max_sg_file_bytes, scrape_crawl_limit_max, scrape_crawl_max_depth, scrape_search_limit_max, scrape_max_parse_bytes, retry_default_max_attempts, retry_base_delay_ms, retry_max_delay_secs, retry_budget_secs, retry_cdp_max_attempts, retry_cdp_base_delay_ms, retry_cdp_max_delay_secs, retry_cdp_budget_secs, retry_http_max_attempts, retry_http_base_delay_ms, retry_http_max_delay_secs, retry_http_budget_secs, retry_llm_max_attempts, retry_llm_base_delay_ms, retry_llm_max_delay_secs, retry_llm_budget_secs, eval_drain_slice_ms, support_settle_ms, nav_micro_settle_ms, perf_autostop_settle_ms, perf_trace_inner_slice_ms, perf_trace_outer_slice_ms, perf_trace_outer_iters, perf_trace_inner_iters, state_collect_deadline_secs, state_event_recv_secs, state_load_settle_ms, default_viewport_width, default_viewport_height
+- NUNCA `rediss://`; NUNCA logue segredos; NUNCA redis sem `cache_redis_url`
 
-```bash
-cat > /tmp/wait-formulas.jsonl <<'JSONL'
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"wait","ms":300}
-{"cmd":"wait","selector":"h1, main, #content","wait_timeout_ms":10000}
-{"cmd":"wait","selectors":["#app",".ready"],"wait_timeout_ms":10000}
-{"cmd":"wait","url":"https://example.com/","wait_timeout_ms":10000}
-{"cmd":"wait","url_contains":"example.com","wait_timeout_ms":10000}
-{"cmd":"wait","navigation":true,"wait_timeout_ms":10000}
-{"cmd":"wait","text":["Example","Domain"],"wait_timeout_ms":5000}
-JSONL
-browser-automation-cli --timeout 60 --json run --script /tmp/wait-formulas.jsonl
-# Em wait multi-seletor com sucesso, inspecione data.matched_selector quando presente
-```
-```bash
-cat > /tmp/isolated-formulas.jsonl <<'JSONL'
-{"cmd":"page","action":"new","url":"about:blank","isolated_context":true}
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"page","action":"new","url":"https://example.org","isolated_context":"sessao-b"}
-{"cmd":"reload","ignore_cache":true}
-{"cmd":"wait","url_contains":"example","wait_timeout_ms":10000}
-JSONL
-browser-automation-cli --timeout 90 --json run --script /tmp/isolated-formulas.jsonl
-```
+## Navegação / espera / snapshot / interação
+- DEVE executar `browser-automation-cli --timeout 60 --json goto https://example.com --init-script 'window.__x=1' --handle-before-unload accept --navigation-timeout-ms 15000`
+- DEVE executar `browser-automation-cli --json back`; `forward`; `reload --ignore-cache`
+- DEVE executar `browser-automation-cli --json wait --ms 500`; `wait --selector "h1, main, #content" --wait-timeout-ms 10000 --include-snapshot`; `wait --text Example --wait-timeout-ms 5000`; `wait --state networkidle --wait-timeout-ms 15000`
+- DEVE executar `browser-automation-cli --json view --detailed`; `view --path /tmp/view.txt --allow-empty` só se blank intencional
+- DEVE executar `browser-automation-cli --json press @e1 --dblclick --include-snapshot`; `--experimental-vision click-at --x 10 --y 20`
+- DEVE executar `browser-automation-cli --json write @e2 "olá"`; `keys Enter`; `type "olá" --target @e2 --clear --submit Enter`; `hover @e1`; `drag --from @e1 --to @e2`
+- DEVE executar `browser-automation-cli --json fill-form --fields-json '[{"target":"@e3","value":"x"}]'`; `upload @e4 /tmp/a.txt`; `submit "#user" --timeout-ms 8000 --include-snapshot`
+- DEVE executar `browser-automation-cli --json exec pick --target @e1 --option Anomalia`; `exec select-option --target @e2 --option Alta`; `scroll --delta-y 400 --delta-x 100`
+- NUNCA `--ignore-cache` em goto; NUNCA `view --verbose`; NUNCA `fill-form --json` payload
 
-## Snapshot / input / pick / select-option
+## Leitura / artefatos
+- DEVE executar `browser-automation-cli --json extract @e1 --attr href`; `--timeout 120 extract --llm --question "título?" --schema-json /tmp/s.json https://example.com`
+- DEVE executar `browser-automation-cli --json text @e1`; `attr @e1 href`; `eval 'document.title' --file-path /tmp/eval.json`; `eval '(el)=>el.textContent' --args '["@e1"]' --dialog-action accept`
+- DEVE executar `browser-automation-cli --json grab --path /tmp/p.png --format png --full-page`; `grab --path /tmp/p.webp --format webp --quality 80 --element @e1`
+- DEVE executar `browser-automation-cli --timeout 60 --json print-pdf --path /tmp/p.pdf --url https://example.com`
+- NUNCA grab avif; NUNCA omita `--path` em grab/print-pdf; NUNCA omita `--url` em print-pdf one-shot
 
-```bash
-browser-automation-cli --json view
-browser-automation-cli --json view --allow-empty
-browser-automation-cli --json view --path /tmp/view.txt --detailed
-browser-automation-cli --json press @e1 --include-snapshot
-browser-automation-cli --json press @e1 --dblclick
-browser-automation-cli --experimental-vision --json click-at --x 10 --y 20
-browser-automation-cli --experimental-vision --json click-at --x 10 --y 20 --dblclick --include-snapshot
-browser-automation-cli --json write @e2 "hello"
-browser-automation-cli --json write @e2 "true" --include-snapshot
-browser-automation-cli --json keys Enter
-browser-automation-cli --json keys Escape --include-snapshot
-browser-automation-cli --json type "hello" --target @e2 --clear --submit Enter
-browser-automation-cli --json type "world" --focus-only
-browser-automation-cli --json hover @e1
-browser-automation-cli --json drag --from @e1 --to @e2
-browser-automation-cli --json fill-form --fields-json '[{"target":"@e3","value":"x"}]'
-browser-automation-cli --json upload @e4 /tmp/file.txt
-# pick / select-option: nomes do inventário; SOMENTE via run ou exec (NÃO clap standalone; select custom / badge / popover / role=option)
-browser-automation-cli --json exec pick --target @e1 --option Anomalia
-browser-automation-cli --json exec select-option --target @e2 --option Alta
-```
+## Abas / cookies / storage / dialog / assert
+- DEVE executar `browser-automation-cli --json page list`; `page info`; `page new --isolated-context s-a --url https://example.com`; `page select 0 --bring-to-front`; `page close --index 1`; `page tab-id`
+- DEVE executar `browser-automation-cli --json cookie list --url https://example.com`; `cookie set --cookies-json '[{"name":"a","value":"b","url":"https://example.com"}]'`; `cookie clear`
+- DEVE executar `browser-automation-cli --json storage export --path /tmp/auth.json --url https://example.com`; `storage import --path /tmp/auth.json --url https://example.com`
+- DEVE executar `browser-automation-cli --json dialog accept --text Ana --if-present`; `dialog dismiss --if-present`
+- DEVE executar `browser-automation-cli --json assert url example.com --contains`; `assert text "Example" --target h1`; `--capture-console assert console-empty`; `--capture-console assert console-no-match --pattern TypeError`
 
-```bash
-cat > /tmp/pick-formulas.jsonl <<'JSONL'
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"wait","ms":400}
-{"cmd":"view"}
-{"cmd":"pick","target":"@e1","option":"Anomalia"}
-{"cmd":"select-option","target":"@e2","option":"Alta","include_snapshot":true}
-JSONL
-browser-automation-cli --timeout 90 --json run --script /tmp/pick-formulas.jsonl
-```
+## Console / rede
+- DEVE executar `browser-automation-cli --capture-console --json console list --types log,warning,error`; `console get 0`; `console clear`; `console dump --path /tmp/console.json`
+- DEVE executar `browser-automation-cli --capture-network --json net list --resource-types Document,XHR,Fetch`; `net get 0 --request-path /tmp/req.json --response-path /tmp/res.json`
+- DEVE capturar console/rede no MESMO processo dos comandos
 
-## Observação / print / assert / scroll / cookies / dialogs / eval
+## Scrape / coleta / locais
+- DEVE executar `browser-automation-cli --json scrape https://example.com --format markdown,links,metadata --engine http --only-main-content`
+- DEVE executar `browser-automation-cli --json scrape https://example.com --format summary --format product --format branding --engine browser`
+- DEVE executar `browser-automation-cli --timeout 120 --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 2`
+- DEVE executar `browser-automation-cli --json crawl https://example.com --limit 20 --max-depth 2 --format text --same-host`; `map https://example.com --limit 50`; `search "example domain" --limit 10`
+- DEVE executar `browser-automation-cli --json parse /tmp/doc.pdf`; `parse /tmp/planilha.ods --redact-pii`
+- DEVE executar `browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/b.baseline --write-baseline --engine http`
+- DEVE executar `browser-automation-cli --json qr encode --text https://example.com --format png --path /tmp/qr.png`; `qr decode --path /tmp/qr.png`
+- DEVE executar `browser-automation-cli --json find-paths --glob '**/*.rs' . --type f --limit 200`; `sg-scan . --limit 100`; `sg-rewrite .`; `sg-rewrite . --apply`; `sheet-write /tmp/rows.csv -o /tmp/out.xlsx --sheet Data`
+- DEVE contornar robots só com `browser-automation-cli --ignore-robots --i-accept-robots-risk --json scrape https://example.com --format text --engine http`
 
-```bash
-browser-automation-cli --json grab --path /tmp/page.png --full-page
-# print-pdf one-shot DEVE passar --url; SEM --url a CLI RECUSA blank about blank
-browser-automation-cli --timeout 60 --json print-pdf --path /tmp/page.pdf --url https://example.com
-# PROIBIDO one-shot blank: browser-automation-cli --json print-pdf --path /tmp/blank.pdf
-# Em run DEVE haver goto prévio OU campo "url" no passo print-pdf (recusa about blank sem conteúdo navegado)
-browser-automation-cli --json extract @e1
-browser-automation-cli --json extract @e1 --attr href
-browser-automation-cli --json extract --llm --question "Summarize the page" https://example.com
-browser-automation-cli --json extract --llm --question "What is the main title?" --schema-json /tmp/extract.schema.json https://example.com
-browser-automation-cli --json text @e2
-browser-automation-cli --json scroll --delta-y 400
-browser-automation-cli --json scroll --delta-x 100 --delta-y 200
-browser-automation-cli --json attr @e1 href
-browser-automation-cli --json attr @e1 value
-browser-automation-cli --json assert url https://example.com --contains
-browser-automation-cli --json assert text "Example"
-browser-automation-cli --capture-console --json assert console --level error
-browser-automation-cli --capture-console --json assert console-empty
-browser-automation-cli --capture-console --json assert console-no-match --pattern TypeError
-browser-automation-cli --json cookie list
-browser-automation-cli --json cookie set --cookies-json '[{"name":"a","value":"b","url":"https://example.com"}]'
-browser-automation-cli --json cookie clear
-browser-automation-cli --json dialog accept
-browser-automation-cli --json dialog accept --text "ok" --if-present
-browser-automation-cli --json dialog dismiss --if-present
-browser-automation-cli --json eval 'document.title'
-```
+## Emulação / perf / lighthouse / screencast / heap
+- DEVE executar `browser-automation-cli --json emulate --user-agent "Mozilla/5.0" --viewport "390x844x3,mobile,touch" --network-conditions "Slow 3G" --color-scheme dark`
+- DEVE executar `browser-automation-cli --json resize --width 1280 --height 720`; `perf start --path /tmp/trace.json --reload --auto-stop`; `perf stop --path /tmp/trace.json`; `perf insight --name DocumentLatency`
+- DEVE executar `browser-automation-cli --timeout 180 --json lighthouse https://example.com --out-dir /tmp/lh --device desktop --mode navigation` e ler `data.binary_source`
+- DEVE executar `browser-automation-cli --experimental-screencast --json screencast start --path /tmp/cast`; `screencast stop --path /tmp/cast.webm`
+- DEVE executar `browser-automation-cli --category-memory --json heap take --path /tmp/s.heapsnapshot`; `heap close --path /tmp/s.heapsnapshot`; `heap summary --path /tmp/s.heapsnapshot`
+- DEVE executar `browser-automation-cli --category-memory --json heap compare --base /tmp/a.heapsnapshot --current /tmp/b.heapsnapshot`; `heap details --path /tmp/s.heapsnapshot`; `heap class-nodes --path /tmp/s.heapsnapshot --id 7`
+- DEVE executar `browser-automation-cli --category-memory --json heap dominators --path /tmp/s.heapsnapshot --node 42`; `heap dup-strings --path /tmp/s.heapsnapshot`; `heap edges --path /tmp/s.heapsnapshot --node 42`; `heap retainers --path /tmp/s.heapsnapshot --node 42`; `heap paths --path /tmp/s.heapsnapshot --node 42`; `heap object-details --path /tmp/s.heapsnapshot --node 42`
+- NUNCA `emulate --device`; NUNCA `--node-id` (use `--node`)
 
-```bash
-cat > /tmp/print-pdf-formulas.jsonl <<'JSONL'
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"wait","ms":300}
-{"cmd":"print-pdf","path":"/tmp/run-page.pdf"}
-{"cmd":"print-pdf","path":"/tmp/run-page-url.pdf","url":"https://example.org"}
-JSONL
-browser-automation-cli --timeout 90 --json run --script /tmp/print-pdf-formulas.jsonl
-```
+## Extensões / terceiros / MITM / workflow
+- DEVE executar `browser-automation-cli --category-extensions --json extension list`; `extension install /tmp/ext`; `extension reload <id>`; `extension trigger <id>`; `extension uninstall <id>`
+- DEVE executar `browser-automation-cli --category-third-party --json devtools3p list --url https://example.com`; `devtools3p exec Tool --params '{}'`
+- DEVE executar `browser-automation-cli --category-webmcp --json webmcp list --url https://example.com`; `webmcp exec Tool --input '{}'`
+- DEVE executar `browser-automation-cli --json mitm init-ca`; `mitm start --seconds 30`; `mitm status`; `mitm list --limit 50`; `mitm get 0`; `mitm har --out /tmp/c.har`; `mitm export --format ndjson --out /tmp/c.ndjson`
+- DEVE executar `browser-automation-cli --json mitm domains`; `mitm apis`; `mitm graphql --limit 100`; `mitm ws list --limit 50`; `mitm ws get 0`
+- DEVE executar `browser-automation-cli --json mitm block --host example.com --path /ads`; `mitm allow --host example.com`; `mitm redact --secrets true`
+- DEVE executar `browser-automation-cli --timeout 60 --json mitm capture-url https://example.com --har /tmp/c.har`
+- DEVE executar `browser-automation-cli --json workflow run --manifest /tmp/wf.json --journal /tmp/wf.journal`; `workflow resume --manifest /tmp/wf.json`; `workflow status --name demo`
+- NUNCA mitm/extension install|uninstall em run
 
-## Captura (mesmo processo)
-
-```bash
-browser-automation-cli --capture-console --json console list
-browser-automation-cli --capture-console --json console get 0
-browser-automation-cli --capture-console --json console clear
-browser-automation-cli --capture-console --json console dump --path /tmp/console.json
-# dump vazio DEVE ser array JSON válido "[]"
-browser-automation-cli --capture-network --json net list
-browser-automation-cli --capture-network --json net get 0
-```
-
-```bash
-cat > /tmp/console-net.jsonl <<'JSONL'
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"wait","ms":400}
-{"cmd":"console","action":"list"}
-{"cmd":"console","action":"clear"}
-{"cmd":"console","action":"dump","path":"/tmp/console.json"}
-{"cmd":"net","action":"list","resource_types":"Document,XHR"}
-{"cmd":"assert","kind":"console_empty"}
-{"cmd":"assert","kind":"console_no_match","pattern":"TypeError"}
-JSONL
-browser-automation-cli --capture-console --capture-network --timeout 60 --json run --script /tmp/console-net.jsonl
-```
-
-## Scrape / crawl / map / search / parse / monitor / qr / find-paths
-
-```bash
-browser-automation-cli --json scrape https://example.com --format markdown --engine http
-browser-automation-cli --json scrape https://example.com --format markdown,links,metadata --engine http --only-main-content
-browser-automation-cli --json scrape https://example.com --format text --format html --engine browser
-browser-automation-cli --json scrape https://example.com --formats markdown --engine browser
-browser-automation-cli --json scrape https://example.com --format raw-html --engine browser
-browser-automation-cli --json scrape https://example.com --format links --engine browser
-browser-automation-cli --json scrape https://example.com --format metadata --engine browser
-browser-automation-cli --json scrape https://example.com --format screenshot --engine browser
-browser-automation-cli --json scrape https://example.com --format summary --engine browser
-browser-automation-cli --json scrape https://example.com --format product --engine browser
-browser-automation-cli --json scrape https://example.com --format branding --engine browser
-browser-automation-cli --json scrape https://example.com --format text --engine http --webhook-url https://127.0.0.1:9000/hook
-printf '%s\n' https://example.com https://example.org > /tmp/urls.txt
-browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 2
-browser-automation-cli --timeout 120 --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 1 --engine browser
-browser-automation-cli --json crawl https://example.com --limit 20 --max-depth 2 --format text
-browser-automation-cli --timeout 120 --json crawl https://example.com --limit 10 --max-depth 1 --format markdown --engine browser
-browser-automation-cli --json map https://example.com --limit 50 --max-depth 2
-browser-automation-cli --json search "example domain" --limit 10
-browser-automation-cli --json parse /tmp/page.html
-browser-automation-cli --json parse /tmp/page.md
-browser-automation-cli --json parse /tmp/page.txt
-browser-automation-cli --json parse /tmp/doc.pdf
-browser-automation-cli --json parse /tmp/doc.docx --redact-pii
-browser-automation-cli --json parse /tmp/sheet.xlsx
-browser-automation-cli --json parse /tmp/sheet.ods --redact-pii
-browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/example.baseline --write-baseline --engine http
-browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/example.baseline --engine http
-browser-automation-cli --json qr encode --text "https://example.com" --format png --path /tmp/qr.png
-browser-automation-cli --json qr decode --path /tmp/qr.png
-browser-automation-cli --json find-paths --glob '**/*.rs' .
-browser-automation-cli --json find-paths '\.rs$' . --extension rs --type f --limit 100
-browser-automation-cli --json find-paths '\.md$' . --hidden --no-ignore --max-depth 4 --extension md --type f --limit 50
-browser-automation-cli --json find-paths . --type d --max-depth 2 --limit 20
-browser-automation-cli --json find-paths --glob '**/*.{rs,toml}' . --type f --limit 200
-```
-
-## IO local — sheet-write / sg-scan / sg-rewrite (sem Chrome)
-
-```bash
-browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx
-browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx --sheet Data
-browser-automation-cli --json sheet-write /tmp/rows.json -o /tmp/out.xlsx --sheet Sheet1
-browser-automation-cli --json sg-scan .
-browser-automation-cli --json sg-scan . --limit 100
-browser-automation-cli --json sg-scan src tests --limit 500
-browser-automation-cli --json sg-rewrite .
-browser-automation-cli --json sg-rewrite . --apply
-browser-automation-cli --json sg-rewrite src
-```
-
-## Emulate / resize / perf / lighthouse / screencast / heap / extension / third-party / webmcp
-
-```bash
-browser-automation-cli --json emulate --user-agent "Mozilla/5.0" --viewport "390x844x3,mobile,touch" --network-conditions "Slow 3G"
-browser-automation-cli --json resize --width 1280 --height 720
-browser-automation-cli --json perf start
-browser-automation-cli --json perf stop --path /tmp/trace.json
-browser-automation-cli --json perf insight --name DocumentLatency
-browser-automation-cli --json lighthouse https://example.com
-browser-automation-cli --timeout 180 --json lighthouse https://example.com --lighthouse-path /usr/bin/lighthouse
-browser-automation-cli --timeout 180 --json lighthouse https://example.com --out-dir /tmp/lh --device desktop --mode navigation
-browser-automation-cli --timeout 180 --json lighthouse https://example.com | jaq '.data.binary_source // .binary_source // .'
-browser-automation-cli --experimental-screencast --json screencast start --path /tmp/cast
-browser-automation-cli --experimental-screencast --json screencast stop
-browser-automation-cli --category-memory --json heap take --path /tmp/snap.heapsnapshot
-browser-automation-cli --category-memory --json heap close
-browser-automation-cli --category-memory --json heap summary --path /tmp/snap.heapsnapshot
-browser-automation-cli --category-memory --json heap compare --base /tmp/a.heapsnapshot --current /tmp/b.heapsnapshot
-browser-automation-cli --category-memory --json heap details --path /tmp/snap.heapsnapshot
-browser-automation-cli --category-memory --json heap class-nodes --path /tmp/snap.heapsnapshot
-browser-automation-cli --category-memory --json heap dominators --path /tmp/snap.heapsnapshot
-browser-automation-cli --category-memory --json heap dup-strings --path /tmp/snap.heapsnapshot
-browser-automation-cli --category-memory --json heap edges --path /tmp/snap.heapsnapshot --node-id 1
-browser-automation-cli --category-memory --json heap retainers --path /tmp/snap.heapsnapshot --node-id 1
-browser-automation-cli --category-memory --json heap paths --path /tmp/snap.heapsnapshot --node-id 1
-browser-automation-cli --category-memory --json heap object-details --path /tmp/snap.heapsnapshot --node-id 1
-# extension install|uninstall DEVE rodar no top-level com --category-extensions (FORA de run)
-browser-automation-cli --category-extensions --json extension list
-browser-automation-cli --category-extensions --json extension install --path /tmp/ext
-browser-automation-cli --category-extensions --json extension reload --id <ext-id>
-browser-automation-cli --category-extensions --json extension trigger --id <ext-id>
-browser-automation-cli --category-extensions --json extension uninstall --id <ext-id>
-# PROIBIDO dentro de run --script: {"cmd":"extension","action":"install",...} e uninstall
-browser-automation-cli --category-third-party --json devtools3p list
-browser-automation-cli --category-third-party --json devtools3p exec SomeTool --params '{}'
-browser-automation-cli --category-webmcp --json webmcp list
-browser-automation-cli --category-webmcp --json webmcp exec SomeTool --input '{}'
-```
-
-## MITM (somente 127.0.0.1)
-
-```bash
-browser-automation-cli --json mitm init-ca
-browser-automation-cli --json mitm start --seconds 30
-browser-automation-cli --timeout 60 --json mitm capture-url https://example.com --seconds 30 --har /tmp/capture.har
-browser-automation-cli --json mitm status
-browser-automation-cli --json mitm list --limit 50
-browser-automation-cli --json mitm get 0
-browser-automation-cli --json mitm har --out /tmp/capture.har
-browser-automation-cli --json mitm export --out /tmp/capture.json
-browser-automation-cli --json mitm domains
-browser-automation-cli --json mitm apis
-browser-automation-cli --json mitm graphql
-browser-automation-cli --json mitm ws
-browser-automation-cli --json mitm block example.com
-browser-automation-cli --json mitm allow example.com
-browser-automation-cli --json mitm redact
-```
-
-## Workflow / config / run / exec
-
-```bash
-browser-automation-cli --json workflow run --manifest /tmp/wf.json
-browser-automation-cli --json workflow resume --manifest /tmp/wf.json
-browser-automation-cli --json workflow status --name demo
-browser-automation-cli config init --json
-browser-automation-cli config path --json
-browser-automation-cli config show --json
-browser-automation-cli config list-keys --json
-browser-automation-cli config get timeout --json
-browser-automation-cli config set lang en --json
-browser-automation-cli config set timeout 90 --json
-browser-automation-cli config set artifacts_dir /tmp/browser-automation-cli-artifacts --json
-browser-automation-cli config set ignore_robots false --json
-browser-automation-cli config set namespace demo --json
-browser-automation-cli config set encryption_key "replace-me" --json
-browser-automation-cli config set color true --json
-browser-automation-cli config set log_level info --json
-browser-automation-cli config set log_to_file false --json
-browser-automation-cli config set chrome_path /usr/bin/google-chrome --json
-browser-automation-cli config set lighthouse_path /usr/bin/lighthouse --json
-browser-automation-cli config set openrouter_api_key "replace-me" --json
-browser-automation-cli config set llm_base_url "https://openrouter.ai/api/v1" --json
-browser-automation-cli config set llm_model "openai/gpt-4o-mini" --json
-browser-automation-cli config set cache_backend sqlite --json
-browser-automation-cli config set cache_backend memory --json
-browser-automation-cli config set cache_backend redis --json
-browser-automation-cli config set cache_redis_url "redis://127.0.0.1:6379" --json
-# PROIBIDO: rediss:// (TLS fail-closed; só redis:// plain)
-browser-automation-cli --timeout 60 --json run --script /tmp/steps.jsonl
-browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/steps.jsonl
-browser-automation-cli --timeout 60 --json run --script /tmp/steps.array.json
-browser-automation-cli --json exec goto https://example.com
-browser-automation-cli --json exec wait --ms 500
-browser-automation-cli --json exec pick --target @e1 --option Anomalia
-```
-
-## Templates multi-passo NDJSON
-
-```bash
-cat > /tmp/demo.browser-automation.jsonl <<'JSONL'
-{"cmd":"page","action":"new","url":"about:blank","isolated_context":true}
-{"cmd":"goto","url":"https://example.com","init_script":"window.__x=1","handle_before_unload":"accept","navigation_timeout_ms":15000}
-{"cmd":"wait","ms":500}
-{"cmd":"wait","selector":"h1, main","wait_timeout_ms":10000}
-{"cmd":"wait","url_contains":"example.com"}
-{"cmd":"view"}
-{"cmd":"scroll","dy":400}
-{"cmd":"assert","kind":"url","url_contains":"example.com"}
-{"cmd":"print-pdf","path":"/tmp/example.pdf"}
-{"cmd":"grab","path":"/tmp/example.png"}
-{"cmd":"reload","ignore_cache":true}
-JSONL
-browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automation.jsonl
-browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.browser-automation.jsonl
-```
-
-```bash
-cat > /tmp/form.browser-automation.jsonl <<'JSONL'
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"wait","ms":500}
-{"cmd":"view"}
-{"cmd":"fill-form","fields":[{"target":"@e3","value":"x"}]}
-{"cmd":"write","target":"@e1","value":"hello"}
-{"cmd":"pick","target":"@e4","option":"Anomalia"}
-{"cmd":"select-option","target":"@e5","option":"Alta"}
-{"cmd":"press","target":"@e2"}
-{"cmd":"dialog","action":"dismiss","if_present":true}
-{"cmd":"grab","path":"/tmp/form.png"}
-JSONL
-browser-automation-cli --timeout 90 --json run --script /tmp/form.browser-automation.jsonl
-```
-
-```bash
-cat > /tmp/net.browser-automation.jsonl <<'JSONL'
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"wait","ms":400}
-{"cmd":"net","action":"list","resource_types":"Document,XHR"}
-JSONL
-browser-automation-cli --capture-network --timeout 60 --json run --script /tmp/net.browser-automation.jsonl
-```
-
-```bash
-cat > /tmp/console.browser-automation.jsonl <<'JSONL'
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"wait","ms":400}
-{"cmd":"console","action":"list"}
-{"cmd":"console","action":"dump","path":"/tmp/console.json"}
-{"cmd":"assert","kind":"console_empty"}
-JSONL
-browser-automation-cli --capture-console --timeout 60 --json run --script /tmp/console.browser-automation.jsonl
-```
-
-## Templates multi-passo array JSON (OBRIGATÓRIO)
-
-```bash
-cat > /tmp/demo.array.json <<'JSON'
-[
-  {"cmd":"goto","url":"https://example.com"},
-  {"cmd":"wait","ms":500},
-  {"cmd":"wait","selector":"h1, main","wait_timeout_ms":10000},
-  {"cmd":"view"},
-  {"cmd":"scroll","dy":400},
-  {"cmd":"assert","kind":"url","url_contains":"example.com"},
-  {"cmd":"print-pdf","path":"/tmp/example-array.pdf"},
-  {"cmd":"grab","path":"/tmp/example-array.png"}
-]
-JSON
-browser-automation-cli --timeout 60 --json run --script /tmp/demo.array.json
-browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.array.json
-```
-
-```bash
-cat > /tmp/form.array.json <<'JSON'
-[
-  {"cmd":"goto","url":"https://example.com"},
-  {"cmd":"wait","ms":500},
-  {"cmd":"view"},
-  {"cmd":"fill-form","fields":[{"target":"@e3","value":"x"}]},
-  {"cmd":"write","target":"@e1","value":"hello"},
-  {"cmd":"pick","target":"@e4","option":"Anomalia"},
-  {"cmd":"press","target":"@e2"},
-  {"cmd":"grab","path":"/tmp/form-array.png"}
-]
-JSON
-browser-automation-cli --timeout 90 --json run --script /tmp/form.array.json
-```
-
-## Inspeção fail-fast data.steps
-
-```bash
-cat > /tmp/failfast.browser-automation.jsonl <<'JSONL'
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"wait","ms":200}
-{"cmd":"view"}
-{"cmd":"assert","kind":"url","url_contains":"this-must-not-match.invalid"}
-{"cmd":"grab","path":"/tmp/never.png"}
-JSONL
-set +e
-out=$(browser-automation-cli -q --timeout 60 --json run --script /tmp/failfast.browser-automation.jsonl 2>/dev/null)
-code=$?
-set -e
-echo "$out" | jaq -e '.ok == false'
-echo "$out" | jaq -e '(.data.steps | type) == "array"'
-echo "$out" | jaq -r '.error.message // empty'
-echo "$out" | jaq -r '.data.steps | map(.cmd) | @json'
-echo "exit=$code"
-```
-
-## Template workflow JSON
-
-```bash
-cat > /tmp/wf.json <<'JSON'
-{"name":"demo","steps":[{"id":"ping","cmd":"echo","args":{"message":"start"}}]}
-JSON
-browser-automation-cli --json workflow run --manifest /tmp/wf.json
-browser-automation-cli --json workflow resume --manifest /tmp/wf.json
-browser-automation-cli --json workflow status --name demo
-```
-
-## Robots dual-flag
-
-```bash
-browser-automation-cli --json scrape https://example.com --format text --engine http
-browser-automation-cli --ignore-robots --i-accept-robots-risk --json scrape https://example.com --format text --engine http
-```
-
-## Logging (só flags ou XDG)
-
-```bash
-browser-automation-cli --verbose --json version
-browser-automation-cli --debug --json doctor --offline --quick
-browser-automation-cli -q --json version
-browser-automation-cli config set log_level debug --json
-browser-automation-cli config set log_to_file true --json
-browser-automation-cli config set log_to_file false --json
-```
-
-## Setup cache Redis XDG (só redis:// plain)
-
-```bash
-browser-automation-cli config set cache_backend redis --json
-browser-automation-cli config set cache_redis_url "redis://127.0.0.1:6379" --json
-browser-automation-cli config get cache_backend --json
-browser-automation-cli config get cache_redis_url --json
-browser-automation-cli config list-keys --json
-browser-automation-cli doctor --offline --quick --json
-# PROIBIDO: config set cache_redis_url "rediss://..."  (TLS fail-closed)
-# SEMPRE fallback com: config set cache_backend sqlite
-```
-
-## Inspeção lighthouse binary_source
-
-```bash
-browser-automation-cli --timeout 180 --json lighthouse https://example.com \
-  | jaq '.data.binary_source // .binary_source // .'
-browser-automation-cli config set lighthouse_path /usr/bin/lighthouse --json
-browser-automation-cli --timeout 180 --json lighthouse https://example.com --lighthouse-path /usr/bin/lighthouse \
-  | jaq -e '.ok == true'
-# Ordem de resolve OBRIGATÓRIA: flag → XDG lighthouse_path → PATH
-# Envelope binary_source DEVE ser real|mock
-```
-
-## Envelope usage clap com --json já no argv
-
-```bash
-# Quando --json já está no argv, erros de usage do clap DEVE sair como envelope JSON no stdout
-set +e
-out=$(browser-automation-cli -q --json goto 2>/dev/null)
-code=$?
-set -e
-echo "$out" | jaq -e '.ok == false'
-echo "$out" | jaq -e '.error.kind == "usage"'
-echo "exit=$code"
-# DEVE ser exit 2
-set +e
-out=$(browser-automation-cli -q --json schema nonexistentcmd 2>/dev/null)
-set -e
-echo "$out" | jaq -e '.ok == false and .error.kind == "usage"'
-```
-
-## Verificação residual-zero em disco (OBRIGATÓRIO após trabalho de browser)
-
-```bash
-# SEMPRE one-shot residual-zero. APÓS DIE de browser quando idle, residual_disk DEVE mostrar zeros.
-browser-automation-cli -q --timeout 60 --json goto https://example.com
-out=$(browser-automation-cli -q doctor --offline --quick --json)
-echo "$out" | jaq -e '.ok == true'
-echo "$out" | jaq -e '.data.residual.cli_marker_dirs == 0'
-echo "$out" | jaq -e '.data.residual.chromium_tmp_singleton_orphans == 0'
-echo "$out" | jaq -e '.data.residual.live_cli_marker_processes == 0'
-echo "$out" | jaq -e '(.data.residual.scavenge_safe_candidates | type) == "number"'
-echo "$out" | jaq -e '[.data.checks[] | select(.id=="residual_disk") | .status][0] == "pass"'
-# BORN faz scavenge de dirs temp Singleton-only do Chromium (idade ≥60s, owned, sem holder vivo)
-# FINALIZE mata markers CLI Chrome e dual-scavenge de Chromium tmp owned + GC Singleton stale
-# NUNCA mate Chrome do usuário host / Flatpak Chrome
-browser-automation-cli --timeout 60 --json print-pdf --path /tmp/residual.pdf --url https://example.com
-browser-automation-cli doctor --offline --quick --json | jaq -e '.data.residual.cli_marker_dirs == 0 and .data.residual.chromium_tmp_singleton_orphans == 0'
-```
-
-## Checklist de inventário (63 nomes)
-
-doctor commands schema version locale goto view press click-at write keys type wait hover drag fill-form select-option pick upload back forward reload eval grab print-pdf monitor run exec extract text scroll cookie attr assert console net page dialog scrape batch-scrape crawl map search parse qr find-paths sg-scan sg-rewrite sheet-write mitm workflow config emulate resize perf lighthouse screencast heap extension devtools3p webmcp completions man
-
-DEVE confirmar exatamente 63 nomes acima. NUNCA invente alias `bac`. DEVE carregar ao menos uma linha executável por nome neste catálogo.
-DEVE executar `pick` / `select-option` somente dentro de `run` / `exec`.
+## exec / run / residual
+- DEVE executar `browser-automation-cli --json exec goto https://example.com`; `exec wait --selector h1 --wait-timeout-ms 2000`; `exec submit --target "#user" --timeout-ms 8000`; `exec pick --target @e1 --option Anomalia`; `exec select-option --target @e2 --option Alta`; `exec scrape --url https://example.com --format text`
+- DEVE executar `browser-automation-cli --timeout 90 --json --json-steps run --script /tmp/steps.jsonl`
+- DEVE serializar `{"cmd":"goto","url":"https://example.com","handle_before_unload":"accept","navigation_timeout_ms":15000}`, `{"cmd":"wait","selector":"h1, main, #content","wait_timeout_ms":10000}`, `{"cmd":"view","verbose":true}`, `{"cmd":"write","target":"@e1","value":"olá"}`, `{"cmd":"submit","target":"#user","timeout_ms":8000}`, `{"cmd":"scrape","url":"https://example.com","format":"text"}`, `{"cmd":"pick","target":"@e1","option":"Anomalia"}`, `{"cmd":"select-option","target":"@e2","option":"Alta"}`, `{"cmd":"dialog","action":"accept","if_present":true}`, `{"cmd":"grab","path":"/tmp/p.png","format":"png","full_page":true}`, `{"cmd":"print-pdf","path":"/tmp/p.pdf"}`, `{"cmd":"assert","kind":"url","url_contains":"example.com"}`, `{"cmd":"scroll","dy":400}`, `{"cmd":"page","action":"new","isolated_context":true}`
+- DEVE validar residual com `browser-automation-cli -q --json doctor --offline --quick` — zeros em `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `live_cli_marker_processes`; `residual_disk` pass
+- NUNCA trate exec como multi-passo; NUNCA divida `@eN` entre processos; NUNCA mate Chrome do usuário

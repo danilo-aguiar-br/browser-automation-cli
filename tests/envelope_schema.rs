@@ -69,9 +69,35 @@ fn global_flags_present_in_root_help() {
         "--step-timeout",
         "--headed",
         "--json",
+        "--correlation-id",
     ] {
         assert!(help.contains(needle), "root help missing {needle}");
     }
+}
+
+#[test]
+fn correlation_id_echoed_on_success_envelope() {
+    let assert = cargo_bin_cmd!("browser-automation-cli")
+        .args(["--json", "--correlation-id", "agent-corr-1", "version"])
+        .assert()
+        .success();
+    let v = parse_stdout(&assert);
+    assert_eq!(v["schema_version"], 1);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["correlation_id"], "agent-corr-1");
+}
+
+#[test]
+fn correlation_id_omitted_when_unset() {
+    let assert = cargo_bin_cmd!("browser-automation-cli")
+        .args(["--json", "version"])
+        .assert()
+        .success();
+    let v = parse_stdout(&assert);
+    assert!(
+        v.get("correlation_id").is_none(),
+        "must omit correlation_id when unset: {v}"
+    );
 }
 
 #[test]

@@ -3,26 +3,62 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/goto.schema.json",
   "title": "goto command input",
   "type": "object",
-  "description": "Navigate to URL and wait for load (one-shot)",
+  "description": "Navigate to a URL (one-shot)",
   "properties": {
     "handle_before_unload": {
-      "description": "Auto-handle beforeunload via CDP: accept | dismiss (GAP-003; CLI flag alone defaults to accept; never injects preventDefault)",
+      "argv": "--handle-before-unload",
+      "description": "Auto-handle beforeunload: accept | dismiss (GAP-003; flag alone = accept)",
       "enum": [
         "accept",
         "dismiss"
       ],
+      "required": false,
+      "source": "parser",
+      "step_key": "handle_before_unload",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "init_script": {
+      "argv": "--init-script",
       "description": "JS to evaluate before navigation (tool-ref initScript)",
+      "required": false,
+      "source": "parser",
+      "step_key": "init_script",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "navigation_timeout_ms": {
+      "argv": "--navigation-timeout-ms",
       "description": "Navigation timeout override in milliseconds",
+      "required": false,
+      "source": "parser",
+      "step_key": "navigation_timeout_ms",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     },
     "url": {
-      "description": "Absolute URL or about:blank",
+      "argv": "<URL>",
+      "description": "Absolute URL to navigate to (robots.txt is honoured unless overridden)",
+      "required": true,
+      "source": "parser",
+      "step_key": "url",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

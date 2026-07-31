@@ -1,0 +1,21 @@
+<!doctype html>
+<!--
+  Destination of scripts/fixtures/submit_form/login.html.
+
+  Reaching this page is only half the evidence; the query string is the other
+  half, because `token=EVENT_RAN` can only have been appended by the form's
+  submit handler.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>landed</title>
+  </head>
+  <body>
+    <h1 id="landed">landed</h1>
+    <pre id="query"></pre>
+    <script>
+      document.getElementById('query').textContent = location.search;
+    </script>
+  </body>
+</html>

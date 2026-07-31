@@ -23,14 +23,21 @@ use serde_json::Value;
 
 use crate::error::{CliError, ErrorKind};
 
-/// Hard ceiling for a single JSON / NDJSON **script or manifest** file (untrusted path).
-pub const MAX_JSON_FILE_BYTES: u64 = 32 * 1024 * 1024;
+/// Default ceiling for a single JSON / NDJSON **script or manifest** file.
+///
+/// Prefer [`crate::xdg::resolve_max_json_file_bytes`] at product call sites so
+/// operators can raise/lower via `config set max_json_file_bytes`.
+pub const MAX_JSON_FILE_BYTES: u64 = crate::constants::DEFAULT_MAX_JSON_FILE_BYTES;
 
-/// Hard ceiling for one NDJSON line (DoS / accidental multi-MB line).
-pub const MAX_NDJSON_LINE_BYTES: usize = 1024 * 1024;
+/// Default ceiling for one NDJSON line (DoS / accidental multi-MB line).
+///
+/// Prefer [`crate::xdg::resolve_max_ndjson_line_bytes`] at product call sites.
+pub const MAX_NDJSON_LINE_BYTES: usize = crate::constants::DEFAULT_MAX_NDJSON_LINE_BYTES;
 
-/// Soft ceiling for CLI flag payloads (`--fields-json`, cookie JSON, etc.).
-pub const MAX_CLI_JSON_PAYLOAD_BYTES: usize = 4 * 1024 * 1024;
+/// Default ceiling for CLI flag payloads (`--fields-json`, cookie JSON, etc.).
+///
+/// Prefer [`crate::xdg::resolve_max_cli_json_payload_bytes`] at product call sites.
+pub const MAX_CLI_JSON_PAYLOAD_BYTES: usize = crate::constants::DEFAULT_MAX_CLI_JSON_PAYLOAD_BYTES;
 
 /// UTF-8 BOM (`U+FEFF`) as bytes.
 const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
@@ -72,20 +79,33 @@ pub fn value_from_str(s: &str) -> Result<Value, serde_json::Error> {
 pub fn map_parse_err(ctx: &str, e: &serde_json::Error) -> CliError {
     CliError::new(
         ErrorKind::Data,
-        format!("{ctx}: invalid JSON (line {} column {}): {e}", e.line(), e.column()),
+        format!(
+            "{ctx}: invalid JSON (line {} column {}): {e}",
+            e.line(),
+            e.column()
+        ),
     )
 }
 
 /// Parse CLI flag / inline payload JSON with size guard + BOM strip.
+///
+/// Ceiling comes from XDG `max_cli_json_payload_bytes` (default
+/// [`MAX_CLI_JSON_PAYLOAD_BYTES`]). Use [`parse_cli_json_value_max`] only when
+/// the caller already resolved a budget (e.g. tests with a fixed max).
 pub fn parse_cli_json_value(raw: &str, ctx: &str) -> Result<Value, CliError> {
-    if raw.len() > MAX_CLI_JSON_PAYLOAD_BYTES {
+    parse_cli_json_value_max(raw, ctx, crate::xdg::resolve_max_cli_json_payload_bytes())
+}
+
+/// Parse CLI flag / inline payload JSON with an explicit size ceiling + BOM strip.
+pub fn parse_cli_json_value_max(raw: &str, ctx: &str, max_bytes: usize) -> Result<Value, CliError> {
+    if raw.len() > max_bytes {
         return Err(CliError::with_suggestion(
             ErrorKind::Data,
             format!(
-                "{ctx}: JSON payload too large ({} bytes > {MAX_CLI_JSON_PAYLOAD_BYTES})",
+                "{ctx}: JSON payload too large ({} bytes > {max_bytes})",
                 raw.len()
             ),
-            "Pass a smaller payload or a file path when the command supports one",
+            "Pass a smaller payload, a file path when supported, or raise via: config set max_cli_json_payload_bytes <n>",
         ));
     }
     value_from_str(raw).map_err(|e| map_parse_err(ctx, &e))
@@ -95,12 +115,8 @@ pub fn parse_cli_json_value(raw: &str, ctx: &str) -> Result<Value, CliError> {
 ///
 /// Returns the file body **without** a leading BOM (stripped after read).
 pub fn read_text_file_limited(path: &Path, max_bytes: u64) -> Result<String, CliError> {
-    let meta = fs::metadata(path).map_err(|e| {
-        CliError::new(
-            ErrorKind::Io,
-            format!("stat {}: {e}", path.display()),
-        )
-    })?;
+    let meta = fs::metadata(path)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("stat {}: {e}", path.display())))?;
     let len = meta.len();
     if len > max_bytes {
         return Err(CliError::with_suggestion(
@@ -120,20 +136,13 @@ pub fn read_text_file_limited(path: &Path, max_bytes: u64) -> Result<String, Cli
             format!("reserve {} bytes for {}: {e}", len, path.display()),
         )
     })?;
-    let file = File::open(path).map_err(|e| {
-        CliError::new(
-            ErrorKind::Io,
-            format!("open {}: {e}", path.display()),
-        )
-    })?;
+    let file = File::open(path)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("open {}: {e}", path.display())))?;
     let mut reader = io::BufReader::new(file);
     use std::io::Read;
-    reader.read_to_string(&mut raw).map_err(|e| {
-        CliError::new(
-            ErrorKind::Io,
-            format!("read {}: {e}", path.display()),
-        )
-    })?;
+    reader
+        .read_to_string(&mut raw)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("read {}: {e}", path.display())))?;
     // Own a BOM-free string for downstream `from_str` / line iterators.
     if raw.starts_with('\u{FEFF}') {
         Ok(raw.trim_start_matches('\u{FEFF}').to_string())
@@ -145,9 +154,7 @@ pub fn read_text_file_limited(path: &Path, max_bytes: u64) -> Result<String, Cli
 /// Read + parse a typed JSON file (BOM + size limited).
 pub fn read_json_file<T: DeserializeOwned>(path: &Path, max_bytes: u64) -> Result<T, CliError> {
     let raw = read_text_file_limited(path, max_bytes)?;
-    from_str(&raw).map_err(|e| {
-        map_parse_err(&format!("parse {}", path.display()), &e)
-    })
+    from_str(&raw).map_err(|e| map_parse_err(&format!("parse {}", path.display()), &e))
 }
 
 /// Read + parse a dynamic JSON [`Value`] from a file.
@@ -155,16 +162,28 @@ pub fn read_json_value_file(path: &Path, max_bytes: u64) -> Result<Value, CliErr
     read_json_file(path, max_bytes)
 }
 
-/// Reject an NDJSON line that exceeds the per-line ceiling.
+/// Reject an NDJSON line that exceeds the **default** per-line ceiling.
+///
+/// Prefer [`check_ndjson_line_len_max`] with
+/// [`crate::xdg::resolve_max_ndjson_line_bytes`] on product paths.
 pub fn check_ndjson_line_len(line: &str, lineno: usize) -> Result<(), CliError> {
-    if line.len() > MAX_NDJSON_LINE_BYTES {
+    check_ndjson_line_len_max(line, lineno, MAX_NDJSON_LINE_BYTES)
+}
+
+/// Reject an NDJSON line that exceeds an explicit per-line ceiling.
+pub fn check_ndjson_line_len_max(
+    line: &str,
+    lineno: usize,
+    max_bytes: usize,
+) -> Result<(), CliError> {
+    if line.len() > max_bytes {
         return Err(CliError::with_suggestion(
             ErrorKind::Data,
             format!(
-                "NDJSON line {lineno}: line too large ({} bytes > {MAX_NDJSON_LINE_BYTES})",
+                "NDJSON line {lineno}: line too large ({} bytes > {max_bytes})",
                 line.len()
             ),
-            "Split the record or use a whole-file JSON array for large steps",
+            "Split the record, use a whole-file JSON array, or raise via: config set max_ndjson_line_bytes <n>",
         ));
     }
     Ok(())
@@ -172,9 +191,8 @@ pub fn check_ndjson_line_len(line: &str, lineno: usize) -> Result<(), CliError> 
 
 /// Serialize `value` as **compact** JSON (machine interop; never pretty).
 pub fn to_compact_string<T: Serialize>(value: &T) -> Result<String, CliError> {
-    serde_json::to_string(value).map_err(|e| {
-        CliError::new(ErrorKind::Software, format!("json encode: {e}"))
-    })
+    serde_json::to_string(value)
+        .map_err(|e| CliError::new(ErrorKind::Software, format!("json encode: {e}")))
 }
 
 /// Atomic JSON write: temp file in same directory → `BufWriter` → flush → rename.
@@ -186,6 +204,8 @@ pub fn write_json_file_atomic<T: Serialize>(
     value: &T,
     pretty: bool,
 ) -> Result<(), CliError> {
+    // GAP-026: every JSON artifact lands inside an allowed root.
+    crate::fs_roots::ensure_write_allowed(path)?;
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).map_err(|e| {
@@ -212,20 +232,18 @@ pub fn write_json_file_atomic<T: Serialize>(
         })?;
         let mut writer = BufWriter::new(file);
         if pretty {
-            serde_json::to_writer_pretty(&mut writer, value).map_err(|e| {
-                CliError::new(ErrorKind::Software, format!("json encode: {e}"))
-            })?;
+            serde_json::to_writer_pretty(&mut writer, value)
+                .map_err(|e| CliError::new(ErrorKind::Software, format!("json encode: {e}")))?;
         } else {
-            serde_json::to_writer(&mut writer, value).map_err(|e| {
-                CliError::new(ErrorKind::Software, format!("json encode: {e}"))
-            })?;
+            serde_json::to_writer(&mut writer, value)
+                .map_err(|e| CliError::new(ErrorKind::Software, format!("json encode: {e}")))?;
         }
-        writer.write_all(b"\n").map_err(|e| {
-            CliError::new(ErrorKind::Io, format!("json trailing newline: {e}"))
-        })?;
-        writer.flush().map_err(|e| {
-            CliError::new(ErrorKind::Io, format!("json flush: {e}"))
-        })?;
+        writer
+            .write_all(b"\n")
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("json trailing newline: {e}")))?;
+        writer
+            .flush()
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("json flush: {e}")))?;
         writer
             .into_inner()
             .map_err(|e| CliError::new(ErrorKind::Io, format!("json into_inner: {e}")))?

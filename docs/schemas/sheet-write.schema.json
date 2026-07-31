@@ -3,15 +3,40 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/sheet-write.schema.json",
   "title": "sheet-write command input",
   "type": "object",
-  "description": "Write XLSX from CSV/JSON (write-only; no Chrome)",
+  "description": "Write a simple XLSX workbook from CSV/JSON (one-shot; §5Z / GAP-A011)",
   "properties": {
     "input": {
+      "argv": "<INPUT>",
+      "description": "Input path (.csv or .json array-of-objects)",
+      "required": true,
+      "source": "parser",
+      "step_key": "input",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "out": {
+      "argv": "--out",
+      "description": "Output .xlsx path",
+      "required": true,
+      "source": "parser",
+      "step_key": "out",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "sheet": {
+      "argv": "--sheet",
+      "default": "Sheet1",
+      "description": "Worksheet name",
+      "required": false,
+      "source": "parser",
+      "step_key": "sheet",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     }
   },

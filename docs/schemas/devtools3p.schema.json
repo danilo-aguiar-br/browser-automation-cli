@@ -3,22 +3,95 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/devtools3p.schema.json",
   "title": "devtools3p command input",
   "type": "object",
-  "description": "Third-party tools surface (requires --category-third-party)",
+  "description": "Third-party developer tools surface (requires --category-third-party)",
   "properties": {
     "action": {
+      "actions": {
+        "exec": {
+          "description": "Execute one third-party developer tool by name",
+          "properties": {
+            "name": {
+              "argv": "<NAME>",
+              "description": "Tool name from `devtools3p list`",
+              "required": true,
+              "source": "parser",
+              "step_key": "name",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "argv": "--params",
+              "description": "JSON object passed to the tool",
+              "required": false,
+              "source": "parser",
+              "step_key": "params",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "argv": "--url",
+              "description": "Page URL to open before executing",
+              "required": false,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "list": {
+          "description": "List third-party developer tools exposed by the page",
+          "properties": {
+            "url": {
+              "argv": "--url",
+              "description": "Optional page URL to open before discovery",
+              "required": false,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "list",
         "exec"
       ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "name": {
+      "source": "catalog",
+      "step_key": "name",
+      "surfaces": [],
       "type": "string"
     },
     "params": {
+      "source": "catalog",
+      "step_key": "params",
+      "surfaces": [],
       "type": "string"
     },
     "url": {
+      "source": "catalog",
+      "step_key": "url",
+      "surfaces": [],
       "type": "string"
     }
   },

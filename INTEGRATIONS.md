@@ -23,7 +23,8 @@
 - `0.1.2` closes agent-first gaps and adds `print-pdf`, `monitor`, `qr`, `find-paths`, parse document types, extract LLM, and expanded config keys
 - `0.1.3` hard-closes residual-zero and agent contracts: NDJSON|JSON-array `run`, CDP reload/beforeunload/init_script, Redis/Lighthouse honesty, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 clap top-level; 53 e2e DevTools tools)
 - `0.1.4` hard-closes GAP-001…025: `--json-steps`, wait multi/url, `select-option`/`pick` run cmds, assert console kinds, `schema <cmd>` positional, MITM `capture-url` + global `--mitm*`, multi-format scrape, batch/crawl `--engine browser`, clap JSON usage errors
-- `0.1.5` hard-closes residual-zero disk (RES-01…12): BORN auto-GC of stale Singleton-only Chromium `/tmp` dirs (age floor 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + top-level `residual` (`ResidualDiskReport`), never kills host Flatpak Chrome; inventory honesty with `locale`/`man` (**63** agent names via `commands --json`; clap top-level **61** without `select-option`/`pick` standalone)
+- `0.1.5` hard-closes residual-zero disk (RES-01…12): BORN auto-GC of stale Singleton-only Chromium `/tmp` dirs (age floor 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + top-level `residual` (`ResidualDiskReport`), never kills host Flatpak Chrome; inventory honesty with `locale`/`man`
+- `0.1.6` hard-closes agent dialog/select/scrape/wait confidence: `dialog_settled` bool + XDG `dialog_settle_ms`, multi-tab dialog `session_id` isolation with e2e gate, native select `input`+`change`, `wait_timeout_ms` in `run`, scrape `format`/`formats` in `run`, grab `png|jpeg|webp` only (AVIF encode removed); inventory **65** names via `commands --json` (includes `submit`, `storage`, `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (lighthouse mock honest SKIP)
 - Experimental tools require `--experimental-vision` or `--experimental-screencast`
 
 ## Summary Table
@@ -119,6 +120,16 @@ echo "$out" | jaq -e '.ok == true'
   - BORN auto-GC: `scavenge_stale_singleton_orphans` of `/tmp` `org.chromium.Chromium.*` Singleton-only dirs older than 60s
   - FINALIZE dual scavenge + re-scan of owned marker dirs (prefix `browser-automation-cli-chrome-`); never kills host Flatpak Chrome
   - Doctor check `residual_disk` + top-level JSON field `residual` (`ResidualDiskReport`): `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
-  - Local residual gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (local only; no CI requirement)
+  - Local residual gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (local only)
   - Discovery honesty: inventory includes `locale` and `man`
-  - Inventory: **63** agent names via `commands --json` (includes `locale`, `man`, `select-option`, `pick`); clap top-level **61** without `select-option`/`pick` as standalone
+  - Inventory (historical 0.1.5): **63** agent names via `commands --json`
+- `0.1.6`:
+  - Dialog: `dialog accept|dismiss` emits `.data.dialog_settled` boolean on happy path; XDG `config set dialog_settle_ms` budgets wait for `Page.javascriptDialogClosed`
+  - Multi-tab dialog isolation: page forwarders stamp `session_id`; gate `tests/dialog_multitab_gate.rs`; `tab_switch` best-effort domain enable under open page-modal dialog
+  - Select: native `input`+`change` for `pick` / `select-option` (shared dispatch helper)
+  - Run: public `wait_timeout_ms` on wait steps; scrape step `format`/`formats` (compact text without HTML dump when text-only)
+  - Grab: `--format png|jpeg|webp` only — AVIF encode removed
+  - Lighthouse: unit fixtures include chrome-captured LHR 13.4.1 shape; e2e mock remains SKIP (never claim parser PASS from mock)
+  - Inventory: **65** agent names via `commands --json` (includes `submit`, `storage`, `select-option`, `pick`, `locale`, `man`, …)
+  - Discover full config key set via `config list-keys --json` (not a fixed count of 16)
+  - Intentional residual: GAP-022 ~53 dependency multi-versions; GAP-023/024 PRD wishlist flags/commands not full parity

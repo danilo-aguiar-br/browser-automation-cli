@@ -3,27 +3,77 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/grab.schema.json",
   "title": "grab command input",
   "type": "object",
-  "description": "Screenshot (png/jpeg/webp)",
+  "description": "Capture a screenshot",
   "properties": {
     "element": {
-      "description": "CSS selector or @eN",
+      "argv": "--element",
+      "description": "CSS selector or @eN element to capture",
+      "required": false,
+      "source": "parser",
+      "step_key": "element",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "format": {
+      "argv": "--format",
+      "default": "png",
+      "description": "Image encoding of the capture",
       "enum": [
         "png",
         "jpeg",
         "webp"
       ],
+      "required": false,
+      "source": "parser",
+      "step_key": "format",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "full_page": {
+      "argv": "--full-page",
+      "description": "Capture the whole scrollable page instead of the viewport",
+      "required": false,
+      "source": "parser",
+      "step_key": "full_page",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "path": {
+      "argv": "--path",
+      "description": "Output path; defaults to a stamped file under the artifacts directory",
+      "required": false,
+      "source": "parser",
+      "step_key": "path",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "quality": {
+      "argv": "--quality",
+      "description": "Encoder quality 1..=100 (jpeg/webp only)",
+      "required": false,
+      "source": "parser",
+      "step_key": "quality",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     }
   },

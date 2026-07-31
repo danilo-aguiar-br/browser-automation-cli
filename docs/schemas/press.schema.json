@@ -3,15 +3,45 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/press.schema.json",
   "title": "press command input",
   "type": "object",
-  "description": "Click element by CSS selector or @eN",
+  "description": "Click an element (selector or @eN)",
   "properties": {
     "dblclick": {
+      "argv": "--dblclick",
+      "description": "Send a double click instead of a single click",
+      "required": false,
+      "source": "parser",
+      "step_key": "dblclick",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "include_snapshot": {
+      "argv": "--include-snapshot",
+      "description": "Attach slim a11y snapshot in the same process after the action",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "target": {
+      "argv": "<TARGET>",
+      "description": "CSS selector or `@eN` snapshot ref to click",
+      "required": true,
+      "source": "parser",
+      "step_key": "target",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

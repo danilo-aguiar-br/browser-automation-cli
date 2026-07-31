@@ -49,8 +49,7 @@ pub fn sanitize_session_component(value: &str) -> String {
 /// Generate error message for invalid session name
 pub fn session_name_error(name: &str) -> String {
     format!(
-        "Invalid session name '{}'. Only alphanumeric characters, hyphens, and underscores are allowed.",
-        name
+        "Invalid session name '{name}'. Only alphanumeric characters, hyphens, and underscores are allowed."
     )
 }
 
@@ -88,10 +87,7 @@ pub fn reject_windows_reserved_basename(path: &Path) -> Result<(), String> {
         return Ok(());
     };
     // Strip one extension: `nul.txt` and `CON` both reserved.
-    let stem = name
-        .split_once('.')
-        .map(|(s, _)| s)
-        .unwrap_or(name);
+    let stem = name.split_once('.').map(|(s, _)| s).unwrap_or(name);
     let upper = stem.to_ascii_uppercase();
     if WINDOWS_RESERVED_NAMES.iter().any(|r| *r == upper) {
         return Err(format!(

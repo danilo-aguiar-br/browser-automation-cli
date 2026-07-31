@@ -3,12 +3,32 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/attr.schema.json",
   "title": "attr command input",
   "type": "object",
-  "description": "Read one attribute from target",
+  "description": "Read one attribute from a target",
   "properties": {
     "name": {
+      "argv": "<NAME>",
+      "description": "Attribute name to read (falls back to the DOM property)",
+      "required": true,
+      "source": "parser",
+      "step_key": "name",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "target": {
+      "argv": "<TARGET>",
+      "description": "CSS selector or `@eN` snapshot ref to read from",
+      "required": true,
+      "source": "parser",
+      "step_key": "target",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

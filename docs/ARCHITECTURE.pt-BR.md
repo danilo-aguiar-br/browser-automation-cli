@@ -9,17 +9,17 @@
 
 - Binary thin — `src/main.rs` — panic hook, `run_from_args`, exit code
 - Lib entry — `src/lib.rs` — `run` / `run_from_args`, hold de telemetria, lifecycle
-- Superfície CLI — `src/cli.rs` — Clap derive (`Parser` / `Subcommand`); help = UX do agente
-- Dispatch — `src/commands_prd/` — handlers PRD (`mod.rs` match + `meta` + `run`)
+- Superfície CLI — `src/cli/` — Clap derive (`Parser` / `Subcommand`); help = UX do agente
+- Dispatch — `src/commands/` — handlers PRD (`mod.rs` match + `meta` + `run`)
 - Session — `src/browser/` — sessão Chrome one-shot, actions, hooks do residual ledger
 - Native CDP — `src/native/` — client chromiumoxide, snapshot, heap, cookies, …
 - Contract I/O — `src/output.rs`, `src/envelope.rs`, `src/json_util.rs` — envelopes stdout; BrokenPipe → 141
-- Lifecycle — `src/lifecycle.rs` — cancel token, orquestração BORN/FINALIZE, SIGINT/SIGTERM
-- Residual disco/processo — `src/residual.rs` — marker + GC Singleton Chromium tmp; `ResidualDiskReport`
-- Telemetria — `src/telemetry.rs` — dual sink tracing (stderr + JSON rotativo opcional)
-- Config XDG — `src/xdg.rs`, `src/config.rs` — settings de produto: só flags + XDG `config`
+- Lifecycle — `src/lifecycle/` — cancel token, orquestração BORN/FINALIZE, SIGINT/SIGTERM
+- Residual disco/processo — `src/residual/` — marker + GC Singleton Chromium tmp; `ResidualDiskReport`
+- Tracing local — `src/tracing_local/` — dual sink tracing (stderr + JSON rotativo opcional)
+- Config XDG — `src/xdg/`, `src/config.rs` — settings de produto: só flags + XDG `config`
 - i18n — `src/i18n/`, `locales/*.ftl` — `--lang` + XDG `lang` → negotiate → OnceLock; só sugestões humanas
-- Platform — `src/platform.rs` — PATH `which_bin`, console UTF-8/VT, HostEnvironment, sandbox do browser
+- Platform — `src/platform/` — PATH `which_bin`, console UTF-8/VT, HostEnvironment, sandbox do browser
 - Windows jobs — `src/win_job.rs` — Job Object para kill residual de processo (stubs fora do Windows)
 
 ## Lei de produto residual (processo + disco)
@@ -31,7 +31,7 @@
 - Nunca matar nem apagar árvores Chrome Flatpak do host (ex.: prefixos temp `com.google.Chrome.*`)
 - GC cross-run só por shape Singleton + uid + age + sem holder vivo
 
-### Papel de `src/residual.rs`
+### Papel de `src/residual/`
 
 - Constantes públicas de prefixo de marker e de Chromium tmp (anti-hardcode)
 - Descoberta de side-channels da janela de invocação (atribuição pid/profile)
@@ -55,7 +55,7 @@
 - `scavenge_safe_candidates` — paths que o GC stale apagaria agora (age ≥ 60s, owned, sem holder vivo)
 - `live_cli_marker_processes` — processos vivos cuja cmdline contém o prefixo marker chrome da CLI
 - Status: `fail` se há processos marker vivos; `warn` se restam dirs marker ou orphans Singleton; senão `pass`
-- Gates locais do mantenedor (sem exigência de CI/GHA): `scripts/residual-check.sh`, `scripts/residual-stress.sh`
+- Gates locais do mantenedor (só scripts locais do mantenedor): `scripts/residual-check.sh`, `scripts/residual-stress.sh`
 
 ## i18n (sugestões humanas)
 
@@ -68,11 +68,51 @@
 - Settings de produto (incluindo idioma) usam só flags + XDG
 - Não inventar nem promover variáveis de ambiente de produto para config durável
 
-## Mapa de módulos (`commands_prd`)
+## Mapa de módulos (`commands`)
 
-- `mod.rs` — match de `dispatch` em `Commands` + handlers de browser/session
-- `meta.rs` — inventário `commands` / `schema` para agentes (63 nomes via `commands --json`)
-- `run.rs` — engine multi-passo `run` / `exec` (passos NDJSON)
+- `mod.rs` — match `dispatch` em `Commands` + handlers browser/session  
+- `meta/` — inventário `commands` / `schema` para agentes (**65** nomes via `commands --json`; schema em dir SRP)
+- `run/` — engine multi-passo `run` / `exec` (passos NDJSON)
+
+### Diálogo multi-aba e settle (v0.1.6)
+
+- **`dialog_map_key`:** helper puro mapeia diálogos JS abertos pela identidade de sessão CDP. O `session_id` do evento vence; browser-scoped `None` cai no id da página ativa.
+- **Forwarders de página carimbam `Page::session_id`:** assim `Page.javascriptDialogOpening` / `Closed` de abas não ativas não colidem com a entrada do mapa da aba ativa. Isolamento multi-aba via `Page::session_id` / `dialog_map_key`.
+- **`dialog_settled`:** após accept/dismiss, a sessão espera até XDG `dialog_settle_ms` por `javascriptDialogClosed` e devolve um booleano compacto (agent-first; consumidores não inventam wait pós-settle). GAP-054.
+- **`dialog_settle_ms`:** chave de config XDG apenas (`config set dialog_settle_ms`); nunca env de produto.
+- **Orçamento de domain enable em `tab_switch`:** ao trocar de aba sob diálogo modal de página, o enable de domínio é best-effort sob `TAB_SWITCH_DOMAIN_ENABLE_BUDGET_MS` para o caminho de switch não travar.
+
+### Wait / scrape / select em run (v0.1.6)
+
+- **`wait_timeout_ms`:** chave pública nos passos wait de run (GAP-053); o parser a honra (não descarte silencioso).
+- **Scrape `format`/`formats` em run:** sem monstro HTML quando só texto é pedido (GAP-057).
+- **Select nativo:** `pick` / `select-option` despacham `input` e depois `change`, reportam `via: native_select` (GAP-055).
+- **Encode do `grab`:** só **png|jpeg|webp**; AVIF removido (breaking).
+- Inventário **65** inclui `submit` + `storage`; superfície clap de produto é 63 (`pick` / `select-option` são nomes multi-passo de inventário/run).
+
+### Parse puro de LHR lighthouse (v0.1.6)
+
+- **`scores_from_lhr`:** função pura extrai scores de categorias do JSON Lighthouse Result (auditorias 0–1 ou null). Fixtures unit: `scripts/fixtures/lighthouse/minimal_lhr.json` e `chrome_captured_lhr.json` real sanitizado. Caminho mock e2e permanece SKIP (não é alegação de PASS do parser). GAP-021 parcial.
+- **GAP-022 residual:** ~53 dups multi-versão aceitos (poda barata esgotada).
+- **GAP-023/024:** divergências intencionais de PRD em `parity_intentional_divergences.json`.
+- Lei residual-zero de disco da 0.1.5 ainda corrente.
+- Config de produto: só flags + XDG (nunca env de produto).
+
+## Inventário completo de agente (65)
+
+Descubra ao vivo: `browser-automation-cli commands --json`
+
+```
+assert attr back batch-scrape click-at commands completions config console cookie
+crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+find-paths forward goto grab heap hover keys lighthouse locale man map mitm monitor
+net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+upload version view wait webmcp workflow write
+```
+
+Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é 63.
+
 - Superfície grande de handlers permanece em `mod.rs` de propósito (tabela match única para parity de agente)
 - Prefira extrair famílias novas de comando para módulos irmãos em vez de crescer helpers não relacionados
 - Lista completa de nomes: `docs/HOW_TO_USE.pt-BR.md` e `browser-automation-cli commands --json`
@@ -99,7 +139,7 @@
 - residual zero após DIE: processo Chrome + markers CLI + Chromium Singleton tmp (processo e disco)
 - nunca matar residual Chrome Flatpak do host
 - settings de produto: só flags + XDG (sem catálogos de env de produto)
-- sem GitHub Actions / CD no repositório (gates locais sob `scripts/*-check.sh`)
+- sem pipelines remotas de orquestração de release no repositório (gates locais sob `scripts/*-check.sh`)
 - Chrome CDP só no host (sem alvo de automação WASM)
 
 ## Docs relacionados
@@ -107,6 +147,6 @@
 - `docs/COOKBOOK.pt-BR.md` — receitas para agentes
 - `docs/TESTING.pt-BR.md` — como rodar gates
 - `docs/CROSS_PLATFORM.pt-BR.md` — matriz de SO, paths de browser, sandboxes
-- `docs/HOW_TO_USE.pt-BR.md` — inventário completo dos 63 comandos
-- `gaps.md` — catálogo `/r-auditoria` (RES-01…12 fechados no Pass 27)
+- `docs/HOW_TO_USE.pt-BR.md` — inventário completo dos 65 comandos
+- `gaps.md` — Status v0.1.6 residual DoD + catálogo histórico da auditoria 0.1.5
 - `PRIVACY.md` — tratamento de dados só local

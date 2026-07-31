@@ -20,7 +20,7 @@
 //! - Hygiene: `scripts/perf-check.sh`, `scripts/latency-check.sh`,
 //!   `scripts/latency-baseline.sh` (P50/P99 wall-clock; no GHA),
 //!   `scripts/tracing-check.sh` (local tracing / rotation; no remote OTEL).
-//! - Tracing: installed in lib `run()` via [`browser_automation_cli::telemetry`];
+//! - Tracing: installed in lib `run()` via [`browser_automation_cli::tracing_local`];
 //!   `human_panic` hook is chained after the subscriber (panic → tracing error).
 
 #[global_allocator]

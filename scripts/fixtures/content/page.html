@@ -1,0 +1,32 @@
+<!doctype html>
+<!--
+  Fixture for content extraction. Shared by two gates on purpose:
+
+    tests/extract_step_gate.rs   reads a node from the CURRENT page
+    tests/scrape_step_gate.rs    fetches this URL and returns the page text
+
+  The two commands do different things and have their own gate files, but they
+  need the same shape of page, and duplicating it would mean two files drifting
+  apart. Deleting this one turns both gates red by name, because each names it
+  in its own skip guard.
+
+  The tokens exist nowhere else in the repository, so text that comes back
+  carrying them cannot have been synthesized.
+
+  `#chrome` is content the main-content extractor is expected to drop; nothing
+  here asserts that it does, it is only there so the fixture is not degenerate.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>content fixture</title>
+    <meta name="description" content="CONTENT_META_M3N4" />
+  </head>
+  <body>
+    <nav id="chrome">skip me</nav>
+    <main>
+      <h1 id="headline">CONTENT_HEAD_K1L2</h1>
+      <p id="detail">CONTENT_BODY_P5Q6</p>
+    </main>
+  </body>
+</html>

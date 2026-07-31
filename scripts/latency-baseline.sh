@@ -4,7 +4,8 @@
 # Measures **agent meta paths** (no Chrome) so Rust/CLI regressions are visible
 # without conflating Chrome boot (external WCET, seconds).
 #
-# Reports P50, P99, P999 (and max) — never mean-only. Outliers are kept.
+# Reports P50, P99, P999, P9999 (and max) — never mean-only. Outliers are kept.
+# With small N (e.g. 40), nearest-rank P9999 may equal max — still report the tail.
 #
 # Usage:
 #   ./scripts/latency-baseline.sh              # release bin; N=40 samples
@@ -94,11 +95,11 @@ def pct(p):
     return vals[k]
 
 mn, mx = vals[0], vals[-1]
-p50, p99, p999 = pct(0.50), pct(0.99), pct(0.999)
+p50, p99, p999, p9999 = pct(0.50), pct(0.99), pct(0.999), pct(0.9999)
 mean = sum(vals) / n
 print(
     f"    n={n} min={mn:.6f}s p50={p50:.6f}s "
-    f"p99={p99:.6f}s p999={p999:.6f}s max={mx:.6f}s "
+    f"p99={p99:.6f}s p999={p999:.6f}s p9999={p9999:.6f}s max={mx:.6f}s "
     f"(mean={mean:.6f}s diagnostic only)"
 )
 print(json.dumps({
@@ -108,6 +109,7 @@ print(json.dumps({
     "p50_s": round(p50, 6),
     "p99_s": round(p99, 6),
     "p999_s": round(p999, 6),
+    "p9999_s": round(p9999, 6),
     "max_s": round(mx, 6),
     "mean_s": round(mean, 6),
 }, separators=(",", ":")))
@@ -142,7 +144,7 @@ measure_cmd "doctor_offline_quick_json" "$BIN" --json doctor --offline --quick
 measure_cmd "version_json" "$BIN" --json version
 
 echo
-echo "==> PASS latency-baseline (see p50/p99/p999 above; mean is diagnostic only)"
+echo "==> PASS latency-baseline (see p50/p99/p999/p9999 above; mean is diagnostic only)"
 echo "Hints:"
 echo "  cargo bench --bench cli_parse"
 echo "  cargo build --profile release-prof && cargo flamegraph --profile release-prof -- doctor --offline --quick"

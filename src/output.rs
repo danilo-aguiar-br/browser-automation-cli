@@ -19,10 +19,7 @@ use crate::error::{CliError, ErrorKind};
 /// (rules: prefer `&T` when the body does not consume ownership).
 pub fn map_io_error(err: &io::Error, stream: &str) -> CliError {
     if err.kind() == io::ErrorKind::BrokenPipe {
-        CliError::new(
-            ErrorKind::BrokenPipe,
-            format!("{stream}: broken pipe"),
-        )
+        CliError::new(ErrorKind::BrokenPipe, format!("{stream}: broken pipe"))
     } else {
         CliError::new(ErrorKind::Io, format!("{stream}: {err}"))
     }
@@ -62,16 +59,12 @@ pub fn writeln_stderr(line: impl AsRef<str>) -> Result<(), CliError> {
 
 /// Flush stdout (call before process return when partial buffers may remain).
 pub fn flush_stdout() -> Result<(), CliError> {
-    io::stdout()
-        .flush()
-        .map_err(|e| map_io_error(&e, "stdout"))
+    io::stdout().flush().map_err(|e| map_io_error(&e, "stdout"))
 }
 
 /// Flush stderr.
 pub fn flush_stderr() -> Result<(), CliError> {
-    io::stderr()
-        .flush()
-        .map_err(|e| map_io_error(&e, "stderr"))
+    io::stderr().flush().map_err(|e| map_io_error(&e, "stderr"))
 }
 
 /// Serialize `value` as **compact** JSON (no pretty print) and write one LF line

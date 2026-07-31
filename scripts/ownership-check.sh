@@ -5,6 +5,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+source "$ROOT/scripts/lib/module_paths.sh"
+module_paths_self_test || exit 65
+
+# A module is `x.rs` OR `x/`; this gate asserts behaviour, not file layout.
+SESSION_INTERACT="$(mod_path src/browser/session/interact)"
+NATIVE_LAUNCH="$(mod_path src/native/browser/launch)"
+NATIVE_TABS="$(mod_path src/native/browser/tabs)"
+
 fail=0
 pass() { printf 'PASS  %s\n' "$1"; }
 bad()  { printf 'FAIL  %s\n' "$1"; fail=1; }
@@ -58,11 +66,12 @@ do
   else
     # softer: attribute on line before struct
     case "$needle" in
-      *Lifecycle*) f=src/lifecycle.rs; s='pub struct Lifecycle' ;;
-      *CdpClient*) f=src/native/cdp/client.rs; s='pub struct CdpClient' ;;
-      *BrowserManager*) f=src/native/browser.rs; s='pub struct BrowserManager' ;;
+      # Pass F/G: lifecycle + cdp client are directories.
+      *Lifecycle*) f=src/lifecycle/; s='pub struct Lifecycle' ;;
+      *CdpClient*) f=src/native/cdp/client/; s='pub struct CdpClient' ;;
+      *BrowserManager*) f=src/native/browser/mod.rs; s='pub struct BrowserManager' ;;
     esac
-    if rg -n 'must_use' "$f" >/dev/null && rg -n "$s" "$f" >/dev/null; then
+    if rg -n 'must_use' "$f" >/dev/null 2>&1 && rg -n "$s" "$f" >/dev/null 2>&1; then
       pass "#[must_use] near $s"
     else
       bad "missing #[must_use] for $s"
@@ -84,6 +93,37 @@ else
   bad "ownership clippy lints missing from src/lib.rs"
 fi
 
+# 6b) Pass L: launch moves Option fields (no options.{user_agent,color_scheme,download_path}.clone)
+launch_clone=$(rg -n 'options\.(user_agent|color_scheme|download_path)\.clone\(\)' \
+  "$NATIVE_LAUNCH" 2>/dev/null || true)
+if [ -n "$launch_clone" ]; then
+  bad "Pass L: launch still clones post-CDP Option fields (prefer .take())"
+  echo "$launch_clone"
+else
+  pass "Pass L: launch takes post-CDP Option fields"
+fi
+
+# 6c) Pass L: pages() slice view exists (avoid clone-all for list projection)
+if rg -n 'pub fn pages\(&self\) -> &\[PageInfo\]' "$NATIVE_TABS" >/dev/null; then
+  pass "Pass L: BrowserManager::pages() -> &[PageInfo]"
+else
+  bad "Pass L: missing pages() slice API"
+fi
+
+if rg -n '\.pages\(\)' "$SESSION_INTERACT" >/dev/null; then
+  pass "Pass L: page_list uses pages() borrow"
+else
+  bad "Pass L: page_list still clone-all via pages_list only"
+fi
+
+# 6d) Pass L: dispatch leaf borrows (sample: press target is &str)
+if rg -n 'fn press\([\s\S]*target: &str' src/commands/dispatch/browser/input_actions.rs >/dev/null \
+  || rg -n 'target: &str' src/commands/dispatch/browser/input_actions.rs >/dev/null; then
+  pass "Pass L: dispatch press takes &str"
+else
+  bad "Pass L: dispatch still takes String for press target"
+fi
+
 # 7) Clippy ownership suite (lib only; no GHA)
 echo "-- cargo clippy ownership lints --"
 if cargo clippy --lib --quiet -- \
@@ -93,10 +133,10 @@ if cargo clippy --lib --quiet -- \
   -D clippy::unnecessary_to_owned \
   -D clippy::cloned_instead_of_copied \
   -D clippy::map_clone \
-  -W clippy::needless_pass_by_value \
+  -D clippy::needless_pass_by_value \
   -A clippy::uninlined_format_args \
   2>/tmp/ownership-clippy.err; then
-  pass "clippy ownership deny set clean"
+  pass "clippy ownership deny set clean (incl. needless_pass_by_value)"
 else
   bad "clippy ownership lints failed"
   tail -40 /tmp/ownership-clippy.err || true

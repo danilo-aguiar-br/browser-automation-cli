@@ -12,11 +12,11 @@
 //! - Per-file line scan is **CPU-bound** → Rayon `par_iter` over collected paths.
 //! - Rewrite path stays sequential when `--apply` (deterministic atomic writes; no
 //!   concurrent writers on the same tree).
-//! - Regex rules compile once via [`OnceLock`].
+//! - Regex rules compile once via [`LazyLock`](std::sync::LazyLock) (fixed closures; MSRV ≥ 1.80).
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use ignore::WalkBuilder;
 use rayon::prelude::*;
@@ -32,6 +32,21 @@ struct Finding {
     line: usize,
     rule: &'static str,
     snippet: String,
+}
+
+/// Read a source file only when metadata size is within the `max_sg_file_bytes` policy.
+///
+/// Oversized files are skipped (empty `None`) so a multi-GB artifact cannot
+/// OOM the one-shot process via unbounded `read_to_string` (ECO-12 / Pass 28).
+fn read_source_within_budget(path: &Path) -> Option<String> {
+    let meta = fs::metadata(path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    if meta.len() > crate::xdg::policy::policy_u64(crate::xdg::policy::key::MAX_SG_FILE_BYTES) {
+        return None;
+    }
+    fs::read_to_string(path).ok()
 }
 
 /// Scan roots for forbidden structural patterns (one-shot, parallel CPU).
@@ -98,11 +113,13 @@ pub fn sg_scan(roots: &[PathBuf], limit: usize) -> Result<Value, CliError> {
 }
 
 fn scan_file(path: &Path, rules: &[(&'static str, Regex)]) -> Vec<Finding> {
-    let Ok(text) = fs::read_to_string(path) else {
+    let Some(text) = read_source_within_budget(path) else {
         return Vec::new();
     };
     let s = path.to_string_lossy();
-    let mut out = Vec::new();
+    // Pre-size conservatively: most files yield few findings; reserve a small
+    // floor so the first hits avoid reallocation (rules: with_capacity).
+    let mut out = Vec::with_capacity(4);
     for (lineno, line) in text.lines().enumerate() {
         let lineno = lineno + 1;
         for (rule, re) in rules {
@@ -187,7 +204,7 @@ pub fn sg_rewrite(roots: &[PathBuf], apply: bool) -> Result<Value, CliError> {
         crate::concurrency::sort_cpu(&mut paths);
         let mut n = 0usize;
         for path in &paths {
-            let Ok(text) = fs::read_to_string(path) else {
+            let Some(text) = read_source_within_budget(path) else {
                 continue;
             };
             if !re_env_hint.is_match(&text) {
@@ -204,7 +221,7 @@ pub fn sg_rewrite(roots: &[PathBuf], apply: bool) -> Result<Value, CliError> {
         let mut hits: Vec<String> = paths
             .par_iter()
             .filter_map(|path| {
-                let text = fs::read_to_string(path).ok()?;
+                let text = read_source_within_budget(path)?;
                 if re_env_hint.is_match(&text) {
                     Some(path.display().to_string())
                 } else {
@@ -232,42 +249,36 @@ pub fn sg_rewrite(roots: &[PathBuf], apply: bool) -> Result<Value, CliError> {
 }
 
 fn re_rust_log_export() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"(?i)export\s+RUST_LOG\s*="#).expect("RUST_LOG export regex")
-    })
+    });
+    &RE
 }
 
 fn compiled_rules() -> &'static [(&'static str, Regex)] {
-    static RULES: OnceLock<Vec<(&'static str, Regex)>> = OnceLock::new();
-    RULES
-        .get_or_init(|| {
-            vec![
-                (
-                    "telemetry_string",
-                    Regex::new(
-                        r"(?i)\b(opentelemetry|sentry\.io|telemetry\.|posthog|datadog)\b",
-                    )
+    static RULES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
+        vec![
+            (
+                "telemetry_string",
+                Regex::new(r"(?i)\b(opentelemetry|sentry\.io|telemetry\.|posthog|datadog)\b")
                     .expect("telemetry regex"),
-                ),
-                (
-                    "product_env_secret",
-                    Regex::new(
-                        r#"std::env::var\(\s*"(API_KEY|OPENAI_API_KEY|SECRET|TOKEN|PASSWORD)""#,
-                    )
+            ),
+            (
+                "product_env_secret",
+                Regex::new(r#"std::env::var\(\s*"(API_KEY|OPENAI_API_KEY|SECRET|TOKEN|PASSWORD)""#)
                     .expect("env secret regex"),
-                ),
-                (
-                    "unwrap_prod",
-                    Regex::new(r"\.unwrap\(\)").expect("unwrap regex"),
-                ),
-                (
-                    "dotenv",
-                    Regex::new(r"(?i)\bdotenv\b|\.env\b").expect("dotenv regex"),
-                ),
-            ]
-        })
-        .as_slice()
+            ),
+            (
+                "unwrap_prod",
+                Regex::new(r"\.unwrap\(\)").expect("unwrap regex"),
+            ),
+            (
+                "dotenv",
+                Regex::new(r"(?i)\bdotenv\b|\.env\b").expect("dotenv regex"),
+            ),
+        ]
+    });
+    RULES.as_slice()
 }
 
 fn findings_to_json(findings: &[Finding], apply: bool) -> Value {
@@ -300,12 +311,8 @@ fn atomic_write(path: &Path, body: &str) -> Result<(), CliError> {
         ".browser-automation-cli-sg-{}.tmp",
         std::process::id()
     ));
-    fs::write(&tmp, body).map_err(|e| {
-        CliError::new(
-            ErrorKind::Io,
-            format!("write temp {}: {e}", tmp.display()),
-        )
-    })?;
+    fs::write(&tmp, body)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("write temp {}: {e}", tmp.display())))?;
     fs::rename(&tmp, path).map_err(|e| {
         let _ = fs::remove_file(&tmp);
         CliError::new(
@@ -325,11 +332,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("prod.rs");
         let mut file = fs::File::create(&f).unwrap();
-        writeln!(
-            file,
-            "fn x() {{ let _ = \"a\".parse::<u32>().unwrap(); }}"
-        )
-        .unwrap();
+        writeln!(file, "fn x() {{ let _ = \"a\".parse::<u32>().unwrap(); }}").unwrap();
         let v = sg_scan(&[dir.path().to_path_buf()], 50).unwrap();
         assert!(v.get("count").and_then(|c| c.as_u64()).unwrap_or(0) >= 1);
     }

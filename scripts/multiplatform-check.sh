@@ -18,18 +18,32 @@ else
   pass "no Command::new(which|where) in src/"
 fi
 
-# 2) Platform module present.
-if [[ -f src/platform.rs ]]; then
-  pass "src/platform.rs exists"
+# 2) Platform module present (Pass F: directory, not platform.rs monólito).
+if [[ -d src/platform ]] || [[ -f src/platform.rs ]]; then
+  pass "src/platform module exists"
 else
-  bad "src/platform.rs missing"
+  bad "src/platform module missing"
 fi
 
-# 3) Chrome discovery uses platform helpers.
-if rg -n 'platform::which_bin|find_chrome_known_paths|warn_if_sandboxed_browser' src/native/cdp/chrome.rs >/dev/null; then
-  pass "chrome.rs multiplatform discovery hooks"
+# 3) Chrome discovery uses platform helpers (Pass F: cdp/chrome/ dir).
+if rg -n 'platform::which_bin|find_chrome_known_paths|warn_if_sandboxed_browser|find_chrome_registry|registry_app_path' src/native/cdp/chrome/ >/dev/null 2>&1; then
+  pass "chrome multiplatform discovery hooks"
 else
-  bad "chrome.rs missing multiplatform discovery hooks"
+  bad "chrome missing multiplatform discovery hooks"
+fi
+
+# 3b) Windows App Paths + version smoke APIs exist (cfg stubs on non-Windows).
+if rg -n 'fn registry_app_path|fn probe_binary_version' src/platform/ >/dev/null 2>&1; then
+  pass "platform registry_app_path + probe_binary_version"
+else
+  bad "platform missing registry_app_path / probe_binary_version"
+fi
+
+# 3c) Named default viewport (anti-hardcode).
+if rg -n 'DEFAULT_VIEWPORT_WIDTH|DEFAULT_VIEWPORT_HEIGHT' src/constants/ src/native/cdp/chrome/ >/dev/null; then
+  pass "DEFAULT_VIEWPORT_* named constants wired"
+else
+  bad "DEFAULT_VIEWPORT_* missing"
 fi
 
 # 4) Windows reserved names + console VT wiring.
@@ -38,7 +52,7 @@ if rg -n 'WINDOWS_RESERVED_NAMES|reject_windows_reserved' src/validation.rs >/de
 else
   bad "Windows reserved basename validation missing"
 fi
-if rg -n 'ENABLE_VIRTUAL_TERMINAL_PROCESSING|configure_console' src/platform.rs >/dev/null; then
+if rg -n 'ENABLE_VIRTUAL_TERMINAL_PROCESSING|configure_console' src/platform/ >/dev/null 2>&1; then
   pass "console UTF-8/VT in platform"
 else
   bad "console VT missing in platform"
@@ -69,6 +83,20 @@ if cargo build -q --bin browser-automation-cli 2>/dev/null; then
       bad "chrome check present but no sandbox field"
     else
       pass "doctor ran (chrome entry absent in unexpected shape)"
+    fi
+  fi
+  if echo "$out" | rg -q 'windows_job_object'; then
+    pass "doctor JSON includes windows_job_object"
+  else
+    bad "doctor JSON missing windows_job_object"
+  fi
+  if echo "$out" | rg -q '"version"'; then
+    pass "doctor chrome check includes version field"
+  else
+    if echo "$out" | rg -q '"id":"chrome"'; then
+      bad "chrome check present but no version field"
+    else
+      pass "doctor chrome entry shape unexpected (version gate skipped)"
     fi
   fi
 else

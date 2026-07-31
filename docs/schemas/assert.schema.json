@@ -3,9 +3,154 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/assert.schema.json",
   "title": "assert command input",
   "type": "object",
-  "description": "Assertion helpers (url/text/console)",
+  "description": "Assertions (url / text / console)",
   "properties": {
+    "action": {
+      "actions": {
+        "console": {
+          "description": "Assert captured console messages of a level stay at or below --max",
+          "properties": {
+            "level": {
+              "argv": "--level",
+              "default": "error",
+              "description": "Console level to count (for example `error`, `warning`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "level",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "max": {
+              "argv": "--max",
+              "default": 0,
+              "description": "Highest count still considered a pass",
+              "required": false,
+              "source": "parser",
+              "step_key": "max",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            }
+          }
+        },
+        "console-empty": {
+          "description": "GAP-025: require zero console messages (any level)",
+          "properties": {}
+        },
+        "console-no-match": {
+          "description": "GAP-025: require no message text matching pattern",
+          "properties": {
+            "pattern": {
+              "argv": "--pattern",
+              "description": "Regular expression that must not match any console message",
+              "required": true,
+              "source": "parser",
+              "step_key": "pattern",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "text": {
+          "description": "Assert page or target text contains a value (substring match)",
+          "properties": {
+            "target": {
+              "argv": "--target",
+              "description": "Restrict the search to this CSS selector or `@eN` ref",
+              "required": false,
+              "source": "parser",
+              "step_key": "target",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "argv": "<VALUE>",
+              "description": "Substring that must appear in the searched text",
+              "required": true,
+              "source": "parser",
+              "step_key": "value",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "url": {
+          "description": "Assert the current page URL equals or contains a value",
+          "properties": {
+            "contains": {
+              "argv": "--contains",
+              "description": "Match `value` as a substring instead of the whole URL",
+              "required": false,
+              "source": "parser",
+              "step_key": "contains",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            },
+            "value": {
+              "argv": "<VALUE>",
+              "description": "Expected URL, matched exactly unless --contains is set",
+              "required": true,
+              "source": "parser",
+              "step_key": "value",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
+      "enum": [
+        "url",
+        "text",
+        "console",
+        "console-empty",
+        "console-no-match"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
+    },
     "contains": {
+      "source": "catalog",
+      "step_key": "contains",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "kind": {
@@ -16,37 +161,99 @@
         "console_empty",
         "console_no_match"
       ],
+      "source": "catalog",
+      "step_key": "kind",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "level": {
+      "source": "catalog",
+      "step_key": "level",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "max": {
+      "source": "catalog",
+      "step_key": "max",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     },
     "pattern": {
       "description": "For console_no_match (GAP-025)",
+      "source": "catalog",
+      "step_key": "pattern",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "target": {
+      "source": "catalog",
+      "step_key": "target",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "text": {
+      "source": "catalog",
+      "step_key": "text",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "text_contains": {
+      "source": "catalog",
+      "step_key": "text_contains",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "url": {
+      "source": "catalog",
+      "step_key": "url",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "url_contains": {
+      "source": "catalog",
+      "step_key": "url_contains",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "value": {
+      "source": "catalog",
+      "step_key": "value",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },
-  "required": [],
+  "required": [
+    "action"
+  ],
   "additionalProperties": false
 }

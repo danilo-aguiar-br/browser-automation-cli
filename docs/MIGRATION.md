@@ -248,11 +248,11 @@ Hard-close residual-zero **disk** hygiene (RES-01…12, Pass 27) and meta discov
 
 ### Inventory and meta commands
 - Live inventory is **63** agent names via `commands --json`
-- Clap top-level help lists **61** without `select-option` / `pick` as standalone
+Clap product surface is **63** names (excludes agent-only `select-option` / `pick`)
 - Meta already in binary and inventory: `locale` (UI locale diagnostics), `man` (roff via clap_mangen; no Chrome)
 - DevTools tool-ref e2e remains **53 tools**
 
-### Local residual gates (no CI/GHA requirement)
+### Local residual gates (local maintainer scripts only)
 - Integration: `tests/residual_one_shot.rs`
 - Maintainer scripts: `scripts/residual-check.sh`, `scripts/residual-stress.sh`
 - Library residual unit coverage under `cargo test --lib residual::`
@@ -260,6 +260,78 @@ Hard-close residual-zero **disk** hygiene (RES-01…12, Pass 27) and meta discov
 ### Config keys (unchanged full list of 16 in 0.1.5)
 - `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Language still flags + XDG only: `--lang` or `config set lang` (no product env catalogs)
+- Residual-zero disk law introduced here remains **current** through 0.1.6 (BORN + FINALIZE Singleton GC, doctor `residual`)
+
+
+## 0.1.5 → 0.1.6
+Agent-first dialog settle, native select events, scrape format in run, wait deadline honesty, inventory growth, and intentional residual notes:
+
+### What Changes
+- **`dialog_settled` (GAP-054):** real `dialog accept|dismiss` data envelope includes boolean `dialog_settled`. Happy path is `true` after `Page.javascriptDialogClosed`. Agents must **not** invent an artificial wait before the next page step when settled is true
+- **`dialog_settle_ms` (XDG):** `config set dialog_settle_ms <ms>` caps Closed wait after answering a JS dialog (flags + XDG only; never a product env var)
+- **Multi-tab dialog isolation:** page event forwarders stamp `Page::session_id`; dialog map keys isolate per tab; browser-level `None` falls back to the active session
+- **Native select (GAP-055):** `pick` / `select-option` on native `<select>` dispatch `input` then `change` and report `via: native_select` (shared `DISPATCH_INPUT_AND_CHANGE`)
+- **`wait_timeout_ms` (GAP-053):** run wait steps honor the public deadline key (parser no longer silently discards it)
+- **Scrape formats in run (GAP-057):** run steps accept `format` / `formats`; text-only requests must not dump large `html` fields
+- **AVIF encode removed (breaking):** `grab` supports **png | jpeg | webp** only (image crate features drop avif / yanked core2)
+- **Inventory 65:** `commands --json` lists **65** agent names (adds **`submit`**, **`storage`**); clap product surface **63** (excludes agent-only `select-option`/`pick`)
+- **`submit`:** form submit by form or field target; waits for navigation/request outcome
+- **`storage`:** `export|import --path` for cookies + localStorage + sessionStorage (explicit path)
+- **Config key discovery:** do **not** claim a fixed “16 keys” count — always discover with `config list-keys --json` (includes `dialog_settle_ms` and more)
+- **Lighthouse (GAP-021 partial↑):** unit fixtures `minimal_lhr.json` + `chrome_captured_lhr.json` (real LHR-shaped); e2e mock remains **SKIP** — never claim full e2e lighthouse parser PASS
+- **GAP-022 residual dups:** ~53 multi-version dependency duplicates measured; cheap prune exhausted; residual accepted for 0.1.6
+- **GAP-023/024 intentional:** PRD wishlist flags/commands remain divergences in `parity_intentional_divergences.json` — not full PRD parity
+- **Residual-zero disk:** 0.1.5 product law (RES-01…12) is **still current**
+
+### Full agent inventory (65) — v0.1.6
+
+Discover live: `browser-automation-cli commands --json`
+
+```
+assert attr back batch-scrape click-at commands completions config console cookie
+crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+find-paths forward goto grab heap hover keys lighthouse locale man map mitm monitor
+net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+upload version view wait webmcp workflow write
+```
+
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 63. Inventory note for names often missed in older docs: `click-at`, `completions`, `cookie`, `devtools3p`, `drag`, `fill-form`, `hover`, `net`, `resize`, `upload`, `webmcp`.
+
+### Step-by-step migration for agents
+1. Rebuild/install `0.1.6` (`cargo install --path . --force --locked`)
+2. Confirm version and inventory:
+```bash
+browser-automation-cli --version   # 0.1.6
+browser-automation-cli --json commands | jaq '.data.commands | length'  # 65
+```
+3. After real dialog answers, parse `dialog_settled`; remove invented post-dialog waits when true
+4. If hosts need a longer Closed budget: `config set dialog_settle_ms <ms>` (XDG)
+5. Update run wait scripts to use public `wait_timeout_ms` when a deadline is intended
+6. Update run scrape steps to pass `format` / `formats` (expect no HTML monster for `text`)
+7. Replace any `grab --format avif` with `png`, `jpeg`, or `webp`
+8. Adopt `submit` / `storage` when form submit or portable auth state is needed
+9. Re-discover config keys: `config list-keys --json` (do not hard-code counts)
+10. Treat lighthouse e2e mock as SKIP honesty; rely on unit LHR fixtures for parser confidence
+11. Keep residual-zero checks from 0.1.5 (`doctor residual`, local residual scripts)
+12. Do not assume PRD flags/commands from GAP-023/024 exist unless listed by `commands --json`
+
+### Config key discovery
+```bash
+browser-automation-cli --json config list-keys
+browser-automation-cli --json config set dialog_settle_ms 2000
+browser-automation-cli --json config get dialog_settle_ms
+```
+
+### Rollback notes
+- If rolling back from `0.1.6` to `0.1.5`, remove assumptions that:
+  - `dialog_settled` is always present after dialog answers
+  - `dialog_settle_ms` is a config key
+  - run wait honors `wait_timeout_ms` as a public step key
+  - run scrape honors `format`/`formats`
+  - inventory is 65 / includes `submit` and `storage`
+  - grab refuses AVIF (0.1.5 may still accept depending on build features)
+- Residual-zero disk fields remain valid when rolling back only if staying on 0.1.5+
 
 ## Step-by-Step Migration
 ### From any older tree to 0.1.1
@@ -343,6 +415,19 @@ bash scripts/residual-check.sh
 - Language and all product settings remain flags + XDG only (`--lang` / `config set lang`)
 - Re-run local validation: `cargo test --lib`, residual suite above, `parity_run_inventory`, `clap_command_debug_assert`, e2e 53-tool script
 
+### From 0.1.5 to 0.1.6
+- Rebuild/install `0.1.6`
+- Read `dialog_settled` after real dialog answers; drop invented waits when true
+- Set `dialog_settle_ms` via XDG only when needed
+- Use `wait_timeout_ms` in run wait steps for public deadlines
+- Pass `format`/`formats` on run scrape steps
+- Stop using `grab --format avif` (png|jpeg|webp only)
+- Discover `submit` and `storage` via `commands --json` / `schema`
+- Confirm inventory **65**; regenerate schemas if packaging docs
+- Expect e2e lighthouse mock **SKIP** (not PASS)
+- Keep residual-zero disk law from 0.1.5
+- Re-run local gates: `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate`, residual suite, e2e 53-tool script
+
 ## JSON Schema Changes
 - Before: free-form prose or ad-hoc JSON without `schema_version`
 - After success:
@@ -362,6 +447,7 @@ bash scripts/residual-check.sh
 - v0.1.3 static additions include `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths` gains `glob`; config keys include cache/log_to_file
 - v0.1.4: wait/assert/schema/run fragments expand for multi-selector, url wait, console asserts, json-steps; inventory adds `select-option`/`pick` as run/schema names
 - v0.1.5: doctor residual report fields; inventory adds `locale` / `man` (meta); residual-zero disk contract
+- v0.1.6: dialog settle / `dialog_settled`; `dialog_settle_ms`; run `wait_timeout_ms` + scrape `format`/`formats`; inventory **65** (`submit`, `storage`); grab drops AVIF; lighthouse unit LHR fixtures; e2e lighthouse mock SKIP
 - Prefer live `schema <cmd>` after upgrades to confirm the installed binary
 
 
@@ -376,12 +462,15 @@ bash scripts/residual-check.sh
 - Agents that assumed `batch-scrape` was HTTP-only must accept optional `--engine browser` in 0.1.4
 - Agents that treated `select-option`/`pick` as clap subcommands must use `run`/`exec` steps instead
 - Agents that only checked process residual in 0.1.3/0.1.4 should also parse doctor `residual` disk fields in 0.1.5
-- Inventory size moves 61 → **63** (`locale`, `man`)
+- Inventory size moves 61 → **63** (`locale`, `man`) in 0.1.5, then **63 → 65** (`submit`, `storage`) in 0.1.6
+- Agents that hard-coded “16 config keys” must switch to `config list-keys --json`
+- GAP-022 residual dependency duplicates and GAP-023/024 PRD wishlist divergences are intentional in 0.1.6 (not full PRD parity)
 
 
 ## Rollback
 - Pin to the previous local commit or installed binary path
 - Keep scripts compatible with the success envelope fields `ok` and `schema_version`
+- If rolling back from `0.1.6` to `0.1.5`, remove assumptions about `dialog_settled`, `dialog_settle_ms`, run `wait_timeout_ms` / scrape `format` honesty, inventory 65 / `submit`+`storage`, and AVIF removal
 - If rolling back from `0.1.5` to `0.1.4`, remove assumptions that doctor always emits top-level `residual` / check `residual_disk`, that BORN auto-GCs stale Singleton tmp older than 60s, that inventory is 63, and that `locale`/`man` are always present in older trees without those cmds
 - If rolling back from `0.1.4` to `0.1.3`, remove use of `--json-steps`, wait `url`/`url_contains`/`navigation`, multi-selector wait arrays, `select-option`/`pick` steps, assert `console_empty`/`console_no_match`, `schema <cmd>` positional-only flows, `mitm capture-url` / `graphql` / `ws` / `block` / `allow` / `redact`, global `--mitm*` flags, multi-format scrape assumptions, `batch-scrape`/`crawl` `--engine browser`, `view --allow-empty`, and clap-JSON-usage-error assumptions
 - If rolling back from `0.1.3` to `0.1.2`, remove use of `sheet-write`, `sg-scan`, `sg-rewrite`, `find-paths --glob`, JSON-array-only `run` scripts, cache XDG keys, and `binary_source` assumptions

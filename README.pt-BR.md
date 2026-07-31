@@ -33,18 +33,20 @@
 - Refs de acessibilidade `@eN` só valem dentro daquele processo
 - Envelopes `--json` estáveis para agentes programáticos
 - Caminho de install é Rust puro via cargo
-- v0.1.5 fecha residual-zero de disco (RES-01…12): GC de Singleton em BORN+FINALIZE, `doctor residual_disk`, honestidade de inventário com `locale`/`man` (63 nomes de agente); mantém a superfície agent-first completa de 0.1.4
+- v0.1.6 é a release atual: mantém residual-zero de disco (0.1.5 RES-01…12 ainda verdadeiro) e fecha dialog settle, isolamento multi-aba de diálogos, eventos nativos de select/pick, campos wait/scrape no `run`, lock de formatos do grab e fixtures unitárias de lighthouse; inventário de **65** nomes de agente via `commands --json`
 
 ## Superpoderes
 - Navegação e ciclo de página: `goto`, `back`, `forward`, `reload`, `page`
-- Input: `press`, `write`, `type`, `keys`, `hover`, `drag`, `fill-form`, `select-option`/`pick` (run/schema), `upload`
-- Observação: `view`, `grab`, `extract`, `text`, `attr`, `scroll`, `assert`
-- Wait: múltiplos `--text` resolvem como OR; multi-seletor CSS OR (`#a, #b` / `selectors`); `url` / `url_contains` / `navigation`
-- Scrape: `scrape` com `--format` multi/CSV `text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding` e `--engine http|browser` (engine browser aplica formatos via outerHTML)
+- Input: `press`, `write`, `type`, `keys`, `hover`, `drag`, `fill-form`, `select-option`, `pick` (select nativo + HIG badge/popover / `role=option` com eventos de pick), `submit`, `upload`
+- Observação: `view`, `grab` (formatos `png|jpeg|webp` apenas; AVIF removido), `extract`, `text`, `attr`, `scroll`, `assert`
+- Wait: múltiplos `--text` resolvem como OR; multi-seletor CSS OR (`#a, #b` / `selectors`); `url` / `url_contains` / `navigation` / `wait_timeout_ms` no `run`
+- Scrape: `scrape` com `--format` / `--formats` multi/CSV `text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding` e `--engine http|browser` (engine browser aplica formatos via outerHTML; `format`/`formats` também no passo scrape do `run`)
 - Superfície local scrape/crawl/map/search/parse: `batch-scrape` (`--engine http|browser`), `crawl` (`--engine http|browser`), `map`, `search` (limpa redirects SERP `uddg=`), `parse` (PDF/DOCX/xlsx/ods + `--redact-pii`)
 - Extract LLM: `extract --llm --question --schema-json` (XDG `openrouter_api_key`, `llm_base_url`, `llm_model`)
 - Captura: `console` e `net` com flags globais opcionais
-- Profundidade DevTools: `eval`, `emulate`, `resize`, `perf`, `lighthouse` (resolve flag → XDG `lighthouse_path` → PATH; envelope `binary_source` real|mock), `heap`
+- Diálogos: `dialog accept|dismiss` devolve `.data.dialog_settled`; XDG `dialog_settle_ms`; isolamento multi-aba por `session_id` com gate e2e
+- Storage: `storage export|import` para cookies + estado por origem no mesmo processo
+- Profundidade DevTools: `eval`, `emulate`, `resize`, `perf`, `lighthouse` (resolve flag → XDG `lighthouse_path` → PATH; envelope `binary_source` real|mock; fixtures unitárias incluem LHR 13.4.1 capturado do Chrome; e2e mock permanece SKIP), `heap`
 - Impressão PDF: `print-pdf` one-shot CDP `Page.printToPDF` (também no multi-passo `run`)
 - Monitor: `monitor check --url --baseline [--write-baseline]`
 - Utilitários (sem Chrome): `qr encode|decode`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
@@ -54,12 +56,13 @@
 - Experimental: vision `click-at`, screencast com export via ffmpeg
 - MITM one-shot: `mitm start` / `mitm capture-url` escuta só em `127.0.0.1` (hudsucker); flags globais `--mitm*`
 - Workflow DAG: `workflow run|resume|status` com journal SQLite (resume pula ok)
-- Config XDG: `config path|init|show|set|get|list-keys` para config.toml
-- Descoberta: `doctor` (browsers_dir, origem lighthouse, `cache_redis`, `residual_disk`), `commands` (63 nomes), `schema <cmd>` ou `schema --cmd` (goto/eval/type/scroll/assert expandidos), `version`, `locale`, `man`, `completions`
+- Config XDG: `config path|init|show|set|get|list-keys` para config.toml (descubra todas as chaves com `config list-keys --json`)
+- Descoberta: `doctor` (browsers_dir, origem lighthouse, `cache_redis`, `residual_disk`), `commands` (**65** nomes), `schema <cmd>` ou `schema --cmd` (goto/eval/type/scroll/assert expandidos), `version`, `locale`, `man`, `completions`
 - Fail-fast multi-passo: `run` devolve `data.steps` parciais em envelopes de erro; `--json-steps` streama NDJSON por passo
-- Residual-zero de disco: BORN faz auto-GC de dirs Chromium Singleton-only em `/tmp` com mais de 60s; FINALIZE dual scavenge + re-scan; nunca mata Chrome Flatpak do host; prefixo de marker `browser-automation-cli-chrome-`
+- Residual-zero de disco (ainda verdadeiro desde 0.1.5 RES-01…12): BORN faz auto-GC de dirs Chromium Singleton-only em `/tmp` com mais de 60s; FINALIZE dual scavenge + re-scan; nunca mata Chrome Flatpak do host; prefixo de marker `browser-automation-cli-chrome-`
 - Ciclo de vida: BORN + FINALIZE fazem scavenge de órfãos Chromium em `/tmp` owned; product law é residual-zero de processo + disco
 - Cache: XDG `cache_backend` (`sqlite|memory|redis`) e `cache_redis_url`; `rediss://` fail-closed
+- Residual intencional: GAP-022 ~53 dups multi-versão transitivos; GAP-023/024 divergências de PRD registradas
 
 ## Início Rápido
 ```bash
@@ -125,37 +128,36 @@ browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://exampl
 ```
 
 ## Comandos
+Inventário completo de agente (**65** nomes via `commands --json`, ordenados):
+`assert`, `attr`, `back`, `batch-scrape`, `click-at`, `commands`, `completions`, `config`, `console`, `cookie`, `crawl`, `devtools3p`, `dialog`, `doctor`, `drag`, `emulate`, `eval`, `exec`, `extension`, `extract`, `find-paths`, `fill-form`, `forward`, `goto`, `grab`, `heap`, `hover`, `keys`, `lighthouse`, `locale`, `man`, `map`, `mitm`, `monitor`, `net`, `page`, `parse`, `perf`, `pick`, `press`, `print-pdf`, `qr`, `reload`, `resize`, `run`, `schema`, `scrape`, `screencast`, `scroll`, `search`, `select-option`, `sg-rewrite`, `sg-scan`, `sheet-write`, `storage`, `submit`, `text`, `type`, `upload`, `version`, `view`, `wait`, `webmcp`, `workflow`, `write`
+
+Agrupados para humanos:
 - Descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `man`, `completions`
-- Config: `config path`, `config init`, `config show`, `config set`, `config get`, `config list-keys`
 - Navegação: `goto`, `back`, `forward`, `reload`
-- Snapshot e input: `view`, `press`, `write`, `type`, `keys`, `wait`, `hover`, `drag`, `fill-form`, `upload`
-- Multi-passo / inventário schema apenas: `select-option`, `pick` (não são subcomandos clap standalone; use dentro de `run` / `exec` / schema)
-- Conteúdo: `extract`, `text`, `scroll`, `attr`, `assert`, `grab`
-- Scrape e discovery: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
-- PDF e monitor: `print-pdf`, `monitor`
+- Interação: `press`, `write`, `type`, `keys`, `wait`, `hover`, `drag`, `fill-form`, `select-option`, `pick`, `submit`, `upload`, `click-at`
+- Observação: `view`, `extract`, `text`, `scroll`, `attr`, `assert`, `grab`
+- Scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- Captura: `console`, `net`, `print-pdf`, `monitor`, `screencast`
+- Abas/Diálogos: `page`, `dialog`, `cookie`, `storage`
 - Utilitários: `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
-- Abas e diálogos: `page`, `dialog`, `cookie`
-- Captura: `console`, `net`
-- MITM: `mitm status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
-- Workflow: `workflow run|resume|status`
-- Avançado: `eval`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`
-- Categorias: `extension`, `devtools3p`, `webmcp`
+- Avançado: `eval`, `emulate`, `resize`, `perf`, `lighthouse`, `heap`, `extension`, `devtools3p`, `webmcp`, `mitm`, `workflow`
+- Config: `config path|init|show|set|get|list-keys`
 - Multi-passo: `run`, `exec`
-- Inventário: **63** nomes de agente via `commands --json` (inclui `locale`, `man`, `select-option`, `pick`); help clap de topo lista **61** sem `select-option`/`pick` como subcomandos standalone; e2e DevTools cobre 53 tools
+- Nota de inventário: **65** nomes de agente via `commands --json` (inclui `select-option`, `pick`, `submit`, `storage`); e2e DevTools cobre 53 tools (lighthouse mock SKIP)
 
 ## Configuração
 - Prefira flags de CLI para chamadas one-off de agente
-- Use `config path|init|show|set|get|list-keys` para o config.toml XDG
-- Settings de produto só via flags e `config set` (XDG)
+- Settings de produto só via flags e XDG `config path|init|show|set|get|list-keys`
+- Descubra a lista completa de chaves (a contagem não é mais fixa em 16) com `config list-keys --json`
+- Chaves importantes: `dialog_settle_ms`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`, `lang`, `log_level`
 - Logging: `--verbose` / `--debug` / `-q`, ou XDG `config set log_level` / `log_to_file`
 - Color: `config set color true|false`
 - Binário Chrome: path do shell ou XDG `config set chrome_path`
 - Binário Lighthouse: flag `--lighthouse-path`, XDG `config set lighthouse_path`, ou PATH (envelope reporta `binary_source`)
+- Orçamento de settle de diálogo: XDG `config set dialog_settle_ms <ms>` (`dialog_settled` visível ao agente em dialog accept|dismiss)
 - Cache: `config set cache_backend sqlite|memory|redis` e opcional `cache_redis_url` (somente `redis://`; `rediss://` fail-closed)
-- Chaves de config (16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - `config init` cria o layout XDG e o config.toml padrão
 - `config path` imprime paths resolvidos de config, data, cache, state e browsers_dir
-- `config list-keys` lista cada chave suportada com defaults
 - CLI flags sobrescrevem valores do config.toml
 - Doctor reporta browsers_dir, origem lighthouse, `cache_redis` e `residual_disk` entre as checagens de readiness
 - Campo JSON de topo `residual` do doctor reporta: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
@@ -228,18 +230,24 @@ browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://exampl
 - Print PDF: `print-pdf --url <url> --path <file>` one-shot CDP
 - Baseline de monitor: `monitor check --url <url> --baseline <file> [--write-baseline]`
 - Aliases de assert: `url_contains` / `text_contains`; kinds `console_empty` / `console_no_match`; `attr` usa fallback de property DOM quando o atributo HTML é null
-- Tamanho do inventário: `commands --json` lista **63** nomes de agente (inclui `locale`, `man`); clap de topo lista **61** sem `select-option`/`pick` como standalone; e2e cobre 53 tools de paridade DevTools
+- Pick / select-option: nomes no inventário de agente; select nativo dispara input+change; HIG badge/popover / `role=option` via `pick`
+- Submit / storage: `submit` para submit de formulário; `storage export|import` para cookies + estado por origem
+- Tamanho do inventário: `commands --json` lista **65** nomes de agente (inclui `select-option`, `pick`, `submit`, `storage`)
 - Locale: `locale --json` diagnostica o idioma resolvido; defina com `--lang pt-BR` ou `config set lang pt-BR`
 - `file://` + `scrape --engine http`: erro Usage — use engine browser ou `parse` para arquivos locais
 - `reload --ignore-cache`: CDP `Page.reload` com `ignoreCache` (não é no-op em JS)
-- Formatos de script `run`: NDJSON um objeto por linha, ou um único array JSON de passos; `print-pdf` e `select-option`/`pick` no multi-passo
+- Formatos de script `run`: NDJSON um objeto por linha, ou um único array JSON de passos; suporta `wait_timeout_ms` e scrape `format`/`formats`
+- Formatos do grab: `png|jpeg|webp` apenas (AVIF removido na 0.1.6)
 - Cache Redis: defina `cache_backend redis` e `cache_redis_url`; nunca use `rediss://`
-- Residual /tmp higiene de disco (v0.1.5 residual-zero):
+- Residual /tmp higiene de disco (0.1.5 RES-01…12 ainda verdadeiro na 0.1.6):
   - BORN auto-GC: `scavenge_stale_singleton_orphans` remove dirs `/tmp` `org.chromium.Chromium.*` Singleton-only com mais de 60s
   - FINALIZE dual scavenge + re-scan de dirs marker owned (prefixo `browser-automation-cli-chrome-`)
   - Nunca mata Chrome Flatpak do host nem processos de browser fora da CLI
   - Checagem doctor `residual_disk` + campo JSON de topo `residual` (`cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`)
   - Gates locais: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (sem CI obrigatório)
+- Settle de diálogo: `dialog accept|dismiss` → leia `.data.dialog_settled`; orçamento via XDG `dialog_settle_ms`; isolamento multi-aba por `session_id` (com gate e2e)
+- Lighthouse: fixtures unitárias incluem LHR 13.4.1 capturado do Chrome; caminho e2e mock permanece SKIP (somente contrato)
+- Residual intencional: GAP-022 ~53 dups multi-versão transitivos; GAP-023/024 divergências de PRD registradas
 - Utils de planilha/lint: `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths --glob` para globs shell
 
 ## Códigos de Saída

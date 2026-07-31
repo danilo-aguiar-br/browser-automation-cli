@@ -38,7 +38,7 @@ pub fn sheet_write(input: &Path, out: &Path, sheet_name: &str) -> Result<Value, 
             return Err(CliError::with_suggestion(
                 ErrorKind::Usage,
                 format!("unsupported sheet-write input extension: {other}"),
-                "Pass a .csv, .tsv, or .json (array of objects) file",
+                crate::i18n::suggestion_key("sheet_input_format", None),
             ));
         }
     };
@@ -63,7 +63,8 @@ pub fn sheet_write(input: &Path, out: &Path, sheet_name: &str) -> Result<Value, 
     // Write to temp then rename for residual-friendly finalize.
     let parent = out.parent().unwrap_or_else(|| Path::new("."));
     let tmp = parent.join(format!(
-        ".browser-automation-cli-xlsx-{}.tmp",
+        "{}{}.tmp",
+        crate::constants::XLSX_TMP_NAME_PREFIX,
         std::process::id()
     ));
     workbook
@@ -104,14 +105,12 @@ fn read_csv_rows(path: &Path, delim: u8) -> Result<Vec<Vec<String>>, CliError> {
 }
 
 fn read_json_rows(path: &Path) -> Result<Vec<Vec<String>>, CliError> {
-    let v: Value = crate::json_util::read_json_value_file(
-        path,
-        crate::json_util::MAX_JSON_FILE_BYTES,
-    )?;
+    let v: Value =
+        crate::json_util::read_json_value_file(path, crate::xdg::resolve_max_json_file_bytes())?;
     let arr = v.as_array().ok_or_else(|| {
         CliError::with_suggestion(
             ErrorKind::Data,
-            "JSON input must be an array of objects or array of arrays",
+            crate::i18n::suggestion_key("json_array_objects", None),
             "Example: [{\"a\":1,\"b\":2},{\"a\":3,\"b\":4}]",
         )
     })?;

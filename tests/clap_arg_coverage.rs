@@ -20,10 +20,7 @@ fn every_top_level_subcommand_renders_help() {
         owned.write_long_help(&mut buf).unwrap_or_else(|e| {
             panic!("help failed for subcommand {name}: {e}");
         });
-        assert!(
-            !buf.is_empty(),
-            "empty help for subcommand {name}"
-        );
+        assert!(!buf.is_empty(), "empty help for subcommand {name}");
     }
 }
 
@@ -146,17 +143,12 @@ fn build_identity_has_version() {
 /// D-04: sample additional Args→variant paths (silent discard smoke).
 #[test]
 fn more_subcommand_args_bind() {
-    let goto = Cli::try_parse_from(["browser-automation-cli", "goto", "about:blank"])
-        .expect("goto");
+    let goto =
+        Cli::try_parse_from(["browser-automation-cli", "goto", "about:blank"]).expect("goto");
     assert!(matches!(goto.command, Commands::Goto { .. }));
 
-    let doctor = Cli::try_parse_from([
-        "browser-automation-cli",
-        "doctor",
-        "--offline",
-        "--quick",
-    ])
-    .expect("doctor");
+    let doctor = Cli::try_parse_from(["browser-automation-cli", "doctor", "--offline", "--quick"])
+        .expect("doctor");
     assert!(matches!(
         doctor.command,
         Commands::Doctor {

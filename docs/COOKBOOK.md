@@ -38,14 +38,17 @@ browser-automation-cli --json config set color true
 browser-automation-cli --json config set log_level info
 browser-automation-cli --json config set chrome_path /usr/bin/chromium
 browser-automation-cli --json config set lighthouse_path ./scripts/mock-lighthouse.sh
+browser-automation-cli --json config set dialog_settle_ms 2000
+browser-automation-cli --json config list-keys
 browser-automation-cli --json config get timeout
 browser-automation-cli --json config get encryption_key
 browser-automation-cli --json config get color
+browser-automation-cli --json config get dialog_settle_ms
 ```
 - `config init` creates XDG dirs and default `config.toml`
-- Supported keys (16): `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
+- Discover live keys with `config list-keys --json` (do not hard-code a fixed count; includes `dialog_settle_ms` and more)
 - Flags always override file config for that invocation
-- Product settings use only flags and `config path|init|show|set|get`
+- Product settings use only flags and `config path|init|show|set|get|list-keys`
 
 
 ## How To Configure XDG LLM Keys
@@ -85,7 +88,7 @@ browser-automation-cli doctor --offline --quick --json | jaq '.residual'
 - Check id `residual_disk`: `fail` when live marker processes remain; `warn` when marker dirs or Singleton orphans remain; else `pass`
 - Residual-zero means zero live CLI marker processes, zero `browser-automation-cli-chrome-*` dirs, zero owned Singleton-only Chromium tmp litter after DIE
 - Age floor for cross-run stale GC is 60s; host Flatpak Chrome temp is never wiped
-- Maintainers (optional local gates, no CI/GHA requirement):
+- Maintainers (optional local gates, local maintainer scripts only):
   - `bash scripts/residual-check.sh`
   - `bash scripts/residual-stress.sh`
 
@@ -240,9 +243,122 @@ cat > /tmp/pick.run.json <<'JSON'
 JSON
 # browser-automation-cli --timeout 90 --json run --script /tmp/pick.run.json
 ```
-- `pick` / `select-option` are multi-step / schema inventory only (not standalone clap subcommands)
+- `pick` / `select-option` are agent inventory + run/exec/schema (not clap standalone subcommands)
 - Require `target` (trigger) and `option` (text, selector, or role label)
+- On native `<select>`, the CLI dispatches `input` then `change` and reports `via: native_select` (GAP-055)
 - Discover argv with `schema pick` or `schema select-option`
+
+
+## How To Accept a Dialog and Continue (dialog_settled)
+```bash
+cat > /tmp/dialog-settled.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"dialog","action":"accept"},
+  {"cmd":"view"}
+]
+JSON
+# browser-automation-cli --timeout 60 --json run --script /tmp/dialog-settled.run.json \
+#   | jaq '.data.steps[] | select(.cmd=="dialog") | .data.dialog_settled'
+
+browser-automation-cli --json config set dialog_settle_ms 2000
+```
+- After a real accept/dismiss, the data envelope includes boolean `dialog_settled` (GAP-054)
+- Happy path is `true` when `Page.javascriptDialogClosed` was observed — do **not** invent a wait before the next page step
+- Soft path: `dialog accept --if-present` when the dialog may be absent
+
+
+## How To Isolate Dialogs Across Tabs (multi-tab)
+```bash
+cat > /tmp/dialog-multitab.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"page","action":"new","url":"https://example.org"},
+  {"cmd":"page","action":"select","index":0},
+  {"cmd":"dialog","action":"accept","if_present":true},
+  {"cmd":"page","action":"select","index":1},
+  {"cmd":"view"}
+]
+JSON
+# browser-automation-cli --timeout 90 --json run --script /tmp/dialog-multitab.run.json
+```
+- Dialogs are keyed by CDP `session_id` (page forwarders stamp `Page::session_id`)
+- Answering a dialog on one tab does not steal the map entry of another tab
+- `tab_switch` domain enable is best-effort under a modal dialog budget
+
+
+## How To Wait With wait_timeout_ms in Run
+```bash
+cat > /tmp/wait-timeout.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"wait","selector":"h1","wait_timeout_ms":2000},
+  {"cmd":"wait","text":["Example Domain"],"wait_timeout_ms":5000}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/wait-timeout.run.json
+```
+- Public deadline key is `wait_timeout_ms` (GAP-053); the run parser honors it (not a silent discard)
+- Also valid on CLI: `wait --selector h1 --wait-timeout-ms 2000`
+
+
+## How To Scrape With format text Inside Run
+```bash
+cat > /tmp/scrape-text.run.json <<'JSON'
+[
+  {"cmd":"scrape","url":"https://example.com","format":"text","engine":"http"}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/scrape-text.run.json
+```
+- Run steps accept `format` / `formats` (GAP-057) with the same shape as top-level `scrape`
+- Requesting only `text` must not dump a large `html` field in the step result
+
+
+## How To Grab webp (Not avif)
+```bash
+cat > /tmp/grab-webp.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"grab","path":"/tmp/page.webp","format":"webp"}
+]
+JSON
+browser-automation-cli --timeout 60 --json run --script /tmp/grab-webp.run.json
+
+# CLI: grab --path /tmp/page.webp --format webp
+# Encode formats: png | jpeg | webp only. AVIF is removed in v0.1.6.
+```
+
+
+## How To Submit a Form
+```bash
+# Target the <form> itself or any field inside it
+# browser-automation-cli --timeout 60 --json submit "form#login" --timeout-ms 10000
+
+cat > /tmp/submit.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"write","target":"input[name=q]","value":"hello"},
+  {"cmd":"submit","target":"form","timeout_ms":10000}
+]
+JSON
+# browser-automation-cli --timeout 90 --json run --script /tmp/submit.run.json
+```
+- `submit` waits for navigation or a completed request after form submission
+- Discover argv with `schema submit --json`
+
+
+## How To Export and Import Storage
+```bash
+# Export cookies + localStorage + sessionStorage to an explicit path (mode 0600)
+# browser-automation-cli --timeout 60 --json storage export --path /tmp/auth-state.json --url https://example.com
+
+# Import portable auth state, then navigate so restored state applies
+# browser-automation-cli --timeout 60 --json storage import --path /tmp/auth-state.json --url https://example.com
+```
+- Path is always explicit (`--path`); never an implicit XDG default
+- Optional `--url` navigates first (export) or after restore (import)
+- Discover argv with `schema storage --json`
 
 
 ## How To Assert Console Empty or No Match
@@ -754,7 +870,7 @@ browser-automation-cli --json perf --help >/dev/null
 browser-automation-cli --json resize --help >/dev/null
 browser-automation-cli completions bash >/dev/null
 ```
-- Every agent name appears in `commands --json` (**63**)
+- Every agent name appears in `commands --json` (**65**)
 - `select-option` / `pick` appear in inventory and run/schema only
 - Prefer `schema <name>` before inventing argv for gated surfaces
 
@@ -774,6 +890,8 @@ browser-automation-cli schema sg-rewrite --json
 browser-automation-cli schema run --json
 browser-automation-cli schema pick --json
 browser-automation-cli schema select-option --json
+browser-automation-cli schema submit --json
+browser-automation-cli schema storage --json
 browser-automation-cli schema batch-scrape --json
 browser-automation-cli schema config --json
 browser-automation-cli schema mitm --json
@@ -781,7 +899,7 @@ browser-automation-cli schema workflow --json
 browser-automation-cli schema locale --json
 browser-automation-cli schema man --json
 ```
-- `commands` lists the agent-facing surface (**63** names)
+- `commands` lists the agent-facing surface (**65** names)
 - `schema <cmd>` or `schema --cmd` prints a JSON Schema fragment for one command
 - Useful for tool registration in agent frameworks
 
@@ -852,16 +970,16 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
 - URL assert supports exact match or contains semantics (`contains` or `url_contains`)
 - Text assert can target a selector via `target` or use `text_contains`
 
-## Full Command Inventory (63)
-- Live source of truth: `browser-automation-cli commands --json` (**63** agent-facing names)
-- Clap top-level help lists **61** without `select-option` and `pick` as standalone subcommands
-- DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53)
-- Full agent command list:
+## Full Command Inventory (65)
+- Live source of truth: `browser-automation-cli commands --json` (**65** agent-facing names)
+Clap product surface is **63** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
+- DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53; lighthouse mock SKIP)
+- Full agent command list (all **65**):
   - Meta / discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
-  - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `fill-form`, `upload`, `scroll`
-  - Multi-step / schema only: `select-option`, `pick`
-  - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `console`, `net`
+  - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
+  - Agent inventory + run/exec/schema (not clap standalone): `select-option`, `pick`
+  - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-step: `run`, `exec`
   - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
@@ -869,4 +987,5 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
   - Infra: `config`, `mitm`, `workflow`
   - Emulation / perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
+- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Discover argv with `schema <name> --json` for any name above

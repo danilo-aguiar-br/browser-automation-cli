@@ -3,24 +3,596 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/heap.schema.json",
   "title": "heap command input",
   "type": "object",
-  "description": "Heap snapshot tools (deep ops need --category-memory)",
+  "description": "Heap snapshot tools (requires --category-memory for deep analysis)",
   "properties": {
     "action": {
+      "actions": {
+        "class-nodes": {
+          "description": "List nodes of one heap snapshot class id",
+          "properties": {
+            "filter_name": {
+              "argv": "--filter-name",
+              "description": "Only include entries whose class name contains this substring",
+              "required": false,
+              "source": "parser",
+              "step_key": "filter_name",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "id": {
+              "argv": "--id",
+              "description": "Class id from `heap summary`",
+              "required": true,
+              "source": "parser",
+              "step_key": "id",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_idx": {
+              "argv": "--page-idx",
+              "description": "0-based page index for pagination",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_idx",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_size": {
+              "argv": "--page-size",
+              "description": "Maximum entries per page",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_size",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "close": {
+          "description": "Release an open heap snapshot handle",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "compare": {
+          "description": "Compare two heap snapshots and report class deltas",
+          "properties": {
+            "base": {
+              "argv": "--base",
+              "description": "Baseline snapshot to compare against",
+              "required": true,
+              "source": "parser",
+              "step_key": "base",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "class_index": {
+              "argv": "--class-index",
+              "description": "Optional class index filter (tool-ref classIndex)",
+              "required": false,
+              "source": "parser",
+              "step_key": "class_index",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "current": {
+              "argv": "--current",
+              "description": "Newer snapshot whose growth is reported",
+              "required": true,
+              "source": "parser",
+              "step_key": "current",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "details": {
+          "description": "Page through heap snapshot class details with an optional name filter",
+          "properties": {
+            "filter_name": {
+              "argv": "--filter-name",
+              "description": "Only include entries whose class name contains this substring",
+              "required": false,
+              "source": "parser",
+              "step_key": "filter_name",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "page_idx": {
+              "argv": "--page-idx",
+              "description": "0-based page index for pagination",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_idx",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_size": {
+              "argv": "--page-size",
+              "description": "Maximum entries per page",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_size",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "dominators": {
+          "description": "Report the dominator tree entry for one heap node",
+          "properties": {
+            "node": {
+              "argv": "--node",
+              "description": "Heap node id from a previous heap listing",
+              "required": true,
+              "source": "parser",
+              "step_key": "node",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "dup-strings": {
+          "description": "List duplicated strings in a heap snapshot",
+          "properties": {
+            "page_idx": {
+              "argv": "--page-idx",
+              "description": "0-based page index for pagination",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_idx",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_size": {
+              "argv": "--page-size",
+              "description": "Maximum entries per page",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_size",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "edges": {
+          "description": "List outgoing edges of one heap node",
+          "properties": {
+            "node": {
+              "argv": "--node",
+              "description": "Heap node id from a previous heap listing",
+              "required": true,
+              "source": "parser",
+              "step_key": "node",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_idx": {
+              "argv": "--page-idx",
+              "description": "0-based page index for pagination",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_idx",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_size": {
+              "argv": "--page-size",
+              "description": "Maximum entries per page",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_size",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "object-details": {
+          "description": "Detailed info for one heap object (size, distance, retained size, detachedness)",
+          "properties": {
+            "node": {
+              "argv": "--node",
+              "description": "Heap node id from a previous heap listing",
+              "required": true,
+              "source": "parser",
+              "step_key": "node",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "paths": {
+          "description": "Enumerate retaining paths from GC roots to one heap node",
+          "properties": {
+            "max_depth": {
+              "argv": "--max-depth",
+              "default": 8,
+              "description": "Maximum path length walked back towards a GC root",
+              "required": false,
+              "source": "parser",
+              "step_key": "max_depth",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "max_nodes": {
+              "argv": "--max-nodes",
+              "description": "Stop after visiting this many nodes (anti-pathological guard)",
+              "required": false,
+              "source": "parser",
+              "step_key": "max_nodes",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "max_siblings": {
+              "argv": "--max-siblings",
+              "description": "Maximum sibling branches explored per level",
+              "required": false,
+              "source": "parser",
+              "step_key": "max_siblings",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "node": {
+              "argv": "--node",
+              "description": "Heap node id from a previous heap listing",
+              "required": true,
+              "source": "parser",
+              "step_key": "node",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "retainers": {
+          "description": "List retainers holding one heap node alive",
+          "properties": {
+            "node": {
+              "argv": "--node",
+              "description": "Heap node id from a previous heap listing",
+              "required": true,
+              "source": "parser",
+              "step_key": "node",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_idx": {
+              "argv": "--page-idx",
+              "description": "0-based page index for pagination",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_idx",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_size": {
+              "argv": "--page-size",
+              "description": "Maximum entries per page",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_size",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "summary": {
+          "description": "Summarize a heap snapshot by class totals",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "take": {
+          "description": "Capture a heap snapshot from the live page to a .heapsnapshot file",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Heap snapshot file (`.heapsnapshot`)",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
+      "enum": [
+        "take",
+        "close",
+        "compare",
+        "summary",
+        "details",
+        "class-nodes",
+        "dominators",
+        "dup-strings",
+        "edges",
+        "retainers",
+        "paths",
+        "object-details"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "base": {
+      "source": "catalog",
+      "step_key": "base",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "current": {
+      "source": "catalog",
+      "step_key": "current",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "id": {
+      "source": "catalog",
+      "step_key": "id",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     },
     "node": {
+      "source": "catalog",
+      "step_key": "node",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     },
     "path": {
+      "source": "catalog",
+      "step_key": "path",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

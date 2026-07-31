@@ -6,50 +6,35 @@
   "description": "Navigate and return body text / formats (local HTTP or CDP scrape)",
   "properties": {
     "engine": {
-      "description": "Default browser (CDP)",
-      "enum": [
-        "http",
-        "browser"
+      "argv": "--engine",
+      "default": "browser",
+      "description": "http (reqwest+scraper) or browser (CDP)",
+      "required": false,
+      "source": "parser",
+      "step_key": "engine",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
       ],
       "type": "string"
     },
     "format": {
-      "description": "Single format, CSV multi-format, or array (GAP-009); browser applies via outerHTML",
-      "oneOf": [
-        {
-          "enum": [
-            "text",
-            "markdown",
-            "html",
-            "raw-html",
-            "links",
-            "metadata",
-            "screenshot",
-            "summary",
-            "product",
-            "branding"
-          ],
-          "type": "string"
-        },
-        {
-          "items": {
-            "enum": [
-              "text",
-              "markdown",
-              "html",
-              "raw-html",
-              "links",
-              "metadata",
-              "screenshot",
-              "summary",
-              "product",
-              "branding"
-            ],
-            "type": "string"
-          },
-          "type": "array"
-        }
-      ]
+      "argv": "--format",
+      "default": "text",
+      "description": "text | markdown | html | links | metadata | … (CSV or repeatable; alias --formats)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "format",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "array"
     },
     "formats": {
       "description": "Alias of format for multi-value (GAP-018)",
@@ -63,16 +48,51 @@
           },
           "type": "array"
         }
+      ],
+      "source": "catalog",
+      "step_key": "formats",
+      "surfaces": [
+        "run_step",
+        "exec"
       ]
     },
     "only_main_content": {
+      "argv": "--only-main-content",
+      "description": "Prefer main/article content heuristics",
+      "required": false,
+      "source": "parser",
+      "step_key": "only_main_content",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "url": {
+      "argv": "<URL>",
+      "description": "Absolute URL to fetch",
+      "required": true,
+      "source": "parser",
+      "step_key": "url",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "webhook_url": {
-      "description": "Optional one-shot operator POST of result data (not product telemetry)",
+      "argv": "--webhook-url",
+      "description": "Optional one-shot webhook POST of the result envelope data (127.0.0.1/operator URL)",
+      "required": false,
+      "source": "parser",
+      "step_key": "webhook_url",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

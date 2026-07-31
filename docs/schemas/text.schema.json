@@ -3,9 +3,19 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/text.schema.json",
   "title": "text command input",
   "type": "object",
-  "description": "Extract visible text from target (PRD §7)",
+  "description": "Extract visible text from a target (PRD §7 `text`)",
   "properties": {
     "target": {
+      "argv": "<TARGET>",
+      "description": "CSS selector or `@eN` snapshot ref to read text from",
+      "required": true,
+      "source": "parser",
+      "step_key": "target",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

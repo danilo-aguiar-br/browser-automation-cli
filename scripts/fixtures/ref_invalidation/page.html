@@ -1,0 +1,51 @@
+<!doctype html>
+<!--
+  Fixture for the `@eN` invalidation marker (see tests/ref_invalidation_gate.rs).
+
+  Pressing #mutate genuinely rebuilds the list: a node is removed and two are
+  inserted before it, so the element order changes and any reference taken
+  earlier now points somewhere else. That is what ties the marker to reality —
+  without a real mutation, `refs_invalidated: true` would only be a label.
+
+  `signature()` is exposed so a test can read the tree shape before and after an
+  action and show that the reading commands changed nothing.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ref invalidation</title>
+  </head>
+  <body>
+    <h1 id="title">ref invalidation</h1>
+    <ul id="list">
+      <li id="row-a">alpha</li>
+      <li id="row-b">bravo</li>
+      <li id="row-c">charlie</li>
+    </ul>
+    <input id="field" value="initial" />
+    <button id="mutate" type="button">Rebuild the list</button>
+    <p id="status">idle</p>
+    <script>
+      // Element count plus serialized length: any structural change moves it.
+      window.signature = function () {
+        var d = document.documentElement;
+        return d.getElementsByTagName('*').length + ':' + d.outerHTML.length;
+      };
+
+      document.getElementById('mutate').addEventListener('click', function () {
+        var list = document.getElementById('list');
+        var first = document.getElementById('row-a');
+        if (first) {
+          list.removeChild(first);
+        }
+        for (var i = 0; i < 2; i++) {
+          var li = document.createElement('li');
+          li.id = 'row-new-' + i;
+          li.textContent = 'inserted ' + i;
+          list.insertBefore(li, list.firstChild);
+        }
+        document.getElementById('status').textContent = 'rebuilt';
+      });
+    </script>
+  </body>
+</html>

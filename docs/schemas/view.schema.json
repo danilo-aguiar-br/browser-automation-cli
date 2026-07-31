@@ -5,16 +5,53 @@
   "type": "object",
   "description": "Accessibility snapshot with @eN refs",
   "properties": {
+    "allow_empty": {
+      "argv": "--allow-empty",
+      "description": "Allow empty about:blank snapshots (GAP-012)",
+      "required": false,
+      "source": "parser",
+      "step_key": "allow_empty",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "boolean"
+    },
     "detailed": {
       "description": "CLI alias of verbose for one-shot argv (maps to verbose in handlers)",
+      "source": "catalog",
+      "step_key": "detailed",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "path": {
-      "description": "Optional file to write tree text",
+      "argv": "--path",
+      "description": "Write the snapshot to this path instead of stdout",
+      "required": false,
+      "source": "parser",
+      "step_key": "path",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "verbose": {
-      "description": "Full a11y tree (run/JSON tool-ref). CLI flag is --detailed (avoids shadowing global --verbose).",
+      "argv": "--detailed",
+      "description": "Full a11y tree (tool-ref take_snapshot.verbose / run JSON `\"verbose\":true`)",
+      "required": false,
+      "source": "parser",
+      "step_key": "verbose",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     }
   },

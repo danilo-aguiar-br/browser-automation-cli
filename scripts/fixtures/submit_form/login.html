@@ -1,0 +1,65 @@
+<!doctype html>
+<!--
+  Fixture for form submission (see tests/submit_form_gate.rs).
+
+  The design point: the destination only carries `token=EVENT_RAN` when the
+  form's `submit` EVENT actually fired, because the token is appended by the
+  handler. A gesture that merely clicks something and navigates by other means
+  cannot forge it. That is the analogue of the drag fixture whose drop handler
+  rejects a foreign payload.
+
+  Two buttons sit side by side and look alike:
+    #real-submit  type=submit — the genuine control
+    #fake-submit  type=button — the wrong gesture; clicking it does nothing
+
+  Query parameters:
+    prevent=1   the handler calls preventDefault() and issues no request
+    require=1   the field becomes required and starts empty, so constraint
+                validation must refuse the submission
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>login</title>
+  </head>
+  <body>
+    <h1>login</h1>
+    <form id="form" action="landed.html" method="get">
+      <input id="user" name="user" value="alice" />
+      <button id="real-submit" type="submit">Sign in</button>
+      <button id="fake-submit" type="button">Sign in</button>
+    </form>
+    <p id="status">idle</p>
+    <script>
+      (function () {
+        var q = new URLSearchParams(location.search);
+        var prevent = q.get('prevent') === '1';
+        var require = q.get('require') === '1';
+        var form = document.getElementById('form');
+        var user = document.getElementById('user');
+
+        if (require) {
+          user.value = '';
+          user.setAttribute('required', 'required');
+        }
+
+        form.addEventListener('submit', function (e) {
+          document.getElementById('status').textContent = 'submit-event';
+          if (prevent) {
+            // Cancelled and nothing sent: the outcome the CLI must report as
+            // `prevented` rather than as success or as a timeout.
+            e.preventDefault();
+            return;
+          }
+          // Only reachable from a real submit event, which is what makes the
+          // token on the destination URL evidence rather than decoration.
+          var token = document.createElement('input');
+          token.type = 'hidden';
+          token.name = 'token';
+          token.value = 'EVENT_RAN';
+          form.appendChild(token);
+        });
+      })();
+    </script>
+  </body>
+</html>

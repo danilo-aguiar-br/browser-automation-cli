@@ -38,12 +38,14 @@ fn matrix_tool_refs() -> BTreeSet<String> {
             continue;
         }
         let cols: Vec<&str> = line.split('|').map(str::trim).collect();
-        // | tool | cli | status | notes |  => cols[1]=tool, cols[2]=cli, cols[3]=status
-        if cols.len() < 4 {
+        // The matrix is now generated in three layers (GAP-044):
+        // | tool | cli | categoria | L1 | efeito | gate | diálogo |
+        // cols[1]=tool, cols[2]=cli, cols[4]=L1 name-layer status.
+        if cols.len() < 8 {
             continue;
         }
         let tool = cols[1];
-        let status = cols[3];
+        let status = cols[4];
         if tool.is_empty()
             || tool == "Tool"
             || tool.starts_with("---")
@@ -52,7 +54,8 @@ fn matrix_tool_refs() -> BTreeSet<String> {
         {
             continue;
         }
-        if matches!(status, "Closed" | "Partial" | "Open") {
+        // Generated L1 vocabulary: `ok` closed, `STALE` / `ABSENT` open.
+        if matches!(status, "ok" | "STALE" | "ABSENT") {
             set.insert(tool.to_string());
         }
     }
@@ -116,15 +119,21 @@ fn object_details_is_closed_in_matrix() {
         text.contains("heap object-details"),
         "matrix must map to heap object-details CLI"
     );
-    // Status Closed on that row
+    // L1 name layer must read `ok` on that row (was the hand-written `Closed`).
     let mut found_closed = false;
     for line in text.lines() {
-        if line.contains("get_heapsnapshot_object_details") && line.contains("Closed") {
-            found_closed = true;
-            break;
+        if line.contains("get_heapsnapshot_object_details") {
+            let cols: Vec<&str> = line.split('|').map(str::trim).collect();
+            if cols.len() >= 8 && cols[4] == "ok" {
+                found_closed = true;
+                break;
+            }
         }
     }
-    assert!(found_closed, "object_details row must be Closed");
+    assert!(
+        found_closed,
+        "object_details row must show L1=ok in the generated matrix"
+    );
 }
 
 #[test]

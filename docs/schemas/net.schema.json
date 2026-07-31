@@ -3,23 +3,154 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/net.schema.json",
   "title": "net command input",
   "type": "object",
-  "description": "List or get captured network requests (needs --capture-network)",
+  "description": "Captured network requests (--capture-network)",
   "properties": {
     "action": {
+      "actions": {
+        "get": {
+          "description": "Get one captured network request by index or CDP requestId",
+          "properties": {
+            "id": {
+              "argv": "<ID>",
+              "description": "0-based index in net list, or CDP requestId string",
+              "required": true,
+              "source": "parser",
+              "step_key": "id",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "request_path": {
+              "argv": "--request-path",
+              "description": "Write the request body to this file",
+              "required": false,
+              "source": "parser",
+              "step_key": "request_path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "response_path": {
+              "argv": "--response-path",
+              "description": "Write the response body to this file",
+              "required": false,
+              "source": "parser",
+              "step_key": "response_path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "list": {
+          "description": "List captured network requests with pagination and resource-type filters",
+          "properties": {
+            "include_preserved": {
+              "argv": "--include-preserved",
+              "description": "Include requests preserved over recent navigations in this process",
+              "required": false,
+              "source": "parser",
+              "step_key": "include_preserved",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            },
+            "page_idx": {
+              "argv": "--page-idx",
+              "description": "0-based page index for pagination",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_idx",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_size": {
+              "argv": "--page-size",
+              "description": "Max requests per page",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_size",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "resource_types": {
+              "argv": "--resource-types",
+              "description": "Filter resource types (comma-separated: Document,Script,XHR,Fetch,...)",
+              "required": false,
+              "source": "parser",
+              "step_key": "resource_types",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "list",
         "get"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
       ],
       "type": "string"
     },
     "id": {
       "minimum": 0,
+      "source": "catalog",
+      "step_key": "id",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     },
     "request_path": {
+      "source": "catalog",
+      "step_key": "request_path",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "response_path": {
+      "source": "catalog",
+      "step_key": "response_path",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

@@ -41,7 +41,6 @@ fn lang_pt_br_changes_suggestion_on_usage_error() {
             "--json",
         ])
         .env("NO_COLOR", "1")
-        .env_remove("BROWSER_AUTOMATION_CLI_LANG")
         .output()
         .expect("spawn");
     let pt = Command::new(BIN)
@@ -54,7 +53,6 @@ fn lang_pt_br_changes_suggestion_on_usage_error() {
             "--json",
         ])
         .env("NO_COLOR", "1")
-        .env_remove("BROWSER_AUTOMATION_CLI_LANG")
         .output()
         .expect("spawn");
     // Usage errors use sysexits-style code 2 in this CLI (ErrorKind::Usage).
@@ -80,15 +78,15 @@ fn lifecycle_signal_kinds_documented() {
 
 #[test]
 fn pt_br_suggestions_use_accents() {
-    use browser_automation_cli::i18n::{Idioma, Mensagem};
-    let v = Mensagem::VisionRequired.texto(Idioma::PtBr);
+    use browser_automation_cli::i18n::{UiLocale, UiMessage};
+    let v = UiMessage::VisionRequired.text(UiLocale::PtBr);
     assert!(
         v.contains("invocação"),
         "expected accented pt-BR invocação: {v}"
     );
-    let r = Mensagem::RobotsDual.texto(Idioma::PtBr);
+    let r = UiMessage::RobotsDual.text(UiLocale::PtBr);
     assert!(r.contains("propósito"), "expected propósito: {r}");
-    let u = Mensagem::RunFailFast.texto(Idioma::PtBr);
+    let u = UiMessage::RunFailFast.text(UiLocale::PtBr);
     assert!(u.contains("não"), "expected não: {u}");
 }
 
@@ -97,10 +95,14 @@ fn locale_subcommand_json_shape() {
     let out = Command::new(BIN)
         .args(["--lang", "pt-BR", "locale", "--json"])
         .env("NO_COLOR", "1")
-        .env_remove("BROWSER_AUTOMATION_CLI_LANG")
         .output()
         .expect("spawn");
-    assert_eq!(out.status.code().unwrap_or(-1), 0, "stderr={}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        out.status.code().unwrap_or(-1),
+        0,
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     // Envelope or raw
@@ -108,16 +110,22 @@ fn locale_subcommand_json_shape() {
     assert_eq!(data.get("resolved").and_then(|x| x.as_str()), Some("pt-BR"));
     assert_eq!(data.get("source").and_then(|x| x.as_str()), Some("flag"));
     assert!(data.get("available").is_some());
-    assert_eq!(
-        data.get("lang_env_key").and_then(|x| x.as_str()),
-        Some("BROWSER_AUTOMATION_CLI_LANG")
-    );
+    // Product-law: no product env key in diagnostics.
+    assert!(data.get("lang_env_key").is_none());
+    assert!(data.get("env_override").is_none());
+    let resolution = data
+        .get("resolution")
+        .and_then(|x| x.as_array())
+        .expect("resolution array");
+    assert!(resolution.iter().any(|v| v.as_str() == Some("flag")));
+    assert!(resolution.iter().any(|v| v.as_str() == Some("xdg")));
 }
 
 #[test]
-fn env_lang_override_without_flag() {
+fn product_env_lang_is_ignored() {
+    // Product-law: BROWSER_AUTOMATION_CLI_LANG must not override locale.
     let out = Command::new(BIN)
-        .args(["locale", "--json"])
+        .args(["--lang", "en", "locale", "--json"])
         .env("NO_COLOR", "1")
         .env("BROWSER_AUTOMATION_CLI_LANG", "pt-BR")
         .output()
@@ -125,21 +133,20 @@ fn env_lang_override_without_flag() {
     assert_eq!(out.status.code().unwrap_or(-1), 0);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("pt-BR") && stdout.contains("\"source\""),
-        "stdout={stdout}"
+        stdout.contains("\"source\":\"flag\"") || stdout.contains("\"source\": \"flag\""),
+        "flag must win; env ignored: {stdout}"
     );
-    // source should be env when no --lang
     assert!(
-        stdout.contains("\"env\"") || stdout.contains("env"),
-        "expected env source: {stdout}"
+        !stdout.contains("\"source\":\"env\"") && !stdout.contains("\"source\": \"env\""),
+        "env must not be a locale source: {stdout}"
     );
 }
 
 #[test]
-fn mensagem_parity_en_pt_via_public_api() {
-    use browser_automation_cli::i18n::{Idioma, Mensagem};
-    for m in Mensagem::ALL {
-        assert!(!m.texto(Idioma::En).is_empty());
-        assert!(!m.texto(Idioma::PtBr).is_empty());
+fn ui_message_parity_en_pt_via_public_api() {
+    use browser_automation_cli::i18n::{UiLocale, UiMessage};
+    for m in UiMessage::ALL {
+        assert!(!m.text(UiLocale::En).is_empty());
+        assert!(!m.text(UiLocale::PtBr).is_empty());
     }
 }

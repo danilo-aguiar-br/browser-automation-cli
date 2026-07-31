@@ -3,22 +3,156 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/console.schema.json",
   "title": "console command input",
   "type": "object",
-  "description": "List/get/clear/dump captured console messages (needs --capture-console)",
+  "description": "Captured console messages (--capture-console)",
   "properties": {
     "action": {
+      "actions": {
+        "clear": {
+          "description": "Drop all console messages captured in this process",
+          "properties": {}
+        },
+        "dump": {
+          "description": "Write captured console messages to a JSON file",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Destination file for the JSON dump",
+              "required": true,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "get": {
+          "description": "Get one captured console message by 0-based id",
+          "properties": {
+            "id": {
+              "argv": "<ID>",
+              "description": "0-based index in the captured console list",
+              "required": true,
+              "source": "parser",
+              "step_key": "id",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            }
+          }
+        },
+        "list": {
+          "description": "List captured console messages with pagination and type filters",
+          "properties": {
+            "include_preserved": {
+              "argv": "--include-preserved",
+              "description": "Include messages preserved across navigations in this process",
+              "required": false,
+              "source": "parser",
+              "step_key": "include_preserved",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            },
+            "page_idx": {
+              "argv": "--page-idx",
+              "description": "0-based page index for pagination",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_idx",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_size": {
+              "argv": "--page-size",
+              "description": "Max messages per page",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_size",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "service_worker_id": {
+              "argv": "--service-worker-id",
+              "description": "Optional service worker id filter",
+              "required": false,
+              "source": "parser",
+              "step_key": "service_worker_id",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "types": {
+              "argv": "--types",
+              "description": "Filter by types (comma-separated: log,warning,error,info,debug)",
+              "required": false,
+              "source": "parser",
+              "step_key": "types",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "list",
         "get",
         "clear",
         "dump"
       ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "id": {
       "minimum": 0,
+      "source": "catalog",
+      "step_key": "id",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     },
     "path": {
+      "source": "catalog",
+      "step_key": "path",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

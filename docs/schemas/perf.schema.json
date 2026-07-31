@@ -3,23 +3,159 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/perf.schema.json",
   "title": "perf command input",
   "type": "object",
-  "description": "Performance start|stop|insight",
+  "description": "Performance trace / metrics",
   "properties": {
     "action": {
+      "actions": {
+        "insight": {
+          "description": "Analyze one insight from a stopped trace",
+          "properties": {
+            "insight_name": {
+              "argv": "--insight-name",
+              "description": "Alias for --name (tool-ref insightName)",
+              "required": false,
+              "source": "parser",
+              "step_key": "insight_name",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "insight_set_id": {
+              "argv": "--insight-set-id",
+              "description": "Insight set id from perf stop \"available_insight_sets\"",
+              "required": false,
+              "source": "parser",
+              "step_key": "insight_set_id",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "name": {
+              "argv": "--name",
+              "description": "Insight name (e.g. DocumentLatency, LCPBreakdown)",
+              "required": false,
+              "source": "parser",
+              "step_key": "name",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "start": {
+          "description": "Start a performance trace, optionally reloading and auto-stopping",
+          "properties": {
+            "auto_stop": {
+              "argv": "--auto-stop",
+              "description": "Auto-stop after page load/reload (tool-ref autoStop)",
+              "required": false,
+              "source": "parser",
+              "step_key": "auto_stop",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Destination for the trace written when it stops",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "reload": {
+              "argv": "--reload",
+              "description": "Reload the page after tracing starts, to capture load",
+              "required": false,
+              "source": "parser",
+              "step_key": "reload",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "stop": {
+          "description": "Stop the performance trace and write the trace artifact",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Destination for the trace artifact",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "start",
         "stop",
         "insight"
       ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "name": {
+      "source": "catalog",
+      "step_key": "name",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "path": {
+      "source": "catalog",
+      "step_key": "path",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "reload": {
+      "source": "catalog",
+      "step_key": "reload",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     }
   },

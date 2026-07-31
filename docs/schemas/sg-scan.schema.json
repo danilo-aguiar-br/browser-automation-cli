@@ -3,15 +3,32 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/sg-scan.schema.json",
   "title": "sg-scan command input",
   "type": "object",
-  "description": "Structural lint scan for forbidden product patterns (one-shot; no Chrome)",
+  "description": "Structural lint scan for forbidden product patterns (one-shot; §5AC / GAP-A011)",
   "properties": {
     "limit": {
+      "argv": "--limit",
+      "default": 500,
+      "description": "Max findings (0 = unlimited)",
+      "required": false,
+      "source": "parser",
+      "step_key": "limit",
+      "surfaces": [
+        "argv"
+      ],
       "type": "integer"
     },
     "paths": {
+      "argv": "<PATHS>",
+      "description": "Roots to scan (default: `.`)",
       "items": {
         "type": "string"
       },
+      "required": false,
+      "source": "parser",
+      "step_key": "paths",
+      "surfaces": [
+        "argv"
+      ],
       "type": "array"
     }
   },

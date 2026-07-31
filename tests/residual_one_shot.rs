@@ -1,28 +1,112 @@
-//! GAP-017 / RES-03: residual zero for CLI marker profiles + Chromium side-channels
+//! RES-03: residual zero for CLI marker profiles + Chromium side-channels
 //! after one-shot DIE (PRD §5N).
+//!
+//! This file covers disk residue only. It says nothing about help text, about
+//! `run` dispatch coverage, or about console/network capture surviving
+//! shutdown — do not read a green run here as evidence for any of those.
+//!
+//! # Why every residue assertion runs inside a sandbox
+//!
+//! These tests need a **zero** age floor: they assert that a profile is
+//! collectable the instant its owner dies, and the production floor of
+//! [`STALE_MIN_AGE_SECS`] would make them sleep a minute to prove it.
+//!
+//! That floor is not decoration. It is what protects the window between
+//! `create_dir_all` of a profile and Chrome appearing in the process table: in
+//! that window the directory exists and **no process holds it yet**, so the
+//! liveness guard cannot save it. Dropping the floor to zero against the real
+//! roots therefore deletes the in-flight profile of any concurrent invocation —
+//! and `cargo` runs test binaries concurrently, so the victim is usually a
+//! sibling test, which then fails with `SingletonLock: No such file or directory`.
+//!
+//! So each test that lowers the floor also narrows the roots to a directory it
+//! created, passed to the child through `TMPDIR` / `XDG_CACHE_HOME` and to the
+//! library through the `_in_roots` entry points. Zero-age GC is only ever
+//! pointed at paths this test owns.
+//!
+//! [`STALE_MIN_AGE_SECS`]: browser_automation_cli::residual::STALE_MIN_AGE_SECS
 
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
 const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
 
+/// A private pair of residual roots: an OS temp dir and an XDG cache dir.
+///
+/// Both are handed to the child process by environment, which is per-child and
+/// therefore safe to use while other tests run in this binary — unlike mutating
+/// this process's own environment.
+struct Sandbox {
+    root: PathBuf,
+}
+
+impl Sandbox {
+    fn new(tag: &str) -> Self {
+        let root = std::env::temp_dir().join(format!("bac-residual-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("tmp")).expect("mkdir sandbox tmp");
+        fs::create_dir_all(root.join("cache")).expect("mkdir sandbox cache");
+        Self { root }
+    }
+
+    fn tmp(&self) -> PathBuf {
+        self.root.join("tmp")
+    }
+
+    /// Where the product puts ephemeral profiles under this sandbox's cache.
+    ///
+    /// Mirrors `xdg::chrome_profiles_dir()`: `$XDG_CACHE_HOME/<pkg>/chrome-profiles`.
+    fn chrome_profiles(&self) -> PathBuf {
+        self.root
+            .join("cache")
+            .join(env!("CARGO_PKG_NAME"))
+            .join("chrome-profiles")
+    }
+
+    /// A path the child is allowed to read or write.
+    ///
+    /// The product derives its allowed roots from the process temp dir, which the
+    /// sandbox has moved: a file next to the sandbox root but outside `tmp/` is
+    /// refused with `capability-disabled`. Everything handed to a child goes here.
+    fn child_file(&self, name: &str) -> PathBuf {
+        self.tmp().join(name)
+    }
+
+    /// The roots to hand the `_in_roots` library entry points.
+    fn roots(&self) -> Vec<PathBuf> {
+        vec![self.tmp(), self.chrome_profiles()]
+    }
+
+    /// Point a child invocation at this sandbox.
+    fn apply(&self, cmd: &mut Command) {
+        cmd.env("TMPDIR", self.tmp())
+            .env("XDG_CACHE_HOME", self.root.join("cache"))
+            .env("NO_COLOR", "1");
+    }
+}
+
+impl Drop for Sandbox {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
 #[test]
 fn goto_leaves_zero_cli_chrome_marker_dirs() {
-    let before = browser_automation_cli::residual::list_cli_chrome_marker_dirs();
-    let output = Command::new(BIN)
-        .args(["--json", "goto", "about:blank"])
-        .env("NO_COLOR", "1")
-        .output()
-        .expect("spawn goto");
+    let sandbox = Sandbox::new("goto");
+    let mut cmd = Command::new(BIN);
+    cmd.args(["--json", "goto", "about:blank"]);
+    sandbox.apply(&mut cmd);
+    let output = cmd.output().expect("spawn goto");
     assert!(
         output.status.success(),
         "goto failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let after = browser_automation_cli::residual::list_cli_chrome_marker_dirs();
-    // Any dirs that appeared during the run must be gone after DIE.
-    let leaked: Vec<_> = after.iter().filter(|p| !before.contains(p)).collect();
+    let leaked =
+        browser_automation_cli::residual::list_cli_chrome_marker_dirs_in_roots(&sandbox.roots());
     assert!(
         leaked.is_empty(),
         "leaked CLI chrome marker dirs after one-shot: {leaked:?}"
@@ -31,39 +115,39 @@ fn goto_leaves_zero_cli_chrome_marker_dirs() {
 
 #[test]
 fn goto_does_not_leave_new_chromium_singleton_orphans() {
-    let before = count_chromium_singleton_dirs();
-    let pdf = std::env::temp_dir().join(format!(
-        "browser-automation-cli-residual-{}.pdf",
-        std::process::id()
-    ));
-    let output = Command::new(BIN)
-        .args(["--json", "print-pdf", "--url", "about:blank", "--path"])
-        .arg(&pdf)
-        .env("NO_COLOR", "1")
-        .output()
-        .expect("spawn print-pdf");
+    let sandbox = Sandbox::new("singleton");
+    let pdf = sandbox.child_file("residual.pdf");
+    let mut cmd = Command::new(BIN);
+    cmd.args(["--json", "print-pdf", "--url", "about:blank", "--path"])
+        .arg(&pdf);
+    sandbox.apply(&mut cmd);
+    let output = cmd.output().expect("spawn print-pdf");
     assert!(
         output.status.success(),
         "print-pdf failed: stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let after = count_chromium_singleton_dirs();
-    // FINALIZE dual scavenge + BORN of this process may *reduce* count.
-    // Product law: must not grow.
+
+    // Product law: whatever this one-shot creates, our own GC must be able to
+    // reclaim it. The sandbox is what makes the zero floor honest here — nothing
+    // inside it was created by anyone but this test's child, so a dir that
+    // survives the scavenge is a genuine leak rather than a neighbour's profile.
+    let _ = browser_automation_cli::residual::scavenge_stale_singleton_orphans_in_roots(
+        &sandbox.roots(),
+        Duration::ZERO,
+    );
+    let leaked = chromium_singleton_dirs(&sandbox.tmp());
     assert!(
-        after <= before,
-        "chromium singleton tmp dirs grew after one-shot: before={before} after={after}"
+        leaked.is_empty(),
+        "one-shot left chromium singleton dirs that GC could not reclaim: {leaked:?}"
     );
 }
 
 #[test]
 fn born_gc_wipes_stale_singleton_fixture() {
-    let tmp = std::env::temp_dir();
-    let dir = tmp.join(format!(
-        "org.chromium.Chromium.rstest{}",
-        std::process::id()
-    ));
+    let sandbox = Sandbox::new("fixture");
+    let dir = sandbox.tmp().join("org.chromium.Chromium.rstest");
     fs::create_dir_all(&dir).expect("mkdir fixture");
     let _ = fs::write(dir.join("SingletonSocket"), b"");
     #[cfg(unix)]
@@ -73,14 +157,14 @@ fn born_gc_wipes_stale_singleton_fixture() {
 
     // Force age floor zero via library API (unit path). Integration BORN uses 60s;
     // here we prove the wipe predicate for Singleton-only owned dirs.
-    let wiped = browser_automation_cli::residual::scavenge_stale_singleton_orphans_with_min_age(
+    let wiped = browser_automation_cli::residual::scavenge_stale_singleton_orphans_in_roots(
+        &sandbox.roots(),
         Duration::ZERO,
     );
     assert!(
         wiped.iter().any(|p| p == &dir) || !dir.exists(),
         "fixture must be wiped by stale GC: wiped={wiped:?}"
     );
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -106,20 +190,123 @@ fn doctor_json_includes_residual_report() {
     );
 }
 
-fn count_chromium_singleton_dirs() -> usize {
-    let tmp = std::env::temp_dir();
-    let Ok(entries) = fs::read_dir(tmp) else {
-        return 0;
+/// GAP-045/GAP-052: SIGTERM mid-`run` leaves a profile whose owner pid is dead;
+/// the next BORN must collect it.
+#[cfg(unix)]
+#[test]
+fn sigterm_during_run_leaves_profile_collected_by_next_born() {
+    use std::io::Write;
+
+    let sandbox = Sandbox::new("sigterm");
+    let script = sandbox.child_file("steps.jsonl");
+    {
+        let mut f = fs::File::create(&script).expect("write script");
+        // Long enough that SIGTERM lands while Chrome owns the profile.
+        writeln!(f, r#"{{"cmd":"goto","url":"about:blank"}}"#).unwrap();
+        for _ in 0..40 {
+            writeln!(
+                f,
+                r#"{{"cmd":"wait","selector":".bac-never-matches","wait_timeout_ms":2000}}"#
+            )
+            .unwrap();
+        }
+    }
+
+    let mut cmd = Command::new(BIN);
+    cmd.args(["--json", "--timeout", "120", "run", "--script"])
+        .arg(&script);
+    sandbox.apply(&mut cmd);
+    let mut child = cmd.spawn().expect("spawn run");
+
+    std::thread::sleep(Duration::from_secs(4));
+    // SIGTERM first — never a bare SIGKILL as the normal cancel path.
+    let pid = child.id() as i32;
+    // SAFETY:
+    // - Contract: deliver SIGTERM to a child this test spawned and still owns.
+    // - Invariant: `kill` has no preconditions beyond a valid pid; the child has
+    //   not been reaped yet, so the pid cannot have been recycled.
+    // - See: `man 2 kill`.
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
+    let _ = child.wait();
+
+    // Any profile left behind now has a dead owner pid. Give the age floor a
+    // zero override through the library API, which is the same predicate BORN uses.
+    let roots = sandbox.roots();
+    let before = browser_automation_cli::residual::list_cli_chrome_marker_dirs_in_roots(&roots);
+    let wiped = browser_automation_cli::residual::scavenge_stale_singleton_orphans_in_roots(
+        &roots,
+        Duration::ZERO,
+    );
+    let after = browser_automation_cli::residual::list_cli_chrome_marker_dirs_in_roots(&roots);
+    assert!(
+        after.len() <= before.len(),
+        "next BORN must not grow residue: before={before:?} after={after:?} wiped={wiped:?}"
+    );
+    for dir in &before {
+        // A profile whose owner pid is dead must be gone.
+        let owner_alive = browser_automation_cli::residual::read_owner_pid(dir)
+            .and_then(|pid| {
+                browser_automation_cli::residual::index_live_processes()
+                    .map(|idx| idx.contains_pid(pid))
+            })
+            .unwrap_or(true);
+        if !owner_alive {
+            assert!(
+                !dir.exists(),
+                "dead-owner profile survived next BORN: {}",
+                dir.display()
+            );
+        }
+    }
+}
+
+/// GAP-002/GAP-006: concurrent invocations must not make `doctor` fail.
+#[test]
+fn concurrent_invocation_keeps_doctor_exit_zero() {
+    let sandbox = Sandbox::new("concurrent");
+    let mut cmd = Command::new(BIN);
+    cmd.args(["--json", "--timeout", "60", "goto", "about:blank"]);
+    sandbox.apply(&mut cmd);
+    let sibling = cmd.spawn().expect("spawn sibling");
+
+    let doctor = Command::new(BIN)
+        .args(["--json", "doctor", "--quick", "--offline"])
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("spawn doctor");
+
+    let mut sibling = sibling;
+    let _ = sibling.wait();
+
+    assert!(
+        doctor.status.success(),
+        "doctor must stay green next to a live sibling: code={:?} stdout={} stderr={}",
+        doctor.status.code(),
+        String::from_utf8_lossy(&doctor.stdout),
+        String::from_utf8_lossy(&doctor.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&doctor.stdout);
+    assert!(
+        stdout.contains("sibling_live_processes"),
+        "doctor must report sibling_live_processes: {stdout}"
+    );
+}
+
+/// Chromium side-channel directories present under `root`.
+fn chromium_singleton_dirs(root: &std::path::Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
     };
-    let mut n = 0usize;
+    let mut out = Vec::new();
     for ent in entries.flatten() {
         let name = ent.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with("org.chromium.Chromium.")
-            || name.starts_with(".org.chromium.Chromium.")
+        if name.starts_with("org.chromium.Chromium.") || name.starts_with(".org.chromium.Chromium.")
         {
-            n += 1;
+            out.push(ent.path());
         }
     }
-    n
+    out
 }

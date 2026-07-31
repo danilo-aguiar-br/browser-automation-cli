@@ -76,8 +76,7 @@ pub fn create_and_assign(pid: u32) -> usize {
     // SAFETY: PROCESS_SET_QUOTA|PROCESS_TERMINATE is the minimum rights for AssignProcessToJobObject.
     // `pid` is a Chrome child recorded in the residual ledger (never 0).
     // See: OpenProcess — https://learn.microsoft.com/windows/win32/api/processthreadsapi/
-    let proc: HANDLE =
-        unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid) };
+    let proc: HANDLE = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid) };
     if proc.is_null() {
         unsafe {
             let _ = CloseHandle(job);

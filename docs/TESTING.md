@@ -23,9 +23,15 @@
 - Golden i18n and cold-start helpers (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Optional e2e CDP event coverage when Chrome is available (`tests/e2e_cdp_events.rs`)
 - Full **53-tool** DevTools e2e script (legacy filename): `scripts/e2e_all_52_tools.sh`
-- Live CLI inventory is **63 agent names** (`commands --json`) — broader than the 53 tool-ref e2e set; includes multi-step-only `select-option` and `pick`, plus meta `locale` and `man`
+- Live CLI inventory is **65 agent names** (`commands --json`) — broader than the 53 tool-ref e2e set; includes agent-inventory `select-option` and `pick` (run/exec/schema, not clap), meta `locale` and `man`, plus clap `submit` and `storage`
+- v0.1.6 product gates (local, Chrome serial when required):
+  - `tests/dialog_multitab_gate.rs` — multi-tab dialog isolation + `dialog_settled` (GAP-054)
+  - `tests/option_pick_gate.rs` — native select `input`+`change` (GAP-055)
+  - `tests/wait_conditions_gate.rs` — `wait_timeout_ms` deadline honesty (GAP-053)
+  - `tests/scrape_step_gate.rs` — scrape `format`/`formats` in run without HTML monster (GAP-057)
+  - Lighthouse unit fixtures: `scripts/fixtures/lighthouse/minimal_lhr.json` + `chrome_captured_lhr.json` (real LHR-shaped scores_from_lhr parse; GAP-021 partial)
 - Residual integration suite: `tests/residual_one_shot.rs` (marker zero, Singleton non-growth, BORN fixture wipe, doctor residual fields)
-- Local residual gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (no CI/GHA requirement)
+- Local residual gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (local maintainer scripts only)
 - Vendored tool-ref fixture: `tests/fixtures/tool-reference.md`
 
 
@@ -37,6 +43,11 @@ timeout 120 cargo test --lib residual:: --locked
 timeout 120 cargo test --test residual_one_shot --locked
 timeout 120 cargo test --test parity_run_inventory --locked
 timeout 120 cargo test --test clap_command_debug_assert --locked
+timeout 180 cargo test --test dialog_multitab_gate --locked
+timeout 180 cargo test --test option_pick_gate --locked
+timeout 180 cargo test --test wait_conditions_gate --locked
+timeout 120 cargo test --test scrape_step_gate --locked
+timeout 120 cargo test --lib scores_from --locked
 timeout 120 cargo clippy --all-targets --locked -- -D warnings
 cargo fmt --check
 ```
@@ -55,10 +66,12 @@ bash scripts/e2e_all_52_tools.sh
 - Writes a report under a temp workdir and prints PASS/FAIL/SKIP counts
 - Maintainer evidence for v0.1.4: 53 PASS / 0 FAIL on a local host with Chrome (residual A001 closed; GAP-001…025 hard-close)
 - Maintainer evidence for v0.1.5: residual-zero disk closed (RES-01…12); `cargo test --lib residual::` + `cargo test --test residual_one_shot` + local residual-check PASS
+- **Maintainer evidence for v0.1.6 (honest):** `TOTAL=53 PASS=52 FAIL=0 SKIP=1` — lighthouse mock path is **SKIP** (CONTRACT-ONLY). Never claim full e2e lighthouse parser PASS
+- Lighthouse parser confidence is unit-level: `scores_from_lhr` against `minimal_lhr.json` and real sanitized `chrome_captured_lhr.json` (Lighthouse 13.4.1 shape)
 - The 52-tool suite does not replace residual smokes for commands outside the tool-ref set
 
 
-## Residual-Zero Disk Gates (v0.1.5)
+## Residual-Zero Disk Gates (v0.1.5 — still current in 0.1.6)
 ```bash
 cargo build --release --locked
 cargo test --lib residual:: --locked
@@ -76,8 +89,43 @@ bash scripts/residual-check.sh
 - Age floor for production stale GC is 60s; tests may use zero-age library helpers for fixtures
 
 
+## v0.1.6 Product Gates (dialog / select / wait / scrape / lighthouse units)
+```bash
+cargo test --test dialog_multitab_gate --locked
+cargo test --test option_pick_gate --locked
+cargo test --test wait_conditions_gate --locked
+cargo test --test scrape_step_gate --locked
+# Lighthouse pure parse (no claim of e2e PASS):
+cargo test --lib --locked scores_from
+# Residual still required:
+bash scripts/residual-check.sh
+```
+- `dialog_multitab_gate`: isolation tab1 + accept owner via `Page::session_id` multi-tab gate; asserts `dialog_settled` without invented wait (GAP-054)
+- `option_pick_gate`: native select events + `via: native_select` (GAP-055)
+- `wait_conditions_gate`: deadline honors `wait_timeout_ms` (~2s, not silent default) (GAP-053)
+- `scrape_step_gate`: run scrape `format=text` without HTML dump (GAP-057)
+- Lighthouse e2e mock remains SKIP; unit fixtures are the honest parser gate (GAP-021 partial)
+- **`grab` encode:** png|jpeg|webp only; AVIF removed (breaking) — residual smokes must not pass `--format avif`
+- **GAP-024 intentional residual:** PRD wishlist divergences stay in `parity_intentional_divergences.json` (do not claim full PRD parity)
+- Do **not** treat remote orchestration dashboards as product surface; use local cargo and `scripts/*-check.sh` only
+
+## Full agent inventory (65)
+
+Discover live: `browser-automation-cli commands --json`
+
+```
+assert attr back batch-scrape click-at commands completions config console cookie
+crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+find-paths forward goto grab heap hover keys lighthouse locale man map mitm monitor
+net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+upload version view wait webmcp workflow write
+```
+
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 63.
+
 ## Residual PRD Smokes (beyond 53 tools)
-Run after e2e when validating the full **63**-name inventory:
+Run after e2e when validating the full **65**-name inventory:
 
 ```bash
 # print-pdf artifact (one-shot + run)
@@ -177,18 +225,22 @@ browser-automation-cli page new --help | rg isolated-context
 # browser-automation-cli --timeout 60 --json run --script /tmp/pdf.run.json
 # schema already covered
 
-# locale / man meta (inventory 63)
+# locale / man meta + submit/storage (inventory 65)
 browser-automation-cli --json locale
 browser-automation-cli --json man >/tmp/browser-automation-cli.1
+browser-automation-cli --json schema submit
+browser-automation-cli --json schema storage
+browser-automation-cli --json config list-keys
+browser-automation-cli --json config set dialog_settle_ms 2000
 
-# residual doctor fields (v0.1.5)
+# residual doctor fields (v0.1.5 law still current)
 browser-automation-cli doctor --offline --quick --json | jaq '.residual'
 ```
 - Also useful: browser format scrape, `config path`, `mitm start`, doctor XDG, i18n `--lang pt-BR`
-- Contract tests to cite in evidence: `parity_run_inventory`, `clap_command_debug_assert`, `residual_one_shot`, residual lib tests
+- Contract tests to cite in evidence: `parity_run_inventory`, `clap_command_debug_assert`, `residual_one_shot`, residual lib tests, `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate`, `scrape_step_gate`
 
 
-## Lighthouse Mock
+## Lighthouse Mock (e2e SKIP honesty)
 ```bash
 browser-automation-cli --json lighthouse https://example.com \
   --lighthouse-path ./scripts/mock-lighthouse.sh
@@ -198,6 +250,8 @@ browser-automation-cli --json lighthouse https://example.com \
 - Envelope reports `binary_source` as `real` or `mock`
 - The mock writes minimal HTML/JSON reports for smoke paths
 - Doctor reports lighthouse presence/source as informational when the binary is missing
+- **v0.1.6 honesty:** e2e suite **SKIPs** the lighthouse mock path — never report that as a full parser PASS
+- Parser confidence: unit tests on `scripts/fixtures/lighthouse/minimal_lhr.json` and `chrome_captured_lhr.json`
 
 
 ## Local Validation Profiles
@@ -235,7 +289,7 @@ bash scripts/audit_bilingual_docs.sh
 - Schema gate failures: update both code and `docs/schemas/` in the same change
 - Command schema drift: re-run `bash scripts/generate_command_schemas.sh` after changing `meta.rs`
 - Bilingual fence drift: re-run `bash scripts/audit_bilingual_docs.sh` and align EN and `.pt-BR` command blocks
-- Inventory drift: refresh against `commands --json` (63) and `tests/fixtures/tool-reference.md` (53 tools)
+- Inventory drift: refresh against `commands --json` (65) and `tests/fixtures/tool-reference.md` (53 tools)
 - Residual disk leaks: re-run `cargo test --test residual_one_shot` and `bash scripts/residual-check.sh`; inspect doctor `residual`
 - Run inventory drift: refresh `RUN_DISPATCHED_CMDS` and re-run `cargo test --test parity_run_inventory`
 - Clap assert failures: fix `GlobalOpts` / subcommand definitions then re-run `cargo test --test clap_command_debug_assert`

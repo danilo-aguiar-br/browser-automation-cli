@@ -54,7 +54,9 @@ mod tests {
 
     #[test]
     fn fixed_clock_is_stable() {
-        let c = FixedClock { unix_ms: 1_700_000_000_000 };
+        let c = FixedClock {
+            unix_ms: 1_700_000_000_000,
+        };
         assert_eq!(c.now_unix_ms(), 1_700_000_000_000);
         assert_eq!(c.now_unix_ms(), c.now_unix_ms());
     }

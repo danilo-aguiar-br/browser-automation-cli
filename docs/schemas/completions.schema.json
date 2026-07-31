@@ -3,15 +3,23 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/completions.schema.json",
   "title": "completions command input",
   "type": "object",
-  "description": "Generate shell completions (no Chrome)",
+  "description": "Generate shell completions (path-level, no Chrome)",
   "properties": {
     "shell": {
+      "argv": "<SHELL>",
+      "description": "Shell dialect to generate completions for",
       "enum": [
         "bash",
         "zsh",
         "fish",
         "elvish",
         "powershell"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "shell",
+      "surfaces": [
+        "argv"
       ],
       "type": "string"
     }

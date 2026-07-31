@@ -3,7 +3,7 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/locale.schema.json",
   "title": "locale command input",
   "type": "object",
-  "description": "Show resolved UI locale diagnostics (suggestions only; JSON machine keys English)",
+  "description": "Show resolved UI locale and detection diagnostics (human suggestions only)",
   "properties": {},
   "required": [],
   "additionalProperties": false

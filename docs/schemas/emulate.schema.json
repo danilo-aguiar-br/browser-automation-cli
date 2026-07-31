@@ -3,42 +3,162 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/emulate.schema.json",
   "title": "emulate command input",
   "type": "object",
-  "description": "Emulate UA locale timezone network geo media CPU viewport headers",
+  "description": "Emulate device / network / UA / geo / CPU",
   "properties": {
     "color_scheme": {
+      "argv": "--color-scheme",
+      "description": "prefers-color-scheme: dark | light | auto",
+      "required": false,
+      "source": "parser",
+      "step_key": "color_scheme",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "cpu_throttling_rate": {
+      "argv": "--cpu-throttling-rate",
+      "description": "CPU slowdown factor 1..=20 (1 disables)",
+      "required": false,
+      "source": "parser",
+      "step_key": "cpu_throttling_rate",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "number"
     },
     "extra_headers": {
+      "argv": "--extra-headers",
+      "description": "Extra HTTP headers as JSON object string",
+      "required": false,
+      "source": "parser",
+      "step_key": "extra_headers",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "latitude": {
+      "argv": "--latitude",
+      "description": "Geolocation latitude in degrees; pair with --longitude",
+      "required": false,
+      "source": "parser",
+      "step_key": "latitude",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "number"
     },
     "locale": {
+      "argv": "--locale",
+      "description": "BCP47 locale reported to the page (for example `pt-BR`)",
+      "required": false,
+      "source": "parser",
+      "step_key": "locale",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "longitude": {
+      "argv": "--longitude",
+      "description": "Geolocation longitude in degrees; pair with --latitude",
+      "required": false,
+      "source": "parser",
+      "step_key": "longitude",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "number"
     },
     "media": {
+      "argv": "--media",
+      "description": "CSS media type to emulate (for example `print`)",
+      "required": false,
+      "source": "parser",
+      "step_key": "media",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "network_conditions": {
+      "argv": "--network-conditions",
+      "description": "Network preset: Offline, No throttling, Slow 3G, Fast 3G, Slow 4G, Fast 4G",
+      "required": false,
+      "source": "parser",
+      "step_key": "network_conditions",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "offline": {
+      "argv": "--offline",
+      "description": "Force the page offline (no network)",
+      "required": false,
+      "source": "parser",
+      "step_key": "offline",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "timezone": {
+      "argv": "--timezone",
+      "description": "IANA timezone reported to the page (for example `America/Sao_Paulo`)",
+      "required": false,
+      "source": "parser",
+      "step_key": "timezone",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "user_agent": {
+      "argv": "--user-agent",
+      "description": "Override the browser User-Agent string",
+      "required": false,
+      "source": "parser",
+      "step_key": "user_agent",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "viewport": {
+      "argv": "--viewport",
+      "description": "Viewport `WxHxDPR` with optional `,mobile`, `,touch`, `,landscape` flags",
+      "required": false,
+      "source": "parser",
+      "step_key": "viewport",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

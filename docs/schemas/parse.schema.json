@@ -3,12 +3,28 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/parse.schema.json",
   "title": "parse command input",
   "type": "object",
-  "description": "Parse a local file (html/md/txt/pdf/docx/xlsx)",
+  "description": "Parse a local file (html/md/txt/pdf/docx/xlsx text extract)",
   "properties": {
     "path": {
+      "argv": "<PATH>",
+      "description": "Local file to extract text from",
+      "required": true,
+      "source": "parser",
+      "step_key": "path",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "redact_pii": {
+      "argv": "--redact-pii",
+      "description": "Mask email/phone/card-like patterns in text output",
+      "required": false,
+      "source": "parser",
+      "step_key": "redact_pii",
+      "surfaces": [
+        "argv"
+      ],
       "type": "boolean"
     }
   },

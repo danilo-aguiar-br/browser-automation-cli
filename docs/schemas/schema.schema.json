@@ -3,10 +3,28 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/schema.schema.json",
   "title": "schema command input",
   "type": "object",
-  "description": "JSON Schema fragment for one command",
+  "description": "JSON Schema fragment for a command (agent discovery) GAP-022: accepts `schema run` or `schema --cmd run`",
   "properties": {
     "cmd": {
-      "description": "Command name from `commands`",
+      "argv": "--cmd",
+      "description": "Command name via --cmd",
+      "required": false,
+      "source": "parser",
+      "step_key": "cmd",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "cmd_positional": {
+      "argv": "<CMD_POSITIONAL>",
+      "description": "Command name as positional (preferred agent UX)",
+      "required": false,
+      "source": "parser",
+      "step_key": "cmd_positional",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     }
   },

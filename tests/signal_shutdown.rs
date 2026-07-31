@@ -57,10 +57,7 @@ fn sigterm_to_cli_does_not_hang() {
             .expect("spawn run");
         if let Some(mut stdin) = c.stdin.take() {
             // Long wait so SIGTERM arrives mid-EXECUTE.
-            let _ = writeln!(
-                stdin,
-                r#"{{"cmd":"wait","ms":8000}}"#
-            );
+            let _ = writeln!(stdin, r#"{{"cmd":"wait","ms":8000}}"#);
         }
         c
     } else {

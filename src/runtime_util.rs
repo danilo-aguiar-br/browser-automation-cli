@@ -26,15 +26,22 @@
 //! | JSON envelope encode (small) | ≤ **100 µs** | Criterion / unit |
 //! | Chrome launch + first CDP | **seconds** | External; not Rust hot path |
 //!
-//! Budgets are **ceilings for regression detection**, not SLOs for trading.
-//! Re-measure with `scripts/latency-baseline.sh` after runtime changes.
+//! Wall-clock baselines report **P50 / P99 / P999 / P9999** (never mean-only)
+//! via `scripts/latency-baseline.sh`. Budgets are **ceilings for regression
+//! detection**, not SLOs for trading.
+//!
+//! # N/A for this product (HFT / daemon ops — do not ship as defaults)
+//!
+//! PGO/BOLT product pipelines, `isolcpus` / `mlockall` / huge pages, kernel
+//! bypass, TSC tick-to-trade, remote HDR telemetry. Workload is one-shot
+//! **I/O-bound** (Chrome CDP); process dies after FINALIZE.
 //!
 //! # Runtime flavours
 //!
 //! | Helper | Flavour | Use |
 //! |--------|---------|-----|
 //! | [`block_on_browser_timeout`](crate::browser::block_on_browser_timeout) | multi-thread, **budgeted** workers | CDP event fan-out |
-//! | [`block_on_io`] | multi-thread, budgeted (I/O pipelines) | HTTP scrape / batch / crawl |
+//! | [`block_on_io`](crate::runtime_util::block_on_io) | multi-thread, budgeted (I/O pipelines) | HTTP scrape / batch / crawl |
 //!
 //! Never create an unbounded `new_multi_thread()` without the concurrency budget.
 
@@ -97,12 +104,93 @@ pub fn build_io_runtime() -> Result<tokio::runtime::Runtime, CliError> {
 /// Use for HTTP scrape, batch scrape, crawl, and other non-CDP async entered
 /// from synchronous CLI handlers. Prefer
 /// [`crate::browser::block_on_browser_timeout`] for Chrome CDP.
+///
+/// # Graceful shutdown
+///
+/// Same detect → signal → force path as browser work: SIGINT/SIGTERM (Unix) or
+/// Ctrl-C/Break/Close (Windows) cancel the shared `CancellationToken` and
+/// map to exit **130**. Previously this helper ignored OS signals (gap).
 pub fn block_on_io<F, T>(fut: F) -> Result<T, CliError>
 where
     F: std::future::Future<Output = Result<T, CliError>>,
 {
     let rt = build_io_runtime()?;
-    rt.block_on(fut)
+    block_on_with_shutdown(&rt, fut, 0)
+}
+
+/// Cancel-aware `Runtime::block_on` for one-shot CLI work (DRY for browser + I/O).
+///
+/// # Phases (rules_rust_encerramento_graceful_shutdown)
+///
+/// 1. **Detect** — [`crate::browser::shutdown_signal`] in a background task.
+/// 2. **Signal** — first OS signal cancels the process `CancellationToken`.
+/// 3. **Force** — second OS signal runs residual `Lifecycle::finalize`.
+///
+/// # Select bias
+///
+/// `biased` polls **cancel first**, then work, then optional timeout — so a
+/// pending cancel wins over a Ready work future that completed in the same
+/// poll wave (rules: prioritize cooperative shutdown).
+pub fn block_on_with_shutdown<F, T>(
+    rt: &tokio::runtime::Runtime,
+    fut: F,
+    timeout_secs: u64,
+) -> Result<T, CliError>
+where
+    F: std::future::Future<Output = Result<T, CliError>>,
+{
+    use crate::browser::shutdown_signal;
+    use crate::lifecycle::{current_cancel, current_lifecycle};
+
+    let cancel = current_cancel();
+    if cancel.is_cancelled() {
+        return Err(crate::browser::cancelled_error());
+    }
+
+    // Capture lifecycle on this thread before entering the runtime: the signal
+    // task runs on a worker thread and must not rely on thread-local CURRENT_LIFE.
+    let life_for_signal = current_lifecycle();
+
+    rt.block_on(async move {
+        let cancel_for_signal = cancel.clone();
+        tokio::spawn(async move {
+            let first = shutdown_signal().await;
+            tracing::warn!(
+                trigger = first.as_str(),
+                "shutdown signal received; cooperative cancel (exit 130 path)"
+            );
+            cancel_for_signal.cancel();
+            let second = shutdown_signal().await;
+            tracing::warn!(
+                trigger = second.as_str(),
+                "second shutdown signal; forcing residual finalize"
+            );
+            if let Some(life) = life_for_signal {
+                life.finalize();
+            }
+        });
+
+        if timeout_secs == 0 {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => Err(crate::browser::cancelled_error()),
+                r = fut => r,
+            }
+        } else {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => Err(crate::browser::cancelled_error()),
+                r = fut => r,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(timeout_secs)) => {
+                    Err(CliError::with_suggestion(
+                        ErrorKind::Timeout,
+                        format!("operation exceeded --timeout {timeout_secs}s"),
+                        crate::i18n::suggestion_key("raise_timeout", None),
+                    ))
+                }
+            }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -120,6 +208,15 @@ mod tests {
     fn io_runtime_block_on_io() {
         let v = block_on_io(async { Ok::<_, CliError>(42u32) }).expect("io");
         assert_eq!(v, 42);
+    }
+
+    #[test]
+    fn block_on_io_respects_pre_cancelled_token() {
+        let lc = crate::lifecycle::Lifecycle::new();
+        lc.cancel.cancel();
+        let err = block_on_io(async { Ok::<u32, CliError>(1) }).expect_err("must cancel");
+        assert_eq!(err.kind(), ErrorKind::Cancelled);
+        assert_eq!(err.exit_code(), 130);
     }
 
     #[test]

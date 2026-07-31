@@ -3,26 +3,84 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/type.schema.json",
   "title": "type command input",
   "type": "object",
-  "description": "Type text into a target",
+  "description": "Type text (tool-ref type_text). Use --target or --focus-only",
   "properties": {
     "clear": {
+      "argv": "--clear",
+      "description": "Clear the existing value before typing",
+      "required": false,
+      "source": "parser",
+      "step_key": "clear",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "focus_only": {
-      "description": "Focus target without typing",
+      "argv": "--focus-only",
+      "description": "Type into currently focused element without resolving a target",
+      "required": false,
+      "source": "parser",
+      "step_key": "focus_only",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "include_snapshot": {
+      "argv": "--include-snapshot",
+      "description": "Attach slim a11y snapshot after typing",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_snapshot",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "submit": {
-      "description": "Optional key after type (e.g. Enter)",
+      "argv": "--submit",
+      "description": "Optional key to press after typing (e.g. Enter)",
+      "required": false,
+      "source": "parser",
+      "step_key": "submit",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "target": {
+      "argv": "--target",
+      "description": "CSS selector or @eN (optional; use --focus-only for focused element)",
+      "required": false,
+      "source": "parser",
+      "step_key": "target",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "text": {
+      "argv": "<TEXT>",
+      "description": "Text to type (required positional)",
+      "required": true,
+      "source": "parser",
+      "step_key": "text",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

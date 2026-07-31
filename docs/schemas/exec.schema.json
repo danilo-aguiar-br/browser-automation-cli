@@ -3,13 +3,20 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/exec.schema.json",
   "title": "exec command input",
   "type": "object",
-  "description": "Single-step inline command (same surface as run steps)",
+  "description": "Single-step inline command (same surface as `run` steps: goto, wait, view, press, …)",
   "properties": {
     "args": {
-      "description": "e.g. [\"goto\", \"about:blank\"] or [\"wait\", \"--ms\", \"100\"]",
+      "argv": "<ARGS>",
+      "description": "Step name followed by its arguments (for example `goto https://example.com`)",
       "items": {
         "type": "string"
       },
+      "required": false,
+      "source": "parser",
+      "step_key": "args",
+      "surfaces": [
+        "argv"
+      ],
       "type": "array"
     }
   },

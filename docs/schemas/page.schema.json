@@ -3,9 +3,145 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/page.schema.json",
   "title": "page command input",
   "type": "object",
-  "description": "Page info or multi-tab list|new|select|close|tab-id",
+  "description": "Page info or multi-tab management",
   "properties": {
     "action": {
+      "actions": {
+        "close": {
+          "description": "Close a tab (default: active)",
+          "properties": {
+            "index": {
+              "argv": "--index",
+              "description": "Zero-based tab index to close (defaults to the active tab)",
+              "required": false,
+              "source": "parser",
+              "step_key": "index",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_id": {
+              "argv": "--page-id",
+              "description": "Tool-ref pageId alias for index",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_id",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            }
+          }
+        },
+        "info": {
+          "description": "Current page url and title (default when bare `page`)",
+          "properties": {}
+        },
+        "list": {
+          "description": "List tabs in this one-shot process",
+          "properties": {}
+        },
+        "new": {
+          "description": "Open a new tab",
+          "properties": {
+            "background": {
+              "argv": "--background",
+              "description": "Open without focusing (tool-ref background)",
+              "required": false,
+              "source": "parser",
+              "step_key": "background",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            },
+            "isolated_context": {
+              "argv": "--isolated-context",
+              "description": "Named isolated browser context (tool-ref isolatedContext string; GAP-004)",
+              "required": false,
+              "source": "parser",
+              "step_key": "isolated_context",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "argv": "--url",
+              "description": "URL to open in the new tab (defaults to about:blank)",
+              "required": false,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "select": {
+          "description": "Select tab by zero-based index (alias: --page-id)",
+          "properties": {
+            "bring_to_front": {
+              "argv": "--bring-to-front",
+              "default": true,
+              "description": "Bring selected tab to front (tool-ref bringToFront)",
+              "required": false,
+              "source": "parser",
+              "step_key": "bring_to_front",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            },
+            "index": {
+              "argv": "<INDEX>",
+              "description": "Zero-based tab index to activate",
+              "required": false,
+              "source": "parser",
+              "step_key": "index",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            },
+            "page_id": {
+              "argv": "--page-id",
+              "description": "Tool-ref pageId alias for index",
+              "required": false,
+              "source": "parser",
+              "step_key": "page_id",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "integer"
+            }
+          }
+        },
+        "tab-id": {
+          "description": "Return the stable tab id of the active page (tool-ref get_tab_id)",
+          "properties": {}
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "info",
         "list",
@@ -14,30 +150,74 @@
         "close",
         "tab-id"
       ],
+      "required": false,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "background": {
       "description": "Open new tab without focusing (page new)",
+      "source": "catalog",
+      "step_key": "background",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "bring_to_front": {
       "description": "Bring selected tab to front (page select; default true)",
+      "source": "catalog",
+      "step_key": "bring_to_front",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "boolean"
     },
     "index": {
       "minimum": 0,
+      "source": "catalog",
+      "step_key": "index",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     },
     "isolated_context": {
       "description": "Named isolated browser context for page new (tool-ref isolatedContext; GAP-004; flag alone = default-isolated)",
+      "source": "catalog",
+      "step_key": "isolated_context",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     },
     "page_id": {
       "description": "Tool-ref pageId alias for index (select/close)",
       "minimum": 0,
+      "source": "catalog",
+      "step_key": "page_id",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "integer"
     },
     "url": {
+      "source": "catalog",
+      "step_key": "url",
+      "surfaces": [
+        "run_step",
+        "exec"
+      ],
       "type": "string"
     }
   },

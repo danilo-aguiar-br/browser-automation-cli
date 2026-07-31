@@ -6,19 +6,92 @@
   "description": "Web surface tools (requires --category-webmcp)",
   "properties": {
     "action": {
+      "actions": {
+        "exec": {
+          "description": "Execute one WebMCP tool by name",
+          "properties": {
+            "input": {
+              "argv": "--input",
+              "description": "JSON input passed to the tool",
+              "required": false,
+              "source": "parser",
+              "step_key": "input",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "name": {
+              "argv": "<NAME>",
+              "description": "Tool name from `webmcp list`",
+              "required": true,
+              "source": "parser",
+              "step_key": "name",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "argv": "--url",
+              "description": "Page URL to open before executing",
+              "required": false,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "list": {
+          "description": "List WebMCP tools exposed by the page",
+          "properties": {
+            "url": {
+              "argv": "--url",
+              "description": "Page URL to open before discovery",
+              "required": false,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "list",
         "exec"
       ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "input": {
+      "source": "catalog",
+      "step_key": "input",
+      "surfaces": [],
       "type": "string"
     },
     "name": {
+      "source": "catalog",
+      "step_key": "name",
+      "surfaces": [],
       "type": "string"
     },
     "url": {
+      "source": "catalog",
+      "step_key": "url",
+      "surfaces": [],
       "type": "string"
     }
   },

@@ -19,10 +19,18 @@ pub struct RetryConfig {
 impl Default for RetryConfig {
     fn default() -> Self {
         Self {
-            max_attempts: 3,
-            base_delay: Duration::from_millis(50),
-            max_delay: Duration::from_secs(2),
-            budget: Duration::from_secs(10),
+            max_attempts: crate::xdg::policy::policy_u32(
+                crate::xdg::policy::key::RETRY_DEFAULT_MAX_ATTEMPTS,
+            ),
+            base_delay: Duration::from_millis(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_BASE_DELAY_MS,
+            )),
+            max_delay: Duration::from_secs(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_MAX_DELAY_SECS,
+            )),
+            budget: Duration::from_secs(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_BUDGET_SECS,
+            )),
         }
     }
 }
@@ -31,30 +39,54 @@ impl RetryConfig {
     /// Conservative policy for CDP attach / discovery.
     pub fn cdp() -> Self {
         Self {
-            max_attempts: 4,
-            base_delay: Duration::from_millis(100),
-            max_delay: Duration::from_secs(3),
-            budget: Duration::from_secs(15),
+            max_attempts: crate::xdg::policy::policy_u32(
+                crate::xdg::policy::key::RETRY_CDP_MAX_ATTEMPTS,
+            ),
+            base_delay: Duration::from_millis(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_CDP_BASE_DELAY_MS,
+            )),
+            max_delay: Duration::from_secs(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_CDP_MAX_DELAY_SECS,
+            )),
+            budget: Duration::from_secs(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_CDP_BUDGET_SECS,
+            )),
         }
     }
 
     /// Policy for outbound HTTP scrape.
     pub fn http() -> Self {
         Self {
-            max_attempts: 3,
-            base_delay: Duration::from_millis(75),
-            max_delay: Duration::from_secs(2),
-            budget: Duration::from_secs(12),
+            max_attempts: crate::xdg::policy::policy_u32(
+                crate::xdg::policy::key::RETRY_HTTP_MAX_ATTEMPTS,
+            ),
+            base_delay: Duration::from_millis(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_HTTP_BASE_DELAY_MS,
+            )),
+            max_delay: Duration::from_secs(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_HTTP_MAX_DELAY_SECS,
+            )),
+            budget: Duration::from_secs(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_HTTP_BUDGET_SECS,
+            )),
         }
     }
 
     /// Policy for optional operator LLM HTTP.
     pub fn llm() -> Self {
         Self {
-            max_attempts: 2,
-            base_delay: Duration::from_millis(200),
-            max_delay: Duration::from_secs(4),
-            budget: Duration::from_secs(20),
+            max_attempts: crate::xdg::policy::policy_u32(
+                crate::xdg::policy::key::RETRY_LLM_MAX_ATTEMPTS,
+            ),
+            base_delay: Duration::from_millis(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_LLM_BASE_DELAY_MS,
+            )),
+            max_delay: Duration::from_secs(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_LLM_MAX_DELAY_SECS,
+            )),
+            budget: Duration::from_secs(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::RETRY_LLM_BUDGET_SECS,
+            )),
         }
     }
 

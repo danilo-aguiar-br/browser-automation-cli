@@ -3,24 +3,124 @@
   "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/workflow.schema.json",
   "title": "workflow command input",
   "type": "object",
-  "description": "Workflow journal DAG (petgraph + SQLite under XDG state)",
+  "description": "Workflow journal DAG (petgraph + SQLite)",
   "properties": {
     "action": {
+      "actions": {
+        "resume": {
+          "description": "Resume / re-run from journal + manifest",
+          "properties": {
+            "journal": {
+              "argv": "--journal",
+              "description": "Journal database path; defaults to XDG state",
+              "required": false,
+              "source": "parser",
+              "step_key": "journal",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "manifest": {
+              "argv": "--manifest",
+              "description": "Workflow manifest JSON describing the DAG",
+              "required": true,
+              "source": "parser",
+              "step_key": "manifest",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "run": {
+          "description": "Validate DAG and execute offline steps; journal under XDG state",
+          "properties": {
+            "journal": {
+              "argv": "--journal",
+              "description": "Journal database path; defaults to XDG state",
+              "required": false,
+              "source": "parser",
+              "step_key": "journal",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "manifest": {
+              "argv": "--manifest",
+              "description": "Workflow manifest JSON describing the DAG",
+              "required": true,
+              "source": "parser",
+              "step_key": "manifest",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "status": {
+          "description": "Show journal step statuses",
+          "properties": {
+            "journal": {
+              "argv": "--journal",
+              "description": "Journal database path; defaults to XDG state",
+              "required": false,
+              "source": "parser",
+              "step_key": "journal",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "name": {
+              "argv": "--name",
+              "description": "Workflow name to report on; omit for all",
+              "required": false,
+              "source": "parser",
+              "step_key": "name",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
       "enum": [
         "run",
         "resume",
         "status"
       ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
+      ],
       "type": "string"
     },
     "journal": {
+      "source": "catalog",
+      "step_key": "journal",
+      "surfaces": [],
       "type": "string"
     },
     "manifest": {
       "description": "JSON workflow manifest path",
+      "source": "catalog",
+      "step_key": "manifest",
+      "surfaces": [],
       "type": "string"
     },
     "name": {
+      "source": "catalog",
+      "step_key": "name",
+      "surfaces": [],
       "type": "string"
     }
   },
