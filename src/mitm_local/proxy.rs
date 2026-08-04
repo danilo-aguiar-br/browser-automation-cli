@@ -36,9 +36,10 @@ async fn build_authority() -> Result<RcgenAuthority, CliError> {
 ///
 /// Retries a few times on `AddrInUse` after the probe drop→rebind race (Pass N N18).
 fn bind_loopback_ephemeral() -> Result<u16, CliError> {
-    const ATTEMPTS: u32 = 3;
+    let attempts =
+        crate::xdg::policy::policy_u64(crate::xdg::policy::key::MITM_REBIND_ATTEMPTS).max(1);
     let mut last = String::new();
-    for _ in 0..ATTEMPTS {
+    for _ in 0..attempts {
         let addr = loopback_bind_ephemeral();
         match std::net::TcpListener::bind(&addr) {
             Ok(listener) => {

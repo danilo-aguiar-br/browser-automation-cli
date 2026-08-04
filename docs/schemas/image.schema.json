@@ -1,0 +1,476 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/image.schema.json",
+  "title": "image command input",
+  "type": "object",
+  "description": "Local image pipeline one-shot (no Chrome): info/convert/resize/download/exif",
+  "properties": {
+    "action": {
+      "actions": {
+        "convert": {
+          "description": "Convert format (re-encode strips EXIF by default)",
+          "properties": {
+            "format": {
+              "argv": "--format",
+              "description": "Output format: png | jpeg | webp | gif | avif (avif needs the `image-avif` feature; heic is rejected — no pure-Rust HEVC encoder)",
+              "required": true,
+              "source": "parser",
+              "step_key": "format",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "keep_exif": {
+              "argv": "--keep-exif",
+              "description": "Request keep EXIF (intent only). This build re-encodes pixels and cannot re-attach EXIF; envelope sets keep_exif_honored=false",
+              "required": false,
+              "source": "parser",
+              "step_key": "keep_exif",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output path (default under XDG cache)",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Input image path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "quality": {
+              "argv": "--quality",
+              "description": "Lossy quality 1..=100 (applied for jpeg and avif; local webp encoder is lossless — quality recorded but not applied)",
+              "required": false,
+              "source": "parser",
+              "step_key": "quality",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Read image bytes from stdin",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "strip_exif": {
+              "argv": "--strip-exif",
+              "default": true,
+              "description": "Request EXIF strip (default true). Pixel re-encode always drops EXIF in this build",
+              "required": false,
+              "source": "parser",
+              "step_key": "strip_exif",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "download": {
+          "description": "Download an image URL (SSRF + body cap + magic verify)",
+          "properties": {
+            "allow_non_image": {
+              "argv": "--allow-non-image",
+              "description": "Allow non-image bodies (disables magic fail-closed)",
+              "required": false,
+              "source": "parser",
+              "step_key": "allow_non_image",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "max_bytes": {
+              "argv": "--max-bytes",
+              "description": "Max body bytes (default: XDG image_download_max_bytes)",
+              "required": false,
+              "source": "parser",
+              "step_key": "max_bytes",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output path (default under XDG cache)",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "require_image": {
+              "argv": "--require-image",
+              "default": true,
+              "description": "Fail closed unless body is a supported image magic (default; use `--allow-non-image` to disable)",
+              "required": false,
+              "source": "parser",
+              "step_key": "require_image",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "url": {
+              "argv": "<URL>",
+              "description": "http(s) URL of the image",
+              "required": true,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "exif": {
+          "description": "Read EXIF tags (GPS omitted unless `--include-gps`)",
+          "properties": {
+            "include_gps": {
+              "argv": "--include-gps",
+              "description": "Include GPS EXIF tags",
+              "required": false,
+              "source": "parser",
+              "step_key": "include_gps",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Image file path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project fields (CSV): path,count,exif,include_gps,engine (aliases: tags=exif, tag_count=count). EXIF only — no IPTC/XMP",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Read image bytes from stdin",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "info": {
+          "description": "Probe format, dimensions, sha256, and optional EXIF (no pixel dump)",
+          "properties": {
+            "include_gps": {
+              "argv": "--include-gps",
+              "description": "Include GPS EXIF tags (default strips location)",
+              "required": false,
+              "source": "parser",
+              "step_key": "include_gps",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Image file path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV): format,width,height,bytes,path,sha256,exif,iptc,xmp,magic_ok,has_alpha,frame_count,frame_count_exact,animated,engine,action",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Read image bytes from stdin",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "resize": {
+          "description": "Resize pixels (not the CDP viewport `resize` command)",
+          "properties": {
+            "format": {
+              "argv": "--format",
+              "description": "Output format (default: XDG image_default_format). Same token set as `image convert`",
+              "required": false,
+              "source": "parser",
+              "step_key": "format",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "height": {
+              "argv": "--height",
+              "description": "Target height in pixels (optional with `--keep-aspect`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "height",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "keep_aspect": {
+              "argv": "--keep-aspect",
+              "description": "Preserve aspect ratio when computing the missing dimension",
+              "required": false,
+              "source": "parser",
+              "step_key": "keep_aspect",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output path",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Input image path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "quality": {
+              "argv": "--quality",
+              "description": "Lossy quality 1..=100 (jpeg and avif only for local encode; webp is lossless)",
+              "required": false,
+              "source": "parser",
+              "step_key": "quality",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Read image bytes from stdin",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "width": {
+              "argv": "--width",
+              "description": "Target width in pixels",
+              "required": true,
+              "source": "parser",
+              "step_key": "width",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
+      "enum": [
+        "info",
+        "convert",
+        "resize",
+        "download",
+        "exif"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "allow_non_image": {
+      "source": "catalog",
+      "step_key": "allow_non_image",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "format": {
+      "enum": [
+        "png",
+        "jpeg",
+        "webp",
+        "gif"
+      ],
+      "source": "catalog",
+      "step_key": "format",
+      "surfaces": [],
+      "type": "string"
+    },
+    "height": {
+      "minimum": 1,
+      "source": "catalog",
+      "step_key": "height",
+      "surfaces": [],
+      "type": "integer"
+    },
+    "include_gps": {
+      "source": "catalog",
+      "step_key": "include_gps",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "keep_aspect": {
+      "source": "catalog",
+      "step_key": "keep_aspect",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "keep_exif": {
+      "source": "catalog",
+      "step_key": "keep_exif",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "max_bytes": {
+      "minimum": 1,
+      "source": "catalog",
+      "step_key": "max_bytes",
+      "surfaces": [],
+      "type": "integer"
+    },
+    "out": {
+      "source": "catalog",
+      "step_key": "out",
+      "surfaces": [],
+      "type": "string"
+    },
+    "path": {
+      "source": "catalog",
+      "step_key": "path",
+      "surfaces": [],
+      "type": "string"
+    },
+    "quality": {
+      "maximum": 100,
+      "minimum": 1,
+      "source": "catalog",
+      "step_key": "quality",
+      "surfaces": [],
+      "type": "integer"
+    },
+    "require_image": {
+      "source": "catalog",
+      "step_key": "require_image",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "select": {
+      "description": "CSV field projection for info (format,width,height,path,sha256,…)",
+      "source": "catalog",
+      "step_key": "select",
+      "surfaces": [],
+      "type": "string"
+    },
+    "stdin": {
+      "source": "catalog",
+      "step_key": "stdin",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "strip_exif": {
+      "source": "catalog",
+      "step_key": "strip_exif",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "url": {
+      "source": "catalog",
+      "step_key": "url",
+      "surfaces": [],
+      "type": "string"
+    },
+    "width": {
+      "minimum": 1,
+      "source": "catalog",
+      "step_key": "width",
+      "surfaces": [],
+      "type": "integer"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

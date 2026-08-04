@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Engine dispatch and one-shot browser launch.
 
-use rustc_hash::FxHashSet;
 use serde_json::json;
-use std::sync::Arc;
 
 use crate::native::browser::validate::{validate_launch_options, validate_lightpanda_options};
 use crate::native::browser::{BrowserManager, BrowserProcess};
 use crate::native::cdp::chrome::LaunchOptions;
-use crate::native::cdp::client::CdpClient;
 use crate::native::cdp::lightpanda::{launch_lightpanda, LightpandaLaunchOptions};
 
 use super::lightpanda::initialize_lightpanda_manager;
@@ -80,30 +77,16 @@ impl BrowserManager {
             manager.download_path = download_path;
             manager
         } else {
-            // Chrome one-shot: single chromiumoxide stack (Browser::launch only — no dual WS).
-            let launched = crate::native::cdp::oxide::launch_with_oxide(&options).await?;
-            let crate::native::cdp::oxide::OxideLaunch {
-                browser,
-                handler,
-                ws_url,
-                temp_user_data_dir,
-                ..
-            } = launched;
-            let client = Arc::new(CdpClient::from_browser(browser, handler).await?);
-            let mut manager = Self {
-                client,
-                browser_process: None,
-                owns_oxide_browser: true,
-                ws_url,
-                pages: Vec::new(),
-                active_page_index: 0,
-                default_timeout_ms: 25_000,
+            let seed = super::chrome_engine::ChromeSeed {
                 download_path,
                 ignore_https_errors,
-                visited_origins: FxHashSet::default(),
-                next_tab_id: 1,
-                direct_page: false,
-                temp_user_data_dir,
+            };
+            // Default path self-spawns Chrome so the pid and process group are
+            // ours; the legacy path is a stabilization fallback only.
+            let mut manager = if crate::xdg::resolve_chrome_legacy_oxide_launch() {
+                super::chrome_engine::launch_via_oxide(&options, seed).await?
+            } else {
+                super::chrome_engine::launch_self_spawned(&options, seed).await?
             };
             manager.discover_and_attach_targets().await?;
             manager

@@ -37,8 +37,20 @@ pub(super) async fn handle(
                 .or_else(|| step.get("selector"))
                 .or_else(|| step.get("ref"))
                 .and_then(|v| v.as_str());
+            let include_base64 = step
+                .get("include_base64")
+                .or_else(|| step.get("includeBase64"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             session
-                .grab(path.as_deref(), format, full_page, quality, element)
+                .grab(
+                    path.as_deref(),
+                    format,
+                    full_page,
+                    quality,
+                    element,
+                    include_base64,
+                )
                 .await
         }
         "extract" => {

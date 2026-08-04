@@ -1,0 +1,717 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/video.schema.json",
+  "title": "video command input",
+  "type": "object",
+  "description": "Local video pipeline one-shot (no Chrome): info/download/convert/to-mp3/trim/thumbnail/manifest",
+  "properties": {
+    "action": {
+      "actions": {
+        "convert": {
+          "description": "Convert / remux container (path→path via optional ffmpeg; smart copy/re-encode)",
+          "properties": {
+            "audio_codec": {
+              "argv": "--audio-codec",
+              "description": "Audio codec: copy | aac | opus | mp3 | … (default: copy intent)",
+              "required": false,
+              "source": "parser",
+              "step_key": "audio_codec",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "crf": {
+              "argv": "--crf",
+              "description": "CRF for re-encode (default: XDG video_default_crf)",
+              "required": false,
+              "source": "parser",
+              "step_key": "crf",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "drop_audio": {
+              "argv": "--drop-audio",
+              "description": "Drop all audio tracks (opt-in; default keeps audio)",
+              "required": false,
+              "source": "parser",
+              "step_key": "drop_audio",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "format": {
+              "argv": "--format",
+              "description": "Output container: mp4 | webm | mkv | mov | avi | m4v",
+              "required": false,
+              "source": "parser",
+              "step_key": "format",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "no_faststart": {
+              "argv": "--no-faststart",
+              "description": "Disable moov-before-mdat for MP4/MOV/M4V (default: faststart applied)",
+              "required": false,
+              "source": "parser",
+              "step_key": "no_faststart",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output path (default under XDG cache)",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Input video path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV); aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Materialize stdin to a capped temp file",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "strip_metadata": {
+              "argv": "--strip-metadata",
+              "description": "Strip container metadata (opt-in; default preserves)",
+              "required": false,
+              "source": "parser",
+              "step_key": "strip_metadata",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "video_codec": {
+              "argv": "--video-codec",
+              "description": "Video codec: copy | h264 | hevc | vp9 | av1 | … (default: copy intent; auto re-encode if needed)",
+              "required": false,
+              "source": "parser",
+              "step_key": "video_codec",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "download": {
+          "description": "Download a direct media URL (SSRF + body cap + magic verify)",
+          "properties": {
+            "allow_non_video": {
+              "argv": "--allow-non-video",
+              "description": "Allow non-video bodies (disables magic fail-closed)",
+              "required": false,
+              "source": "parser",
+              "step_key": "allow_non_video",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "max_bytes": {
+              "argv": "--max-bytes",
+              "description": "Max body bytes (default: XDG video_download_max_bytes)",
+              "required": false,
+              "source": "parser",
+              "step_key": "max_bytes",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output path (default under XDG cache)",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "require_video": {
+              "argv": "--require-video",
+              "default": true,
+              "description": "Fail closed unless body is a known video container magic (default)",
+              "required": false,
+              "source": "parser",
+              "step_key": "require_video",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV); aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "argv": "<URL>",
+              "description": "http(s) URL of the media file (not a site player page)",
+              "required": true,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "info": {
+          "description": "Probe container magic + streams (ffprobe when available; no media dump)",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Video file path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV): path,container,streams,duration_secs,sha256,…; aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Materialize stdin to a capped temp file",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "manifest": {
+          "description": "Summarise an HLS (.m3u8) or DASH (.mpd) manifest without downloading media",
+          "properties": {
+            "base_url": {
+              "argv": "--base-url",
+              "description": "Manifest URL used to absolutise relative segment / representation URIs",
+              "required": false,
+              "source": "parser",
+              "step_key": "base_url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Manifest file path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV), e.g. kind,variant_count,representations",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Read the manifest body from stdin",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "thumbnail": {
+          "description": "Extract a single frame as an image path (png/jpg via `-o` extension)",
+          "properties": {
+            "at": {
+              "argv": "--at",
+              "description": "Timestamp in seconds (default 0)",
+              "required": false,
+              "source": "parser",
+              "step_key": "at",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "number"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output image path (default under XDG cache as .png)",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Input video path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV); aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Materialize stdin to a capped temp file",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "to-mp3": {
+          "description": "Extract audio to MP3 (path→path via optional ffmpeg)",
+          "properties": {
+            "audio_stream": {
+              "argv": "--audio-stream",
+              "description": "Audio stream index (default 0)",
+              "required": false,
+              "source": "parser",
+              "step_key": "audio_stream",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "bitrate": {
+              "argv": "--bitrate",
+              "description": "Audio bitrate (default: XDG video_default_audio_bitrate)",
+              "required": false,
+              "source": "parser",
+              "step_key": "bitrate",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output path (default under XDG cache)",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Input video path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV); aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Materialize stdin to a capped temp file",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "trim": {
+          "description": "Trim a time range (path→path via optional ffmpeg)",
+          "properties": {
+            "audio_codec": {
+              "argv": "--audio-codec",
+              "description": "Audio codec intent (default: copy)",
+              "required": false,
+              "source": "parser",
+              "step_key": "audio_codec",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "duration": {
+              "argv": "--duration",
+              "description": "Duration in seconds (mutually exclusive with `--to`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "duration",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "number"
+            },
+            "format": {
+              "argv": "--format",
+              "description": "Output container override (default: inferred / XDG)",
+              "required": false,
+              "source": "parser",
+              "step_key": "format",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output path (default under XDG cache)",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Input video path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV); aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "start": {
+              "argv": "--start",
+              "description": "Start time in seconds",
+              "required": true,
+              "source": "parser",
+              "step_key": "start",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "number"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Materialize stdin to a capped temp file",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "to": {
+              "argv": "--to",
+              "description": "End time in seconds (exclusive end; use with `--start`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "to",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "number"
+            },
+            "video_codec": {
+              "argv": "--video-codec",
+              "description": "Video codec intent (default: copy)",
+              "required": false,
+              "source": "parser",
+              "step_key": "video_codec",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
+      "enum": [
+        "info",
+        "download",
+        "convert",
+        "to-mp3",
+        "trim",
+        "thumbnail",
+        "manifest"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "allow_non_video": {
+      "source": "catalog",
+      "step_key": "allow_non_video",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "at": {
+      "description": "Thumbnail timestamp seconds (action=thumbnail; default 0)",
+      "source": "catalog",
+      "step_key": "at",
+      "surfaces": [],
+      "type": "number"
+    },
+    "audio_codec": {
+      "source": "catalog",
+      "step_key": "audio_codec",
+      "surfaces": [],
+      "type": "string"
+    },
+    "audio_stream": {
+      "minimum": 0,
+      "source": "catalog",
+      "step_key": "audio_stream",
+      "surfaces": [],
+      "type": "integer"
+    },
+    "base_url": {
+      "description": "Manifest URL used to absolutise relative URIs (action=manifest)",
+      "source": "catalog",
+      "step_key": "base_url",
+      "surfaces": [],
+      "type": "string"
+    },
+    "bitrate": {
+      "source": "catalog",
+      "step_key": "bitrate",
+      "surfaces": [],
+      "type": "string"
+    },
+    "crf": {
+      "maximum": 51,
+      "minimum": 1,
+      "source": "catalog",
+      "step_key": "crf",
+      "surfaces": [],
+      "type": "integer"
+    },
+    "drop_audio": {
+      "source": "catalog",
+      "step_key": "drop_audio",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "duration": {
+      "description": "Trim duration seconds (action=trim; exclusive with to)",
+      "source": "catalog",
+      "step_key": "duration",
+      "surfaces": [],
+      "type": "number"
+    },
+    "format": {
+      "enum": [
+        "mp4",
+        "webm",
+        "mkv",
+        "mov",
+        "avi",
+        "m4v"
+      ],
+      "source": "catalog",
+      "step_key": "format",
+      "surfaces": [],
+      "type": "string"
+    },
+    "max_bytes": {
+      "minimum": 1,
+      "source": "catalog",
+      "step_key": "max_bytes",
+      "surfaces": [],
+      "type": "integer"
+    },
+    "no_faststart": {
+      "description": "Disable MP4-family moov-before-mdat (default: faststart applied)",
+      "source": "catalog",
+      "step_key": "no_faststart",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "out": {
+      "source": "catalog",
+      "step_key": "out",
+      "surfaces": [],
+      "type": "string"
+    },
+    "path": {
+      "source": "catalog",
+      "step_key": "path",
+      "surfaces": [],
+      "type": "string"
+    },
+    "require_video": {
+      "source": "catalog",
+      "step_key": "require_video",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "select": {
+      "description": "CSV field projection (path,container,streams,duration_secs,sha256,…); aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs",
+      "source": "catalog",
+      "step_key": "select",
+      "surfaces": [],
+      "type": "string"
+    },
+    "start": {
+      "description": "Trim start seconds (action=trim)",
+      "source": "catalog",
+      "step_key": "start",
+      "surfaces": [],
+      "type": "number"
+    },
+    "stdin": {
+      "source": "catalog",
+      "step_key": "stdin",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "strip_metadata": {
+      "source": "catalog",
+      "step_key": "strip_metadata",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "to": {
+      "description": "Trim end seconds (action=trim; exclusive with duration)",
+      "source": "catalog",
+      "step_key": "to",
+      "surfaces": [],
+      "type": "number"
+    },
+    "url": {
+      "source": "catalog",
+      "step_key": "url",
+      "surfaces": [],
+      "type": "string"
+    },
+    "video_codec": {
+      "source": "catalog",
+      "step_key": "video_codec",
+      "surfaces": [],
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

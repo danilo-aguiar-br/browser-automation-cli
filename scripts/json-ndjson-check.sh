@@ -4,6 +4,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=scripts/lib/rust-regions.sh
+source "$ROOT/scripts/lib/rust-regions.sh"
 
 source "$ROOT/scripts/lib/module_paths.sh"
 module_paths_self_test || exit 65
@@ -104,10 +106,40 @@ for base in src/native/perf_insight src/native/cdp/discovery src/commands/ops/li
     bad "$base: module not found as .rs or directory (gate cannot assert on it)"
     continue
   fi
-  if rg -q 'serde_json::from_str' "$f"; then
-    bad "$f still calls serde_json::from_str directly (use json_util)"
+  # PRODUCTION ONLY. The rule protects untrusted input: BOM stripping and size
+  # ceilings matter for a body that arrived from the network. A `#[cfg(test)]`
+  # module parsing a checked-in fixture has neither problem, and forcing it
+  # through `json_util` buys nothing while making the fixture harder to read.
+  #
+  # Measured false positive: `src/commands/ops/lighthouse/report.rs` declares
+  # `#[cfg(test)]` at line 194 and the only two `serde_json::from_str` calls sit
+  # at 210 and 252, inside it. The gate failed on a property the module already
+  # satisfied. Same defect class as the inline-test miscount that
+  # `filesize-check.sh` carried.
+  # `$f` may be a single .rs OR a directory module, so normalise to a file list
+  # and decide per file. `rg -n` prefixes the path only in the directory case,
+  # which is exactly the ambiguity that made a naive field-split read `src` as a
+  # line number.
+  prod_hits=""
+  while IFS= read -r rs; do
+    [[ -z "$rs" ]] && continue
+    hits="$(rg -n 'serde_json::from_str' "$rs" 2>/dev/null || true)"
+    [[ -z "$hits" ]] && continue
+    read -r test_open test_close < <(inline_test_span "$rs")
+    while IFS=: read -r lineno rest; do
+      [[ -z "$lineno" ]] && continue
+      if [[ "$test_open" -gt 0 && "$lineno" -ge "$test_open" && "$lineno" -le "$test_close" ]]; then
+        continue
+      fi
+      prod_hits="${prod_hits}${rs}:${lineno}:${rest}"$'\n'
+    done <<<"$hits"
+  done < <(if [[ -d "$f" ]]; then fd -e rs . "$f"; else printf '%s\n' "$f"; fi)
+  prod_hits="$(printf '%s' "$prod_hits" | rg -v '^$' || true)"
+  if [[ -n "$prod_hits" ]]; then
+    bad "$f still calls serde_json::from_str directly in production code (use json_util)"
+    printf '%s\n' "$prod_hits"
   else
-    ok "$f: no raw serde_json::from_str"
+    ok "$f: no raw serde_json::from_str outside tests"
   fi
 done
 

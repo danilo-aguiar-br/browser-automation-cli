@@ -13,12 +13,17 @@
 
 mod fetch;
 mod policy;
+mod politeness;
 
 #[cfg(test)]
 mod tests;
 
 pub use fetch::enforce_robots;
 pub use policy::*;
+pub use politeness::{
+    effective_delay_secs, origin_key, parse_crawl_delay_secs, remember_crawl_delay,
+    remembered_delay_secs, wait_origin,
+};
 
 use std::sync::OnceLock;
 use std::time::Duration;

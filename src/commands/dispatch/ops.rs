@@ -44,6 +44,29 @@ pub(crate) fn lighthouse(
     )
 }
 
+pub(crate) fn record(
+    ctx: &DispatchCtx<'_>,
+    url: &str,
+    path: &Path,
+    seconds: u64,
+    max_events: u64,
+) -> i32 {
+    result_code(
+        handle_record(
+            ctx.life,
+            url,
+            path,
+            seconds,
+            max_events,
+            ctx.robots,
+            ctx.capture,
+            ctx.timeout_secs,
+            ctx.json,
+        ),
+        ctx.json,
+    )
+}
+
 pub(crate) fn screencast(ctx: &DispatchCtx<'_>, action: ScreencastAction) -> i32 {
     result_code(
         gates::require_experimental_screencast(ctx).and_then(|()| {

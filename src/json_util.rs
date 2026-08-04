@@ -157,6 +157,49 @@ pub fn read_json_file<T: DeserializeOwned>(path: &Path, max_bytes: u64) -> Resul
     from_str(&raw).map_err(|e| map_parse_err(&format!("parse {}", path.display()), &e))
 }
 
+/// Project a JSON object to a subset of keys (CSV / space-separated).
+///
+/// Agent-native anti-token helper shared by local media pipelines (`image`, `video`).
+/// Unknown keys are ignored. Always retains `action` for agent routing when present.
+///
+/// Optional `aliases` maps input select tokens to canonical object keys
+/// (e.g. `tags` → `exif` for image EXIF projection).
+pub fn project_fields(value: Value, select: Option<&str>, aliases: &[(&str, &str)]) -> Value {
+    let Some(sel) = select.map(str::trim).filter(|s| !s.is_empty()) else {
+        return value;
+    };
+    let Some(obj) = value.as_object() else {
+        return value;
+    };
+    let mut out = serde_json::Map::new();
+    if let Some(a) = obj.get("action") {
+        out.insert("action".into(), a.clone());
+    }
+    for key in sel.split([',', ' ']) {
+        let key = key.trim();
+        if key.is_empty() || key == "action" {
+            continue;
+        }
+        let mut canonical = key;
+        for (alias, target) in aliases {
+            if key == *alias {
+                canonical = target;
+                break;
+            }
+        }
+        if let Some(v) = obj.get(canonical) {
+            out.insert(canonical.to_string(), v.clone());
+        }
+    }
+    Value::Object(out)
+}
+
+/// [`project_fields`] with no alias table.
+#[inline]
+pub fn project_fields_plain(value: Value, select: Option<&str>) -> Value {
+    project_fields(value, select, &[])
+}
+
 /// Read + parse a dynamic JSON [`Value`] from a file.
 pub fn read_json_value_file(path: &Path, max_bytes: u64) -> Result<Value, CliError> {
     read_json_file(path, max_bytes)

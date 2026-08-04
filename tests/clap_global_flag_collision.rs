@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 use clap::CommandFactory;
 
-use browser_automation_cli::cli::Cli;
+use browser_automation_cli::cli::{on_clap_stack, Cli};
 
 fn collect_globals(cmd: &clap::Command) -> (HashSet<String>, HashSet<char>) {
     let mut longs = HashSet::new();
@@ -98,28 +98,42 @@ fn walk_locals(
 
 #[test]
 fn no_global_flag_shadowed_by_local_subcommand_flags() {
-    let cmd = Cli::command();
-    let (global_longs, global_shorts) = collect_globals(&cmd);
-    assert!(
-        global_longs.contains("json"),
-        "expected global --json in GlobalOpts"
-    );
-    assert!(
-        global_longs.contains("verbose"),
-        "expected global --verbose in GlobalOpts"
-    );
+    on_clap_stack(|| {
+        let cmd = Cli::command();
+        let (global_longs, global_shorts) = collect_globals(&cmd);
+        for expected in ["json", "verbose", "lang", "timeout", "quiet", "plain"] {
+            assert!(
+                global_longs.contains(expected),
+                "expected global --{expected} in GlobalOpts"
+            );
+        }
 
-    let mut collisions = Vec::new();
-    walk_locals(&cmd, "", &global_longs, &global_shorts, &mut collisions);
+        let mut collisions = Vec::new();
+        walk_locals(&cmd, "", &global_longs, &global_shorts, &mut collisions);
 
-    assert!(
-        collisions.is_empty(),
-        "global/local flag collisions detected:\n{}",
-        collisions.join("\n")
-    );
+        assert!(
+            collisions.is_empty(),
+            "global/local flag collisions detected:\n{}",
+            collisions.join("\n")
+        );
+    });
+}
+
+/// Guard the regression class directly: a local `--lang` on any subcommand is
+/// exactly the shape that hid the UI locale behind the OCR language pack.
+#[test]
+fn no_subcommand_redeclares_a_global_long_at_any_depth() {
+    on_clap_stack(|| {
+        let cmd = Cli::command();
+        let (global_longs, global_shorts) = collect_globals(&cmd);
+        let mut collisions = Vec::new();
+        walk_locals(&cmd, "", &global_longs, &global_shorts, &mut collisions);
+        let langs: Vec<&String> = collisions.iter().filter(|c| c.contains("--lang")).collect();
+        assert!(langs.is_empty(), "--lang shadowed again: {langs:?}");
+    });
 }
 
 #[test]
 fn clap_debug_assert_still_passes() {
-    browser_automation_cli::command_factory_debug_assert();
+    on_clap_stack(browser_automation_cli::command_factory_debug_assert);
 }

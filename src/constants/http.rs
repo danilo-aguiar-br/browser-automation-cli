@@ -45,3 +45,61 @@ pub const WEBHOOK_RETRY_BASE_DELAY_MS: u64 = 50;
 
 /// Webhook max attempts (inclusive of first try).
 pub const WEBHOOK_MAX_ATTEMPTS: u32 = 3;
+
+/// Default max text/markdown chars in scrape envelopes (agent anti-token).
+///
+/// Override: XDG `scrape_max_text_chars`. `0` means no cap.
+pub const DEFAULT_SCRAPE_MAX_TEXT_CHARS: usize = 32_768;
+
+/// Floor delay between GETs to the same origin (milliseconds).
+///
+/// Override: XDG `scrape_min_delay_ms`. Robots Crawl-delay wins when larger.
+pub const DEFAULT_SCRAPE_MIN_DELAY_MS: u64 = 0;
+
+/// Max characters kept for each link `text` field (anti-token).
+pub const DEFAULT_SCRAPE_LINK_TEXT_CHARS: usize = 200;
+
+/// Default max chars for `summary` format. Override: XDG `scrape_summary_chars`.
+pub const DEFAULT_SCRAPE_SUMMARY_CHARS: usize = 400;
+
+/// HTML5 charset sniffing window (bytes). Override: XDG `scrape_charset_peek_bytes`.
+pub const DEFAULT_SCRAPE_CHARSET_PEEK_BYTES: usize = 4096;
+
+/// Max sitemap body bytes. Override: XDG `scrape_sitemap_max_bytes`.
+pub const DEFAULT_SCRAPE_SITEMAP_MAX_BYTES: usize = 512 * 1024;
+
+/// Politeness delay jitter ratio (0.0 = none, 0.2 = ±20%). Override: XDG `scrape_delay_jitter_ratio`.
+pub const DEFAULT_SCRAPE_DELAY_JITTER_RATIO: f64 = 0.2;
+
+/// Default scrape engine when CLI omits `--engine`. Override: XDG `scrape_default_engine`.
+pub const DEFAULT_SCRAPE_ENGINE: &str = "http";
+
+/// Max feed entries kept by scrape `--format feed`.
+///
+/// Override: XDG `scrape_feed_max_entries`. Caps the agent token budget for
+/// high-volume RSS/Atom endpoints; `feed_truncated` reports when it bites.
+pub const DEFAULT_SCRAPE_FEED_MAX_ENTRIES: usize = 50;
+
+/// Follow `rel=next` pagination links during crawl by default.
+///
+/// Override: XDG `scrape_follow_rel_next`. `false` keeps historical behaviour
+/// where paginated series are only reached through ordinary anchors.
+pub const DEFAULT_SCRAPE_FOLLOW_REL_NEXT: bool = false;
+
+/// Collapse near-duplicate pages by content similarity during crawl/batch.
+///
+/// Override: XDG `scrape_dedup_similar`. Off by default because collapsing
+/// changes how many pages the envelope emits, which an agent must opt into.
+pub const DEFAULT_SCRAPE_DEDUP_SIMILAR: bool = false;
+
+/// SimHash Hamming distance under which two pages count as near-duplicates.
+///
+/// Override: XDG `scrape_dedup_similar_distance`. `0` demands identical
+/// fingerprints; the practical near-duplicate band is 3..=8 over 64 bits.
+pub const DEFAULT_SCRAPE_DEDUP_SIMILAR_DISTANCE: u32 = 3;
+
+/// Shingle width (in words) used to build SimHash content fingerprints.
+///
+/// Not operator-tunable: changing it changes fingerprint meaning, so it is a
+/// compile-time property of the algorithm rather than a config knob.
+pub const SCRAPE_SIMHASH_SHINGLE_WORDS: usize = 3;

@@ -116,6 +116,110 @@ pub enum QrAction {
         path: std::path::PathBuf,
     },
 }
+
+/// One-shot local image ops (no Chrome): info, convert, resize, download, exif.
+#[derive(Debug, Clone, Subcommand)]
+pub enum ImageAction {
+    /// Probe format, dimensions, sha256, and optional EXIF (no pixel dump)
+    Info {
+        /// Image file path (omit with `--stdin`)
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        path: Option<std::path::PathBuf>,
+        /// Read image bytes from stdin
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        stdin: bool,
+        /// Include GPS EXIF tags (default strips location)
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        include_gps: bool,
+        /// Project envelope fields (CSV): format,width,height,bytes,path,sha256,exif,iptc,xmp,magic_ok,has_alpha,frame_count,frame_count_exact,animated,engine,action
+        #[arg(long, value_name = "FIELDS")]
+        select: Option<String>,
+    },
+    /// Convert format (re-encode strips EXIF by default)
+    Convert {
+        /// Input image path (omit with `--stdin`)
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        path: Option<std::path::PathBuf>,
+        /// Read image bytes from stdin
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        stdin: bool,
+        /// Output format: png | jpeg | webp | gif | avif (avif needs the `image-avif` feature; heic is rejected — no pure-Rust HEVC encoder)
+        #[arg(long)]
+        format: String,
+        /// Lossy quality 1..=100 (applied for jpeg and avif; local webp encoder is lossless — quality recorded but not applied)
+        #[arg(long)]
+        quality: Option<u8>,
+        /// Output path (default under XDG cache)
+        #[arg(long, short = 'o', value_hint = ValueHint::FilePath)]
+        out: Option<std::path::PathBuf>,
+        /// Request EXIF strip (default true). Pixel re-encode always drops EXIF in this build.
+        #[arg(long, default_value_t = true, action = clap::ArgAction::SetTrue)]
+        strip_exif: bool,
+        /// Request keep EXIF (intent only). This build re-encodes pixels and cannot re-attach EXIF; envelope sets keep_exif_honored=false.
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        keep_exif: bool,
+    },
+    /// Resize pixels (not the CDP viewport `resize` command)
+    Resize {
+        /// Input image path (omit with `--stdin`)
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        path: Option<std::path::PathBuf>,
+        /// Read image bytes from stdin
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        stdin: bool,
+        /// Target width in pixels
+        #[arg(long)]
+        width: u32,
+        /// Target height in pixels (optional with `--keep-aspect`)
+        #[arg(long)]
+        height: Option<u32>,
+        /// Preserve aspect ratio when computing the missing dimension
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        keep_aspect: bool,
+        /// Output path
+        #[arg(long, short = 'o', value_hint = ValueHint::FilePath)]
+        out: Option<std::path::PathBuf>,
+        /// Output format (default: XDG image_default_format). Same token set as `image convert`.
+        #[arg(long)]
+        format: Option<String>,
+        /// Lossy quality 1..=100 (jpeg and avif only for local encode; webp is lossless)
+        #[arg(long)]
+        quality: Option<u8>,
+    },
+    /// Download an image URL (SSRF + body cap + magic verify)
+    Download {
+        /// http(s) URL of the image
+        #[arg(value_hint = ValueHint::Url)]
+        url: String,
+        /// Output path (default under XDG cache)
+        #[arg(long, short = 'o', value_hint = ValueHint::FilePath)]
+        out: Option<std::path::PathBuf>,
+        /// Max body bytes (default: XDG image_download_max_bytes)
+        #[arg(long)]
+        max_bytes: Option<usize>,
+        /// Fail closed unless body is a supported image magic (default; use `--allow-non-image` to disable)
+        #[arg(long, default_value_t = true, action = clap::ArgAction::SetTrue)]
+        require_image: bool,
+        /// Allow non-image bodies (disables magic fail-closed)
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        allow_non_image: bool,
+    },
+    /// Read EXIF tags (GPS omitted unless `--include-gps`)
+    Exif {
+        /// Image file path (omit with `--stdin`)
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        path: Option<std::path::PathBuf>,
+        /// Read image bytes from stdin
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        stdin: bool,
+        /// Include GPS EXIF tags
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        include_gps: bool,
+        /// Project fields (CSV): path,count,exif,include_gps,engine (aliases: tags=exif, tag_count=count). EXIF only — no IPTC/XMP.
+        #[arg(long, value_name = "FIELDS")]
+        select: Option<String>,
+    },
+}
 /// Loopback MITM proxy capture, export, and policy.
 #[derive(Debug, Clone, Subcommand)]
 pub enum MitmAction {
@@ -305,7 +409,7 @@ pub enum ConfigAction {
     Init,
     /// Show config values
     Show,
-    /// Set a config key (lang|timeout|artifacts_dir|ignore_robots|namespace|encryption_key|color|log_level|log_to_file|chrome_path|lighthouse_path|ffmpeg_path|lighthouse_timeout_secs|ffmpeg_timeout_secs|openrouter_api_key|llm_base_url|llm_model|cache_backend|cache_redis_url|search_base_url)
+    /// Set a config key from `config list-keys` (includes image_*, video_*, audio_*, dialog_settle_ms, …)
     Set {
         /// Config key from `config list-keys`
         key: String,

@@ -4,10 +4,10 @@
 use clap::{ArgAction, Subcommand, ValueHint};
 
 use super::{
-    AssertKind, BeforeUnloadAction, CompletionShell, ConfigAction, ConsoleAction, CookieAction,
-    Devtools3pAction, DialogAction, ExtensionAction, GrabFormat, HeapAction, MitmAction,
-    MonitorAction, NetAction, PageAction, PerfAction, QrAction, ScreencastAction, StorageAction,
-    WebmcpAction, WorkflowAction,
+    AssertKind, AudioAction, BeforeUnloadAction, CompletionShell, ConfigAction, ConsoleAction,
+    CookieAction, Devtools3pAction, DialogAction, ExtensionAction, GrabFormat, HeapAction,
+    ImageAction, MitmAction, MonitorAction, NetAction, PageAction, PerfAction, QrAction,
+    ScreencastAction, StorageAction, VideoAction, WebmcpAction, WorkflowAction,
 };
 
 /// One-shot subcommand selected from argv.
@@ -311,6 +311,9 @@ pub enum Commands {
         /// CSS selector or @eN element to capture
         #[arg(long)]
         element: Option<String>,
+        /// Opt-in: include raw image base64 in the JSON envelope (agent-native default off)
+        #[arg(long, action = ArgAction::SetTrue)]
+        include_base64: bool,
     },
     /// Print current page to PDF via CDP Page.printToPDF (one-shot)
     PrintPdf {
@@ -340,6 +343,21 @@ pub enum Commands {
         // must stay on GlobalOpts, not be swallowed into trailing args.
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
+    },
+    /// Record page interactions as a replayable `run --script` NDJSON file
+    Record {
+        /// Absolute URL to open and record
+        #[arg(long, value_hint = ValueHint::Url)]
+        url: String,
+        /// Destination NDJSON file for the recorded steps
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        path: std::path::PathBuf,
+        /// Wall-clock recording ceiling in seconds (first ceiling reached wins)
+        #[arg(long, default_value_t = crate::constants::RECORD_DEFAULT_SECONDS)]
+        seconds: u64,
+        /// Recorded-step ceiling (first ceiling reached wins)
+        #[arg(long, default_value_t = crate::constants::RECORD_DEFAULT_MAX_EVENTS as u64)]
+        max_events: u64,
     },
     /// Extract text/attribute from a target, or LLM extract with --llm
     Extract {
@@ -438,11 +456,11 @@ pub enum Commands {
         /// Absolute URL to fetch
         #[arg(value_hint = ValueHint::Url)]
         url: String,
-        /// text | markdown | html | links | metadata | … (CSV or repeatable; alias --formats)
+        /// text | markdown | html | rawHtml | links | metadata | screenshot | summary | product | branding | images | jsonld | json | feed (CSV or repeatable)
         #[arg(long = "format", alias = "formats", value_delimiter = ',', num_args = 1.., default_value = "text")]
         format: Vec<String>,
-        /// http (reqwest+scraper) or browser (CDP)
-        #[arg(long, default_value = "browser")]
+        /// http (reqwest+scraper) or browser (CDP); default XDG scrape_default_engine (http)
+        #[arg(long, default_value = "http")]
         engine: String,
         /// Prefer main/article content heuristics
         #[arg(long, action = ArgAction::SetTrue)]
@@ -450,21 +468,85 @@ pub enum Commands {
         /// Optional one-shot webhook POST of the result envelope data (127.0.0.1/operator URL)
         #[arg(long)]
         webhook_url: Option<String>,
+        /// Project data fields (CSV); agent CLEAN STDOUT
+        #[arg(long)]
+        select: Option<String>,
+        /// Cap text/markdown/html chars (0 = XDG scrape_max_text_chars)
+        #[arg(long)]
+        max_text_chars: Option<usize>,
+        /// CSS selectors to include (repeatable)
+        #[arg(long = "include-selector")]
+        include_selector: Vec<String>,
+        /// CSS selectors to exclude (repeatable)
+        #[arg(long = "exclude-selector")]
+        exclude_selector: Vec<String>,
+        /// Redact email/phone/card-like patterns in text/markdown
+        #[arg(long, action = ArgAction::SetTrue)]
+        redact_pii: bool,
+        /// Include content_hash (sha256 of text/markdown)
+        #[arg(long, action = ArgAction::SetTrue)]
+        with_content_hash: bool,
+        /// JSON Schema file for format=json LLM extract
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        schema_json: Option<std::path::PathBuf>,
+        /// Question for format=json LLM extract
+        #[arg(long)]
+        question: Option<String>,
+        /// Extra HTTP header `Name: value` (repeatable; cookies/auth)
+        #[arg(long = "header")]
+        header: Vec<String>,
+        /// Browser engine: wait ms after navigation before capture (base waitFor)
+        #[arg(long = "wait-ms", default_value_t = 0)]
+        wait_ms: u64,
     },
     /// Scrape many URLs from a file (HTTP or browser engine, one-shot)
     BatchScrape {
         /// File with one absolute URL per line
         #[arg(long, value_hint = ValueHint::FilePath)]
         urls_file: std::path::PathBuf,
-        /// Output format applied to every URL
-        #[arg(long = "format", alias = "formats", default_value = "text")]
-        format: String,
+        /// Output format(s) applied to every URL (CSV / repeatable)
+        #[arg(long = "format", alias = "formats", value_delimiter = ',', num_args = 1.., default_value = "text")]
+        format: Vec<String>,
         /// Concurrent HTTP fetches (`0` = use global `--max-concurrency` / auto)
         #[arg(long, default_value_t = 0)]
         concurrency: usize,
         /// http (default) or browser (CDP per URL; GAP-010)
         #[arg(long, default_value = "http")]
         engine: String,
+        /// Project data fields (CSV)
+        #[arg(long)]
+        select: Option<String>,
+        /// Cap text/markdown/html chars (0 = XDG default)
+        #[arg(long)]
+        max_text_chars: Option<usize>,
+        /// Filter pages: key=value AND expressions (e.g. http_error=false)
+        #[arg(long)]
+        filter: Option<String>,
+        /// json (default), ndjson, or csv (header row)
+        #[arg(long, default_value = "json")]
+        output_mode: String,
+        /// Sort pages by field (asc)
+        #[arg(long)]
+        sort: Option<String>,
+        /// Deduplicate pages by field (first wins)
+        #[arg(long = "dedup-key")]
+        dedup_key: Option<String>,
+        /// Collapse near-duplicate results by content similarity; threshold is XDG
+        /// scrape_dedup_similar_distance (default: XDG scrape_dedup_similar = false)
+        #[arg(long, num_args = 0..=1, default_missing_value = "true", require_equals = false)]
+        dedup_similar: Option<bool>,
+        /// CSS selectors to include (repeatable)
+        #[arg(long = "include-selector")]
+        include_selector: Vec<String>,
+        /// CSS selectors to exclude (repeatable)
+        #[arg(long = "exclude-selector")]
+        exclude_selector: Vec<String>,
+        /// Redact PII in text/markdown
+        #[arg(long, action = ArgAction::SetTrue)]
+        redact_pii: bool,
+        /// Include content_hash
+        #[arg(long, action = ArgAction::SetTrue)]
+        with_content_hash: bool,
     },
     /// Crawl from a seed URL (HTTP BFS or browser, one-shot)
     Crawl {
@@ -477,15 +559,67 @@ pub enum Commands {
         /// Maximum link depth from the seed
         #[arg(long, default_value_t = 2)]
         max_depth: usize,
-        /// Output format applied to every page
-        #[arg(long = "format", alias = "formats", default_value = "text")]
-        format: String,
+        /// Output format(s) applied to every page (CSV or repeatable)
+        #[arg(long = "format", alias = "formats", value_delimiter = ',', num_args = 1.., default_value = "text")]
+        format: Vec<String>,
         /// Stay on seed host
         #[arg(long, default_value_t = true)]
         same_host: bool,
         /// http (default) or browser (GAP-010)
         #[arg(long, default_value = "http")]
         engine: String,
+        /// Project data fields (CSV)
+        #[arg(long)]
+        select: Option<String>,
+        /// Cap text/markdown/html chars (0 = XDG default)
+        #[arg(long)]
+        max_text_chars: Option<usize>,
+        /// Filter pages: key=value AND expressions
+        #[arg(long)]
+        filter: Option<String>,
+        /// json (default), ndjson, csv, or llms-txt (site summary for models)
+        #[arg(long, default_value = "json")]
+        output_mode: String,
+        /// Resolve and print the effective plan without fetching anything
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        dry_run: bool,
+        /// Include only path prefixes (repeatable)
+        #[arg(long = "include-path")]
+        include_path: Vec<String>,
+        /// Exclude path prefixes (repeatable)
+        #[arg(long = "exclude-path")]
+        exclude_path: Vec<String>,
+        /// Seed frontier from sitemap.xml (default: XDG scrape_use_sitemap)
+        #[arg(long, num_args = 0..=1, default_missing_value = "true", require_equals = false)]
+        use_sitemap: Option<bool>,
+        /// Collapse query params when deduping URLs
+        #[arg(long, action = ArgAction::SetTrue)]
+        ignore_query_params: bool,
+        /// Follow `rel=next` pagination links (default: XDG scrape_follow_rel_next = false)
+        #[arg(long, num_args = 0..=1, default_missing_value = "true", require_equals = false)]
+        follow_rel_next: Option<bool>,
+        /// Collapse near-duplicate pages by content similarity; threshold is XDG
+        /// scrape_dedup_similar_distance (default: XDG scrape_dedup_similar = false)
+        #[arg(long, num_args = 0..=1, default_missing_value = "true", require_equals = false)]
+        dedup_similar: Option<bool>,
+        /// Sort pages by field
+        #[arg(long)]
+        sort: Option<String>,
+        /// Deduplicate pages by field
+        #[arg(long = "dedup-key")]
+        dedup_key: Option<String>,
+        /// CSS include selectors
+        #[arg(long = "include-selector")]
+        include_selector: Vec<String>,
+        /// CSS exclude selectors
+        #[arg(long = "exclude-selector")]
+        exclude_selector: Vec<String>,
+        /// Redact PII
+        #[arg(long, action = ArgAction::SetTrue)]
+        redact_pii: bool,
+        /// Include content_hash
+        #[arg(long, action = ArgAction::SetTrue)]
+        with_content_hash: bool,
     },
     /// Map site URLs from a seed (HTTP)
     Map {
@@ -498,6 +632,30 @@ pub enum Commands {
         /// Maximum link depth from the seed
         #[arg(long, default_value_t = 2)]
         max_depth: usize,
+        /// Project data fields (CSV)
+        #[arg(long)]
+        select: Option<String>,
+        /// Include only path prefixes (repeatable)
+        #[arg(long = "include-path")]
+        include_path: Vec<String>,
+        /// Exclude path prefixes (repeatable)
+        #[arg(long = "exclude-path")]
+        exclude_path: Vec<String>,
+        /// Enrich with sitemap.xml (default: XDG scrape_use_sitemap)
+        #[arg(long, num_args = 0..=1, default_missing_value = "true", require_equals = false)]
+        use_sitemap: Option<bool>,
+        /// Filter URLs by substring (case-insensitive)
+        #[arg(long)]
+        search: Option<String>,
+        /// Sort urls
+        #[arg(long)]
+        sort: Option<String>,
+        /// Deduplicate urls key
+        #[arg(long = "dedup-key")]
+        dedup_key: Option<String>,
+        /// Only return sitemap URLs (no HTML link BFS)
+        #[arg(long, action = ArgAction::SetTrue)]
+        sitemap_only: bool,
     },
     /// Local search (HTTP SERP links or URL map)
     Search {
@@ -506,6 +664,15 @@ pub enum Commands {
         /// Maximum number of results to return
         #[arg(long, default_value_t = 10)]
         limit: usize,
+        /// Project data fields (CSV)
+        #[arg(long)]
+        select: Option<String>,
+        /// Sort results by field
+        #[arg(long)]
+        sort: Option<String>,
+        /// Deduplicate results by field
+        #[arg(long = "dedup-key")]
+        dedup_key: Option<String>,
     },
     /// Parse a local file (html/md/txt/pdf/docx/xlsx text extract)
     Parse {
@@ -521,6 +688,24 @@ pub enum Commands {
         /// QR operation to run (encode or decode)
         #[command(subcommand)]
         action: QrAction,
+    },
+    /// Local image pipeline one-shot (no Chrome): info/convert/resize/download/exif
+    Image {
+        /// Image operation to run
+        #[command(subcommand)]
+        action: ImageAction,
+    },
+    /// Local video pipeline one-shot (no Chrome): info/download/convert/to-mp3/trim/thumbnail/manifest
+    Video {
+        /// Video operation to run
+        #[command(subcommand)]
+        action: VideoAction,
+    },
+    /// Local audio pipeline one-shot (no Chrome): info/download/convert/trim
+    Audio {
+        /// Audio operation to run
+        #[command(subcommand)]
+        action: AudioAction,
     },
     /// Discover filesystem paths (fd-like UX; binary remains browser-automation-cli)
     FindPaths {

@@ -13,6 +13,8 @@
 mod get;
 mod keys;
 mod set;
+mod set_media;
+mod set_scrape;
 mod validate;
 
 pub use get::config_get;

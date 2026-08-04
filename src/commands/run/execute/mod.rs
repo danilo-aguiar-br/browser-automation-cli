@@ -22,7 +22,7 @@ use crate::browser::OneShotSession;
 use crate::error::{CliError, ErrorKind};
 use crate::robots::RobotsPolicy;
 
-use super::{run_supported_suggestion, RunFlags};
+use super::{run_unknown_cmd_suggestion, RunFlags};
 
 mod assert_steps;
 mod capture_steps;
@@ -198,7 +198,7 @@ pub(super) fn unknown_cmd_error(cmd: &str) -> CliError {
     CliError::with_suggestion(
         ErrorKind::Usage,
         format!("unknown script cmd: {cmd}"),
-        run_supported_suggestion(),
+        run_unknown_cmd_suggestion(cmd),
     )
 }
 

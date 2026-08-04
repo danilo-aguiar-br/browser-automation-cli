@@ -59,8 +59,10 @@ pub struct ScreenshotAnnotation {
 pub struct ScreenshotResult {
     /// Path the image was written to.
     pub path: String,
-    /// Same image inline, base64-encoded, for a consumer that will not read disk.
-    pub base64: String,
+    /// Inline base64 only when the caller opted in (`include_base64`).
+    ///
+    /// Default is `None` (agent-native: no pixel dump on the envelope).
+    pub base64: Option<String>,
     /// Overlays drawn on the image. Empty unless annotation was requested.
     pub annotations: Vec<ScreenshotAnnotation>,
 }
@@ -76,12 +78,14 @@ pub struct ScreenshotOptions {
     pub full_page: bool,
     /// Encoding: `png`, `jpeg` or `webp`.
     pub format: String,
-    /// Lossy quality 0..=100. Ignored by `png`, which is lossless.
+    /// Lossy quality 0..=100. Honoured for `jpeg` and `webp`; ignored by `png`.
     pub quality: Option<i32>,
     /// Draw numbered overlays over the snapshot refs.
     pub annotate: bool,
     /// Directory used when `path` is absent.
     pub output_dir: Option<String>,
+    /// When true, retain CDP base64 on the result (opt-in; anti agent-native default).
+    pub include_base64: bool,
 }
 
 impl Default for ScreenshotOptions {
@@ -94,7 +98,18 @@ impl Default for ScreenshotOptions {
             quality: None,
             annotate: false,
             output_dir: None,
+            include_base64: false,
         }
+    }
+}
+
+/// File extension for a grab/screenshot format token (webp-aware).
+#[must_use]
+pub fn screenshot_ext_for_format(format: &str) -> &'static str {
+    match format {
+        "jpeg" | "jpg" => "jpg",
+        "webp" => "webp",
+        _ => "png",
     }
 }
 

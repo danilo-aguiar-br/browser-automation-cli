@@ -3,58 +3,7 @@
 use super::types::{ClickResult, PendingRelease};
 use crate::native::cdp::client::CdpClient;
 use crate::native::cdp::types::*;
-use crate::native::element::{resolve_element_object_id, RefMap};
 use serde_json::Value;
-
-/// Dispatch a synthetic DOM event on an element.
-///
-/// Synthetic, so `isTrusted` is false: a page that checks it will not accept
-/// this as user input. The pointer and keyboard helpers issue REAL input
-/// through CDP instead, and are the right choice for anything user-facing.
-pub async fn dispatch_event(
-    client: &CdpClient,
-    session_id: &str,
-    ref_map: &RefMap,
-    selector_or_ref: &str,
-    event_type: &str,
-    event_init: Option<&Value>,
-    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
-) -> Result<(), String> {
-    let (object_id, effective_session_id) = resolve_element_object_id(
-        client,
-        session_id,
-        ref_map,
-        selector_or_ref,
-        iframe_sessions,
-    )
-    .await?;
-
-    let init_json = event_init
-        .map(|v| serde_json::to_string(v).unwrap_or("{}".to_string()))
-        .unwrap_or_else(|| "{ bubbles: true }".to_string());
-
-    let js = format!(
-        "function() {{ this.dispatchEvent(new Event({}, {})); }}",
-        serde_json::to_string(event_type).unwrap_or_default(),
-        init_json
-    );
-
-    client
-        .send_command_typed::<_, Value>(
-            "Runtime.callFunctionOn",
-            &CallFunctionOnParams {
-                function_declaration: js,
-                object_id: Some(object_id),
-                arguments: None,
-                return_by_value: Some(true),
-                await_promise: Some(false),
-            },
-            Some(&effective_session_id),
-        )
-        .await?;
-
-    Ok(())
-}
 
 /// Dispatches one mouse event and waits for the browser to ack it, but
 /// returns Ok(true) if a JavaScript dialog opens first. A synchronous dialog
@@ -206,30 +155,4 @@ pub(super) async fn dispatch_click(
         dialog_opened,
         pending_release: None,
     })
-}
-
-/// Best-effort mouseReleased to clear a button left logically down when a
-/// dialog opened mid-click. Called after the dialog is resolved.
-pub async fn dispatch_pending_release(
-    client: &CdpClient,
-    release: &PendingRelease,
-) -> Result<(), String> {
-    client
-        .send_command_typed::<_, Value>(
-            "Input.dispatchMouseEvent",
-            &DispatchMouseEventParams {
-                event_type: "mouseReleased".to_string(),
-                x: release.x,
-                y: release.y,
-                button: Some(release.button.clone()),
-                buttons: Some(0),
-                click_count: Some(1),
-                delta_x: None,
-                delta_y: None,
-                modifiers: None,
-            },
-            Some(&release.session_id),
-        )
-        .await?;
-    Ok(())
 }

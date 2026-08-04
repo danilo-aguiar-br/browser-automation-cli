@@ -19,7 +19,7 @@ Cross-language note: keep both language sections in this file when editing. Sche
 - Static snapshots may lag if the binary is older than `src/commands/meta.rs` — **regenerate when schemas are stale**
 - Prefer live `schema <cmd>` when generating argv after upgrades
 - Envelope files are hand-maintained and are not overwritten by the generator
-- Inventory size: **65** top-level command names (`commands --json`), including `submit`, `storage`, `locale`, `man`, `select-option`, and `pick`
+- Inventory size: **69** top-level command names (`commands --json`), including `submit`, `storage`, `locale`, `man`, `select-option`, and `pick`
 
 ### How to regenerate
 
@@ -33,15 +33,15 @@ bash scripts/generate_command_schemas.sh --check
 - Generator reads the live inventory from `commands --json` / `schema --cmd` / `schema <cmd>`
 - Writes one `docs/schemas/<cmd>.schema.json` per inventory command
 - Does **not** overwrite `envelope-success.schema.json`, `envelope-error.schema.json`, or `run-script-step.schema.json`
-- After adding or renaming inventory commands (for example `print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`, `select-option`, `pick`), re-run the generator
+- After adding or renaming inventory commands (for example `print-pdf`, `monitor`, `qr`, `record`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`, `select-option`, `pick`), re-run the generator
 - If a static schema disagrees with live `schema <cmd> --json`, treat the live CLI as authoritative and regenerate
 
 ### Envelopes and non-command contracts
-- `envelope-success.schema.json` — success stdout envelope
+- `envelope-success.schema.json` — success stdout envelope, including the optional `agent_ops` report (`total`, `matched`, `truncated`, `omitted_rows`, `unresolved_paths`) emitted only when a universal envelope flag ran
 - `envelope-error.schema.json` — error stdout envelope under `--json` (may include partial `data` for fail-fast multi-step)
 - `run-script-step.schema.json` — one step for `run --script` (NDJSON line or JSON array element)
 
-### Command input schemas (65 — full inventory)
+### Command input schemas (69 — full inventory)
 
 #### Meta and discovery
 - `doctor.schema.json` — `doctor` (envelope may include top-level `residual` / check `residual_disk`)
@@ -105,9 +105,13 @@ bash scripts/generate_command_schemas.sh --check
 - `map.schema.json` — `map`
 - `search.schema.json` — `search`
 - `parse.schema.json` — `parse` (`--redact-pii`; pdf/docx/xlsx/ods)
+- `record.schema.json` — `record` (`--url` / `--path`; emits a replayable `run --script` NDJSON file)
 
 #### Local IO helpers (no Chrome)
 - `qr.schema.json` — `qr` (`encode` / `decode`)
+- `image.schema.json` — `image` (`info` / `convert` / `resize` / `download` / `exif`)
+- `video.schema.json` — `video` (`info` / `download` / `convert` / `to-mp3` / `trim` / `thumbnail` / `manifest`)
+- `audio.schema.json` — `audio` (`info` / `download` / `convert` / `trim`)
 - `find-paths.schema.json` — `find-paths` (`--glob`)
 - `sheet-write.schema.json` — `sheet-write`
 - `sg-scan.schema.json` — `sg-scan`
@@ -133,8 +137,8 @@ bash scripts/generate_command_schemas.sh --check
 ### Live CLI vs static snapshots
 - Always treat `schema <cmd> --json` (or `schema --cmd <cmd> --json`) as authoritative for the installed binary
 - After upgrading the CLI, re-run `scripts/generate_command_schemas.sh`
-- Use `commands --json` to confirm inventory membership after upgrades (**65** commands)
-- DevTools e2e suite remains 53 tools (lighthouse mock SKIP); inventory schemas cover the full 65-command surface
+- Use `commands --json` to confirm inventory membership after upgrades (**69** commands)
+- DevTools e2e suite remains 53 tools (lighthouse mock SKIP); inventory schemas cover the full 69-command surface
 - After adding `submit` / `storage`, regenerate so static snapshots exist for those names
 - Bilingual fence audit: `bash scripts/audit_bilingual_docs.sh`
 
@@ -151,7 +155,7 @@ bash scripts/generate_command_schemas.sh --check
 - Snapshots estáticos podem atrasar se o binário for mais antigo que `src/commands/meta.rs` — **regenere quando os schemas estiverem defasados**
 - Prefira `schema <cmd>` ao vivo ao gerar argv após upgrades
 - Arquivos de envelope são mantidos à mão e não são sobrescritos pelo gerador
-- Tamanho do inventário: **65** nomes de comando de topo (`commands --json`), incluindo `submit`, `storage`, `locale`, `man`, `select-option` e `pick`
+- Tamanho do inventário: **69** nomes de comando de topo (`commands --json`), incluindo `submit`, `storage`, `locale`, `man`, `select-option` e `pick`
 
 ### Como regenerar
 
@@ -169,11 +173,11 @@ bash scripts/generate_command_schemas.sh --check
 - Se um schema estático divergir de `schema <cmd> --json` ao vivo, trate a CLI como autoritativa e regenere
 
 ### Envelopes e contratos fora de comando
-- `envelope-success.schema.json` — envelope de sucesso no stdout
+- `envelope-success.schema.json` — envelope de sucesso no stdout, incluindo o relatório opcional `agent_ops` (`total`, `matched`, `truncated`, `omitted_rows`, `unresolved_paths`) emitido apenas quando uma flag universal de envelope rodou
 - `envelope-error.schema.json` — envelope de erro no stdout com `--json` (pode incluir `data` parcial em fail-fast multi-passo)
 - `run-script-step.schema.json` — um passo para `run --script` (linha NDJSON ou elemento de array JSON)
 
-### Schemas de input de comando (65 — inventário completo)
+### Schemas de input de comando (69 — inventário completo)
 
 #### Meta e descoberta
 - `doctor.schema.json` — `doctor` (envelope pode incluir `residual` de topo / check `residual_disk`)
@@ -237,9 +241,13 @@ bash scripts/generate_command_schemas.sh --check
 - `map.schema.json` — `map`
 - `search.schema.json` — `search`
 - `parse.schema.json` — `parse` (`--redact-pii`; pdf/docx/xlsx/ods)
+- `record.schema.json` — `record` (`--url` / `--path`; gera um arquivo NDJSON reexecutável por `run --script`)
 
 #### Helpers de IO local (sem Chrome)
 - `qr.schema.json` — `qr` (`encode` / `decode`)
+- `image.schema.json` — `image` (`info` / `convert` / `resize` / `download` / `exif`)
+- `video.schema.json` — `video` (`info` / `download` / `convert` / `to-mp3` / `trim` / `thumbnail` / `manifest`)
+- `audio.schema.json` — `audio` (`info` / `download` / `convert` / `trim`)
 - `find-paths.schema.json` — `find-paths` (`--glob`)
 - `sheet-write.schema.json` — `sheet-write`
 - `sg-scan.schema.json` — `sg-scan`
@@ -265,8 +273,8 @@ bash scripts/generate_command_schemas.sh --check
 ### CLI ao vivo vs snapshots estáticos
 - Trate sempre `schema <cmd> --json` (ou `schema --cmd <cmd> --json`) como autoritativo para o binário instalado
 - Após atualizar a CLI, reexecute `scripts/generate_command_schemas.sh`
-- Use `commands --json` para confirmar inventário após upgrades (**65** comandos)
-- A suite e2e DevTools permanece com 53 tools (lighthouse mock SKIP); os schemas de inventário cobrem a superfície completa de 65 comandos
+- Use `commands --json` para confirmar inventário após upgrades (**69** comandos)
+- A suite e2e DevTools permanece com 53 tools (lighthouse mock SKIP); os schemas de inventário cobrem a superfície completa de 69 comandos
 - Após adicionar `submit` / `storage`, regenere para que existam snapshots estáticos desses nomes
 - Auditoria bilíngue de fences: `bash scripts/audit_bilingual_docs.sh`
 

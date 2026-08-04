@@ -80,7 +80,7 @@ Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `p
 - On Alpine or other musl hosts, cross-compile or build natively for the musl target
 - Provide a real Chrome or Chromium binary; the CLI does not bundle a browser
 - Containers auto-add Chrome `--no-sandbox` and `--disable-dev-shm-usage` when root or docker/podman/k8s markers are present
-- Residual disk hygiene (v0.1.5 law still current in 0.1.6): BORN + FINALIZE scavenge owned Singleton-only Chromium tmp under process temp (commonly `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*`)
+- Residual disk hygiene (v0.1.5 law still current in 0.1.7): BORN + FINALIZE scavenge owned Singleton-only Chromium tmp under process temp (commonly `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*`)
 - Stale Singleton GC age floor is **60s**; only same-uid Singleton-only (or empty) dirs with no live `/proc` holder are wiped
 - CLI markers use prefix `browser-automation-cli-chrome-*` under the process temp dir
 - Host Flatpak Chrome temp prefixes are **never** deleted by product residual GC
@@ -150,36 +150,41 @@ browser-automation-cli completions powershell
 - Product settings are flags and XDG `config` only — never product environment variables
 - Product settings use flags and XDG CLI only (`config path|init|show|set|get|list-keys`)
 - Language for human suggestions: `--lang` or XDG `lang` only
-- Full command inventory (**65** agent names) and agent patterns: [docs/HOW_TO_USE.md](HOW_TO_USE.md)
+- Full command inventory (**69** agent names) and agent patterns: [docs/HOW_TO_USE.md](HOW_TO_USE.md)
 - Redis cache: `cache_backend redis` + `cache_redis_url redis://…` only (`rediss://` fail-closed)
 - Product logging: `--verbose` / `--debug` / `-q` or XDG `log_level`
 - Color: `config set color`; Chrome path: `config set chrome_path`
 
-## v0.1.6 agent surface (compact)
+## v0.1.7 agent surface (compact)
 
 - **`dialog_settled`** boolean after real dialog accept/dismiss (GAP-054); multi-tab isolation via `Page::session_id` / `dialog_map_key`
 - **`dialog_settle_ms`** via XDG `config set` only (flags + XDG; never product env vars)
 - **`wait_timeout_ms`** public key on run wait steps (GAP-053)
 - Scrape `format`/`formats` in run without HTML monster (GAP-057)
 - Native select `pick`/`select-option` dispatches `input` then `change`, `via: native_select` (GAP-055)
+- **Universal envelope flags:** `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes` on all 69 commands, identical on every platform
+- **`agent_ops`** appears in the success envelope only when one of those flags ran; `unresolved_paths` names a path no row carried
+- **`agent_ops` is omitted when there is nothing to report:** a flag that ran and resolved cleanly leaves the envelope shape untouched, on every platform
+- **`--select`/`--filter`/`--limit`/`--sort` are NOT global:** they are per-command flags on scrape, crawl, map, search, batch-scrape and the media `info` verbs
+- **XDG keys:** 176 documented in [CONFIGURATION.md](CONFIGURATION.md); discover live with `config list-keys --json`
 - **`grab` encode:** png|jpeg|webp only; AVIF removed (breaking)
-- Inventory **65** includes `submit` + `storage`; residual-zero disk law from 0.1.5 still current
+- Inventory **69** includes `submit` + `storage` + `image`+`video`+`audio`+`record`; residual-zero disk law from 0.1.5 still current
 - GAP-021 partial (unit LHR fixtures; e2e lighthouse mock SKIP); GAP-022 residual ~53 dups accepted; GAP-023/024 intentional in `parity_intentional_divergences.json`
 
-## Full agent inventory (65)
+## Full agent inventory (69)
 
 Discover live: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
-find-paths forward goto grab heap hover keys lighthouse locale man map mitm monitor
+find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
 net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
 scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 63.
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 66.
 
 ## Performance by Target
 - Linux desktop and servers are the primary optimization target

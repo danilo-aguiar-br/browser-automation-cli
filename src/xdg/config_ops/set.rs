@@ -10,6 +10,12 @@ use crate::error::{CliError, ErrorKind};
 
 /// Apply a strict `config set` mutation (validates ranges).
 fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliError> {
+    if super::set_media::apply_media_set(cfg, key, value)? {
+        return Ok(());
+    }
+    if super::set_scrape::apply_scrape_set(cfg, key, value)? {
+        return Ok(());
+    }
     match key {
         "lang" => {
             crate::i18n::validate_lang_token(value)?;
@@ -162,13 +168,13 @@ fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliE
             cfg.http_connect_timeout_secs =
                 Some(parse_positive_u64(value, "http_connect_timeout_secs")?);
         }
-        "scrape_max_body_bytes" => {
-            cfg.scrape_max_body_bytes = Some(parse_positive_u64(value, "scrape_max_body_bytes")?);
-        }
         "llm_http_timeout_secs" => {
             cfg.llm_http_timeout_secs = Some(parse_positive_u64(value, "llm_http_timeout_secs")?);
         }
         "redis_allow_remote" => cfg.redis_allow_remote = Some(parse_boolish(value)),
+        "chrome_legacy_oxide_launch" => {
+            cfg.chrome_legacy_oxide_launch = Some(parse_boolish(value));
+        }
         "robots_loopback_exempt" => cfg.robots_loopback_exempt = Some(parse_boolish(value)),
         "redis_connect_timeout_secs" => {
             cfg.redis_connect_timeout_secs =

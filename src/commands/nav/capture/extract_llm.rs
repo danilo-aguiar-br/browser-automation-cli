@@ -20,6 +20,7 @@ pub(crate) fn handle_extract_llm(
             max_body_bytes: crate::xdg::policy::policy_usize(
                 crate::xdg::policy::key::DEFAULT_BROWSER_SCRAPE_MAX_BODY_BYTES,
             ),
+            ..Default::default()
         };
         // HTTP-only: current_thread runtime (rules_rust_latencia — no unbounded
         // multi_thread workers for a one-shot scrape before LLM extract).

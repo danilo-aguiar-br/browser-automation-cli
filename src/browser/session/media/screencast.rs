@@ -173,15 +173,8 @@ impl OneShotSession {
                 };
                 // Optional OS binary: no pure-Rust H.264/VP9 encoder is production-ready
                 // as a drop-in (muxide needs pre-encoded NALs; ffmpeg-next still links
-                // system libav). Resolve via XDG `ffmpeg_path` then pure PATH walk —
-                // never shell `which`/`date`/`sh` (rules_rust crates nativas).
-                let ffmpeg_bin = crate::xdg::ffmpeg_path_from_config()
-                    .map(std::path::PathBuf::from)
-                    .filter(|p| crate::platform::is_spawn_safe_binary(p))
-                    .or_else(|| {
-                        crate::platform::which_bin("ffmpeg")
-                            .filter(|p| crate::platform::is_spawn_safe_binary(p))
-                    });
+                // system libav). DRY with video_local (XDG ffmpeg_path → PATH).
+                let ffmpeg_bin = crate::video_local::resolve_ffmpeg_bin();
                 let vp_owned = vp.clone();
                 let pattern_owned = pattern.clone();
                 let framerate = crate::xdg::policy::policy_u32(

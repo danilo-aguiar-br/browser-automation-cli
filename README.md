@@ -33,7 +33,7 @@
 - Accessibility snapshot refs `@eN` stay valid only inside that process
 - `--json` envelopes are stable for programmatic agents; clap usage errors also emit JSON when `--json` is on argv
 - Install path is pure Rust via cargo
-- v0.1.6 is current: keeps residual-zero disk hygiene (0.1.5 RES-01…12 still true) and closes dialog settle, multi-tab dialog isolation, native select pick events, run wait/scrape fields, grab format lock, and lighthouse unit fixtures; inventory **65** agent names via `commands --json`
+- v0.1.7 is current: keeps residual-zero disk hygiene (0.1.5 RES-01…12 still true) and closes dialog settle, multi-tab dialog isolation, native select pick events, run wait/scrape fields, grab format lock, and lighthouse unit fixtures; inventory **69** agent names via `commands --json`
 
 ## Superpowers
 - Navigation and page lifecycle: `goto` (init-script, beforeunload accept|dismiss), `back`, `forward`, `reload`, `page`
@@ -41,7 +41,7 @@
 - Observation: `view` (refuses empty about:blank unless `--allow-empty`), `grab` (formats `png|jpeg|webp` only; AVIF removed), `extract`, `text`, `attr`, `scroll`, `assert`
 - Wait: multi `--text` OR; CSS multi-selector OR (`#a, #b`); run fields `url` / `url_contains` / `navigation` / `wait_timeout_ms`
 - Assert: `url` / `text` / `console` plus `console_empty` / `console_no_match` (CLI `console-empty` / `console-no-match`)
-- Scrape: multi-format `--format` / `--formats` (CSV or repeatable) with `--engine http|browser`; browser applies formats via outerHTML; `format`/`formats` also accepted in `run` scrape steps
+- Scrape: multi-format `--format` / `--formats` (CSV or repeatable) with `--engine http|browser`; 14 live formats `text|markdown|html|rawHtml|links|metadata|screenshot|summary|product|branding|images|jsonld|json|feed` (`raw-html` stays an accepted alias of `rawHtml`); browser applies formats via outerHTML; `format`/`formats` also accepted in `run` scrape steps
 - Local scrape/crawl/map/search/parse: `batch-scrape` and `crawl` accept `--engine http|browser`, `map`, `search` (cleans `uddg=`), `parse` (PDF/DOCX/xlsx/ods + `--redact-pii`)
 - Extract LLM: `extract --llm --question --schema-json` (XDG `openrouter_api_key`, `llm_base_url`, `llm_model`)
 - Capture: `console` (dump always writes `[]` when empty) and `net` with optional global capture flags
@@ -50,7 +50,7 @@
 - DevTools depth: `eval`, `emulate`, `resize`, `perf`, `lighthouse` (flag → XDG → PATH; `binary_source` real|mock; unit fixtures include chrome-captured LHR 13.4.1; e2e mock remains SKIP), `heap`
 - PDF print: `print-pdf` one-shot and multi-step `run`; refuses blank PDF without navigated content
 - Monitor: `monitor check --url --baseline [--write-baseline]`
-- Utilities (no Chrome): `qr encode|decode`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
+- Utilities (no Chrome): `qr encode|decode`, `image info|convert|resize|download|exif`, `video info|download|convert|to-mp3|trim|thumbnail|manifest`, `audio info|download|convert|trim`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
 - Assert aliases: `url_contains` / `text_contains`; `attr` falls back to DOM properties
 - Scroll aliases in `run`: `dy`/`dx` for `delta_y`/`delta_x`
 - Optional categories: memory, extensions, third-party, webmcp
@@ -58,7 +58,8 @@
 - MITM one-shot: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact` (binds `127.0.0.1`; global `--mitm*`)
 - Workflow DAG: `workflow run|resume|status` with SQLite journal (resume skips ok)
 - XDG config: `config path|init|show|set|get|list-keys` for config.toml (discover full keys via `config list-keys --json`)
-- Discovery: `doctor` (incl. `residual_disk`), `commands` (**65** agent names), `schema <cmd>` or `schema --cmd`, `version`, `locale`, `man`, `completions`
+- Discovery: `doctor` (incl. `residual_disk`), `commands` (**69** agent names), `schema <cmd>` or `schema --cmd`, `version`, `locale`, `man`, `completions`
+- Global flags: the global help declares **43** long flags, **41** of them product flags plus `--help` and `--version`; `browser-automation-cli --help` is the source of truth
 - Multi-step observability: `run --json` final envelope includes `ok` + full `steps[].data`; global `--json-steps` streams one NDJSON line per step
 - Fail-fast multi-step: `run` returns partial `data.steps` on error envelopes
 - Residual-zero disk (still true from 0.1.5 RES-01…12): BORN auto-GC of stale Singleton-only Chromium dirs under `/tmp` older than 60s; FINALIZE dual scavenge + re-scan; never kills host Flatpak Chrome; marker prefix `browser-automation-cli-chrome-`
@@ -124,20 +125,38 @@ browser-automation-cli --json parse ./doc.pdf --redact-pii
 browser-automation-cli --json parse ./doc.ods
 browser-automation-cli --json qr encode --text "hello" --path /tmp/browser-automation-cli-artifacts/qr.png
 browser-automation-cli --json qr decode --path /tmp/browser-automation-cli-artifacts/qr.png
-browser-automation-cli --json find-paths /path/to/tree --glob "**/*.rs"
-browser-automation-cli --json sheet-write --input rows.csv --out /tmp/browser-automation-cli-artifacts/out.xlsx
-browser-automation-cli --json sg-scan --paths src
-browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]'
-browser-automation-cli --json --json-steps run --script '[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]'
+browser-automation-cli --json find-paths --glob '**/*.rs' '' src
+browser-automation-cli --json sheet-write rows.csv --out /tmp/browser-automation-cli-artifacts/out.xlsx
+browser-automation-cli --json sg-scan src
 browser-automation-cli --json schema run
 browser-automation-cli --json schema --cmd wait
 browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format text --engine browser --concurrency 2
 browser-automation-cli --capture-console --json assert console-empty
+browser-automation-cli --json record --url https://example.com --path /tmp/steps.jsonl --seconds 30 --max-events 200
+```
+
+- `--script` takes a file path, never inline JSON; write the steps file first (NDJSON, one step per line):
+```json
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"view"}
+```
+- Then run that file in one process:
+```bash
+browser-automation-cli --json run --script /tmp/steps.jsonl
+browser-automation-cli --json --json-steps run --script /tmp/steps.jsonl
+```
+- Reading an API payload needs the capture and the navigation in the same process, so put the `net` step in the script (`/tmp/net.jsonl`):
+```json
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"net","action":"get","id":"0","response_path":"/tmp/browser-automation-cli-artifacts/res.json"}
+```
+```bash
+browser-automation-cli --capture-network --json run --script /tmp/net.jsonl
 ```
 
 ## Commands
-Full agent inventory (**65** names via `commands --json`, sorted):
-`assert`, `attr`, `back`, `batch-scrape`, `click-at`, `commands`, `completions`, `config`, `console`, `cookie`, `crawl`, `devtools3p`, `dialog`, `doctor`, `drag`, `emulate`, `eval`, `exec`, `extension`, `extract`, `find-paths`, `fill-form`, `forward`, `goto`, `grab`, `heap`, `hover`, `keys`, `lighthouse`, `locale`, `man`, `map`, `mitm`, `monitor`, `net`, `page`, `parse`, `perf`, `pick`, `press`, `print-pdf`, `qr`, `reload`, `resize`, `run`, `schema`, `scrape`, `screencast`, `scroll`, `search`, `select-option`, `sg-rewrite`, `sg-scan`, `sheet-write`, `storage`, `submit`, `text`, `type`, `upload`, `version`, `view`, `wait`, `webmcp`, `workflow`, `write`
+Full agent inventory (**69** names via `commands --json`, sorted):
+`assert`, `attr`, `audio`, `back`, `batch-scrape`, `click-at`, `commands`, `completions`, `config`, `console`, `cookie`, `crawl`, `devtools3p`, `dialog`, `doctor`, `drag`, `emulate`, `eval`, `exec`, `extension`, `extract`, `find-paths`, `fill-form`, `forward`, `goto`, `grab`, `heap`, `hover`, `image`, `keys`, `lighthouse`, `locale`, `man`, `map`, `mitm`, `monitor`, `net`, `page`, `parse`, `perf`, `pick`, `press`, `print-pdf`, `qr`, `record`, `reload`, `resize`, `run`, `schema`, `scrape`, `screencast`, `scroll`, `search`, `select-option`, `sg-rewrite`, `sg-scan`, `sheet-write`, `storage`, `submit`, `text`, `type`, `upload`, `video`, `version`, `view`, `wait`, `webmcp`, `workflow`, `write`
 
 Grouped for humans:
 - Discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `man`, `completions`
@@ -147,11 +166,13 @@ Grouped for humans:
 - Scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
 - Capture: `console`, `net`, `print-pdf`, `monitor`, `screencast`
 - Tabs/Dialogs: `page`, `dialog`, `cookie`, `storage`
-- Utils: `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+- Utils: `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
 - Advanced: `eval`, `emulate`, `resize`, `perf`, `lighthouse`, `heap`, `extension`, `devtools3p`, `webmcp`, `mitm`, `workflow`
 - Config: `config path|init|show|set|get|list-keys`
-- Multi-step: `run`, `exec`
-- Inventory note: **65** agent-facing names via `commands --json` (includes `select-option`, `pick`, `submit`, `storage`); DevTools e2e covers 53 tools (lighthouse mock SKIP)
+- Multi-step: `run`, `exec`, `record`
+- Record teaching: `browser-automation-cli --json record --url https://example.com --path /tmp/steps.jsonl --seconds 30 --max-events 200` writes page interactions as replayable NDJSON, then `browser-automation-cli --json run --script /tmp/steps.jsonl` replays them in one process
+- Audio teaching: `browser-automation-cli --json audio info|download|convert|trim` runs the local audio pipeline without Chrome
+- Inventory note: **69** agent-facing names via `commands --json` (includes `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`); DevTools e2e covers 53 tools (lighthouse mock SKIP)
 
 ## Configuration
 - Prefer CLI flags for one-off agent calls
@@ -168,7 +189,7 @@ Grouped for humans:
 - `config path` prints resolved config, data, cache, state, and browsers_dir paths
 - CLI flags override values stored in config.toml
 - Doctor reports browsers_dir, lighthouse source, `cache_redis`, and `residual_disk` among readiness checks
-- Doctor JSON top-level field `residual` reports: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Doctor JSON top-level field `residual` reports: `scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legacy), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
 
 ## Features
 - This crate has no Cargo feature flags
@@ -224,6 +245,7 @@ Grouped for humans:
 - Exit 2 usage: re-check flags with `browser-automation-cli help <cmd>`; with `--json` on argv, clap usage errors emit JSON envelopes
 - `@eN` refs invalid across commands: keep steps inside one `run` process; refs do not span processes
 - Network empty: pass `--capture-network` on the same process that navigates
+- API payload read: `net get <IDX>` writes bodies with `--response-path` and `--request-path`, but `net list` and `net get` only see traffic captured in the same process, so a standalone `net get 0` after a separate `goto` returns exit 65 with `count=0`; put a `net` step next to the `goto` step in one script and run `browser-automation-cli --capture-network --json run --script /tmp/net.jsonl`
 - Wait multi-text: repeat `--text` for OR semantics (any listed text unblocks)
 - Wait multi-selector / URL: CSS OR `#a, #b`; in `run` use `url` / `url_contains` / `navigation`
 - View empty blank: empty about:blank refuses silent success unless `--allow-empty` / `allow_empty:true`
@@ -231,7 +253,7 @@ Grouped for humans:
 - MITM HAR: `mitm har --out <path>` (required); or global `--mitm-har` on FINALIZE; or `capture-url --har`
 - MITM redact: `mitm redact --secrets` and global `--mitm-redact-secrets`; CA under XDG data
 - Workflow resume: `workflow resume` skips steps already `ok` in the journal
-- Scrape multi-format: `--format markdown,html,links` (CSV or repeatable) returns per-format fields
+- Scrape multi-format: `--format markdown,html,links` (CSV or repeatable) returns per-format fields; 14 live formats are `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed` (`raw-html` remains an accepted alias of `rawHtml`)
 - Scrape browser formats: `--engine browser` applies `--format` via outerHTML
 - Batch/crawl browser engine: `batch-scrape --engine browser` and `crawl --engine browser` (GAP-010)
 - Scroll aliases: in `run` scripts use `dy`/`dx` as aliases for `delta_y`/`delta_x`
@@ -249,23 +271,24 @@ Grouped for humans:
 - Assert aliases: `url_contains` / `text_contains`; `attr` uses DOM property fallback when HTML attribute is null
 - Pick / select-option: agent inventory names; native select dispatches input+change; HIG badge/popover / `role=option` via `pick`
 - Submit / storage: `submit` for form submit; `storage export|import` for cookies + per-origin state
-- Inventory size: `commands --json` lists **65** agent names (includes `select-option`, `pick`, `submit`, `storage`)
+- Inventory size: `commands --json` lists **69** agent names (includes `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`)
 - Locale: `locale --json` diagnoses resolved language; set with `--lang pt-BR` or `config set lang pt-BR`
 - `file://` + `scrape --engine http`: Usage error — use browser engine or `parse` for local files
 - `reload --ignore-cache`: CDP `Page.reload` with `ignoreCache` (not a JS no-op)
-- `run` script formats: NDJSON one object per line, or a single JSON array of steps; supports `wait_timeout_ms` and scrape `format`/`formats`
+- `run` script formats: `--script` is always a file path (inline JSON is rejected with exit 66); the file is NDJSON one object per line, or a single JSON array of steps; supports `wait_timeout_ms` and scrape `format`/`formats`
 - Grab formats: `png|jpeg|webp` only (AVIF removed in 0.1.6)
 - Redis cache: set `cache_backend redis` and `cache_redis_url`; never use `rediss://`
-- Residual /tmp disk hygiene (0.1.5 RES-01…12 still true in 0.1.6):
+- Residual /tmp disk hygiene (0.1.5 RES-01…12 still true in 0.1.7):
   - BORN auto-GC: `scavenge_stale_singleton_orphans` removes `/tmp` `org.chromium.Chromium.*` Singleton-only dirs older than 60s
   - FINALIZE dual scavenge + re-scan of owned marker dirs (`browser-automation-cli-chrome-` prefix)
   - Never kills host Flatpak Chrome or non-CLI browser processes
-  - Doctor check `residual_disk` + top-level JSON field `residual` (`cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`)
+  - Doctor check `residual_disk` + top-level JSON field `residual` (`scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legacy), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`)
   - Local gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (no CI required)
 - Dialog settle: `dialog accept|dismiss` → read `.data.dialog_settled`; budget via XDG `dialog_settle_ms`; multi-tab isolation by `session_id` (e2e gated)
 - Lighthouse: unit fixtures include chrome-captured LHR 13.4.1; e2e mock path remains SKIP (contract-only)
 - Intentional residual: GAP-022 ~53 transitive multi-version dups; GAP-023/024 PRD divergences registered
-- Sheet/lint utils: `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths --glob` for shell globs
+- Sheet/lint utils: `sheet-write <input> --out <file>`, `sg-scan <paths>`, `sg-rewrite <paths>` take positional inputs; `find-paths --glob` for shell globs
+- `find-paths` positional order is `[PATTERN] [PATHS]...`, so a lone positional is read as the regex PATTERN and the roots silently fall back to the current directory; pass an empty pattern to target a root: `find-paths --glob '**/*.rs' '' src`
 - Dialog soft path: `dialog accept --if-present` / run `if_present:true` soft-ok when no dialog is showing
 
 ## Exit Codes
@@ -280,16 +303,20 @@ Grouped for humans:
 - `124` timeout
 - `130` cancelled by SIGINT
 - `141` broken pipe
-- `255` unexpected fatal path
+- `255` unexpected fatal path — plausible panic route, but not mapped by any `error.kind` and not observable through the discovery surface
 
 ## Documentation Map
 - [docs/HOW_TO_USE.md](docs/HOW_TO_USE.md) first command in 60 seconds
 - [docs/AGENTS.md](docs/AGENTS.md) agent integration contract
 - [docs/COOKBOOK.md](docs/COOKBOOK.md) practical recipes
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) every XDG key, its default and its purpose
 - [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md) platform matrix
 - [docs/MIGRATION.md](docs/MIGRATION.md) version migration notes
 - [docs/TESTING.md](docs/TESTING.md) test categories
 - [docs/schemas/README.md](docs/schemas/README.md) JSON schema index
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) module layout and lifecycle internals
+- [docs/ROADMAP.md](docs/ROADMAP.md) what is planned and what is closed by physical limit
+- [PRIVACY.md](PRIVACY.md) what stays local and what is never uploaded
 - [skills/browser-automation-cli-en/SKILL.md](skills/browser-automation-cli-en/SKILL.md) imperative agent skill
 - [CHANGELOG.md](CHANGELOG.md) Keep a Changelog history
 - [SECURITY.md](SECURITY.md) vulnerability reporting

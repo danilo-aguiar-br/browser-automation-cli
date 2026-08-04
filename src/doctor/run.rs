@@ -175,6 +175,20 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
         "ffmpeg_source": ffmpeg_source,
     }));
 
+    // Optional ffprobe (video/audio info); sibling of ffmpeg via video_local resolve.
+    let ffprobe_present = crate::video_local::resolve_ffprobe_bin();
+    checks.push(json!({
+        "id": "ffprobe",
+        "status": if ffprobe_present.is_some() { "pass" } else { "info" },
+        "message": ffprobe_present
+            .as_ref()
+            .map(|p| format!("found {}", p.display()))
+            .unwrap_or_else(|| {
+                "ffprobe not found (optional: install ffmpeg package or set ffmpeg_path next to ffprobe)".into()
+            }),
+        "ffprobe_present": ffprobe_present.is_some(),
+    }));
+
     // GAP-009: report Job Object capability (real on Windows, stub elsewhere).
     checks.push(json!({
         "id": "windows_job_object",
@@ -222,10 +236,12 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
     // when doctor is invoked through the normal CLI entry (lib::run).
     let residual = crate::residual::residual_disk_report();
     // GAP-002/GAP-006: a live sibling invocation is healthy and never fails the
-    // check. Only a marker dir past the age floor whose owner pid is dead proves
-    // that DIE failed to collect. Keeping the old rule made `doctor` report a
-    // false positive whenever two invocations overlapped.
-    let residual_status = if residual.orphan_marker_dirs > 0 {
+    // check. Fail only on proven defects: orphan marker dirs (dead owner past the
+    // age floor) or ghost holders (live CLI Chrome with missing marker profile
+    // dir). Keeping the old raw-marker rule made `doctor` report a false positive
+    // whenever two invocations overlapped.
+    let residual_status = if residual.orphan_marker_dirs > 0 || residual.ghost_marker_processes > 0
+    {
         failed = true;
         "fail"
     } else if residual.cli_marker_dirs > 0 || residual.chromium_tmp_singleton_orphans > 0 {
@@ -236,14 +252,28 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
     checks.push(json!({
         "id": "residual_disk",
         "status": residual_status,
+        // The message names the VERDICT, not just the counters. A reader who sees
+        // `cli_markers=1` alone cannot tell a healthy concurrent invocation from
+        // abandoned residue; only `orphan_markers` separates the two, and that is
+        // exactly the distinction `status` encodes.
         "message": format!(
-            "cli_markers={} orphan_markers={} chromium_singleton_orphans={} scavenge_safe={} sibling_live_procs={} proc_table_unavailable={}",
+            "{} — cli_markers={} orphan_markers={} ghost_marker_procs={} chromium_singleton_orphans={} scavenge_safe={} sibling_live_procs={} foreign_root_orphans={} proc_table_unavailable={} scanned_roots={}",
+            match residual_status {
+                "fail" if residual.ghost_marker_processes > 0 =>
+                    "ghost holders: live CLI Chrome with missing marker profile dir",
+                "fail" => "abandoned residue: a marker dir past the age floor has a dead owner",
+                "warn" => "live siblings only: nothing is collectable, no action needed",
+                _ => "clean",
+            },
             residual.cli_marker_dirs,
             residual.orphan_marker_dirs,
+            residual.ghost_marker_processes,
             residual.chromium_tmp_singleton_orphans,
             residual.scavenge_safe_candidates,
             residual.sibling_live_processes,
-            residual.process_table_unavailable
+            residual.foreign_root_orphans,
+            residual.process_table_unavailable,
+            residual.scanned_roots.len()
         ),
         "cli_marker_dirs": residual.cli_marker_dirs,
         "chromium_tmp_singleton_orphans": residual.chromium_tmp_singleton_orphans,
@@ -251,6 +281,13 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
         "live_cli_marker_processes": residual.live_cli_marker_processes,
         "sibling_live_processes": residual.sibling_live_processes,
         "orphan_marker_dirs": residual.orphan_marker_dirs,
+        // Present in `data.residual` since 0.1.7 but missing here, so the check
+        // and the report disagreed about what residual even consists of. Two
+        // views of one fact must carry the same fields or a consumer picks the
+        // wrong one and is right about nothing.
+        "foreign_root_orphans": residual.foreign_root_orphans,
+        "ghost_marker_processes": residual.ghost_marker_processes,
+        "scanned_roots": residual.scanned_roots,
         "process_table_unavailable": residual.process_table_unavailable,
     }));
 
@@ -282,7 +319,13 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
         match print_success_json(data) {
             Ok(()) => {}
             Err(e) if e.kind() == crate::error::ErrorKind::BrokenPipe => return 141,
-            Err(_) => {}
+            // A discarded error here is the worst outcome the doctor can produce:
+            // the agent asked for a payload the CLI could not deliver (an
+            // impossible `--max-output-bytes`, say) and got exit 0 with an empty
+            // stdout — a green light for a check that never ran. Every other
+            // command already reports this through `emit_err`, which localizes
+            // the suggestion and returns the real exit code.
+            Err(e) => return crate::commands::common::emit_err(&e, true),
         }
     } else {
         for c in checks {
@@ -295,7 +338,10 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
             match crate::output::writeln_stdout(line) {
                 Ok(()) => {}
                 Err(e) if e.kind() == crate::error::ErrorKind::BrokenPipe => return 141,
-                Err(_) => {}
+                // A failed write here (full disk, closed fd) must not be reported
+                // as a clean bill of health. Human mode has no envelope, so the
+                // error goes to stderr and the exit code carries the truth.
+                Err(e) => return crate::commands::common::emit_err(&e, false),
             }
         }
         let _ = crate::output::flush_stdout();

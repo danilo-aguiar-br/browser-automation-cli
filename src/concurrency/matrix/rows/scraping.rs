@@ -37,4 +37,22 @@ pub(super) const ROWS: &[CmdRow] = &[
         Some("single file"),
     ),
     ("qr", "sequential_justified", None, Some("single payload")),
+    (
+        "image",
+        "sequential_justified",
+        None,
+        Some("single-file local pipeline"),
+    ),
+    (
+        "video",
+        "sequential_justified",
+        None,
+        Some("single-file local pipeline; ffmpeg subprocess"),
+    ),
+    (
+        "audio",
+        "sequential_justified",
+        None,
+        Some("single-file local pipeline; ffmpeg subprocess"),
+    ),
 ];

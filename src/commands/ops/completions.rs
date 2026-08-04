@@ -11,7 +11,7 @@ pub(crate) fn handle_completions(shell: CompletionShell) -> Result<(), CliError>
     use std::io::Write;
 
     let mut cmd = crate::cli::Cli::command();
-    let bin = "browser-automation-cli";
+    let bin = crate::constants::PRODUCT_BIN_NAME;
     let mut out = std::io::stdout();
     match shell {
         CompletionShell::Bash => generate(shells::Bash, &mut cmd, bin, &mut out),

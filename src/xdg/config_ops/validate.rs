@@ -24,6 +24,40 @@ pub(super) fn parse_positive_u64(value: &str, name: &str) -> Result<u64, CliErro
     Ok(n)
 }
 
+pub(super) fn parse_u32(value: &str, name: &str) -> Result<u32, CliError> {
+    value
+        .parse()
+        .map_err(|_| CliError::new(ErrorKind::Usage, format!("{name} must be an integer")))
+}
+
+pub(super) fn parse_positive_u32(value: &str, name: &str) -> Result<u32, CliError> {
+    let n = parse_u32(value, name)?;
+    if n == 0 {
+        return Err(CliError::new(
+            ErrorKind::Usage,
+            format!("{name} must be > 0"),
+        ));
+    }
+    Ok(n)
+}
+
+/// Parse an inclusive-range `u8` knob (used by AVIF speed 1..=10).
+pub(super) fn parse_range_u8(value: &str, name: &str, lo: u8, hi: u8) -> Result<u8, CliError> {
+    let n: u8 = value.parse().map_err(|_| {
+        CliError::new(
+            ErrorKind::Usage,
+            format!("{name} must be an integer {lo}..={hi}"),
+        )
+    })?;
+    if n < lo || n > hi {
+        return Err(CliError::new(
+            ErrorKind::Usage,
+            format!("{name} must be {lo}..={hi}"),
+        ));
+    }
+    Ok(n)
+}
+
 pub(super) fn parse_quality_u8(value: &str, name: &str) -> Result<u8, CliError> {
     let n: u8 = value.parse().map_err(|_| {
         CliError::new(

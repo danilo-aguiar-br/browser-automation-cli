@@ -39,11 +39,16 @@ browser-automation-cli --json view
 - Scrape page content with multi-format `scrape --format markdown,html,links` when you need several shapes at once
 - Parse local files with `parse` (html/md/txt/pdf/docx/xlsx/ods; optional `--redact-pii`)
 - Encode or decode QR codes with `qr encode|decode` (no Chrome)
+- Process images locally with `image info|convert|resize|download|exif` (no Chrome; no pixel base64 by default)
+- Process videos locally with `video info|download|convert|to-mp3|trim|thumbnail|manifest` (no Chrome; optional OS ffmpeg via XDG `ffmpeg_path`; path/meta only; smart copy/re-encode)
+- Summarize an HLS/DASH manifest without downloading media with `video manifest`
+- Process audio locally with `audio info|download|convert|trim` (no Chrome; optional OS ffmpeg via XDG `ffmpeg_path`; path/meta only; smart copy/re-encode; upload via existing `upload`)
+- Screenshot with `grab --format png|jpeg|webp` (opt-in `--include-base64`); recipes in COOKBOOK
 - Discover filesystem paths with `find-paths` (regex pattern and/or `--glob '**/*.rs'`; no Chrome)
 - Write XLSX from CSV/JSON with `sheet-write <input> -o <out.xlsx>` (no Chrome)
 - Structural lint with `sg-scan [paths…]` and dry-run rewrite with `sg-rewrite [paths…]` (`--apply` to write)
 - Check page change against a baseline with `monitor check`
-- List the live inventory (**65** agent names) with `commands --json`
+- List the live inventory (**69** agent names) with `commands --json`
 - Discover argv shapes with `schema <name> --json` or `schema --cmd <name> --json`
 - Print the product version with `version`
 - Inspect resolved UI locale with `locale --json` (human suggestions only)
@@ -68,6 +73,13 @@ browser-automation-cli --json schema run
 - There is no product daemon mode
 - On fail-fast error, the error envelope may include partial `data.steps` for recovery
 - Script body accepts **NDJSON** (one JSON object per line) **or** a top-level **JSON array** of step objects
+- `run --script -` reads NDJSON steps from **stdin**, one step per line, against a single live session
+- Stdin mode is still one-shot: one BORN, one DIE, no daemon; EOF on stdin triggers FINALIZE
+- Stdin mode validates each line as it arrives and reports `validation: "per-line"`
+- File mode instead pre-flights the whole script before BORN, so a typo never launches Chrome
+- Stdin mode keeps fail-fast: the first failing line stops the loop and the envelope carries the executed steps
+- Stdin mode accepts NDJSON only; a top-level JSON array needs a real file path
+- Prefer stdin over shell process substitution: `run --script <(printf ...)` is rejected, because the path lands in `/proc/<pid>/fd/<n>` outside the allowed roots
 - Final `--json` envelope includes `ok` and full `steps[].data`
 - Global `--json-steps` streams one NDJSON line per step (`step`, `cmd`, `ok`, `result`)
 - Agent inventory + multi-step: `select-option` / `pick` with `target` + `option` (via run/exec; not clap standalone; native `<select>` dispatches `input` then `change`, `via: native_select`)
@@ -95,6 +107,12 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automa
 
 # Progressive step stream (GAP-020)
 browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.browser-automation.array.json
+
+# NDJSON steps straight from stdin — no temp file (GAP-034)
+printf '%s\n' \
+  '{"cmd":"goto","url":"https://example.com"}' \
+  '{"cmd":"view"}' \
+  | browser-automation-cli --timeout 60 --json run --script -
 ```
 - NDJSON lines and array elements use a `cmd` field matching a real subcommand or run inventory name
 - Scroll accepts `dy`/`dx` as aliases for `delta_y`/`delta_x`
@@ -140,7 +158,7 @@ browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.b
 - Cache backend via XDG only: `config set cache_backend sqlite|memory|redis` and optional `config set cache_redis_url redis://127.0.0.1:6379`
 - `rediss://` is fail-closed (plain TCP only; do not use rediss URLs)
 - Doctor reports Chrome, lighthouse source, `cache_redis` when Redis cache is configured, and residual disk hygiene
-- Doctor check `residual_disk` plus top-level JSON `residual`: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Doctor check `residual_disk` plus top-level JSON `residual`: `scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legacy), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
 - Localize human suggestions: `--lang pt-BR` or `config set lang pt-BR` (flags + XDG only)
 - Verbosity: `--verbose` (info), `--debug` (max), `-q`/`--quiet`, or `config set log_level debug`
 - Color: `config set color true|false` (truthy values: `true`, `1`, `yes`)
@@ -170,13 +188,136 @@ browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.b
 - Inspect with doctor (path-light residual report, no Chrome launch for the report itself):
 
 ```bash
-browser-automation-cli doctor --offline --quick --json \
-  | jaq '{ok, residual, residual_disk: [.checks[] | select(.id=="residual_disk")]}'
+# The binary reduces the payload; no JSON processor in the prompt.
+browser-automation-cli --json --fields residual doctor --offline --quick
+
+# Just the residual verdict, from a 26 KB envelope down to one line
+browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' \
+  doctor --offline --quick
 ```
 
-- JSON top-level `residual` fields: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
-- Check id `residual_disk`: `fail` when live marker processes; `warn` when marker dirs or singleton orphans remain; else `pass`
+- JSON top-level `residual` fields: `scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legacy), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
+- Check id `residual_disk`: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; `warn` when marker dirs or Singleton orphans remain; else `pass`. A live sibling invocation is healthy and never fails.
 - Maintainers may also run local gates: `bash scripts/residual-check.sh` and `bash scripts/residual-stress.sh` (local maintainer scripts only)
+
+
+## Agent Payload Reduction (eight global flags)
+- Eight global flags shrink the JSON envelope before it reaches your prompt
+- The names are `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`
+- They compose freely and run inside the binary, so no JSON processor is needed
+- Measured here: `doctor --offline --quick` emits 26276 bytes with no reduction
+- The same call with `--fields residual.ghost_marker_processes` emits 79 bytes
+- The envelope gains an `agent_ops` object only when one of them runs
+- Running a flag is necessary but not sufficient: `agent_ops` is omitted when there is nothing to report
+- Measured: `--fields commands commands` resolves cleanly and carries no `agent_ops`
+- Measured: adding `--limit-rows 3` to that call produces `total`, `matched` and `truncated`
+
+### --fields
+- Project the payload down to dotted paths, given as a CSV list
+- The nesting each path implies is rebuilt, so the documented shape survives
+- It also disambiguates commands whose data holds more than one list
+
+```bash
+# 26276 bytes down to 79 bytes
+browser-automation-cli --json --fields residual.ghost_marker_processes \
+  doctor --offline --quick
+```
+
+### --filter-rows
+- Keep only rows matching `key=value`, `key!=value` or `key~substring`
+- The flag repeats and every expression is ANDed
+- A missing field never matches, including under `!=`
+
+```bash
+# Only the residual verdict row
+browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' \
+  doctor --offline --quick
+```
+
+### --limit-rows
+- Emit at most N rows from the selected list
+- The cut runs after filter, dedupe and sort
+
+```bash
+browser-automation-cli --json --fields checks --limit-rows 3 doctor --offline --quick
+```
+
+### --sort-rows
+- Order rows by a dotted path before any cut
+- Numeric values compare numerically, not as text
+
+```bash
+browser-automation-cli --json --fields checks --sort-rows id --limit-rows 2 \
+  doctor --offline --quick
+```
+
+### --dedupe-by
+- Drop rows whose dotted-path value repeats, keeping the first
+- It turns a long list into one row per distinct value
+
+```bash
+browser-automation-cli --json --fields checks --dedupe-by status doctor --offline --quick
+```
+
+### --count-only
+- Emit only `{"count": N}` instead of the rows themselves
+- Use it when the answer is a quantity, not the payload
+
+```bash
+browser-automation-cli --json --fields checks --count-only doctor --offline --quick
+```
+- The `--fields` in that line is not decoration: it names which list to count
+- Measured: `--count-only commands` alone exits `2` with `data holds more than one list`
+- The error names the competing lists, so read it and narrow with `--fields`
+
+### --truncate-content
+- Cut every string in the payload to N characters
+- The envelope marks `truncated` so the cut is never silent
+
+```bash
+browser-automation-cli --json --fields checks --filter-rows 'id=browsers_dir' \
+  --truncate-content 12 doctor --offline --quick
+```
+
+### --max-output-bytes
+- Set a hard ceiling on the emitted bytes
+- Rows are shed from the end and `omitted_rows` records the loss
+- An impossible ceiling returns exit 2 with an error envelope, never a silent empty success
+
+```bash
+# exit 0, rows shed from the end
+browser-automation-cli --json --fields checks --max-output-bytes 512 doctor --offline --quick
+
+# exit 2: the payload cannot fit
+browser-automation-cli --json --fields checks --max-output-bytes 8 doctor --offline --quick
+```
+
+### Reading agent_ops
+- `agent_ops.total` counts rows before reduction and `matched` counts rows kept
+- `agent_ops.truncated` marks a payload cut by any ceiling
+- `agent_ops.omitted_rows` counts rows shed by `--max-output-bytes`
+- A requested path that no row carries appears in `agent_ops.unresolved_paths`
+- An unresolved path never fails the call, so always read that array
+
+```bash
+browser-automation-cli --json --fields residual.ghost_marker_processes,residual.no_such_field \
+  doctor --offline --quick
+```
+
+### Flags that are not global
+- `--select`, `--filter`, `--limit` and `--sort` are not global flags
+- Passing them in global scope returns exit 2 with a usage envelope
+- They exist per command in scrape, crawl, map, search and batch-scrape
+- Each command gives them its own meaning, such as a CSS selector
+- A local flag and a global flag still combine in one call
+
+```bash
+# exit 2: --select is not a global flag
+browser-automation-cli --json --select checks doctor --offline --quick
+
+# exit 0: --limit belongs to map, --count-only is global
+browser-automation-cli --json --count-only map https://example.com --limit 5
+```
 
 
 ## Configuration (XDG)
@@ -186,7 +327,9 @@ browser-automation-cli doctor --offline --quick --json \
 - Resolve live config/data/state paths with `config path --json`
 - Product logging is controlled by `--verbose` / `--debug` / `-q` and XDG `log_level`
 - Language for human suggestions: `--lang` or XDG `lang` only (no product env catalogs)
-- Discover the **live** XDG key set with `config list-keys --json` (do **not** hard-code a fixed count such as “16 keys”; the set grows — e.g. `dialog_settle_ms` in v0.1.6)
+- Read the full XDG key reference in `docs/CONFIGURATION.md`, which documents all 176 keys
+- Confirm the live key set with `config list-keys --json` before writing an unknown key
+- Never hard-code a fixed key count, because the set grows across releases
 - Common keys include: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`, `dialog_settle_ms`
 - Color truthy values: `true`, `1`, `yes`
 - Color falsy or other values resolve to off unless set truthy
@@ -415,7 +558,7 @@ browser-automation-cli --json workflow status --name demo
 - Fix: use `{"cmd":"wait","navigation":true}`
 
 
-## v0.1.6 Patterns (dialog, wait, scrape, grab, submit, storage)
+## v0.1.7 Patterns (dialog, wait, scrape, grab, submit, storage)
 ```bash
 # Dialog accept then next page step — read dialog_settled; no artificial wait when true
 cat > /tmp/dialog-settled.run.json <<'JSON'
@@ -511,7 +654,7 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 - Pass `--json` on every programmatic call
 - Parse only stdout envelopes; treat stderr as diagnostics
 - Branch on envelope field `ok` and process exit code
-- Discover inventory with `commands --json` (**65** agent names)
+- Discover inventory with `commands --json` (**69** agent names)
 - Discover argv with `schema <name> --json` or `schema --cmd <name> --json`
 - After browser work, confirm residual hygiene with `doctor --json` → `residual` / check `residual_disk`
 - Collapse multi-step browser work into one `run --script` process when refs matter
@@ -566,24 +709,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - See crate-oriented notes in [docs/AGENTS.md](AGENTS.md) and [INTEGRATIONS.md](../INTEGRATIONS.md)
 
 
-## Full Command Inventory (65)
-- Live source of truth: `browser-automation-cli commands --json` (**65** agent-facing names)
-- Clap product surface is **63** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
+## Full Command Inventory (69)
+- Live source of truth: `browser-automation-cli commands --json` (**69** agent-facing names)
+- Clap product surface is **67** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53; lighthouse mock = **SKIP**, not PASS)
-- Full agent command list (all **65** names):
+- Full agent command list (all **69** names):
   - Meta / discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
   - Agent inventory + run/exec/schema (not clap standalone): `select-option`, `pick`
   - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
-  - Multi-step: `run`, `exec`
+  - Multi-step: `run`, `exec`, `record`
   - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
-  - Local IO (no Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+  - Local IO (no Chrome): `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
   - Emulation / perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
-- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
+- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Discover argv with `schema <name> --json` for any name above
 
 ## Next Steps

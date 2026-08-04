@@ -117,12 +117,63 @@ pub struct ProductConfig {
     /// Max HTTP scrape body bytes.
     #[serde(default)]
     pub scrape_max_body_bytes: Option<u64>,
+    /// Max text/markdown chars in scrape envelopes (`0` = no cap).
+    #[serde(default)]
+    pub scrape_max_text_chars: Option<u64>,
+    /// Floor delay between same-origin GETs (milliseconds).
+    #[serde(default)]
+    pub scrape_min_delay_ms: Option<u64>,
+    /// Honor meta robots / X-Robots-Tag noindex.
+    #[serde(default)]
+    pub scrape_honor_meta_robots: Option<bool>,
+    /// Skip nofollow links in crawl link discovery.
+    #[serde(default)]
+    pub scrape_honor_nofollow: Option<bool>,
+    /// Prefer sitemap.xml when mapping a site.
+    #[serde(default)]
+    pub scrape_use_sitemap: Option<bool>,
+    /// Default scrape engine (`http` | `browser`) when CLI omits `--engine`.
+    #[serde(default)]
+    pub scrape_default_engine: Option<String>,
+    /// Politeness delay jitter ratio (0.0..=1.0).
+    #[serde(default)]
+    pub scrape_delay_jitter_ratio: Option<f64>,
+    /// Max chars for format `summary`.
+    #[serde(default)]
+    pub scrape_summary_chars: Option<u64>,
+    /// Max entries kept by scrape format `feed`.
+    #[serde(default)]
+    pub scrape_feed_max_entries: Option<u64>,
+    /// Follow `rel=next` pagination links during crawl.
+    #[serde(default)]
+    pub scrape_follow_rel_next: Option<bool>,
+    /// Collapse near-duplicate pages by content similarity.
+    #[serde(default)]
+    pub scrape_dedup_similar: Option<bool>,
+    /// SimHash Hamming distance under which pages count as near-duplicates.
+    #[serde(default)]
+    pub scrape_dedup_similar_distance: Option<u64>,
+    /// Max sitemap body bytes.
+    #[serde(default)]
+    pub scrape_sitemap_max_bytes: Option<u64>,
+    /// Charset sniffing peek window (bytes).
+    #[serde(default)]
+    pub scrape_charset_peek_bytes: Option<u64>,
     /// LLM/webhook blocking HTTP client timeout seconds.
     #[serde(default)]
     pub llm_http_timeout_secs: Option<u64>,
     /// When true, allow non-loopback Redis hosts (default false).
     #[serde(default)]
     pub redis_allow_remote: Option<bool>,
+    /// When true, launch Chrome through `chromiumoxide::Browser::launch` again.
+    ///
+    /// Stabilization escape hatch for the self-spawn path. The legacy path hands
+    /// the child to chromiumoxide, so the product never learns the pid and
+    /// FINALIZE has no residual kill target — that is the defect the self-spawn
+    /// exists to fix. Only set this when the self-spawn path fails on a host,
+    /// and expect residue after a hard kill while it is on.
+    #[serde(default)]
+    pub chrome_legacy_oxide_launch: Option<bool>,
     /// When true, loopback hosts skip robots.txt (default true; GAP-033).
     ///
     /// Set to `false` to enforce robots.txt even against `127.0.0.1` /
@@ -142,6 +193,69 @@ pub struct ProductConfig {
     /// Extra allowed roots for local reads and artifact writes (GAP-026).
     #[serde(default)]
     pub allowed_roots: Option<Vec<String>>,
+    /// Max bytes for local image decode / convert / resize input.
+    #[serde(default)]
+    pub image_max_input_bytes: Option<u64>,
+    /// Max decoded pixel count (`width * height`) for image ops.
+    #[serde(default)]
+    pub image_max_pixels: Option<u64>,
+    /// Default `image convert` output format (`png`|`jpeg`|`webp`|`gif`).
+    #[serde(default)]
+    pub image_default_format: Option<String>,
+    /// Default lossy quality for image convert/resize (1..=100).
+    #[serde(default)]
+    pub image_default_quality: Option<u8>,
+    /// Max HTTP body bytes for `image download`.
+    #[serde(default)]
+    pub image_download_max_bytes: Option<u64>,
+    /// AVIF encoder speed 1..=10 (1 slowest/best) for `image convert --format avif`.
+    #[serde(default)]
+    pub image_avif_speed: Option<u8>,
+    /// Max bytes accepted for an SVG source before rasterisation.
+    #[serde(default)]
+    pub svg_max_bytes: Option<u64>,
+    /// Max XML nesting depth accepted in an SVG source.
+    #[serde(default)]
+    pub svg_max_depth: Option<u32>,
+    /// Max `<!ENTITY>` declarations tolerated in an SVG DTD.
+    #[serde(default)]
+    pub svg_max_entities: Option<u32>,
+    /// Max animation frames decoded from a GIF.
+    #[serde(default)]
+    pub gif_max_frames: Option<u32>,
+    /// Max bytes accepted for an HLS / DASH manifest body.
+    #[serde(default)]
+    pub manifest_max_bytes: Option<u64>,
+    /// Max variant / representation entries emitted per manifest envelope.
+    #[serde(default)]
+    pub manifest_max_variants: Option<u32>,
+    /// Max bytes for local video stdin materialization / path pre-check.
+    #[serde(default)]
+    pub video_max_input_bytes: Option<u64>,
+    /// Max HTTP body bytes for `video download`.
+    #[serde(default)]
+    pub video_download_max_bytes: Option<u64>,
+    /// Default `video convert` container (`mp4`|`webm`|`mkv`|`mov`|`avi`|`m4v`).
+    #[serde(default)]
+    pub video_default_container: Option<String>,
+    /// Default CRF for lossy video re-encode (1..=51).
+    #[serde(default)]
+    pub video_default_crf: Option<u8>,
+    /// Default audio bitrate for `video to-mp3` (e.g. `192k`).
+    #[serde(default)]
+    pub video_default_audio_bitrate: Option<String>,
+    /// Max bytes for audio stdin / path pre-check.
+    #[serde(default)]
+    pub audio_max_input_bytes: Option<u64>,
+    /// Max HTTP body for `audio download`.
+    #[serde(default)]
+    pub audio_download_max_bytes: Option<u64>,
+    /// Default `audio convert` format.
+    #[serde(default)]
+    pub audio_default_format: Option<String>,
+    /// Default bitrate for lossy audio encode.
+    #[serde(default)]
+    pub audio_default_bitrate: Option<String>,
     /// Promoted operation-policy knobs (GAP-048), flattened into the same table.
     #[serde(default, flatten)]
     pub policy: super::policy::PolicyConfig,

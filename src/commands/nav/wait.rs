@@ -37,11 +37,11 @@ pub(crate) fn handle_wait(
     let wait_ms = wait_timeout_ms.or(if ms == 0 { None } else { Some(ms) });
     let network_idle_ms = window_or_default(
         network_idle_ms,
-        crate::constants::DEFAULT_NETWORK_IDLE_WINDOW_MS,
+        crate::xdg::policy::policy_u64(crate::xdg::policy::key::DEFAULT_NETWORK_IDLE_WINDOW_MS),
     );
     let dom_stable_ms = window_or_default(
         dom_stable_ms,
-        crate::constants::DEFAULT_DOM_STABLE_WINDOW_MS,
+        crate::xdg::policy::policy_u64(crate::xdg::policy::key::DEFAULT_DOM_STABLE_WINDOW_MS),
     );
     let data = block_on_browser_timeout(
         async move {

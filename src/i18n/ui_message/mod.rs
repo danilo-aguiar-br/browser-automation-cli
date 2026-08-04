@@ -86,6 +86,16 @@ pub enum UiMessage {
     RaiseSizeLimit,
     /// Raise --timeout or --step-timeout, or reduce the work per step
     RaiseTimeout,
+    /// Filter grammar for --filter: key=value, key!=value or key~substring
+    AgentOpsFilterSyntax,
+    /// Row operations need a list this command does not have
+    AgentOpsNoRows,
+    /// More than one list in data: narrow with --fields first
+    AgentOpsManyRows,
+    /// The byte ceiling cannot be met even with zero rows
+    AgentOpsOverBudget,
+    /// The --urls-file list is larger than the configured ceiling
+    UrlsFileTooLarge,
     /// Install the binary or set an absolute executable path via config set
     ExternalBinaryPath,
     /// Set the LLM knobs: config set openrouter_api_key|llm_base_url|llm_model
@@ -142,6 +152,8 @@ pub enum UiMessage {
     XdgHomeRequired,
     /// Ensure Chrome exposes HeapProfiler; re-run doctor and check event forwarders
     HeapCaptureFailed,
+    /// Read the steps from stdin with `run --script -` instead: shell process substitution exposes the file as `/proc/<pid>/fd/<n>`, which no allowed root can contain
+    PathIsProcessSubstitution,
     /// Keep the path under an allowed root, add one with config set allowed_roots, or pass --allow-outside-roots
     PathOutsideRoots,
     /// Pass `--capture-path <file>` to read a capture written by another invocation
@@ -168,6 +180,48 @@ pub enum UiMessage {
     AssertStepOperator,
     /// Inspect the previous step payload with --json-steps and adjust path/expected
     AssertStepInspect,
+    /// Image input exceeds image_max_input_bytes or image_max_pixels
+    ImageTooLarge,
+    /// Image magic bytes invalid or unsupported.
+    ImageMagicInvalid,
+    /// Codec or parser is gated behind a Cargo feature that is off in this build.
+    ImageFeatureDisabled,
+    /// HEIC encode requested; no pure-Rust HEVC encoder exists.
+    ImageHeicEncodeUnavailable,
+    /// SVG source refused by the sanitiser (entities, depth, script, href).
+    SvgRejected,
+    /// Video input exceeds XDG video_max_input_bytes.
+    VideoTooLarge,
+    /// Video magic bytes invalid or unsupported.
+    VideoMagicInvalid,
+    /// Site-player stream extraction requested; rejected by product rule.
+    VideoSiteExtractionRejected,
+    /// An HLS/DASH manifest was fetched where a media file was expected.
+    VideoManifestNotAFile,
+    /// Video output format unsupported.
+    VideoFormatUnsupported,
+    /// Codec incompatible with target container.
+    VideoCodecContainerMismatch,
+    /// ffmpeg/ffprobe binary missing.
+    FfmpegMissing,
+    /// ffmpeg convert/trim/to-mp3/thumbnail process failed.
+    FfmpegFailed,
+    /// ffmpeg failed due to path I/O (permission, read-only, not permitted).
+    FfmpegIoFailed,
+    /// Image format detected but not supported in this build
+    ImageFormatUnsupported,
+    /// Audio input exceeds XDG audio_max_input_bytes.
+    AudioTooLarge,
+    /// Audio magic bytes invalid or unsupported.
+    AudioMagicInvalid,
+    /// Audio output format unsupported.
+    AudioFormatUnsupported,
+    /// Lossy→lossy recompress warning (suggestion only).
+    AudioLossyTranscode,
+    /// HTTP scrape returned 4xx/5xx (not success body).
+    HttpStatusScrape,
+    /// Page blocked by meta robots / X-Robots-Tag noindex.
+    MetaRobotsNoindex,
 }
 
 impl UiMessage {
@@ -205,6 +259,11 @@ impl UiMessage {
         UiMessage::JsonObjectPayload,
         UiMessage::RaiseSizeLimit,
         UiMessage::RaiseTimeout,
+        UiMessage::AgentOpsFilterSyntax,
+        UiMessage::AgentOpsNoRows,
+        UiMessage::AgentOpsManyRows,
+        UiMessage::AgentOpsOverBudget,
+        UiMessage::UrlsFileTooLarge,
         UiMessage::ExternalBinaryPath,
         UiMessage::LlmConfigRequired,
         UiMessage::RedisConfigRequired,
@@ -233,6 +292,7 @@ impl UiMessage {
         UiMessage::StepFieldUnknown,
         UiMessage::XdgHomeRequired,
         UiMessage::HeapCaptureFailed,
+        UiMessage::PathIsProcessSubstitution,
         UiMessage::PathOutsideRoots,
         UiMessage::MitmCapturePath,
         UiMessage::DragSameFrame,
@@ -246,6 +306,27 @@ impl UiMessage {
         UiMessage::AssertStepOrder,
         UiMessage::AssertStepOperator,
         UiMessage::AssertStepInspect,
+        UiMessage::ImageTooLarge,
+        UiMessage::ImageMagicInvalid,
+        UiMessage::ImageFeatureDisabled,
+        UiMessage::ImageHeicEncodeUnavailable,
+        UiMessage::SvgRejected,
+        UiMessage::VideoTooLarge,
+        UiMessage::VideoMagicInvalid,
+        UiMessage::VideoSiteExtractionRejected,
+        UiMessage::VideoManifestNotAFile,
+        UiMessage::VideoFormatUnsupported,
+        UiMessage::VideoCodecContainerMismatch,
+        UiMessage::FfmpegMissing,
+        UiMessage::FfmpegFailed,
+        UiMessage::FfmpegIoFailed,
+        UiMessage::ImageFormatUnsupported,
+        UiMessage::AudioTooLarge,
+        UiMessage::AudioMagicInvalid,
+        UiMessage::AudioFormatUnsupported,
+        UiMessage::AudioLossyTranscode,
+        UiMessage::HttpStatusScrape,
+        UiMessage::MetaRobotsNoindex,
     ];
 
     /// Resolve text for an explicit UI locale (no process global). Preferred in tests.

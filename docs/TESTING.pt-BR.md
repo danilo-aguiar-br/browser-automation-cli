@@ -23,8 +23,8 @@
 - Helpers de golden i18n e cold-start (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Cobertura e2e opcional de eventos CDP quando Chrome está disponível (`tests/e2e_cdp_events.rs`)
 - Script e2e completo das **53 tools** DevTools (nome legado do arquivo): `scripts/e2e_all_52_tools.sh`
-- Inventário vivo da CLI é **65 nomes de agente** (`commands --json`) — mais amplo que o conjunto e2e de 53 tool-ref; inclui inventário de agente `select-option` e `pick` (run/exec/schema, não clap), meta `locale` e `man`, mais clap `submit` e `storage`
-- Gates de produto v0.1.6 (locais; Chrome serial quando necessário):
+- Inventário vivo da CLI é **69 nomes de agente** (`commands --json`) — mais amplo que o conjunto e2e de 53 tool-ref; inclui inventário de agente `select-option` e `pick` (run/exec/schema, não clap), meta `locale` e `man`, mais clap `submit` e `storage`
+- Gates de produto v0.1.7 (locais; Chrome serial quando necessário):
   - `tests/dialog_multitab_gate.rs` — isolamento multi-aba de diálogo + `dialog_settled` (GAP-054)
   - `tests/option_pick_gate.rs` — select nativo `input`+`change` (GAP-055)
   - `tests/wait_conditions_gate.rs` — honesty de prazo `wait_timeout_ms` (GAP-053)
@@ -52,6 +52,7 @@ timeout 120 cargo clippy --all-targets --locked -- -D warnings
 cargo fmt --check
 ```
 - Rode um arquivo com `cargo test --test doctor_cli --locked`
+- Se `cargo test` abortar com stack overflow ao montar a árvore clap / schema, eleve a stack da thread de teste: `RUST_MIN_STACK=8388608 cargo test --locked` (8 MiB; threads de teste Rust costumam ser 2 MiB). Prefira isso a pular a suite
 - Use `-- --nocapture` só durante debug
 - Prefira library e gates de schema primeiro ao iterar contratos
 
@@ -71,7 +72,7 @@ bash scripts/e2e_all_52_tools.sh
 - A suite de 52-tools não substitui smokes residuais de comandos fora do conjunto tool-ref
 
 
-## Gates Residual-Zero de Disco (v0.1.5 — ainda corrente na 0.1.6)
+## Gates Residual-Zero de Disco (v0.1.5 — ainda corrente na 0.1.7)
 ```bash
 cargo build --release --locked
 cargo test --lib residual:: --locked
@@ -85,11 +86,12 @@ bash scripts/residual-check.sh
 - `residual-stress.sh` repete trabalho one-shot para estressar higiene residual localmente
 - Check id do doctor sob teste: `residual_disk` (higiene residual de disco path-light)
 - Campo JSON de topo do doctor sob teste: `residual` (`ResidualDiskReport`)
-- Campos residual do doctor sob teste: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Campos residual do doctor sob teste: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legado), `sibling_live_processes`, `orphan_marker_dirs`, `ghost_marker_processes`, `foreign_root_orphans`, `scanned_roots`
+- Contrato residual-zero de agente: `residual_disk` não pode ser `fail` (zeros em `orphan_marker_dirs` + `ghost_marker_processes`); após DIE sozinho também zero `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes>0` é concorrência saudável; **não** exija zero `live_cli_marker_processes`
 - Age floor do GC stale de produção é 60s; testes podem usar helpers de library com age zero para fixtures
 
 
-## Gates de Produto v0.1.6 (dialog / select / wait / scrape / units lighthouse)
+## Gates de Produto v0.1.7 (dialog / select / wait / scrape / units lighthouse)
 ```bash
 cargo test --test dialog_multitab_gate --locked
 cargo test --test option_pick_gate --locked
@@ -109,23 +111,27 @@ bash scripts/residual-check.sh
 - **Residual intencional GAP-024:** divergências wishlist de PRD ficam em `parity_intentional_divergences.json` (não alegue paridade PRD completa)
 - **Não** trate dashboards remotos de orquestração como superfície de produto; use só cargo local e `scripts/*-check.sh`
 
-## Inventário completo de agente (65)
+## Inventário completo de agente (69)
 
 Descubra ao vivo: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
-find-paths forward goto grab heap hover keys lighthouse locale man map mitm monitor
+find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
 net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
 scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é 63.
+Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **67** (69 nomes de agente − 2 só-run).
+
+Gate local de honesty do inventário (sem GHA): após editar inventário ou listas planas, rode `bash scripts/inventory-flat-check.sh` (espera `commands --json` com **69** nomes incluindo `image`+`video`+`audio`+`record`).
+
+O gate agora se chama `scripts/inventory-flat-check.sh`. O nome antigo `scripts/verify-inventory-flat.sh` permanece como shim fino que delega para ele. Motivo: `scripts/ci-check.sh` descobre verificadores pelo glob `scripts/*-check.sh`, e o nome antigo nunca casava com esse glob, então o gate jamais rodou no bundle e os docs derivaram para a contagem obsoleta 67 enquanto o runner reportava verde.
 
 ## Smokes Residuais de PRD (além das 53 tools)
-Rode após o e2e ao validar o inventário completo de **65** nomes:
+Rode após o e2e ao validar o inventário completo de **69** nomes:
 
 ```bash
 # print-pdf artifact (one-shot + run)
@@ -134,11 +140,40 @@ browser-automation-cli --json print-pdf --url https://example.com --path /tmp/pa
 # monitor baseline check
 browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/mon.base --write-baseline
 
-# QR encode/decode (no Chrome)
+# QR encode/decode (sem Chrome)
 browser-automation-cli --json qr encode --text 'hello' --format png --path /tmp/qr.png
 browser-automation-cli --json qr decode --path /tmp/qr.png
 
-# find-paths (no Chrome)
+# Pipeline local de imagem (sem Chrome; agent-native — sem base64 de pixels)
+browser-automation-cli --json image download 'https://www.w3.org/People/mimasa/test/imgformat/img/w3c_home.png' -o /tmp/w3c.png
+browser-automation-cli --json image info --path /tmp/w3c.png --select format,width,height,sha256
+browser-automation-cli --json image convert --path /tmp/w3c.png --format webp -o /tmp/w3c.webp
+browser-automation-cli --json image exif --path /tmp/w3c.webp --select tags,path  # alias tags→exif; só EXIF
+# AVIF/HEIC: magic reject. SVG: --allow-non-image. image download ≠ árvore de site inteiro.
+browser-automation-cli schema upload >/dev/null  # dry upload
+# O fuzzing dos parsers de magic é um gate normal — sem nightly, sem libFuzzer, sem binário à parte:
+cargo test --test fuzz_magic_parsers_gate
+#   Corpus xorshift determinístico: prefixos reais de container (PNG/JPEG APP1+APP13/GIF/RIFF/
+#   ISOBMFF ftyp/Matroska/OGG/FLAC/ID3/ADTS/WAV/AIFF), truncados e com bits invertidos, alimentando
+#   image_local::detect_format, video_local::detect_container e audio_local::detect_container.
+#   A propriedade é que eles classificam ou devolvem erro tipado — nunca entram em pânico nem travam.
+#   A receita antiga de `cargo fuzz` nunca foi executável aqui: exige nightly, exige libFuzzer do
+#   LLVM (dependência C++ num crate rust-native), e nenhum gate a invocava.
+
+# Pipeline local de vídeo (sem Chrome; precisa ffmpeg/ffprobe no host para convert/to-mp3/trim/thumbnail)
+# Gate de integração (pula convert/trim/thumbnail se ffmpeg ausente):
+#   cargo test --test video_local_gate --locked
+# ffmpeg -y -f lavfi -i testsrc=duration=0.5:size=160x120:rate=10 -c:v libx264 -pix_fmt yuv420p /tmp/in.mp4
+browser-automation-cli --json video info --path /tmp/in.mp4 --select container,duration_secs,streams
+browser-automation-cli --json video convert --path /tmp/in.mp4 --format webm -o /tmp/out.webm  # auto re-encode se copy incompatível
+browser-automation-cli --json video to-mp3 --path /tmp/in.mp4 -o /tmp/a.mp3
+browser-automation-cli --json video trim --path /tmp/in.mp4 --start 0 --duration 0.2 -o /tmp/clip.mp4
+browser-automation-cli --json video thumbnail --path /tmp/in.mp4 --at 0.1 -o /tmp/thumb.png
+# Resumo de manifesto não precisa de ffmpeg: estrutura HLS .m3u8 / DASH .mpd, zero mídia baixada
+browser-automation-cli --json video manifest --path /tmp/master.m3u8
+browser-automation-cli schema video >/dev/null
+
+# find-paths (sem Chrome)
 browser-automation-cli --json find-paths 'Cargo.*' .
 browser-automation-cli --json find-paths --glob '**/*.rs' .
 
@@ -210,7 +245,7 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 # clap JSON usage error (GAP-002)
 browser-automation-cli --json not-a-real-command 2>/dev/null | jaq -e '.ok == false' || true
 
-# locale / man meta (inventário 65)
+# locale / man meta + submit/storage/image/video/audio/record (inventário 69)
 browser-automation-cli --json locale
 browser-automation-cli --json man >/tmp/browser-automation-cli.1
 
@@ -262,6 +297,48 @@ bash scripts/audit_bilingual_docs.sh
 - Exit `0` significa multisets de fences iguais; exit `1` significa drift; exit `2` significa par de arquivo ausente
 
 
+## Gate de Contrato de Binário Agent-Ops
+```bash
+cargo build --release --locked
+bash scripts/agent-ops-check.sh
+cargo test --test agent_ops_cli --locked
+```
+- `agent-ops-check.sh` roda o binário compilado, nunca as funções internas
+- Ele asserta que teto de saída impossível reporta exit `2` com envelope
+- Ele asserta que teto plausível emite payload ou erro, nunca silêncio
+- Ele asserta que `--fields`, `--sort-rows` e `--dedupe-by` nomeiam o caminho não resolvido
+- Ele asserta que um `--fields` que resolve mantém o envelope quieto
+- Ele asserta que mensagens de sugestão citam só flags globais, em EN e pt-BR
+- `tests/agent_ops_cli.rs` acrescenta 10 testes de integração dirigidos por argv
+- A cobertura das oito flags agent-ops sob `tests/` era zero absoluto antes
+- `scripts/ci-check.sh` descobre este gate pelo glob `scripts/*-check.sh`
+- `verifier-controls-check.sh` carrega 1 controle positivo deste gate
+- O script resolve o binário com fallback pelo PATH de propósito
+- O harness de controles copia a árvore sem `target/`, então a busca não pode abortar
+- Um gate que aborta antes da primeira asserção é indistinguível de um gate que aprova
+- Lei do projeto: um controle que não falha é um verificador que não verifica
+- Estado medido do bundle: `ci-check OK (all steps passed)` com 249 PASS e 0 FAIL
+
+
+## Gate de Cobertura de Documentação
+```bash
+cargo build --release --locked
+bash scripts/doc-coverage-check.sh
+```
+- `doc-coverage-check.sh` lê a superfície viva do binário, nunca uma lista transcrita
+- Asserção 1: ambos os documentos `CONFIGURATION` cobrem toda chave XDG viva
+- Asserção 2: nenhum documento ainda ensina chave de configuração aposentada
+- Asserção 3: documentos de entrada nomeiam todos os comandos vivos
+- Asserção 4: todo documento público tem espelho `.pt-BR`
+- Asserção 5: nenhum documento apresenta flag de comando como global
+- Asserção 6: nenhum documento ensina variável de ambiente de produto
+- Asserção 7: todo link `llms` resolve para arquivo real
+- Um contador local protege a linha de flags de envelope contra falha anterior
+- `scripts/ci-check.sh` descobre este gate pelo glob `scripts/*-check.sh`
+- `verifier-controls-check.sh` carrega 3 controles positivos deste gate
+- O script resolve o binário com o mesmo fallback de PATH pelo mesmo motivo
+
+
 ## Logging e Paths Durante Testes
 - Logging de produto na CLI sob teste: `--verbose` / `--debug` / `-q` ou XDG `config set log_level`
 - Defaults de cor via `config set color`
@@ -275,7 +352,7 @@ bash scripts/audit_bilingual_docs.sh
 - Falhas de schema gate: atualize código e `docs/schemas/` na mesma mudança
 - Drift de schema de comando: reexecute `bash scripts/generate_command_schemas.sh` após mudar `meta.rs`
 - Drift bilíngue de fences: reexecute `bash scripts/audit_bilingual_docs.sh` e alinhe blocos de comando EN e `.pt-BR`
-- Drift de inventário: reconcilie com `commands --json` (65) e `tests/fixtures/tool-reference.md` (53 tools)
+- Drift de inventário: reconcilie com `commands --json` (69) e `tests/fixtures/tool-reference.md` (53 tools)
 - Leaks residual de disco: reexecute `cargo test --test residual_one_shot` e `bash scripts/residual-check.sh`; inspecione `residual` do doctor
 - Drift de inventário run: atualize `RUN_DISPATCHED_CMDS` e reexecute `cargo test --test parity_run_inventory`
 - Falhas de clap assert: corrija `GlobalOpts` / definições de subcomando e reexecute `cargo test --test clap_command_debug_assert`

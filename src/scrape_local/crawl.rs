@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! BFS crawl + map (bounded parallel frontier).
+//! BFS crawl engine (bounded parallel frontier).
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -9,7 +9,10 @@ use url::Url;
 use crate::error::{CliError, ErrorKind};
 use crate::robots::RobotsPolicy;
 
+use super::crawl_frontier::crawl_enqueue_link;
+use super::error_page::http_error_page;
 use super::http::scrape_http;
+use super::path_filter::{normalize_url_for_dedup_ex, PathFilter};
 use super::types::{ScrapeFormat, ScrapeOpts};
 
 /// One crawl task result: `(url, depth, page_result, discovered_hrefs)`.
@@ -25,6 +28,7 @@ type CrawlTaskOutput = (String, usize, Result<Value, CliError>, Vec<String>);
 /// **I/O-bound.** Ready URLs are fetched concurrently up to
 /// [`crate::concurrency::effective_limit`] via `JoinSet` + `Arc<Semaphore>`
 /// (`acquire_owned` moved into each task; never unbounded spawn).
+#[allow(clippy::too_many_arguments)]
 pub async fn crawl_http(
     seed: &str,
     robots: RobotsPolicy,
@@ -32,6 +36,9 @@ pub async fn crawl_http(
     limit: usize,
     max_depth: usize,
     same_host: bool,
+    path_filter: &PathFilter,
+    use_sitemap: bool,
+    ignore_query_params: bool,
 ) -> Result<Value, CliError> {
     let limit = limit.clamp(
         1,
@@ -47,8 +54,30 @@ pub async fn crawl_http(
 
     let mut queue: VecDeque<(String, usize)> = VecDeque::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
-    queue.push_back((seed.to_string(), 0));
-    seen.insert(seed.to_string());
+    let seed_norm = normalize_url_for_dedup_ex(seed, ignore_query_params);
+    queue.push_back((seed_norm.clone(), 0));
+    seen.insert(seed_norm);
+
+    let mut sitemap_seed_count = 0usize;
+    if use_sitemap {
+        if let Ok(urls) =
+            super::sitemap::discover_sitemap_urls(seed, robots, limit, path_filter).await
+        {
+            sitemap_seed_count = urls.len();
+            for u in urls {
+                crawl_enqueue_link(
+                    &u,
+                    0,
+                    same_host,
+                    seed_host.as_deref(),
+                    path_filter,
+                    &mut seen,
+                    &mut queue,
+                    ignore_query_params,
+                );
+            }
+        }
+    }
 
     let mut pages = Vec::new();
     use std::sync::Arc;
@@ -86,6 +115,14 @@ pub async fn crawl_http(
                 let mut discovered = Vec::new();
                 if let Ok(ref page) = result {
                     if depth < max_depth {
+                        // rel=next continuation is admitted through the *same*
+                        // frontier as ordinary links, so limit / depth / host /
+                        // path filters and robots all still bind it.
+                        if let Some(next) = page.get("rel_next").and_then(|v| v.as_array()) {
+                            for href in next.iter().filter_map(|v| v.as_str()) {
+                                discovered.push(href.to_string());
+                            }
+                        }
                         if let Some(links) = page.get("links").and_then(|v| v.as_array()) {
                             for link in links {
                                 if let Some(href) = link.get("url").and_then(|v| v.as_str()) {
@@ -132,6 +169,7 @@ pub async fn crawl_http(
             Err(e) => {
                 pages.push(json!({
                     "error": format!("join: {e}"),
+                    "http_error": true,
                     "join_panic": e.is_panic(),
                     "join_cancelled": e.is_cancelled(),
                 }));
@@ -149,19 +187,17 @@ pub async fn crawl_http(
                             depth,
                             same_host,
                             seed_host.as_deref(),
+                            path_filter,
                             &mut seen,
                             &mut queue,
+                            ignore_query_params,
                         );
                     }
                 }
                 pages.push(page);
             }
             Err(e) => {
-                pages.push(json!({
-                    "source_url": url,
-                    "depth": depth,
-                    "error": e.to_string(),
-                }));
+                pages.push(http_error_page(&url, &e.to_string(), Some(depth)));
             }
         }
     }
@@ -184,22 +220,21 @@ pub async fn crawl_http(
                                 depth,
                                 same_host,
                                 seed_host.as_deref(),
+                                path_filter,
                                 &mut seen,
                                 &mut queue,
+                                ignore_query_params,
                             );
                         }
                     }
                     pages.push(page);
                 }
-                Err(e) => pages.push(json!({
-                    "source_url": url,
-                    "depth": depth,
-                    "error": e.to_string(),
-                })),
+                Err(e) => pages.push(http_error_page(&url, &e.to_string(), Some(depth))),
             },
             Err(e) if e.is_cancelled() => {}
             Err(e) => pages.push(json!({
                 "error": format!("join: {e}"),
+                "http_error": true,
                 "join_panic": e.is_panic(),
             })),
         }
@@ -217,66 +252,9 @@ pub async fn crawl_http(
         "robots_policy": robots.as_str(),
         "engine": "http",
         "cancelled": cancel.is_cancelled(),
-    }))
-}
-
-pub(crate) fn crawl_enqueue_link(
-    href: &str,
-    depth: usize,
-    same_host: bool,
-    seed_host: Option<&str>,
-    seen: &mut BTreeSet<String>,
-    queue: &mut VecDeque<(String, usize)>,
-) {
-    if !seen.insert(href.to_string()) {
-        return;
-    }
-    if same_host {
-        if let (Some(sh), Ok(u)) = (seed_host, Url::parse(href)) {
-            if u.host_str() != Some(sh) {
-                return;
-            }
-        }
-    }
-    queue.push_back((href.to_string(), depth + 1));
-}
-
-/// Map site: collect unique URLs via BFS without full content (links format).
-pub async fn map_http(
-    seed: &str,
-    robots: RobotsPolicy,
-    limit: usize,
-    max_depth: usize,
-) -> Result<Value, CliError> {
-    let mut opts = ScrapeOpts {
-        format: ScrapeFormat::Links,
-        engine: "http".into(),
-        ..ScrapeOpts::default()
-    };
-    opts.only_main_content = false;
-    let crawl = crawl_http(seed, robots, &opts, limit, max_depth, true).await?;
-    let mut urls: BTreeSet<String> = BTreeSet::new();
-    urls.insert(seed.to_string());
-    if let Some(pages) = crawl.get("pages").and_then(|p| p.as_array()) {
-        for p in pages {
-            if let Some(u) = p.get("source_url").and_then(|v| v.as_str()) {
-                urls.insert(u.to_string());
-            }
-            if let Some(links) = p.get("links").and_then(|v| v.as_array()) {
-                for l in links {
-                    if let Some(u) = l.get("url").and_then(|v| v.as_str()) {
-                        urls.insert(u.to_string());
-                    }
-                }
-            }
-        }
-    }
-    let list: Vec<String> = urls.into_iter().take(limit.max(1)).collect();
-    Ok(json!({
-        "seed": seed,
-        "count": list.len(),
-        "urls": list,
-        "robots_policy": robots.as_str(),
-        "engine": "http",
+        "use_sitemap": use_sitemap,
+        "sitemap_seed_count": sitemap_seed_count,
+        "path_filter_empty": path_filter.is_empty(),
+        "follow_rel_next": opts.follow_rel_next,
     }))
 }

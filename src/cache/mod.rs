@@ -38,7 +38,7 @@ mod types;
 mod tests;
 
 pub use async_ops::{get_async, put_async};
-pub use factory::{default_cache, sqlite_layered_cache};
+pub use factory::default_cache;
 pub use layered::LayeredCache;
 pub use memory::MemoryCache;
 pub use redis::RedisCache;

@@ -14,6 +14,10 @@ Settings de produto são comandos, flags e XDG via `config path|init|show|set|ge
 - [HOW_TO_USE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/HOW_TO_USE.pt-BR.md): guia pedagógico de primeiro uso
 - [AGENTS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/AGENTS.pt-BR.md): guia híbrido persuasivo + imperativo para agentes
 - [COOKBOOK](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/COOKBOOK.pt-BR.md): receitas how-to com comandos executáveis
+- [CONFIGURATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CONFIGURATION.pt-BR.md): cada chave XDG com padrão e propósito
+- [ARCHITECTURE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/ARCHITECTURE.pt-BR.md): organização dos módulos e internals do ciclo de vida
+- [ROADMAP](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/ROADMAP.pt-BR.md): trabalho planejado e limites fechados pela física
+- [PRIVACY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/PRIVACY.pt-BR.md): o que permanece local e o que nunca é enviado
 - [CROSS_PLATFORM](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CROSS_PLATFORM.pt-BR.md): matriz de SO e notas de shell
 - [MIGRATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/MIGRATION.pt-BR.md): notas de migração e compatibilidade
 - [TESTING](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/TESTING.pt-BR.md): testes categorizados e perfis de validação local
@@ -27,33 +31,45 @@ Settings de produto são comandos, flags e XDG via `config path|init|show|set|ge
 - [CODE_OF_CONDUCT](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CODE_OF_CONDUCT.pt-BR.md): Contributor Covenant 2.1
 - [LICENSE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/LICENSE): ponteiro de dual license
 
-## Superfície de Comandos (v0.1.6)
-- Inventário completo (**65** nomes de agente via `commands --json`, ordenados): assert, attr, back, batch-scrape, click-at, commands, completions, config, console, cookie, crawl, devtools3p, dialog, doctor, drag, emulate, eval, exec, extension, extract, find-paths, fill-form, forward, goto, grab, heap, hover, keys, lighthouse, locale, man, map, mitm, monitor, net, page, parse, perf, pick, press, print-pdf, qr, reload, resize, run, schema, scrape, screencast, scroll, search, select-option, sg-rewrite, sg-scan, sheet-write, storage, submit, text, type, upload, version, view, wait, webmcp, workflow, write
+## Superfície de Comandos (v0.1.7)
+- Inventário completo (**69** nomes de agente via `commands --json`, ordenados): assert, attr, audio, back, batch-scrape, click-at, commands, completions, config, console, cookie, crawl, devtools3p, dialog, doctor, drag, emulate, eval, exec, extension, extract, fill-form, find-paths, forward, goto, grab, heap, hover, image, keys, lighthouse, locale, man, map, mitm, monitor, net, page, parse, perf, pick, press, print-pdf, qr, record, reload, resize, run, schema, scrape, screencast, scroll, search, select-option, sg-rewrite, sg-scan, sheet-write, storage, submit, text, type, upload, version, video, view, wait, webmcp, workflow, write
 - Nota: `select-option`, `pick`, `submit` e `storage` estão no inventário de agente (não mais documentados como multi-passo-only / omitidos)
 - Descoberta: doctor (browsers_dir, origem lighthouse, cache_redis, residual_disk + JSON residual ResidualDiskReport), commands, schema <cmd> ou schema --cmd (goto/eval/type/scroll/assert expandidos), version, locale, man, completions
+- Flags globais: **43** flags longas no help global, sendo **41** de produto mais `--help` e `--version`; fonte da verdade é `browser-automation-cli --help`
 - Config XDG: config init|path|show|get|set|list-keys
-  - Chaves importantes: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, lang, log_level — lista completa via `config list-keys --json` (contagem não é mais fixa em 16)
+  - Chaves importantes: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, lang, log_level — referência completa com todas as **176** chaves em `docs/CONFIGURATION.pt-BR.md`; legível por máquina via `config list-keys --json`
 - Navegação: goto, back, forward, reload (CDP Page.reload + ignoreCache; init_script removido após nav; handle_before_unload accept|dismiss via CDP)
 - Scrape/crawl/map/search/parse local:
-  - scrape --format/--formats text|markdown|html|links|metadata|raw-html|screenshot|summary|product|branding (repetível/CSV) --engine http|browser (browser aplica formatos via outerHTML; file:// + http → Usage; format/formats também no passo scrape do run)
+  - scrape --format/--formats text|markdown|html|rawHtml|links|metadata|screenshot|summary|product|branding|images|jsonld|json|feed (**14** formatos vivos, repetível/CSV; `raw-html` continua alias aceito de `rawHtml`) --engine http|browser (browser aplica formatos via outerHTML; file:// + http → Usage; format/formats também no passo scrape do run)
   - batch-scrape (--engine http|browser; default http), crawl (--engine http|browser; default http), map, search (limpa uddg= SERP redirects), parse (PDF/DOCX/xlsx/ods + --redact-pii)
 - Interação: view, press, write, type, keys, wait (repeatable --text OR; multi-seletor CSS OR; selectors[]; url/url_contains/navigation/wait_timeout_ms no run), hover, drag, fill-form, select-option/pick (select nativo input+change; HIG badge/popover / role=option), submit, upload, click-at
 - Observação: extract (--llm/--question/--schema-json; XDG openrouter_api_key, llm_base_url, llm_model), text, scroll (run dy/dx aliases), attr (DOM property fallback), assert (url_contains/text_contains; console_empty/console_no_match), grab --path (formatos png|jpeg|webp apenas; AVIF removido)
 - PDF / monitor / utils (alguns sem Chrome): print-pdf (CDP Page.printToPDF; também em run), monitor check --url --baseline [--write-baseline], qr encode|decode, find-paths (--glob), sheet-write (CSV/JSON→XLSX), sg-scan, sg-rewrite
+- Mídia local one-shot (path→path, sem Chrome): image info|convert|resize|download|exif (re-encode remove EXIF; GPS omitido sem --include-gps), video info|download|convert|to-mp3|trim|thumbnail|manifest (HLS .m3u8 / DASH .mpd resumidos sem baixar mídia), audio info|download|convert|trim (ffprobe/ffmpeg opcionais via XDG ffmpeg_path)
 - Abas/Diálogos: page (incl. tab-id), dialog accept|dismiss [--if-present; `.data.dialog_settled`; XDG dialog_settle_ms; isolamento multi-aba por session_id com gate e2e], cookie, storage export|import
 - Captura: console, net
+- Observabilidade de rede: `net list` e `net get` só enxergam tráfego capturado por `--capture-network` no MESMO processo; `net list` aceita --page-idx, --page-size, --resource-types, --include-preserved; `net get <IDX>` aceita --request-path e --response-path
 - MITM local one-shot: mitm init-ca|start|status|list|get|har|export|domains|apis|capture-url|graphql|ws|block|allow|redact (127.0.0.1 only; CA sob XDG; flags globais --mitm*)
+- Ponte MITM entre processos: `mitm capture-url <URL>` grava a captura e devolve `data.capture_path`; `--capture-path <FILE>` relê essa captura em `mitm list|get|domains|apis|graphql|ws` e é a ÚNICA ponte entre processos one-shot
+- Flags globais MITM: --mitm, --mitm-ca-dir, --mitm-har, --mitm-hosts, --mitm-ws, --mitm-max-body-bytes, --mitm-no-media-bodies, --mitm-redact-secrets
 - Workflow journal: workflow run|resume|status (SQLite journal sob XDG state)
-- Avançado: eval, emulate, resize, perf, lighthouse (flag→XDG lighthouse_path→PATH; binary_source real|mock; fixtures unitárias com LHR 13.4.1 capturado; e2e mock permanece SKIP), screencast, heap, extension, devtools3p, webmcp, run (NDJSON ou array JSON; --json-steps; wait_timeout_ms; scrape format/formats; fail-fast pode devolver data.steps parciais), exec
-- Residual-zero de disco (0.1.5 RES-01…12 ainda verdadeiro): BORN auto-GC (`scavenge_stale_singleton_orphans` de dirs `/tmp` org.chromium.Chromium.* Singleton-only com mais de 60s); FINALIZE dual scavenge + re-scan de dirs marker owned (prefixo `browser-automation-cli-chrome-`); nunca mata Chrome Flatpak do host; doctor residual_disk + campos residual cli_marker_dirs, chromium_tmp_singleton_orphans, scavenge_safe_candidates, live_cli_marker_processes; scripts locais residual-check.sh / residual-stress.sh
+- Avançado: eval, emulate, resize, perf, lighthouse (flag→XDG lighthouse_path→PATH; binary_source real|mock; fixtures unitárias com LHR 13.4.1 capturado; e2e mock permanece SKIP), screencast, heap, extension, devtools3p, webmcp
+- Multi-passo: run (NDJSON ou array JSON de passos; --json envelope final ok + steps[].data; --json-steps faz stream de NDJSON por passo; fail-fast pode devolver data.steps parciais; wait_timeout_ms; scrape format/formats), exec, record --url --path (--seconds padrão 30, --max-events padrão 200, vence o primeiro teto atingido; grava as interações da página como NDJSON reproduzível por `run --script`)
+- Multi-passo via stdin: `run --script -` lê passos NDJSON do stdin, um por linha, contra uma única sessão viva
+- Modo stdin continua one-shot: um BORN, um DIE, sem daemon; o chamador mantém a sessão viva enquanto o stdin ficar aberto
+- Modo stdin valida cada linha ao chegar e reporta `validation: "per-line"`; modo arquivo pré-valida o script inteiro antes do BORN
+- Modo stdin mantém fail-fast: a primeira linha que falha para o loop e o envelope carrega os passos já executados
+- Prefira stdin a process substitution do shell: `run --script <(printf ...)` é recusado porque o caminho cai em `/proc/<pid>/fd/<n>` fora das raízes permitidas
+- Residual-zero de disco (0.1.5 RES-01…12 ainda verdadeiro): BORN auto-GC (`scavenge_stale_singleton_orphans` de dirs `/tmp` org.chromium.Chromium.* Singleton-only com mais de 60s); FINALIZE dual scavenge + re-scan de dirs marker owned (prefixo `browser-automation-cli-chrome-`); nunca mata Chrome Flatpak do host; doctor residual_disk + campos residual scanned_roots, cli_marker_dirs, chromium_tmp_singleton_orphans, scavenge_safe_candidates, live_cli_marker_processes (legado), sibling_live_processes, orphan_marker_dirs, foreign_root_orphans, ghost_marker_processes, process_table_unavailable; scripts locais residual-check.sh / residual-stress.sh
 - Residual intencional: GAP-022 ~53 dups multi-versão transitivos; GAP-023/024 divergências de PRD registradas
 - Ciclo de vida: BORN, EXECUTE, FINALIZE faz scavenge de órfãos Chromium /tmp owned, DIE; product law residual-zero de processo + disco
 - Lang: --lang pt-BR ou config set lang localiza sugestões humanas
 - e2e: 53 tools de paridade DevTools (PASS=52 SKIP=1 lighthouse mock somente contrato)
+- Clap: GlobalOpts Args+flatten; erros de usage do clap emitem JSON quando `--json` está no argv; tests/clap_command_debug_assert.rs + parity_run_inventory
 
 ## Contrato de Settings
 - Settings de produto: comandos, flags, XDG via `config path|init|show|set|get|list-keys` apenas
-- Chaves importantes: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, lang, log_level — descubra a lista completa com `config list-keys --json` (contagem não é mais fixa em 16)
+- Chaves importantes: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, lang, log_level — referência completa com todas as **176** chaves em `docs/CONFIGURATION.pt-BR.md`; legível por máquina via `config list-keys --json`
 - Encryption: `config set encryption_key` apenas
 - Logging: `--verbose`/`--debug`/`-q` ou `config set log_level` / `log_to_file`
 - Cor: `config set color true|false`
@@ -64,6 +80,8 @@ Settings de produto são comandos, flags e XDG via `config path|init|show|set|ge
 ## Bases de Contrato
 - Envelope de sucesso: `{"schema_version":1,"ok":true,"data":...}`
 - Envelope de erro com `--json`: `{"schema_version":1,"ok":false,"error":{...}}` (fail-fast multi-passo pode incluir `data.steps` parciais)
+- Erros de usage do clap com `--json` no argv também emitem envelopes JSON de erro (GAP-002)
+- Sucesso de `run --json` inclui `ok` e o `steps[].data` completo (GAP-020)
 - Stream `--json-steps` (durante `run`): uma linha NDJSON por passo com `step`, `cmd`, `ok`, `result`
-- Exit codes incluem 0, 2, 65, 66, 69, 70, 74, 78, 124, 130, 141, 255
+- Exit codes incluem 0, 2, 65, 66, 69, 70, 74, 78, 124, 130, 141, 255; o enum vivo de `error.kind` é usage, data, no-input, unavailable, software, browser, protocol, timeout, cancelled, broken-pipe, config, io, então 255 é caminho fatal NÃO mapeado por nenhum `error.kind`
 - Fragmentos de schema ao vivo: `browser-automation-cli schema <name> --json` ou `schema --cmd <name> --json`

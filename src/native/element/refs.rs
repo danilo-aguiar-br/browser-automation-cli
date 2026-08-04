@@ -209,11 +209,6 @@ pub fn parse_ref(input: &str) -> Option<String> {
 ///   cannot sticky-fail frame ops.
 static ACTIVE_FRAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// Point selector resolution at a frame, or back at the main frame with `None`.
-pub fn set_active_frame(frame_id: Option<&str>) {
-    *crate::sync_util::lock_recover(&ACTIVE_FRAME) = frame_id.map(String::from);
-}
-
 pub(super) fn active_frame() -> Option<String> {
     crate::sync_util::lock_recover(&ACTIVE_FRAME).clone()
 }

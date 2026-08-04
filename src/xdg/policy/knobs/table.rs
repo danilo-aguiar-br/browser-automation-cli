@@ -89,6 +89,10 @@ policy_knobs! {
     // ── lifecycle reap budgets reachable outside src/lifecycle ───────────
     BROWSER_CLOSE_WAIT_SECS => browser_close_wait_secs,
         "Browser.close / process wait budget during FINALIZE (seconds)";
+    CHROME_STARTUP_TIMEOUT_SECS => chrome_startup_timeout_secs,
+        "Chrome self-spawn CDP readiness wait (seconds)";
+    RESIDUAL_ORPHAN_MIN_AGE_SECS => residual_orphan_min_age_secs,
+        "Age floor before a dead-owner marker profile is collectable (seconds)";
     PLATFORM_CHILD_WAIT_SECS => platform_child_wait_secs,
         "Platform child wait deadline (seconds)";
     DEFAULT_SHUTDOWN_POLL_MS => shutdown_poll_ms,
@@ -137,6 +141,24 @@ policy_knobs! {
     // ── payload ceilings and crawl budgets ───────────────────────────────
     MAX_SG_FILE_BYTES => max_sg_file_bytes,
         "Max bytes for one source file read by sg scan/rewrite";
+    MAX_URLS_FILE_BYTES => max_urls_file_bytes,
+        "Max bytes for the batch-scrape --urls-file list";
+    RUN_MAX_INCLUDE_DEPTH => run_max_include_depth,
+        "Max nesting depth for run --script include chains";
+    MITM_REBIND_ATTEMPTS => mitm_rebind_attempts,
+        "MITM proxy bind retries when the port is transiently in use";
+    DEFAULT_NETWORK_IDLE_WINDOW_MS => network_idle_window_ms,
+        "Quiet window for wait --network-idle (milliseconds)";
+    DEFAULT_DOM_STABLE_WINDOW_MS => dom_stable_window_ms,
+        "Quiet window for wait --dom-stable-ms (milliseconds)";
+    CHROME_DEFAULT_TIMEOUT_MS => chrome_default_timeout_ms,
+        "Default per-operation timeout for the Chrome engine (milliseconds)";
+    DRAG_MOVE_STEPS => drag_move_steps,
+        "Intermediate mouse positions synthesized for one HTML5 drag";
+    DRAG_MOVE_GAP_MS => drag_move_gap_ms,
+        "Delay between synthesized drag positions (milliseconds)";
+    ROBOTS_FETCH_TIMEOUT_SECS => robots_fetch_timeout_secs,
+        "Timeout for fetching robots.txt (seconds)";
     SCRAPE_CRAWL_LIMIT_MAX => scrape_crawl_limit_max,
         "Max crawl page budget (anti-DoS clamp for --limit)";
     SCRAPE_CRAWL_MAX_DEPTH => scrape_crawl_max_depth,

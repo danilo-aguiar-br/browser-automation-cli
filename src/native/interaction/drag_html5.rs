@@ -110,12 +110,20 @@ impl DragRoute {
 
 /// Number of intermediate mouse moves between press and destination.
 ///
-/// One single jump can land under Chrome's drag threshold heuristics; a short
+/// One single jump can land under Chrome`s drag threshold heuristics; a short
 /// interpolation makes the gesture indistinguishable from a human drag.
-const DRAG_MOVE_STEPS: usize = 6;
+///
+/// Operator override: XDG `config set drag_move_steps <n>`.
+fn drag_move_steps() -> usize {
+    crate::xdg::policy::policy_usize(crate::xdg::policy::key::DRAG_MOVE_STEPS)
+}
 
 /// Pause between interpolated moves so the renderer can act on each one.
-const DRAG_MOVE_GAP_MS: u64 = 16;
+///
+/// Operator override: XDG `config set drag_move_gap_ms <n>`.
+fn drag_move_gap_ms() -> u64 {
+    crate::xdg::policy::policy_u64(crate::xdg::policy::key::DRAG_MOVE_GAP_MS)
+}
 
 /// Enable or disable drag interception. Errors when the browser lacks the command.
 pub async fn set_intercept_drags(
@@ -181,15 +189,17 @@ pub async fn start_drag_gesture(
         Some(1),
     )
     .await?;
-    for step in 1..=DRAG_MOVE_STEPS {
-        let t = step as f64 / DRAG_MOVE_STEPS as f64;
+    let steps = drag_move_steps().max(1);
+    let gap_ms = drag_move_gap_ms();
+    for step in 1..=steps {
+        let t = step as f64 / steps as f64;
         let x = from.0 + (to.0 - from.0) * t;
         let y = from.1 + (to.1 - from.1) * t;
         mouse(client, session_id, "mouseMoved", x, y, 1, None).await?;
         // The renderer starts a drag from its own input pipeline, not from the
         // CDP call return. Back-to-back moves get coalesced into one hop that
         // can skip the drag threshold entirely.
-        tokio::time::sleep(std::time::Duration::from_millis(DRAG_MOVE_GAP_MS)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(gap_ms)).await;
     }
     Ok(())
 }

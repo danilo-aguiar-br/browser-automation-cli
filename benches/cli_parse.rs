@@ -50,6 +50,9 @@ fn envelope_success_compact(c: &mut Criterion) {
         ok: true,
         correlation_id: None,
         data: json!({"status": "ok", "n": 1}),
+        // The unreduced hot path: the field is skipped when absent, so this
+        // still benchmarks the exact bytes an unflagged invocation emits.
+        agent_ops: None,
     };
     c.bench_function("envelope_success_to_compact_string", |b| {
         b.iter(|| {

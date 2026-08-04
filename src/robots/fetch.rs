@@ -73,6 +73,11 @@ pub async fn enforce_robots(
     let body_bytes = crate::net::read_body_limited(resp, ROBOTS_MAX_BODY_BYTES).await?;
     let body = String::from_utf8_lossy(&body_bytes);
 
+    // Remember Crawl-delay for this origin (politeness; non-standard but common).
+    if let Some(delay) = super::parse_crawl_delay_secs(&body, user_agent) {
+        super::remember_crawl_delay(&origin, delay);
+    }
+
     if url_allowed_by_robots_body(&body, user_agent, url) {
         return Ok(());
     }

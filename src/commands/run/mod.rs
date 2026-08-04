@@ -32,7 +32,10 @@ pub use argv::argv_to_step;
 pub use engine::{run_one_step, run_script_with_flags};
 pub(crate) use execute::is_dispatchable_cmd;
 pub use flags::RunFlags;
-pub use inventory::{run_supported_suggestion, INTENTIONAL_RUN_EXCLUDE, RUN_DISPATCHED_CMDS};
+pub use inventory::{
+    run_supported_suggestion, run_unknown_cmd_suggestion, INTENTIONAL_RUN_EXCLUDE,
+    RUN_DISPATCHED_CMDS,
+};
 pub use parse::parse_run_script;
 pub use preflight::preflight_script;
 pub use stream::{is_stdin_marker, run_stream_with_flags};

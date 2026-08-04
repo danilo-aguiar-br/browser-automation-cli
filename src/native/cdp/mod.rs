@@ -7,4 +7,5 @@ pub mod client;
 pub mod discovery;
 pub mod lightpanda;
 pub mod oxide;
+pub mod spawn;
 pub mod types;

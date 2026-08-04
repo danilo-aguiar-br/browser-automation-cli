@@ -135,6 +135,74 @@ run_control "docs-check detects ungated aquamarine" \
   "aquamarine must be gated behind feature docs-mermaid" \
   bash -c "sd 'feature = \"docs-mermaid\"' 'feature = \"other\"' \$(rg -l 'docs-mermaid' src/ --glob '*.rs')"
 
+# 10) natives-check Pass N must notice a NEW native dependency arriving.
+#
+# The allowlist exists because the previous claim ("cc/cmake only via TLS") was
+# folklore that nobody re-measured — SQLite, mimalloc and zstd compile C too. An
+# allowlist that cannot detect an addition would be the same folklore in list form.
+run_control "natives-check detects a new *-sys dependency" \
+  "scripts/natives-check.sh" \
+  "new native dependency not in the documented allowlist" \
+  bash -c "printf '\n[[package]]\nname = \"totally-new-sys\"\nversion = \"1.0.0\"\n' >> Cargo.lock"
+
+# 11) natives-check must notice openssl reaching the graph.
+run_control "natives-check detects openssl in the graph" \
+  "scripts/natives-check.sh" \
+  "openssl reached the graph" \
+  bash -c "printf '\n[[package]]\nname = \"openssl\"\nversion = \"0.10.0\"\n' >> Cargo.lock"
+
+# 12) natives-check must notice aws-lc-sys LEAVING, which retires a prerequisite.
+#
+# The only control here that fires on good news. Without it, cmake would stay in
+# the documented prerequisites forever after upstream stopped requiring it.
+run_control "natives-check detects aws-lc-sys disappearing" \
+  "scripts/natives-check.sh" \
+  "aws-lc-sys is GONE" \
+  bash -c "sd 'name = \"aws-lc-sys\"' 'name = \"aws-lc-sys-renamed\"' Cargo.lock"
+
+# The agent-ops gate is the newest verifier and it exists precisely because a
+# green unit suite coexisted with a broken binary. Giving it no control here
+# would repeat the mistake one level up: a gate nobody proved can detect the
+# absence of the property it claims to check.
+#
+# Deleting the FTL suggestion's `--fields` and putting `--select` back is the
+# exact regression the gate was written for — `--select` is a real flag on
+# scrape/crawl/map/search, so a naive "flag exists somewhere" check passes and
+# only the scope-aware one fires.
+run_control "agent-ops-check detects a suggestion citing a non-global flag" \
+  "scripts/agent-ops-check.sh" \
+  "absent from the global help" \
+  bash -c "sd -- '--fields' '--select' locales/en.ftl"
+
+# doc-coverage-check: the documentation surface is the largest thing in the
+# product with no gate before this wave — 132 of 176 XDG keys appeared in no
+# public document. Three controls, one per class of drift, because the three
+# assertions fail for different reasons and a single mutation would only prove
+# one of them alive.
+# `heap_dominator_max_states` is chosen because it appears EXACTLY ONCE in the
+# reference. A key such as `dialog_settle_ms` also appears inside an example
+# command, so deleting its definition would leave the gate finding the other
+# occurrence and passing — an inconclusive control that reads like a healthy one.
+# The replacement must not begin with a hyphen either: `sd` parses that as a
+# flag and exits 2, which the harness reports as "mutation failed" rather than
+# as a gate defect. Both traps fired here before this comment existed.
+run_control "doc-coverage-check detects an undocumented XDG key" \
+  "scripts/doc-coverage-check.sh" \
+  "omits 1 of 176 live XDG keys" \
+  bash -c "sd 'heap_dominator_max_states' 'KEY_REMOVED_FOR_CONTROL' docs/CONFIGURATION.md"
+
+run_control "doc-coverage-check detects a command that no entry-point document names" \
+  "scripts/doc-coverage-check.sh" \
+  "never names 1 of 69 live commands" \
+  bash -c "sd -- '\`screencast' 'SCREENCAST_REMOVED_FOR_CONTROL' README.md"
+
+# The scope assertion is the one most likely to rot into a false-green, because
+# the naive version of it passes: `--select` really does exist on `scrape`.
+run_control "doc-coverage-check detects a per-command flag presented as global" \
+  "scripts/doc-coverage-check.sh" \
+  "present a per-command flag as global" \
+  bash -c "printf '%s\n' '- These flags are GLOBAL on every one of the 69 commands: \`--select\`' >> docs/ROADMAP.md"
+
 if [ "$fail" -eq 0 ]; then
   echo "== verifier-controls OK =="
   exit 0

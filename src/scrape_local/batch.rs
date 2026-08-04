@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use crate::error::{CliError, ErrorKind};
 use crate::robots::RobotsPolicy;
 
+use super::error_page::{http_error_page, status_from_error_message};
 use super::http::scrape_http;
 use super::types::ScrapeOpts;
 
@@ -82,7 +83,19 @@ pub async fn batch_scrape_http(
         };
         match joined {
             Ok(Ok(v)) => results.push(v),
-            Ok(Err(e)) => errors.push(json!({ "error": e.to_string() })),
+            Ok(Err(e)) => {
+                let msg = e.to_string();
+                let mut row = http_error_page("", &msg, None);
+                if let Some(obj) = row.as_object_mut() {
+                    obj.insert("error".into(), json!(msg));
+                    if let Some(code) = status_from_error_message(e.message()) {
+                        obj.insert("status_code".into(), json!(code));
+                    }
+                    // Prefer message from CliError display
+                    obj.insert("http_error".into(), json!(true));
+                }
+                errors.push(row);
+            }
             Err(e) => {
                 // Distinguish panic vs cancel for agent diagnostics.
                 let kind = if e.is_panic() {
@@ -92,7 +105,7 @@ pub async fn batch_scrape_http(
                 } else {
                     "join"
                 };
-                errors.push(json!({ "error": format!("{kind}: {e}") }));
+                errors.push(json!({ "error": format!("{kind}: {e}"), "http_error": true }));
             }
         }
     }

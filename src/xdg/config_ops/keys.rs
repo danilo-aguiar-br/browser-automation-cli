@@ -45,12 +45,48 @@ pub const CONFIG_KEYS: &[&str] = &[
     "http_timeout_secs",
     "http_connect_timeout_secs",
     "scrape_max_body_bytes",
+    "scrape_max_text_chars",
+    "scrape_min_delay_ms",
+    "scrape_honor_meta_robots",
+    "scrape_honor_nofollow",
+    "scrape_use_sitemap",
+    "scrape_default_engine",
+    "scrape_delay_jitter_ratio",
+    "scrape_summary_chars",
+    "scrape_feed_max_entries",
+    "scrape_follow_rel_next",
+    "scrape_dedup_similar",
+    "scrape_dedup_similar_distance",
+    "scrape_sitemap_max_bytes",
+    "scrape_charset_peek_bytes",
     "llm_http_timeout_secs",
     "redis_allow_remote",
+    "chrome_legacy_oxide_launch",
     "redis_connect_timeout_secs",
     "chrome_search_paths",
     "allowed_roots",
     "robots_loopback_exempt",
+    "image_max_input_bytes",
+    "image_max_pixels",
+    "image_default_format",
+    "image_default_quality",
+    "image_download_max_bytes",
+    "image_avif_speed",
+    "svg_max_bytes",
+    "svg_max_depth",
+    "svg_max_entities",
+    "gif_max_frames",
+    "manifest_max_bytes",
+    "manifest_max_variants",
+    "video_max_input_bytes",
+    "video_download_max_bytes",
+    "video_default_container",
+    "video_default_crf",
+    "video_default_audio_bitrate",
+    "audio_max_input_bytes",
+    "audio_download_max_bytes",
+    "audio_default_format",
+    "audio_default_bitrate",
 ];
 
 /// Every supported key: the hand-written catalog plus promoted policy knobs.
@@ -75,6 +111,50 @@ pub fn config_list_keys() -> Result<Value, CliError> {
     }))
 }
 
+/// Append the pure-Rust codec and manifest knobs.
+///
+/// These live in a helper rather than in the `json!([…])` literal above on
+/// purpose: that literal already sits near `serde_json`'s macro recursion
+/// ceiling, and growing it further fails the build with "recursion limit
+/// reached". Pushing shallow objects keeps expansion depth flat.
+fn push_wave6_media_entries(out: &mut Vec<Value>) {
+    out.push(json!({
+        "key": "image_avif_speed",
+        "default": crate::constants::DEFAULT_IMAGE_AVIF_SPEED,
+        "description": "AVIF encoder speed 1..=10 (1 slowest/best); needs the image-avif feature"
+    }));
+    out.push(json!({
+        "key": "svg_max_bytes",
+        "default": crate::constants::DEFAULT_SVG_MAX_BYTES,
+        "description": "Max SVG source bytes accepted before rasterisation"
+    }));
+    out.push(json!({
+        "key": "svg_max_depth",
+        "default": crate::constants::DEFAULT_SVG_MAX_DEPTH,
+        "description": "Max XML nesting depth accepted in an SVG source"
+    }));
+    out.push(json!({
+        "key": "svg_max_entities",
+        "default": crate::constants::DEFAULT_SVG_MAX_ENTITIES,
+        "description": "Max <!ENTITY> declarations tolerated in an SVG DTD (0 = reject any)"
+    }));
+    out.push(json!({
+        "key": "gif_max_frames",
+        "default": crate::constants::DEFAULT_GIF_MAX_FRAMES,
+        "description": "Max animation frames decoded from a GIF"
+    }));
+    out.push(json!({
+        "key": "manifest_max_bytes",
+        "default": crate::constants::DEFAULT_MANIFEST_MAX_BYTES,
+        "description": "Max bytes accepted for an HLS or DASH manifest body"
+    }));
+    out.push(json!({
+        "key": "manifest_max_variants",
+        "default": crate::constants::DEFAULT_MANIFEST_MAX_VARIANTS,
+        "description": "Max variant/representation entries emitted per manifest envelope"
+    }));
+}
+
 /// Hand-written key catalog (non-policy knobs and secrets).
 fn base_key_entries() -> Vec<Value> {
     let entries = json!([
@@ -91,7 +171,7 @@ fn base_key_entries() -> Vec<Value> {
             {"key": "log_rotation", "default": crate::constants::DEFAULT_LOG_ROTATION, "description": "Rolling policy: daily|hourly|never"},
             {"key": "chrome_path", "default": null, "description": "Absolute Chrome/Chromium path"},
             {"key": "lighthouse_path", "default": null, "description": "Absolute lighthouse CLI path"},
-            {"key": "ffmpeg_path", "default": null, "description": "Absolute ffmpeg path (optional screencast encode)"},
+            {"key": "ffmpeg_path", "default": null, "description": "Absolute ffmpeg path (optional screencast encode + video convert/to-mp3)"},
             {"key": "lighthouse_timeout_secs", "default": crate::constants::DEFAULT_LIGHTHOUSE_TIMEOUT_SECS, "description": "Wall-clock lighthouse CLI timeout (seconds, 1..=3600)"},
             {"key": "ffmpeg_timeout_secs", "default": crate::constants::DEFAULT_FFMPEG_ENCODE_TIMEOUT_SECS, "description": "Wall-clock ffmpeg encode timeout (seconds, 1..=3600)"},
             {"key": "openrouter_api_key", "default": null, "description": "LLM API key (stored 0600)"},
@@ -121,6 +201,114 @@ fn base_key_entries() -> Vec<Value> {
             {"key": "robots_loopback_exempt", "default": true, "description": "Loopback hosts skip robots.txt (set false to enforce against localhost)"},
             {"key": "allowed_roots", "default": null, "description": "Extra allowed roots for local reads and artifact writes (platform-separated); defaults cover cwd, XDG dirs and temp"},
             {"key": "chrome_search_paths", "default": null, "description": "Ordered Chrome/Chromium discovery paths (platform-separated); empty uses the built-in per-OS layout"},
+            {"key": "image_max_input_bytes", "default": crate::constants::DEFAULT_IMAGE_MAX_INPUT_BYTES, "description": "Max bytes for local image decode/convert/resize input"},
+            {"key": "image_max_pixels", "default": crate::constants::DEFAULT_IMAGE_MAX_PIXELS, "description": "Max width*height for image decode (anti-bomb)"},
+            {"key": "image_default_format", "default": crate::constants::DEFAULT_IMAGE_FORMAT, "description": "Default image convert format: png|jpeg|webp|gif"},
+            {"key": "image_default_quality", "default": crate::constants::DEFAULT_IMAGE_QUALITY, "description": "Default lossy quality 1..=100 for image convert/resize"},
+            {"key": "image_download_max_bytes", "default": crate::constants::DEFAULT_IMAGE_DOWNLOAD_MAX_BYTES, "description": "Max HTTP body bytes for image download"},
+            {"key": "video_max_input_bytes", "default": crate::constants::DEFAULT_VIDEO_MAX_INPUT_BYTES, "description": "Max bytes for video stdin materialization / path pre-check"},
+            {"key": "video_download_max_bytes", "default": crate::constants::DEFAULT_VIDEO_DOWNLOAD_MAX_BYTES, "description": "Max HTTP body bytes for video download"},
+            {"key": "video_default_container", "default": crate::constants::DEFAULT_VIDEO_CONTAINER, "description": "Default video convert container: mp4|webm|mkv|mov|avi|m4v"},
+            {"key": "video_default_crf", "default": crate::constants::DEFAULT_VIDEO_CRF, "description": "Default CRF 1..=51 for lossy video re-encode"},
+            {"key": "video_default_audio_bitrate", "default": crate::constants::DEFAULT_VIDEO_AUDIO_BITRATE, "description": "Default bitrate for video to-mp3 (e.g. 192k)"},
     ]);
-    entries.as_array().cloned().unwrap_or_default()
+    // Append after the macro array: large json! arrays hit the recursion limit (see full_dump Map pattern).
+    let mut out = entries.as_array().cloned().unwrap_or_default();
+    push_wave6_media_entries(&mut out);
+    out.push(json!({
+        "key": "chrome_legacy_oxide_launch",
+        "default": false,
+        "description": "Launch Chrome via chromiumoxide instead of the self-spawn path (stabilization fallback; loses the residual kill target)"
+    }));
+    out.push(json!({
+        "key": "audio_max_input_bytes",
+        "default": crate::constants::DEFAULT_AUDIO_MAX_INPUT_BYTES,
+        "description": "Max bytes for audio stdin materialization / path pre-check"
+    }));
+    out.push(json!({
+        "key": "audio_download_max_bytes",
+        "default": crate::constants::DEFAULT_AUDIO_DOWNLOAD_MAX_BYTES,
+        "description": "Max HTTP body bytes for audio download"
+    }));
+    out.push(json!({
+        "key": "audio_default_format",
+        "default": crate::constants::DEFAULT_AUDIO_FORMAT,
+        "description": "Default audio convert format: mp3|m4a|ogg|opus|flac|wav|aac"
+    }));
+    out.push(json!({
+        "key": "audio_default_bitrate",
+        "default": crate::constants::DEFAULT_AUDIO_BITRATE,
+        "description": "Default bitrate for lossy audio encode (e.g. 192k)"
+    }));
+    out.push(json!({
+        "key": "scrape_max_text_chars",
+        "default": crate::constants::DEFAULT_SCRAPE_MAX_TEXT_CHARS,
+        "description": "Max text/markdown chars in scrape envelopes (0=no cap)"
+    }));
+    out.push(json!({
+        "key": "scrape_min_delay_ms",
+        "default": crate::constants::DEFAULT_SCRAPE_MIN_DELAY_MS,
+        "description": "Floor delay between same-origin GETs (ms)"
+    }));
+    out.push(json!({
+        "key": "scrape_honor_meta_robots",
+        "default": true,
+        "description": "Honor meta robots / X-Robots-Tag noindex"
+    }));
+    out.push(json!({
+        "key": "scrape_honor_nofollow",
+        "default": true,
+        "description": "Skip rel=nofollow links in crawl discovery"
+    }));
+    out.push(json!({
+        "key": "scrape_use_sitemap",
+        "default": true,
+        "description": "Prefer sitemap.xml when mapping a site"
+    }));
+    out.push(json!({
+        "key": "scrape_default_engine",
+        "default": crate::constants::DEFAULT_SCRAPE_ENGINE,
+        "description": "Default scrape engine when CLI omits --engine (http|browser)"
+    }));
+    out.push(json!({
+        "key": "scrape_delay_jitter_ratio",
+        "default": crate::constants::DEFAULT_SCRAPE_DELAY_JITTER_RATIO,
+        "description": "Politeness delay jitter ratio 0.0..=1.0 (0=off)"
+    }));
+    out.push(json!({
+        "key": "scrape_summary_chars",
+        "default": crate::constants::DEFAULT_SCRAPE_SUMMARY_CHARS,
+        "description": "Max chars for scrape format summary"
+    }));
+    out.push(json!({
+        "key": "scrape_feed_max_entries",
+        "default": crate::constants::DEFAULT_SCRAPE_FEED_MAX_ENTRIES,
+        "description": "Max entries kept by scrape format feed (RSS/Atom/JSON Feed)"
+    }));
+    out.push(json!({
+        "key": "scrape_follow_rel_next",
+        "default": crate::constants::DEFAULT_SCRAPE_FOLLOW_REL_NEXT,
+        "description": "Follow rel=next pagination links during crawl"
+    }));
+    out.push(json!({
+        "key": "scrape_dedup_similar",
+        "default": crate::constants::DEFAULT_SCRAPE_DEDUP_SIMILAR,
+        "description": "Collapse near-duplicate pages by content similarity in crawl/batch-scrape"
+    }));
+    out.push(json!({
+        "key": "scrape_dedup_similar_distance",
+        "default": crate::constants::DEFAULT_SCRAPE_DEDUP_SIMILAR_DISTANCE,
+        "description": "SimHash Hamming distance (0..=64) under which pages are near-duplicates"
+    }));
+    out.push(json!({
+        "key": "scrape_sitemap_max_bytes",
+        "default": crate::constants::DEFAULT_SCRAPE_SITEMAP_MAX_BYTES,
+        "description": "Max sitemap body bytes"
+    }));
+    out.push(json!({
+        "key": "scrape_charset_peek_bytes",
+        "default": crate::constants::DEFAULT_SCRAPE_CHARSET_PEEK_BYTES,
+        "description": "Charset sniffing peek window (bytes)"
+    }));
+    out
 }

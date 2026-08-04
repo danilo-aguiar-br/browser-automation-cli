@@ -1,6 +1,6 @@
 [package]
 name = "browser-automation-cli"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 rust-version = "1.88.0"
 authors = ["Danilo Aguiar <daniloaguiarbr@proton.me>"]
@@ -196,6 +196,11 @@ robotstxt = "0.3"
 aquamarine = { version = "0.6", optional = true }
 directories = "5"
 scraper = "0.22"
+encoding_rs = "0.8"
+quick-xml = "0.41"
+# RSS 0.9/1.0/2.0 + Atom + JSON Feed parsing for scrape `--format feed`.
+# Pure Rust (quick-xml + serde); no C toolchain, no `*-sys`.
+feed-rs = { version = "2.4", default-features = false }
 petgraph = "0.7"
 rusqlite = { version = "0.32", features = ["bundled"] }
 rcgen = "0.14.8"
@@ -214,6 +219,93 @@ regex = "1"
 qrcode = "0.14"
 rqrr = "0.9"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# Pure-Rust EXIF reader for `image info` / `image exif` (no FFI; multiplatform).
+kamadak-exif = "0.6"
+
+# ── Optional pure-Rust media codecs / parsers (Wave 6) ─────────────────────
+# Every crate below was probed with `cargo tree -i cc` and `cargo tree -i nasm-rs`
+# in isolation before landing. None introduces a C toolchain, a `*-sys` shim, or
+# openssl. Reproduce with:
+#   cargo tree -i nasm-rs -e all --all-features   # must report "did not match"
+#   cargo tree -p <crate> -e build --all-features --depth 1   # must list no build-deps
+# `cc` and `cmake` DO appear in the graph; no crate below reaches them. The note
+# that used to sit here said they arrived "only via the pre-existing TLS stack".
+# That was measured wrong. Auditing every `*-sys` crate in `Cargo.lock` on
+# 2026-08-04 found FIVE C compilation units on a Linux host build, of which only
+# two are TLS:
+#
+#   aws-lc-sys      ← rustls/aws_lc_rs        cc + cmake
+#   ring            ← rcgen                   cc + asm   (our MITM CA)
+#   libsqlite3-sys  ← rusqlite "bundled"      cc         (cache backend)
+#   libmimalloc-sys ← mimalloc                cc         (default allocator)
+#   zstd-sys        ← async-compression       cc         (via hudsucker "decoder")
+#
+# The remaining `*-sys` entries are bindings, not compiles: `linux-raw-sys` and
+# `dirs-sys` are pure Rust, `windows-sys` binds system DLLs, and
+# `core-foundation-sys` / `security-framework-sys` link macOS frameworks. Reproduce
+# the audit with:
+#   rg -o '^name = "([a-z0-9_-]+-sys)"' -r '$1' Cargo.lock | sort -u
+#
+# `cmake` is the only host prerequisite beyond a C compiler, and it comes from
+# `aws-lc-sys` alone. `rustls/aws_lc_rs` is switched on from two independent
+# places and only one is ours:
+#
+#   1. `reqwest/rustls` → `__rustls-aws-lc-rs`. Ours.
+#   2. `hudsucker` → `tokio-rustls` declared WITHOUT `default-features = false`,
+#      and `tokio-rustls`'s default set contains `aws_lc_rs`. Not ours.
+#
+# Cargo feature unification is additive, so (2) alone is enough to keep it.
+# Measured: flipping (1) to `rustls-no-provider` and re-running
+# `cargo tree -i aws-lc-sys` STILL reports `aws-lc-sys v0.43.0`. The change buys
+# nothing and costs a manual `CryptoProvider::install_default()` that panics at
+# runtime when forgotten, so it was tried and reverted rather than left in as
+# cosmetic progress.
+#
+# Dropping cmake therefore needs `hudsucker` to set `default-features = false` on
+# `tokio-rustls`. hudsucker 0.25.0 is the newest published release, so there is no
+# version to upgrade into; dropping hudsucker deletes the whole `mitm` family and
+# forking it trades a build prerequisite for a permanent fork. cmake stays a
+# DOCUMENTED prerequisite instead of an undocumented surprise.
+#
+# `scripts/natives-check.sh` Pass N pins the `*-sys` allowlist, so a SIXTH C unit
+# cannot arrive unnoticed and the day `aws-lc-sys` disappears the gate says so
+# instead of letting an obsolete prerequisite live on in the docs forever.
+#
+# AVIF encode (`image-avif`). `default-features = false` is MANDATORY and not a
+# style choice: ravif's default feature set enables `asm = ["rav1e/asm"]`, which
+# makes rav1e pull `nasm-rs` + `cc` as build-dependencies and requires a system
+# NASM assembler. `threading` is kept because rav1e's tile encoder is otherwise
+# single-threaded and AVIF encode of a 4K frame becomes minutes, not seconds.
+# AVIF *decode* has no C-free path in 2026: both `rav1d` 1.1 and `rav1d-safe`
+# 0.5.7 declare `cc` and `nasm-rs` as UNCONDITIONAL build-dependencies (they are
+# not gated by the `asm` feature), so decode stays rejected — see image_local::avif.
+ravif = { version = "0.13", default-features = false, features = ["threading"], optional = true }
+# Pixel container types required by ravif's `encode_rgb` / `encode_rgba` signatures.
+# Both are dependency-free pure Rust; ravif does not re-export them.
+imgref = { version = "1.12", optional = true }
+rgb = { version = "0.8", optional = true }
+# HEIC decode (`image-heic`), pure Rust over `rust_h265` (zero dependencies).
+# Off by default: 0.1.0 is pre-1.0 and the HEVC intra decoder is young. Encode is
+# NOT offered — no pure-Rust HEVC encoder exists, which is a physical limit.
+heif-oxide = { version = "0.1.0", optional = true }
+# SVG rasterisation (`image-svg`). resvg re-exports `usvg` and `tiny_skia`, so
+# neither is declared directly. Off by default: fontdb + harfrust add ~4 MB of
+# text-shaping machinery that a headless agent rarely needs.
+resvg = { version = "0.47", default-features = false, optional = true }
+# SIMD resize (`image-simd-resize`, on by default). The `image` feature wires
+# `DynamicImage` straight into `Resizer` with no manual buffer marshalling.
+fast_image_resize = { version = "6.1", features = ["image"], optional = true }
+# HLS / DASH manifest parsing (`media-manifest`, on by default). Both are parse-only
+# here. dash-mpd MUST stay `default-features = false`: its default set drags in a
+# fetch stack (reqwest + tokio + decryption helpers) that duplicates ours.
+m3u8-rs = { version = "6.0", optional = true }
+dash-mpd = { version = "0.20", default-features = false, optional = true }
+# Embedded OCR (ocrs + rten) is NOT declared here. It clears the no-C-toolchain
+# bar and needs no runtime download — models are operator-supplied `.rten` files —
+# but every rten release from 0.22 onward requires rustc 1.89, above this crate's
+# declared `rust-version = "1.88.0"`. Raising the product MSRV is not a codec
+# decision, so the dependency stays out until that call is made deliberately.
+# See `src/image_local/ocr_rs.rs` for the refusal path an agent actually hits.
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -231,7 +323,20 @@ windows-sys = { version = "0.52", features = [
 
 # Optional locale packs beyond MVP en + pt-BR (rules: never ship top-20 by default).
 [features]
-default = []
+# Sensible default: the two media features that are pure-Rust, dependency-light,
+# and already 1.0+. AVIF/HEIC/SVG/OCR stay opt-in — see each feature's note.
+default = ["image-simd-resize", "media-manifest"]
+# AVIF encode via ravif (decode is impossible without a C assembler — see deps).
+# Off by default: rav1e is a large compile unit and most agents never emit AVIF.
+image-avif = ["dep:ravif", "dep:imgref", "dep:rgb"]
+# HEIC decode via heif-oxide. Off by default while the crate is pre-1.0.
+image-heic = ["dep:heif-oxide"]
+# SVG sanitise + rasterise via resvg/usvg/tiny-skia.
+image-svg = ["dep:resvg"]
+# SIMD resize via fast_image_resize; falls back to `image::imageops` when off.
+image-simd-resize = ["dep:fast_image_resize"]
+# HLS (m3u8-rs) + DASH (dash-mpd) manifest parsing, parse-only.
+media-manifest = ["dep:m3u8-rs", "dep:dash-mpd"]
 # Mermaid lifecycle diagrams in rustdoc via aquamarine (docs.rs / cargo doc only).
 # Not on default: aquamarine → proc-macro-error2 currently emits future-incompat.
 docs-mermaid = ["dep:aquamarine"]

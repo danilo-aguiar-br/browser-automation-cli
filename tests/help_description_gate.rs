@@ -92,7 +92,8 @@ fn subcommands_without_about(root: &Command) -> Vec<String> {
 /// `heap` should read as `heap.<name>`, not as an anonymous count.
 #[test]
 fn every_subcommand_at_every_depth_has_a_description() {
-    let missing = subcommands_without_about(&Cli::command());
+    let missing =
+        browser_automation_cli::cli::on_clap_stack(|| subcommands_without_about(&Cli::command()));
     assert!(
         missing.is_empty(),
         "{} subcommand(s) have no help description: {}. \

@@ -5,6 +5,17 @@
   "type": "object",
   "description": "Local search (HTTP SERP links or URL map)",
   "properties": {
+    "dedup_key": {
+      "argv": "--dedup-key",
+      "description": "Deduplicate results by field",
+      "required": false,
+      "source": "parser",
+      "step_key": "dedup_key",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
     "limit": {
       "argv": "--limit",
       "default": 10,
@@ -23,6 +34,28 @@
       "required": true,
       "source": "parser",
       "step_key": "query",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "select": {
+      "argv": "--select",
+      "description": "Project data fields (CSV)",
+      "required": false,
+      "source": "parser",
+      "step_key": "select",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "sort": {
+      "argv": "--sort",
+      "description": "Sort results by field",
+      "required": false,
+      "source": "parser",
+      "step_key": "sort",
       "surfaces": [
         "argv"
       ],

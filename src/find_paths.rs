@@ -132,6 +132,9 @@ pub fn find_paths(opts: &FindPathsOpts) -> Result<Value, CliError> {
         }
         local
     };
+    // `walk_one` already breaks at `opts.limit` per root, so this collects at
+    // most `limit * roots.len()` entries — never the whole tree. The truncate
+    // below only trims the multi-root overshoot.
     let mut paths: Vec<String> = if roots.len() <= 1 {
         roots.iter().flat_map(walk_one).collect()
     } else {

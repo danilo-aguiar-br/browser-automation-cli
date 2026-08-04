@@ -94,6 +94,18 @@ pub const INTENTIONAL_RUN_EXCLUDE: &[(&str, &str)] = &[
     ("parse", "path-light parse; not a browser session step"),
     ("qr", "path-light QR; not a browser session step"),
     (
+        "image",
+        "path-light image pipeline; not a browser session step",
+    ),
+    (
+        "video",
+        "path-light video pipeline; not a browser session step",
+    ),
+    (
+        "audio",
+        "path-light audio pipeline; not a browser session step",
+    ),
+    (
         "find-paths",
         "path-light discovery; not a browser session step",
     ),
@@ -110,6 +122,10 @@ pub const INTENTIONAL_RUN_EXCLUDE: &[(&str, &str)] = &[
         "path-light sheet; not a browser session step",
     ),
     ("monitor", "monitor check is top-level one-shot"),
+    (
+        "record",
+        "record owns the whole session for its recording window; use it top-level and replay its NDJSON with run --script",
+    ),
     ("run", "nested run is not supported"),
     ("exec", "nested exec is not supported"),
 ];
@@ -117,4 +133,18 @@ pub const INTENTIONAL_RUN_EXCLUDE: &[(&str, &str)] = &[
 /// Human-readable list of dispatched cmds for suggestions (GAP-017).
 pub fn run_supported_suggestion() -> String {
     format!("Supported: {}", RUN_DISPATCHED_CMDS.join(" "))
+}
+
+/// Suggestion for an unknown / excluded `run` script cmd (agent-native).
+///
+/// When `cmd` is in [`INTENTIONAL_RUN_EXCLUDE`], explain why and point to
+/// top-level use; otherwise list dispatched cmds.
+pub fn run_unknown_cmd_suggestion(cmd: &str) -> String {
+    if let Some((_, reason)) = INTENTIONAL_RUN_EXCLUDE.iter().find(|(c, _)| *c == cmd) {
+        return format!(
+            "{cmd} is intentionally excluded from run: {reason}. {}",
+            run_supported_suggestion()
+        );
+    }
+    run_supported_suggestion()
 }

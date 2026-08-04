@@ -17,6 +17,13 @@ pub const HTTP_USER_AGENT: &str = concat!(
 /// Temp-file name prefix for atomic xlsx writes (dotfile under parent dir).
 pub const XLSX_TMP_NAME_PREFIX: &str = concat!(".", env!("CARGO_PKG_NAME"), "-xlsx-");
 
+/// Executable name of this product, taken from the manifest rather than typed.
+///
+/// Used by residual classification to tell an owning CLI process apart from the
+/// browser it launched. Derived from `CARGO_PKG_NAME` so a rename cannot leave a
+/// stale literal behind in the process-table heuristics.
+pub const PRODUCT_BIN_NAME: &str = env!("CARGO_PKG_NAME");
+
 /// Default HTML search endpoint template base (query appended as `?q=`).
 ///
 /// Override with `config set search_base_url <url>`. Used only when XDG is unset.

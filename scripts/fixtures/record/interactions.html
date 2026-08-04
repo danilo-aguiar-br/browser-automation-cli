@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>record fixture</title>
+</head>
+<body>
+<!--
+  Fixture for tests/record_gate.rs.
+
+  The page drives ITSELF so the gate runs offline with no human at the keyboard:
+  after load it fills a field, dispatches `change`, then clicks a button. Those
+  are real DOM events, so the recorder's capturing listeners see exactly what
+  they would see from a hand-driven session.
+
+  The button is `type="button"` on purpose: it must NOT submit. A navigation
+  here would replace the document and make the recorded step count depend on
+  page-load timing instead of on the gestures.
+-->
+<form id="form" action="interactions.html">
+  <input id="user" name="user" type="text">
+  <button id="go" type="button">Go</button>
+</form>
+<script>
+window.addEventListener('load', function () {
+  // Small delay so the gestures land inside the recording window rather than
+  // racing the navigation that opened the page.
+  setTimeout(function () {
+    var user = document.getElementById('user');
+    user.value = 'alice';
+    user.dispatchEvent(new Event('change', { bubbles: true }));
+    document.getElementById('go').click();
+  }, 300);
+});
+</script>
+</body>
+</html>

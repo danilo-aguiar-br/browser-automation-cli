@@ -50,6 +50,19 @@
       ],
       "type": "boolean"
     },
+    "include_base64": {
+      "argv": "--include-base64",
+      "description": "Opt-in: include raw image base64 in the JSON envelope (agent-native default off)",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_base64",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "boolean"
+    },
     "path": {
       "argv": "--path",
       "description": "Output path; defaults to a stamped file under the artifacts directory",

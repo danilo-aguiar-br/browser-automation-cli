@@ -36,9 +36,31 @@ impl CdpClient {
         Ok(Self {
             browser,
             event_tx,
-            _handler: handler_task,
+            handler: handler_task,
             _event_forwarders: event_forwarders,
         })
+    }
+
+    /// Stop pumping CDP events, before the transport is expected to go away.
+    ///
+    /// # Why FINALIZE calls this
+    ///
+    /// `Browser.close` makes Chrome drop the WebSocket without a closing
+    /// handshake. chromiumoxide logs that as
+    /// `ERROR chromiumoxide::handler: WS Connection error:
+    /// Ws(Protocol(ResetWithoutClosingHandshake))` from inside `handler.next()`,
+    /// so the message escapes to stderr on a perfectly successful one-shot run.
+    /// Our own loop already breaks on the error; the log is emitted before we
+    /// ever see it.
+    ///
+    /// An ERROR line on a clean shutdown is worse than noise: an operator
+    /// reading `-v` output cannot tell it apart from a real transport failure.
+    /// Aborting the pump first means the reset is never observed, so nothing is
+    /// suppressed or downgraded — the event simply does not occur.
+    ///
+    /// Idempotent, and safe on an already-finished task.
+    pub fn stop_event_pump(&self) {
+        self.handler.abort();
     }
 
     /// Attach via chromiumoxide `Browser::connect` (lightpanda only).

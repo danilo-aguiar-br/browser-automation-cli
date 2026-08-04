@@ -122,6 +122,134 @@ pub(crate) fn schema_for(cmd: &str) -> Option<Value> {
             }),
             &["action"],
         ),
+        "image" => schema_object(
+            "Local image pipeline one-shot (no Chrome): info/convert/resize/download/exif",
+            json!({
+                "action": {
+                    "type": "string",
+                    "enum": ["info", "convert", "resize", "download", "exif"]
+                },
+                "path": { "type": "string" },
+                "stdin": { "type": "boolean" },
+                "format": { "type": "string", "enum": ["png", "jpeg", "webp", "gif"] },
+                "quality": { "type": "integer", "minimum": 1, "maximum": 100 },
+                "out": { "type": "string" },
+                "width": { "type": "integer", "minimum": 1 },
+                "height": { "type": "integer", "minimum": 1 },
+                "keep_aspect": { "type": "boolean" },
+                "url": { "type": "string" },
+                "max_bytes": { "type": "integer", "minimum": 1 },
+                "require_image": { "type": "boolean" },
+                "allow_non_image": { "type": "boolean" },
+                "include_gps": { "type": "boolean" },
+                "select": {
+                    "type": "string",
+                    "description": "CSV field projection for info (format,width,height,path,sha256,…)"
+                },
+                "strip_exif": { "type": "boolean" },
+                "keep_exif": { "type": "boolean" }
+            }),
+            &["action"],
+        ),
+        "audio" => schema_object(
+            "Local audio pipeline one-shot (no Chrome): info/download/convert/trim",
+            json!({
+                "action": {
+                    "type": "string",
+                    "enum": ["info", "download", "convert", "trim"]
+                },
+                "path": { "type": "string" },
+                "stdin": { "type": "boolean" },
+                "url": { "type": "string" },
+                "format": {
+                    "type": "string",
+                    "enum": ["mp3", "m4a", "aac", "ogg", "opus", "flac", "wav"]
+                },
+                "out": { "type": "string" },
+                "codec": { "type": "string" },
+                "bitrate": { "type": "string" },
+                "sample_rate": { "type": "integer", "minimum": 1 },
+                "channels": { "type": "integer", "minimum": 1 },
+                "audio_stream": { "type": "integer", "minimum": 0 },
+                "strip_metadata": { "type": "boolean" },
+                "start": {
+                    "type": "number",
+                    "description": "Trim start seconds (action=trim)"
+                },
+                "duration": {
+                    "type": "number",
+                    "description": "Trim duration seconds (action=trim; exclusive with to)"
+                },
+                "to": {
+                    "type": "number",
+                    "description": "Trim end seconds (action=trim; exclusive with duration)"
+                },
+                "max_bytes": { "type": "integer", "minimum": 1 },
+                "require_audio": { "type": "boolean" },
+                "allow_non_audio": { "type": "boolean" },
+                "select": {
+                    "type": "string",
+                    "description": "CSV field projection; aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs, codec→audio_codec"
+                }
+            }),
+            &["action"],
+        ),
+        "video" => schema_object(
+            "Local video pipeline one-shot (no Chrome): info/download/convert/to-mp3/trim/thumbnail/manifest",
+            json!({
+                "action": {
+                    "type": "string",
+                    "enum": ["info", "download", "convert", "to-mp3", "trim", "thumbnail", "manifest"]
+                },
+                "base_url": {
+                    "type": "string",
+                    "description": "Manifest URL used to absolutise relative URIs (action=manifest)"
+                },
+                "path": { "type": "string" },
+                "stdin": { "type": "boolean" },
+                "url": { "type": "string" },
+                "format": {
+                    "type": "string",
+                    "enum": ["mp4", "webm", "mkv", "mov", "avi", "m4v"]
+                },
+                "out": { "type": "string" },
+                "video_codec": { "type": "string" },
+                "audio_codec": { "type": "string" },
+                "crf": { "type": "integer", "minimum": 1, "maximum": 51 },
+                "no_faststart": {
+                    "type": "boolean",
+                    "description": "Disable MP4-family moov-before-mdat (default: faststart applied)"
+                },
+                "strip_metadata": { "type": "boolean" },
+                "drop_audio": { "type": "boolean" },
+                "bitrate": { "type": "string" },
+                "audio_stream": { "type": "integer", "minimum": 0 },
+                "start": {
+                    "type": "number",
+                    "description": "Trim start seconds (action=trim)"
+                },
+                "duration": {
+                    "type": "number",
+                    "description": "Trim duration seconds (action=trim; exclusive with to)"
+                },
+                "to": {
+                    "type": "number",
+                    "description": "Trim end seconds (action=trim; exclusive with duration)"
+                },
+                "at": {
+                    "type": "number",
+                    "description": "Thumbnail timestamp seconds (action=thumbnail; default 0)"
+                },
+                "max_bytes": { "type": "integer", "minimum": 1 },
+                "require_video": { "type": "boolean" },
+                "allow_non_video": { "type": "boolean" },
+                "select": {
+                    "type": "string",
+                    "description": "CSV field projection (path,container,streams,duration_secs,sha256,…); aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs"
+                }
+            }),
+            &["action"],
+        ),
         "find-paths" => schema_object(
             "Discover filesystem paths (fd-like; no Chrome)",
             json!({

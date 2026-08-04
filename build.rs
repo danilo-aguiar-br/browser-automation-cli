@@ -28,6 +28,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn main() {
     // Build metadata for `version` / agent diagnostics (rules_rust_cli_com_clap).
     emit_git_build_meta();
+    emit_source_hash();
 
     let protocol_dir = Path::new("cdp-protocol");
     let out_dir = env::var("OUT_DIR").unwrap();
@@ -527,9 +528,12 @@ fn generate_domain(
 /// SHA is resolved by reading `.git/HEAD` (+ loose ref or `packed-refs`). Missing
 /// `.git` is non-fatal (`unknown`). Rebuild when HEAD / refs change.
 ///
-/// Dirty worktree suffix is intentionally omitted: detecting uncommitted changes
-/// without the git CLI would require a full index/worktree walk (or a heavy
-/// `gix` build-dep). Agents still get a stable short SHA for `version --json`.
+/// A `dirty` flag is intentionally NOT emitted, and `SOURCE_HASH` replaces it.
+/// Detecting an uncommitted worktree without the git CLI needs a full index
+/// walk or a heavy `gix` build-dep, and every cheap heuristic (comparing source
+/// mtimes against `.git/index`) can prove DIRTY but never prove CLEAN — a
+/// `dirty: false` derived from one would assert more than it knows. See
+/// [`emit_source_hash`] for the field that carries the same intent honestly.
 fn emit_git_build_meta() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");
@@ -542,6 +546,105 @@ fn emit_git_build_meta() {
 
     println!("cargo:rustc-env=GIT_SHA={sha}");
     println!("cargo:rustc-env=BUILD_TIMESTAMP={ts}");
+}
+
+/// Embed `SOURCE_HASH`: a content fingerprint of everything that shapes the
+/// binary, so `version --json` identifies the build even off a commit.
+///
+/// # Why this exists
+///
+/// `git_sha` names the last commit, not the code that was compiled. Building
+/// from a modified worktree yields a binary whose `git_sha` points at source it
+/// does not contain, and an agent that checks out that SHA to reproduce the run
+/// gets different code with no signal that anything diverged.
+///
+/// `SOURCE_HASH` is derived from the bytes actually compiled, so it is exactly
+/// what it claims: equal hashes mean equal inputs, different hashes mean the
+/// tree moved. Reproducing is `checkout <git_sha>`, rebuild, compare the field.
+///
+/// # Determinism
+///
+/// Inputs are sorted by their repo-relative path with `/` separators, and CRLF
+/// is folded to LF before hashing, so a checkout on Windows and one on Linux
+/// agree. Backup artefacts (`*.bak.*`) are excluded: they are never compiled,
+/// and letting them in would make the hash depend on editor noise.
+///
+/// # Algorithm
+///
+/// FNV-1a over 128 bits, folded to 64 for a readable field. This is an identity
+/// token, not a security boundary — nothing here defends against a chosen
+/// collision, and nothing needs to.
+fn emit_source_hash() {
+    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=Cargo.lock");
+    println!("cargo:rerun-if-changed=build.rs");
+
+    let mut inputs: Vec<String> = Vec::new();
+    collect_source_files(Path::new("src"), Path::new("src"), &mut inputs);
+    for extra in ["Cargo.toml", "Cargo.lock", "build.rs"] {
+        if Path::new(extra).is_file() {
+            inputs.push(extra.to_string());
+        }
+    }
+    inputs.sort_unstable();
+
+    // FNV-1a 128-bit offset basis / prime.
+    let mut hash: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
+    const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
+
+    let mix = |bytes: &[u8], hash: &mut u128| {
+        for &b in bytes {
+            *hash ^= u128::from(b);
+            *hash = hash.wrapping_mul(PRIME);
+        }
+    };
+
+    for rel in &inputs {
+        // Path first: renaming a file must move the hash even if bytes are equal.
+        mix(rel.as_bytes(), &mut hash);
+        mix(b"\0", &mut hash);
+        match fs::read(rel) {
+            Ok(bytes) => {
+                let normalized: Vec<u8> = bytes.into_iter().filter(|&b| b != b'\r').collect();
+                mix(&normalized, &mut hash);
+            }
+            // An unreadable input still perturbs the hash; silently skipping it
+            // would let two different trees claim the same fingerprint.
+            Err(_) => mix(b"<unreadable>", &mut hash),
+        }
+        mix(b"\0", &mut hash);
+    }
+
+    let folded = ((hash >> 64) as u64) ^ (hash as u64);
+    println!("cargo:rustc-env=SOURCE_HASH={folded:016x}");
+}
+
+/// Push every compiled input under `dir` as a `/`-separated path relative to
+/// `root`, depth-first. Order is irrelevant: the caller sorts.
+fn collect_source_files(dir: &Path, root: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        // Backups and editor noise are not build inputs.
+        if name.starts_with('.') || name.contains(".bak.") {
+            continue;
+        }
+        if path.is_dir() {
+            collect_source_files(&path, root, out);
+        } else if let Ok(rel) = path.strip_prefix(root) {
+            let rel = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/");
+            out.push(format!("src/{rel}"));
+        }
+    }
 }
 
 /// Short (12-hex) SHA from `.git` filesystem — no `Command::new("git")`.

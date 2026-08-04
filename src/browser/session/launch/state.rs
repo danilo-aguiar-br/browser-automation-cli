@@ -69,10 +69,7 @@ impl OneShotSession {
     /// active page is the only reading that keeps the guard useful, and it is the
     /// conservative one (it blocks rather than silently allows).
     fn dialog_key_for(&self, session_id: Option<&str>) -> String {
-        dialog_map_key(
-            session_id,
-            self.manager.active_session_id().ok(),
-        )
+        dialog_map_key(session_id, self.manager.active_session_id().ok())
     }
 
     /// True when a JavaScript dialog is open on the active page (GAP-041).
@@ -342,15 +339,15 @@ mod dialog_map_key_tests {
         let k1 = dialog_map_key(Some("sess-tab-b"), Some("sess-active"));
         assert_eq!(k0, "sess-tab-a");
         assert_eq!(k1, "sess-tab-b");
-        assert_ne!(k0, k1, "multi-tab isolation requires distinct keys per session");
+        assert_ne!(
+            k0, k1,
+            "multi-tab isolation requires distinct keys per session"
+        );
     }
 
     #[test]
     fn missing_event_session_falls_back_to_active() {
-        assert_eq!(
-            dialog_map_key(None, Some("sess-active")),
-            "sess-active"
-        );
+        assert_eq!(dialog_map_key(None, Some("sess-active")), "sess-active");
     }
 
     #[test]

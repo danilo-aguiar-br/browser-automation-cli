@@ -13,17 +13,21 @@
 //! | commands | Top-level Commands enum |
 //! | actions_browser | Page/cookie/console/net/dialog/assert/grab |
 //! | actions_media | Perf/screencast/heap/monitor |
-//! | actions_tools | Extension/devtools/webmcp/mitm/workflow/config/qr |
+//! | actions_tools | Extension/devtools/webmcp/mitm/workflow/config/qr/image |
+//! | actions_local_media | Local video pipeline (no Chrome) |
 
 use clap::Parser;
 
 mod actions_browser;
+mod actions_local_media;
 mod actions_media;
 mod actions_tools;
+pub mod agent_ops_args;
 mod commands;
 mod global;
 
 pub use actions_browser::*;
+pub use actions_local_media::*;
 pub use actions_media::*;
 pub use actions_tools::*;
 pub use commands::Commands;
@@ -55,4 +59,56 @@ pub struct Cli {
     /// Subcommand to execute (one-shot)
     #[command(subcommand)]
     pub command: Commands,
+}
+
+/// Stack bytes reserved for building the clap command tree off the main thread.
+///
+/// `Cli::command()` is one enormous generated function: every one of the
+/// top-level subcommands and their nested action enums is constructed inline,
+/// so the frame is a few MiB in the unoptimized `test` profile (measured need:
+/// just over 2 MiB, and it grows with each new flag). The process main thread
+/// has 8 MiB, so production argv parsing is unaffected, but libtest runs each
+/// test on a worker thread with a 2 MiB stack, which aborts the whole test
+/// binary with `has overflowed its stack`.
+///
+/// 16 MiB leaves ~8x headroom over the current measurement so the gate does not
+/// have to be retuned whenever a subcommand is added.
+pub const CLAP_TREE_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+/// Run `f` on a worker thread sized by [`CLAP_TREE_STACK_BYTES`].
+///
+/// Use this in tests (and any other non-main thread) that touch
+/// `Cli::command()`, `Cli::try_parse_from`, or anything that rebuilds the clap
+/// tree, so `cargo test` passes with no `RUST_MIN_STACK` in the environment.
+///
+/// Panics raised by `f` are re-raised on the calling thread, so `assert!`
+/// inside `f` still fails the test normally.
+///
+/// ```no_run
+/// use clap::CommandFactory;
+/// use browser_automation_cli::cli::{on_clap_stack, Cli};
+///
+/// let names: Vec<String> = on_clap_stack(|| {
+///     Cli::command()
+///         .get_subcommands()
+///         .map(|s| s.get_name().to_string())
+///         .collect()
+/// });
+/// assert!(!names.is_empty());
+/// ```
+pub fn on_clap_stack<T, F>(f: F) -> T
+where
+    F: FnOnce() -> T + Send,
+    T: Send,
+{
+    std::thread::scope(|scope| {
+        let handle = std::thread::Builder::new()
+            .stack_size(CLAP_TREE_STACK_BYTES)
+            .spawn_scoped(scope, f)
+            .expect("spawn clap-tree thread");
+        match handle.join() {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    })
 }

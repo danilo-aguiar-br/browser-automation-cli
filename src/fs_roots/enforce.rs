@@ -71,6 +71,19 @@ pub fn ensure_within_roots(
     // send the agent into an argv-correction loop that cannot converge, which
     // is the GAP-020 failure class. This is a policy refusal with a known
     // remediation, so it is `capability-disabled` (exit 64).
+    // Shell process substitution — `cmd <(printf ...)` — hands us a path under
+    // `/proc/<pid>/fd/<n>`. That is never inside an allowed root, so the generic
+    // refusal is correct but unhelpful: the caller reads "outside allowed roots"
+    // and starts hunting for a directory to whitelist, when the real answer is a
+    // different transport. `--script -` already reads NDJSON steps from stdin.
+    let looks_like_process_substitution = canonical
+        .to_str()
+        .is_some_and(|p| p.starts_with("/proc/") && p.contains("/fd/"));
+    let suggestion = if looks_like_process_substitution {
+        crate::i18n::suggestion_key("path_is_process_substitution", None)
+    } else {
+        crate::i18n::suggestion_key("path_outside_roots", None)
+    };
     Err(CliError::with_suggestion(
         ErrorKind::CapabilityDisabled,
         format!(
@@ -78,7 +91,7 @@ pub fn ensure_within_roots(
             use_kind.as_str(),
             canonical.display()
         ),
-        crate::i18n::suggestion_key("path_outside_roots", None),
+        suggestion,
     ))
 }
 

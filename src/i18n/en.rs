@@ -64,6 +64,21 @@ pub fn text(msg: UiMessage) -> &'static str {
         UiMessage::JsonObjectPayload => "Pass a single JSON object payload",
         UiMessage::RaiseSizeLimit => "Raise the byte ceiling via config set, or use a smaller input",
         UiMessage::RaiseTimeout => "Raise --timeout or --step-timeout, or reduce the work per step",
+        UiMessage::AgentOpsFilterSyntax => {
+            "Use key=value, key!=value or key~substring (dotted paths allowed)"
+        }
+        UiMessage::AgentOpsNoRows => {
+            "This command has no list; use --fields to project fields instead"
+        }
+        UiMessage::AgentOpsManyRows => {
+            "Narrow to one list with --fields <key>, then filter/sort/limit it"
+        }
+        UiMessage::AgentOpsOverBudget => {
+            "Raise --max-output-bytes, or narrow the payload with --fields"
+        }
+        UiMessage::UrlsFileTooLarge => {
+            "Split the list, or raise it with: config set max_urls_file_bytes <n>"
+        }
         UiMessage::ExternalBinaryPath => "Install the binary or set an absolute executable path via config set",
         UiMessage::LlmConfigRequired => "Set the LLM knobs: config set openrouter_api_key|llm_base_url|llm_model",
         UiMessage::RedisConfigRequired => "Start redis-server and set cache_redis_url, or: config set cache_backend sqlite",
@@ -92,6 +107,7 @@ pub fn text(msg: UiMessage) -> &'static str {
         UiMessage::StepFieldUnknown => "Check the allowed fields for this step cmd in schema run",
         UiMessage::XdgHomeRequired => "Ensure the home directory is available for this user",
         UiMessage::HeapCaptureFailed => "Ensure Chrome exposes HeapProfiler; re-run doctor and check event forwarders",
+        UiMessage::PathIsProcessSubstitution => "Read the steps from stdin with run --script - instead: shell process substitution exposes the file as /proc/<pid>/fd/<n>, which no allowed root can contain",
         UiMessage::PathOutsideRoots => "Keep the path under an allowed root, add one with config set allowed_roots, or pass --allow-outside-roots",
         UiMessage::MitmCapturePath => "Pass --capture-path <file> to read a capture written by another invocation",
         UiMessage::DragSameFrame => "Drag within one frame, or drive the iframe as its own target",
@@ -105,5 +121,68 @@ pub fn text(msg: UiMessage) -> &'static str {
         UiMessage::AssertStepOrder => "Place the assert after the step whose payload it checks",
         UiMessage::AssertStepOperator => "Use one of equals, contains or exists",
         UiMessage::AssertStepInspect => "Inspect the previous step payload with --json-steps and adjust path/expected",
+        UiMessage::ImageTooLarge => {
+            "Raise image_max_input_bytes or image_max_pixels via config set, or use a smaller image"
+        }
+        UiMessage::ImageMagicInvalid => {
+            "Pass a real image file (png/jpeg/webp/gif); magic bytes are checked, not the extension"
+        }
+        UiMessage::ImageFeatureDisabled => {
+            "Rebuild with the required Cargo feature (image-avif, image-heic, image-svg or media-manifest)"
+        }
+        UiMessage::ImageHeicEncodeUnavailable => {
+            "Encode to png, jpeg, webp, gif or avif; no pure-Rust HEVC encoder exists, so HEIC is decode-only"
+        }
+        UiMessage::SvgRejected => {
+            "Remove the DOCTYPE, script, event handler or external href, or raise svg_max_entities / svg_max_depth via config set"
+        }
+        UiMessage::VideoSiteExtractionRejected => {
+            "Pass the direct media URL; extracting streams from site players is rejected by rule, not deferred"
+        }
+        UiMessage::VideoManifestNotAFile => {
+            "Parse the manifest to pick a variant, then download that variant's direct URL"
+        }
+        UiMessage::VideoTooLarge => {
+            "Raise video_max_input_bytes via config set, or use a smaller file"
+        }
+        UiMessage::VideoMagicInvalid => {
+            "Pass a real video file (mp4/webm/mkv/…); magic bytes are checked, not the extension"
+        }
+        UiMessage::VideoFormatUnsupported => {
+            "Use mp4, webm, mkv, mov, avi, or m4v as --format"
+        }
+        UiMessage::VideoCodecContainerMismatch => {
+            "Pick codecs allowed for the output container (e.g. WebM: vp9+opus; no H.264 in WebM)"
+        }
+        UiMessage::FfmpegMissing => {
+            "Install ffmpeg/ffprobe and: config set ffmpeg_path <absolute-path>"
+        }
+        UiMessage::FfmpegFailed => {
+            "Check codecs/container, raise ffmpeg_timeout_secs, or pass explicit --video-codec/--audio-codec"
+        }
+        UiMessage::FfmpegIoFailed => {
+            "Ensure input is readable and output path is writable (parent dir exists; not read-only); check permissions"
+        }
+        UiMessage::ImageFormatUnsupported => {
+            "Use png, jpeg, webp or gif; AVIF is encode-only and HEIC/SVG need their Cargo feature"
+        }
+        UiMessage::AudioTooLarge => {
+            "Raise audio_max_input_bytes via config set, or use a smaller file"
+        }
+        UiMessage::AudioMagicInvalid => {
+            "Pass a real audio file (mp3/wav/flac/ogg/m4a/…); magic bytes are checked, not the extension"
+        }
+        UiMessage::AudioFormatUnsupported => {
+            "Use mp3, m4a, aac, ogg, opus, flac, or wav as --format"
+        }
+        UiMessage::HttpStatusScrape => {
+            "HTTP error page is not scraped as success; check status_code or use batch with --filter http_error=false"
+        }
+        UiMessage::MetaRobotsNoindex => {
+            "Page declares noindex (meta or X-Robots-Tag); honor robots or set scrape_honor_meta_robots=false intentionally"
+        }
+        UiMessage::AudioLossyTranscode => {
+            "Lossy→lossy recompress degrades quality; prefer lossless source or stream copy when possible"
+        }
     }
 }

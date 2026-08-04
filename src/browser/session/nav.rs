@@ -36,7 +36,11 @@ impl OneShotSession {
     ) -> Result<Value, CliError> {
         // GAP-026: contain the local scheme before the browser ever sees it.
         crate::fs_roots::ensure_file_url_allowed_default(url)?;
-        crate::robots::enforce_robots(url, robots, "browser-automation-cli").await?;
+        // Same user-agent the http engine sends (`scrape_local::http`,
+        // `scrape_local::sitemap`). A literal here meant the two engines matched
+        // robots rules under different identities, so the same site could be
+        // allowed on one path and denied on the other.
+        crate::robots::enforce_robots(url, robots, crate::constants::HTTP_USER_AGENT).await?;
         self.ref_map.clear();
 
         // Snapshot console/net before navigation so include_preserved can keep history.

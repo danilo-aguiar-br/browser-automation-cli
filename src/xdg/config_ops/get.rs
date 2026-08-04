@@ -48,12 +48,48 @@ fn get_one(cfg: &ProductConfig, key: &str) -> Result<Value, CliError> {
         "http_timeout_secs" => json!(cfg.http_timeout_secs),
         "http_connect_timeout_secs" => json!(cfg.http_connect_timeout_secs),
         "scrape_max_body_bytes" => json!(cfg.scrape_max_body_bytes),
+        "scrape_max_text_chars" => json!(cfg.scrape_max_text_chars),
+        "scrape_min_delay_ms" => json!(cfg.scrape_min_delay_ms),
+        "scrape_honor_meta_robots" => json!(cfg.scrape_honor_meta_robots),
+        "scrape_honor_nofollow" => json!(cfg.scrape_honor_nofollow),
+        "scrape_use_sitemap" => json!(cfg.scrape_use_sitemap),
+        "scrape_default_engine" => json!(cfg.scrape_default_engine),
+        "scrape_delay_jitter_ratio" => json!(cfg.scrape_delay_jitter_ratio),
+        "scrape_summary_chars" => json!(cfg.scrape_summary_chars),
+        "scrape_feed_max_entries" => json!(cfg.scrape_feed_max_entries),
+        "scrape_follow_rel_next" => json!(cfg.scrape_follow_rel_next),
+        "scrape_dedup_similar" => json!(cfg.scrape_dedup_similar),
+        "scrape_dedup_similar_distance" => json!(cfg.scrape_dedup_similar_distance),
+        "scrape_sitemap_max_bytes" => json!(cfg.scrape_sitemap_max_bytes),
+        "scrape_charset_peek_bytes" => json!(cfg.scrape_charset_peek_bytes),
         "llm_http_timeout_secs" => json!(cfg.llm_http_timeout_secs),
         "redis_allow_remote" => json!(cfg.redis_allow_remote),
+        "chrome_legacy_oxide_launch" => json!(cfg.chrome_legacy_oxide_launch),
         "redis_connect_timeout_secs" => json!(cfg.redis_connect_timeout_secs),
         "robots_loopback_exempt" => json!(cfg.robots_loopback_exempt),
         "chrome_search_paths" => json!(cfg.chrome_search_paths),
         "allowed_roots" => json!(cfg.allowed_roots),
+        "image_max_input_bytes" => json!(cfg.image_max_input_bytes),
+        "image_max_pixels" => json!(cfg.image_max_pixels),
+        "image_default_format" => json!(cfg.image_default_format),
+        "image_default_quality" => json!(cfg.image_default_quality),
+        "image_download_max_bytes" => json!(cfg.image_download_max_bytes),
+        "image_avif_speed" => json!(cfg.image_avif_speed),
+        "svg_max_bytes" => json!(cfg.svg_max_bytes),
+        "svg_max_depth" => json!(cfg.svg_max_depth),
+        "svg_max_entities" => json!(cfg.svg_max_entities),
+        "gif_max_frames" => json!(cfg.gif_max_frames),
+        "manifest_max_bytes" => json!(cfg.manifest_max_bytes),
+        "manifest_max_variants" => json!(cfg.manifest_max_variants),
+        "video_max_input_bytes" => json!(cfg.video_max_input_bytes),
+        "video_download_max_bytes" => json!(cfg.video_download_max_bytes),
+        "video_default_container" => json!(cfg.video_default_container),
+        "video_default_crf" => json!(cfg.video_default_crf),
+        "video_default_audio_bitrate" => json!(cfg.video_default_audio_bitrate),
+        "audio_max_input_bytes" => json!(cfg.audio_max_input_bytes),
+        "audio_download_max_bytes" => json!(cfg.audio_download_max_bytes),
+        "audio_default_format" => json!(cfg.audio_default_format),
+        "audio_default_bitrate" => json!(cfg.audio_default_bitrate),
         other => match crate::xdg::policy::policy_stored(&cfg.policy, other) {
             Some(stored) => json!(stored),
             None => {
@@ -84,8 +120,11 @@ pub fn config_get(key: Option<&str>) -> Result<Value, CliError> {
 /// added a key kept re-discovering that failure. Insertion has no such ceiling.
 fn full_dump(cfg: &ProductConfig) -> Result<Value, CliError> {
     let mut map = serde_json::Map::new();
+    // Agent-native CLEAN STDOUT: omit keys whose value is JSON null.
     let mut put = |key: &str, value: Value| {
-        map.insert(key.to_string(), value);
+        if !value.is_null() {
+            map.insert(key.to_string(), value);
+        }
     };
 
     put("lang", json!(cfg.lang));
@@ -155,8 +194,80 @@ fn full_dump(cfg: &ProductConfig) -> Result<Value, CliError> {
         json!(cfg.http_connect_timeout_secs),
     );
     put("scrape_max_body_bytes", json!(cfg.scrape_max_body_bytes));
+    put("scrape_max_text_chars", json!(cfg.scrape_max_text_chars));
+    put("scrape_min_delay_ms", json!(cfg.scrape_min_delay_ms));
+    put(
+        "scrape_honor_meta_robots",
+        json!(cfg.scrape_honor_meta_robots),
+    );
+    put("scrape_honor_nofollow", json!(cfg.scrape_honor_nofollow));
+    put("scrape_use_sitemap", json!(cfg.scrape_use_sitemap));
+    put("scrape_default_engine", json!(cfg.scrape_default_engine));
+    put(
+        "scrape_delay_jitter_ratio",
+        json!(cfg.scrape_delay_jitter_ratio),
+    );
+    put("scrape_summary_chars", json!(cfg.scrape_summary_chars));
+    put(
+        "scrape_feed_max_entries",
+        json!(cfg.scrape_feed_max_entries),
+    );
+    put("scrape_follow_rel_next", json!(cfg.scrape_follow_rel_next));
+    put("scrape_dedup_similar", json!(cfg.scrape_dedup_similar));
+    put(
+        "scrape_dedup_similar_distance",
+        json!(cfg.scrape_dedup_similar_distance),
+    );
+    put(
+        "scrape_sitemap_max_bytes",
+        json!(cfg.scrape_sitemap_max_bytes),
+    );
+    put(
+        "scrape_charset_peek_bytes",
+        json!(cfg.scrape_charset_peek_bytes),
+    );
     put("llm_http_timeout_secs", json!(cfg.llm_http_timeout_secs));
+    put("image_max_input_bytes", json!(cfg.image_max_input_bytes));
+    put("image_max_pixels", json!(cfg.image_max_pixels));
+    put("image_default_format", json!(cfg.image_default_format));
+    put("image_default_quality", json!(cfg.image_default_quality));
+    put(
+        "image_download_max_bytes",
+        json!(cfg.image_download_max_bytes),
+    );
+    put("image_avif_speed", json!(cfg.image_avif_speed));
+    put("svg_max_bytes", json!(cfg.svg_max_bytes));
+    put("svg_max_depth", json!(cfg.svg_max_depth));
+    put("svg_max_entities", json!(cfg.svg_max_entities));
+    put("gif_max_frames", json!(cfg.gif_max_frames));
+    put("manifest_max_bytes", json!(cfg.manifest_max_bytes));
+    put("manifest_max_variants", json!(cfg.manifest_max_variants));
+    put("video_max_input_bytes", json!(cfg.video_max_input_bytes));
+    put(
+        "video_download_max_bytes",
+        json!(cfg.video_download_max_bytes),
+    );
+    put(
+        "video_default_container",
+        json!(cfg.video_default_container),
+    );
+    put("video_default_crf", json!(cfg.video_default_crf));
+    put(
+        "video_default_audio_bitrate",
+        json!(cfg.video_default_audio_bitrate),
+    );
+    put("audio_max_input_bytes", json!(cfg.audio_max_input_bytes));
+    put(
+        "audio_download_max_bytes",
+        json!(cfg.audio_download_max_bytes),
+    );
+    put("audio_default_format", json!(cfg.audio_default_format));
+    put("audio_default_bitrate", json!(cfg.audio_default_bitrate));
     put("redis_allow_remote", json!(cfg.redis_allow_remote));
+    put(
+        "chrome_legacy_oxide_launch",
+        json!(cfg.chrome_legacy_oxide_launch),
+    );
     put(
         "redis_connect_timeout_secs",
         json!(cfg.redis_connect_timeout_secs),

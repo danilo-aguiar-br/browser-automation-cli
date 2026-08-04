@@ -17,7 +17,6 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use dispatch::{dispatch_event, dispatch_pending_release};
 pub use drag_html5::*;
 pub use form::*;
 pub use keyboard::*;

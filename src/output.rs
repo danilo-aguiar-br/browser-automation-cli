@@ -46,6 +46,35 @@ pub fn writeln_stdout(line: impl AsRef<str>) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Write many complete lines to stdout under a single lock, flushing once.
+///
+/// [`writeln_stdout`] takes the lock and flushes on every call, which is the
+/// right shape for a single envelope and the wrong shape for a batch: emitting
+/// a 1000-page NDJSON crawl through it costs 1000 lock acquisitions and 1000
+/// `write` syscalls. Per-line flush buys nothing here because this CLI is
+/// one-shot — it emits the batch and dies, so no consumer is waiting between
+/// lines.
+///
+/// # Errors
+///
+/// [`CliError`] with [`ErrorKind::BrokenPipe`] when stdout closes mid-batch.
+pub fn writeln_stdout_batch<I, S>(lines: I) -> Result<(), CliError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let stdout = io::stdout();
+    let mut out = io::BufWriter::new(stdout.lock());
+    for line in lines {
+        out.write_all(line.as_ref().as_bytes())
+            .map_err(|e| map_io_error(&e, "stdout"))?;
+        out.write_all(b"\n")
+            .map_err(|e| map_io_error(&e, "stdout"))?;
+    }
+    out.flush().map_err(|e| map_io_error(&e, "stdout"))?;
+    Ok(())
+}
+
 /// Write one complete line to stderr (adds `\n`) and flush.
 pub fn writeln_stderr(line: impl AsRef<str>) -> Result<(), CliError> {
     let mut err = io::stderr().lock();

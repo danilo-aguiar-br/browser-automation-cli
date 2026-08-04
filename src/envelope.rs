@@ -39,6 +39,14 @@ pub struct SuccessEnvelope {
     pub correlation_id: Option<String>,
     /// Command-specific payload (dynamic by design at the CLI boundary).
     pub data: Value,
+    /// What the universal data operations did, when any of them ran.
+    ///
+    /// Omitted entirely when no flag was passed, so an envelope nobody asked to
+    /// reduce keeps its exact previous shape. When present it carries
+    /// `truncated`, which is the difference between a short payload and a cut one
+    /// — a distinction the agent cannot recover from the payload itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_ops: Option<crate::agent_ops::AgentOpsReport>,
 }
 
 /// Error object nested under an error envelope.
@@ -88,11 +96,16 @@ pub struct ErrorEnvelope {
 /// print_success_json(json!({"ok_detail": true})).expect("stdout");
 /// ```
 pub fn print_success_json(data: Value) -> Result<(), CliError> {
+    // Payload reduction happens HERE, once, for all 69 commands. Doing it per
+    // command produced eight inconsistent implementations and left the most
+    // invoked diagnostic — `doctor`, at 26_277 bytes — with none at all.
+    let (data, agent_ops) = crate::agent_ops::apply_process_ops(data)?;
     let env = SuccessEnvelope {
         schema_version: crate::constants::ENVELOPE_SCHEMA_VERSION,
         ok: true,
         correlation_id: crate::agent_context::correlation_id(),
         data,
+        agent_ops,
     };
     output::write_json_line_ser(&env)
 }
@@ -151,6 +164,7 @@ mod tests {
             ok: true,
             correlation_id: None,
             data: json!({"x": 1}),
+            agent_ops: None,
         };
         let s = crate::json_util::to_compact_string(&env).unwrap();
         let v: Value = crate::json_util::from_str(&s).unwrap();

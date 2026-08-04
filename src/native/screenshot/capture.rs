@@ -69,13 +69,11 @@ pub async fn take_screenshot(
         Vec::new()
     };
 
-    let ext = if options.format == "jpeg" {
-        "jpg"
-    } else {
-        "png"
-    };
-    // Dual ownership of base64: disk write (spawn_blocking) + JSON result payload.
+    // BUG-IMG-001: honor webp extension (was forced to png).
+    let ext = super::types::screenshot_ext_for_format(options.format.as_str());
     // path/output_dir are small Options — clone is deliberate for the blocking task.
+    // BUG-IMG-004: retain base64 only when `--include-base64` opts in (agent-native default off).
+    let keep_b64 = options.include_base64;
     let path = save_screenshot_async(
         base64.clone(),
         options.path.clone(),
@@ -86,7 +84,7 @@ pub async fn take_screenshot(
 
     Ok(ScreenshotResult {
         path,
-        base64,
+        base64: if keep_b64 { Some(base64) } else { None },
         annotations,
     })
 }
@@ -100,7 +98,7 @@ async fn capture_screenshot_base64(
 ) -> Result<String, String> {
     let mut params = CaptureScreenshotParams {
         format: Some(options.format.clone()),
-        quality: if options.format == "jpeg" {
+        quality: if matches!(options.format.as_str(), "jpeg" | "jpg" | "webp") {
             options
                 .quality
                 .or(Some(crate::xdg::resolve_default_jpeg_quality()))

@@ -17,6 +17,7 @@ pub(crate) fn handle_grab(
     full_page: bool,
     quality: Option<i32>,
     element: Option<&str>,
+    include_base64: bool,
     artifacts: Option<&Path>,
     capture: CaptureOpts,
     timeout_secs: u64,
@@ -66,6 +67,7 @@ pub(crate) fn handle_grab(
                     full_page,
                     quality,
                     element_owned.as_deref(),
+                    include_base64,
                 )
                 .await;
             let close = session.shutdown().await;

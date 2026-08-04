@@ -5,5 +5,8 @@
 
 #[test]
 fn clap_command_factory_debug_assert_passes() {
-    browser_automation_cli::command_factory_debug_assert();
+    // Built off-thread: the generated tree needs more than libtest's 2 MiB.
+    browser_automation_cli::cli::on_clap_stack(
+        browser_automation_cli::command_factory_debug_assert,
+    );
 }

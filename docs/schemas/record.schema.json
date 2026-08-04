@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/record.schema.json",
+  "title": "record command input",
+  "type": "object",
+  "description": "Record page interactions as a replayable `run --script` NDJSON file",
+  "properties": {
+    "max_events": {
+      "argv": "--max-events",
+      "default": 200,
+      "description": "Recorded-step ceiling (first ceiling reached wins)",
+      "required": false,
+      "source": "parser",
+      "step_key": "max_events",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "integer"
+    },
+    "path": {
+      "argv": "--path",
+      "description": "Destination NDJSON file for the recorded steps",
+      "required": true,
+      "source": "parser",
+      "step_key": "path",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "seconds": {
+      "argv": "--seconds",
+      "default": 30,
+      "description": "Wall-clock recording ceiling in seconds (first ceiling reached wins)",
+      "required": false,
+      "source": "parser",
+      "step_key": "seconds",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "integer"
+    },
+    "url": {
+      "argv": "--url",
+      "description": "Absolute URL to open and record",
+      "required": true,
+      "source": "parser",
+      "step_key": "url",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "url",
+    "path"
+  ],
+  "additionalProperties": false
+}

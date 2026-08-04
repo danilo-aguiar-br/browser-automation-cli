@@ -151,6 +151,7 @@ pub(crate) fn grab(
     full_page: bool,
     quality: Option<i32>,
     element: Option<&str>,
+    include_base64: bool,
 ) -> i32 {
     result_code(
         handle_grab(
@@ -160,6 +161,7 @@ pub(crate) fn grab(
             full_page,
             quality,
             element,
+            include_base64,
             ctx.artifacts.as_deref(),
             ctx.capture,
             ctx.timeout_secs,

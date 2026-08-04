@@ -86,12 +86,8 @@ pub fn encode(text: &str, format: &str, path: Option<&Path>) -> Result<Value, Cl
 
 /// Decode QR payload from an image file.
 pub fn decode(path: &Path) -> Result<Value, CliError> {
-    let img = image::open(path).map_err(|e| {
-        CliError::new(
-            ErrorKind::Io,
-            format!("qr decode open {}: {e}", path.display()),
-        )
-    })?;
+    // Magic-first decode (rules: never trust extension).
+    let img = crate::image_local::decode_path_for_qr(path)?;
     let luma = img.to_luma8();
     let mut prepared = rqrr::PreparedImage::prepare(luma);
     let grids = prepared.detect_grids();

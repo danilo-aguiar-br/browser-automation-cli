@@ -37,7 +37,11 @@ mod tests;
 pub const FINALIZE_CHILD_GRACE: Duration =
     Duration::from_secs(crate::constants::FINALIZE_CHILD_GRACE_SECS);
 
-pub use kill::kill_unix_graceful;
+#[cfg(unix)]
+pub use kill::{
+    descendant_pids, descendants_in_index, kill_unix_graceful, kill_unix_group_graceful,
+    kill_unix_tree,
+};
 pub use ledger::{Lifecycle, ResourceLedger};
-pub use mark::{mark_profile_dir, mark_side_channel};
+pub use mark::mark_side_channel;
 pub use tls::{current_cancel, current_lifecycle};

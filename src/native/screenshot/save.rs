@@ -33,11 +33,10 @@ pub(crate) fn save_screenshot(
     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_data)
         .map_err(|e| format!("Failed to decode screenshot: {e}"))?;
 
-    // Sync write is OK here: `save_screenshot` is called from async only via
-    // `spawn_blocking` wrapper or short one-shot paths; keep std::fs for decode+write
-    // atomicity on the blocking path. Callers in async should prefer
-    // [`save_screenshot_async`].
-    std::fs::write(&save_path, &bytes)
+    // BUG-IMG-003: atomic write (tmp + fsync + rename) so kill mid-write cannot
+    // leave a truncated artifact. Runs on spawn_blocking / one-shot paths only.
+    let path = std::path::Path::new(&save_path);
+    crate::image_local::write_bytes_atomic(path, &bytes)
         .map_err(|e| format!("Failed to save screenshot to {save_path}: {e}"))?;
 
     Ok(save_path)

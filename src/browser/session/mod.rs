@@ -4,6 +4,7 @@
 //! Component map (Pass 25 — stdin/stdout agent audit / SRP):
 //! - `launch` — Chrome launch + capture domain enable + event pump
 //! - `nav` — navigation / init scripts
+//! - `record` — interaction recording into `run --script` steps
 //! - `content/` — scrape/view, input, eval, PDF/grab, extract (Tier-3 SRP)
 //! - `assert_net` — cookies, asserts, console/network buffers
 //! - `interact` — input, history, multi-page
@@ -18,6 +19,7 @@ mod interact;
 mod launch;
 mod media;
 mod nav;
+mod record;
 mod storage;
 mod wait_emulate;
 

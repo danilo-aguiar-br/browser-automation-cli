@@ -27,8 +27,10 @@
 //! `dispatch`, rather than growing unrelated helpers in this file.
 #![allow(missing_docs)] // clap/handler surface; agent UX is `--help` + skills (D-02/D-11)
 
-mod common;
+pub(crate) mod common;
 mod dispatch;
+mod local_audio;
+mod local_video;
 mod meta;
 mod nav;
 mod ops;

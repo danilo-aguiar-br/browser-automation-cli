@@ -136,6 +136,19 @@ where
     // Agent correlation: optional global flag → process-local context (envelopes / NDJSON).
     crate::agent_context::set_correlation_id(cli.globals.correlation_id.clone());
 
+    // Universal data operations (agent CLEAN STDOUT). Parsed and validated HERE,
+    // before the command runs, so a malformed `--filter` costs an argv error and
+    // not a completed browser session whose output is then rejected.
+    match cli.globals.agent_ops.to_ops() {
+        Ok(ops) => crate::agent_ops::set_agent_ops(Some(ops)),
+        Err(err) => {
+            let code = err.exit_code();
+            let _ = crate::envelope::print_error_json(&err);
+            let _ = crate::output::flush_stdout();
+            return ExitCode::from(code);
+        }
+    }
+
     // Process-wide concurrency budget (rules_rust_paralelismo): every fan-out
     // reads `concurrency::effective_limit()`. `0` = auto (CPU × free RAM).
     crate::concurrency::install_limit(cli.globals.max_concurrency);
@@ -191,12 +204,21 @@ pub fn exit_code_for(err: &CliError) -> u8 {
 
 /// Build identity for `version` and packaging diagnostics.
 ///
-/// `git_sha` / `build_timestamp` come from `build.rs` (`cargo:rustc-env`).
+/// `git_sha` / `source_hash` / `build_timestamp` come from `build.rs`
+/// (`cargo:rustc-env`).
+///
+/// `git_sha` names the last commit; `source_hash` fingerprints the bytes that
+/// were actually compiled. They diverge whenever the worktree is modified, and
+/// that divergence is the point: an agent reproducing a run checks out
+/// `git_sha`, rebuilds, and compares `source_hash` to know whether it holds the
+/// same code. There is deliberately no `dirty` flag — see `emit_source_hash` in
+/// `build.rs` for why no cheap heuristic can honestly claim a clean tree.
 pub fn build_identity() -> serde_json::Value {
     serde_json::json!({
         "name": env!("CARGO_PKG_NAME"),
         "version": env!("CARGO_PKG_VERSION"),
         "git_sha": option_env!("GIT_SHA").unwrap_or("unknown"),
+        "source_hash": option_env!("SOURCE_HASH").unwrap_or("unknown"),
         "build_timestamp": option_env!("BUILD_TIMESTAMP").unwrap_or("unknown"),
     })
 }

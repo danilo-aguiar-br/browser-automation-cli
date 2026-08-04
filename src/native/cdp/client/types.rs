@@ -25,6 +25,8 @@ use super::super::types::CdpEvent;
 pub struct CdpClient {
     pub(crate) browser: Arc<Mutex<Browser>>,
     pub(crate) event_tx: broadcast::Sender<CdpEvent>,
-    pub(crate) _handler: JoinHandle<()>,
+    /// Event pump. Named (not `_handler`) because FINALIZE aborts it explicitly
+    /// via [`CdpClient::stop_event_pump`] before the transport is torn down.
+    pub(crate) handler: JoinHandle<()>,
     pub(crate) _event_forwarders: Vec<JoinHandle<()>>,
 }

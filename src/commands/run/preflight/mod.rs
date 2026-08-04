@@ -46,7 +46,9 @@ use validate::{validate_capabilities, validate_steps};
 ///
 /// A cycle is caught exactly by the path stack; this is the backstop for a deep
 /// but acyclic tree that would otherwise exhaust the stack.
-pub(super) const MAX_INCLUDE_DEPTH: usize = 16;
+pub(super) fn max_include_depth() -> usize {
+    crate::xdg::policy::policy_usize(crate::xdg::policy::key::RUN_MAX_INCLUDE_DEPTH)
+}
 
 /// Step command that splices another script file in place.
 pub(super) const INCLUDE_CMD: &str = "include";

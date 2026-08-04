@@ -6,6 +6,7 @@
 //! | Module | Responsibility |
 //! |--------|----------------|
 //! | chrome | Engine dispatch and one-shot launch |
+//! | chrome_engine | Self-spawn vs legacy chromiumoxide launch strategies |
 //! | targets | Target discovery and attach |
 //! | domains | Domain enablement and debugger resume |
 //! | lightpanda | Lightpanda attach retry and startup deadline |
@@ -14,6 +15,7 @@
 //! working.
 
 mod chrome;
+mod chrome_engine;
 mod domains;
 mod lightpanda;
 mod targets;

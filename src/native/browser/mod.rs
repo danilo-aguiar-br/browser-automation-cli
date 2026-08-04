@@ -23,6 +23,7 @@
 use rustc_hash::FxHashSet;
 use std::sync::Arc;
 
+use crate::native::cdp::chrome::ChromeProcess;
 use crate::native::cdp::client::CdpClient;
 use crate::native::cdp::lightpanda::LightpandaProcess;
 
@@ -40,10 +41,17 @@ mod tests;
 pub use types::{format_tab_id, is_valid_label, PageInfo, TabRef, WaitUntil};
 pub use validate::{to_ai_friendly_error, validate_launch_options};
 
-/// Chrome one-shot is owned by chromiumoxide (`owns_oxide_browser`).
+/// A browser child this invocation spawned and is therefore responsible for.
+///
+/// The Chrome variant exists so `chrome_pid()` can answer with a real pid. While
+/// Chrome was forked inside `chromiumoxide::Browser::launch` the product owned
+/// no `Child`, so FINALIZE had nothing to signal and a hard-killed CLI orphaned
+/// the whole browser tree.
 pub enum BrowserProcess {
     /// A Lightpanda process this invocation spawned and must reap.
     Lightpanda(LightpandaProcess),
+    /// A Chrome process this invocation spawned and must reap.
+    Chrome(ChromeProcess),
 }
 
 impl BrowserProcess {
@@ -51,6 +59,7 @@ impl BrowserProcess {
     pub fn kill(&mut self) {
         match self {
             BrowserProcess::Lightpanda(p) => p.kill(),
+            BrowserProcess::Chrome(p) => p.kill(),
         }
     }
 
@@ -58,6 +67,7 @@ impl BrowserProcess {
     pub fn wait_or_kill(&mut self, timeout: std::time::Duration) {
         match self {
             BrowserProcess::Lightpanda(p) => p.wait_or_kill(timeout),
+            BrowserProcess::Chrome(p) => p.wait_or_kill(timeout),
         }
     }
 
@@ -65,6 +75,7 @@ impl BrowserProcess {
     pub fn has_exited(&mut self) -> bool {
         match self {
             BrowserProcess::Lightpanda(p) => p.has_exited(),
+            BrowserProcess::Chrome(p) => p.has_exited(),
         }
     }
 
@@ -72,6 +83,19 @@ impl BrowserProcess {
     pub fn id(&self) -> Option<u32> {
         match self {
             BrowserProcess::Lightpanda(p) => p.id(),
+            BrowserProcess::Chrome(p) => p.id(),
+        }
+    }
+
+    /// POSIX process group of the child, when the host models one.
+    ///
+    /// `Some` lets FINALIZE signal the whole tree with `kill(-pgid, …)` instead
+    /// of only the launcher pid. Lightpanda is spawned without a dedicated group
+    /// and therefore reports `None`.
+    pub fn pgid(&self) -> Option<i32> {
+        match self {
+            BrowserProcess::Lightpanda(_) => None,
+            BrowserProcess::Chrome(p) => p.pgid(),
         }
     }
 }

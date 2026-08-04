@@ -19,11 +19,18 @@ impl BrowserManager {
         }
 
         if self.browser_process.is_some() {
-            // Lightpanda (or other process we spawned): ask browser to close, then reap.
+            // A process we spawned (Chrome self-spawn or Lightpanda): ask the
+            // browser to close, then reap.
             let _ = self
                 .client
                 .send_command_no_params("Browser.close", None)
                 .await;
+            // Stop the event pump BEFORE the socket dies. `Browser.close` drops
+            // the WebSocket without a closing handshake, and chromiumoxide logs
+            // that at ERROR from inside its handler — on a run that succeeded.
+            // Ordering the abort here means the reset is never observed, rather
+            // than observed and filtered.
+            self.client.stop_event_pump();
         }
 
         if let Some(mut process) = self.browser_process.take() {

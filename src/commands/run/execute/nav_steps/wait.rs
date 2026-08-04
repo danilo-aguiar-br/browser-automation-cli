@@ -84,7 +84,7 @@ pub(super) async fn wait(session: &mut OneShotSession, step: &Value) -> Result<V
     .and_then(coerce_window_ms)
     .map(|v| {
         if v == 0 {
-            crate::constants::DEFAULT_NETWORK_IDLE_WINDOW_MS
+            crate::xdg::policy::policy_u64(crate::xdg::policy::key::DEFAULT_NETWORK_IDLE_WINDOW_MS)
         } else {
             v
         }
@@ -96,7 +96,7 @@ pub(super) async fn wait(session: &mut OneShotSession, step: &Value) -> Result<V
     .and_then(coerce_window_ms)
     .map(|v| {
         if v == 0 {
-            crate::constants::DEFAULT_DOM_STABLE_WINDOW_MS
+            crate::xdg::policy::policy_u64(crate::xdg::policy::key::DEFAULT_DOM_STABLE_WINDOW_MS)
         } else {
             v
         }

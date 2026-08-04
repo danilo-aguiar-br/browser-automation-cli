@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Single-URL HTTP scrape (I/O + spawn_blocking parse).
+//! Single-URL HTTP fetch: robots, SSRF policy, cache, retry and charset decode.
+//!
+//! Payload shaping lives in [`super::payload`]; this module only produces bytes
+//! and hands the decoded HTML over for envelope construction.
 
 use std::time::Duration;
 
-use scraper::Html;
 use serde_json::{json, Value};
 
 use crate::cache::{self};
 use crate::error::{CliError, ErrorKind};
 use crate::robots::{shared_http_client, RobotsPolicy};
 
-use super::html::{
-    extract_branding_hints, extract_json_ld_product, extract_links, extract_main_html,
-    html_to_markdown_simple, meta_content, text_of_first, visible_text,
-};
+use super::directives::{merge_robots, parse_meta_robots, parse_x_robots_tag};
+use super::encoding::decode_html_body;
+use super::payload::build_scrape_payload_blocking;
 use super::scheme::reject_non_http_scheme_for_http_engine;
-use super::types::{ScrapeFormat, ScrapeOpts, HTTP_USER_AGENT};
+use super::types::{ScrapeOpts, HTTP_USER_AGENT};
 
 /// HTTP static scrape (no Chrome).
 pub async fn scrape_http(
@@ -29,19 +30,29 @@ pub async fn scrape_http(
     crate::net::assert_safe_http_url(url)?;
 
     crate::robots::enforce_robots(url, robots, HTTP_USER_AGENT).await?;
+    // Politeness: Crawl-delay + XDG floor (per origin).
+    let crawl_delay_secs = crate::robots::wait_origin(url).await;
 
     // GAP-011: layered XDG cache for GET scrape (hit skips network).
     let cache_key = cache::CacheKey::http_get(url);
     if let Ok(Some(entry)) = cache::get_async(&cache_key).await {
-        if let Ok(html) = String::from_utf8(entry.body) {
-            let mut payload =
-                build_scrape_payload_blocking(url.to_string(), 200, html, opts.clone(), robots)
-                    .await?;
-            if let Some(obj) = payload.as_object_mut() {
-                obj.insert("cache_hit".into(), json!(true));
+        // Re-decode cached bytes (BUG-CACHE-UTF8: never assume UTF-8 only).
+        let decoded = decode_html_body(&entry.body, entry.content_type.as_deref());
+        let mut payload =
+            build_scrape_payload_blocking(url.to_string(), 200, decoded.text, opts.clone(), robots)
+                .await?;
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("cache_hit".into(), json!(true));
+            obj.insert("change_status".into(), json!("unchanged"));
+            obj.insert("charset".into(), json!(decoded.charset));
+            if decoded.had_errors {
+                obj.insert("charset_had_errors".into(), json!(true));
             }
-            return Ok(payload);
+            if crawl_delay_secs > 0.0 {
+                obj.insert("crawl_delay_secs".into(), json!(crawl_delay_secs));
+            }
         }
+        return Ok(payload);
     }
 
     // Process-wide client (keep-alive + TLS session reuse across batch/crawl).
@@ -50,16 +61,35 @@ pub async fn scrape_http(
     // GAP-013: retry transient HTTP failures with named policy.
     let cfg = crate::retry::RetryConfig::http();
     let mut attempt = 0u32;
-    let (status, final_url, bytes) = loop {
+    let (status, final_url, bytes, content_type, x_robots) = loop {
         attempt += 1;
-        match client.get(url).send().await {
+        let mut req = client.get(url);
+        for (name, value) in &opts.extra_headers {
+            if let (Ok(n), Ok(v)) = (
+                reqwest::header::HeaderName::from_bytes(name.as_bytes()),
+                reqwest::header::HeaderValue::from_str(value),
+            ) {
+                req = req.header(n, v);
+            }
+        }
+        match req.send().await {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 let final_url = resp.url().to_string();
+                let content_type = resp
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_string());
+                let x_robots = resp
+                    .headers()
+                    .get("x-robots-tag")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_string());
                 // N24: re-check SSRF on post-redirect URL (literal private targets).
                 crate::net::assert_safe_http_url(&final_url)?;
                 match crate::net::read_body_limited(resp, opts.max_body_bytes).await {
-                    Ok(bytes) => break (status, final_url, bytes),
+                    Ok(bytes) => break (status, final_url, bytes, content_type, x_robots),
                     Err(e) if e.kind() == ErrorKind::Data => return Err(e),
                     Err(e) => {
                         let err = e.message().to_string();
@@ -79,15 +109,40 @@ pub async fn scrape_http(
         }
         tokio::time::sleep(cfg.delay_for_attempt(attempt.saturating_sub(1))).await;
     };
-    // Pre-reserve before UTF-8 lossy copy (rules: try_reserve on external bodies).
-    let mut html = String::new();
-    html.try_reserve(bytes.len()).map_err(|e| {
-        CliError::new(
-            ErrorKind::Unavailable,
-            format!("scrape body reserve failed ({} bytes): {e}", bytes.len()),
-        )
-    })?;
-    html.push_str(&String::from_utf8_lossy(&bytes));
+
+    // NC-SCRAPE-HTTP-STATUS: 4xx/5xx are structured errors (never silent success text).
+    if status >= 400 {
+        return Err(CliError::with_suggestion(
+            if status >= 500 {
+                ErrorKind::Unavailable
+            } else {
+                ErrorKind::Data
+            },
+            format!("HTTP {status} for {final_url}"),
+            crate::i18n::suggestion_key("http_status_scrape", None),
+        ));
+    }
+
+    let decoded = decode_html_body(&bytes, content_type.as_deref());
+    let html = decoded.text;
+
+    // Meta / X-Robots noindex under honor policy.
+    if opts.honor_meta_robots && matches!(robots, RobotsPolicy::Honor) {
+        let header = parse_x_robots_tag(x_robots.as_deref());
+        let meta = parse_meta_robots(&html);
+        let merged = merge_robots(header, meta);
+        if merged.noindex {
+            return Err(CliError::with_suggestion(
+                ErrorKind::Data,
+                format!(
+                    "blocked by page robots noindex ({}): {final_url}",
+                    merged.source
+                ),
+                crate::i18n::suggestion_key("meta_robots_noindex", None),
+            ));
+        }
+    }
+
     {
         let mut body = Vec::new();
         if body.try_reserve_exact(html.len()).is_ok() {
@@ -99,7 +154,7 @@ pub async fn scrape_http(
             &cache_key,
             cache::CacheEntry {
                 body,
-                content_type: Some("text/html".into()),
+                content_type: content_type.clone().or_else(|| Some("text/html".into())),
                 expires_unix: cache::expires_after(Duration::from_secs(
                     crate::xdg::policy::policy_u64(
                         crate::xdg::policy::key::SCRAPE_HTTP_CACHE_TTL_SECS,
@@ -114,116 +169,15 @@ pub async fn scrape_http(
         build_scrape_payload_blocking(final_url, status, html, opts.clone(), robots).await?;
     if let Some(obj) = payload.as_object_mut() {
         obj.insert("cache_hit".into(), json!(false));
+        obj.insert("change_status".into(), json!("fresh"));
         obj.insert("http_attempts".into(), json!(attempt));
+        obj.insert("charset".into(), json!(decoded.charset));
+        if decoded.had_errors {
+            obj.insert("charset_had_errors".into(), json!(true));
+        }
+        if crawl_delay_secs > 0.0 {
+            obj.insert("crawl_delay_secs".into(), json!(crawl_delay_secs));
+        }
     }
     Ok(payload)
-}
-
-/// Run [`build_scrape_payload`] on Tokio's blocking pool (CPU-bound HTML parse).
-///
-/// Bound by the caller's Semaphore permit when used from batch/crawl tasks so
-/// `max_blocking_threads` cannot be saturated independently of I/O admits.
-async fn build_scrape_payload_blocking(
-    source_url: String,
-    status: u16,
-    html: String,
-    opts: ScrapeOpts,
-    robots: RobotsPolicy,
-) -> Result<Value, CliError> {
-    tokio::task::spawn_blocking(move || {
-        build_scrape_payload(&source_url, status, &html, &opts, robots)
-    })
-    .await
-    .map_err(|e| {
-        if e.is_panic() {
-            CliError::new(ErrorKind::Software, "scrape HTML parse task panicked")
-        } else {
-            CliError::new(ErrorKind::Software, format!("scrape HTML parse join: {e}"))
-        }
-    })
-}
-
-/// Build agent envelope data from HTML.
-pub fn build_scrape_payload(
-    source_url: &str,
-    status: u16,
-    html: &str,
-    opts: &ScrapeOpts,
-    robots: RobotsPolicy,
-) -> Value {
-    let document = Html::parse_document(html);
-    let title = text_of_first(&document, "title");
-    let description = meta_content(&document, "description")
-        .or_else(|| meta_content(&document, "og:description"))
-        .unwrap_or_default();
-    let body_html = if opts.only_main_content {
-        extract_main_html(&document).unwrap_or_else(|| html.to_string())
-    } else {
-        html.to_string()
-    };
-    let body_doc = Html::parse_document(&body_html);
-    let text = visible_text(&body_doc);
-    let markdown = html_to_markdown_simple(&body_html, &title);
-    let links = extract_links(source_url, &document);
-
-    let mut data = json!({
-        "source_url": source_url,
-        "status_code": status,
-        "title": title,
-        "robots_policy": robots.as_str(),
-        "engine": opts.engine,
-        "format": format!("{:?}", opts.format).to_ascii_lowercase(),
-    });
-
-    match opts.format {
-        ScrapeFormat::Text => {
-            data["text"] = json!(text);
-        }
-        ScrapeFormat::Markdown => {
-            data["markdown"] = json!(markdown);
-            data["text"] = json!(text);
-        }
-        ScrapeFormat::Html => {
-            data["html"] = json!(body_html);
-        }
-        ScrapeFormat::Links => {
-            data["links"] = json!(links);
-        }
-        ScrapeFormat::Metadata => {
-            data["metadata"] = json!({
-                "title": title,
-                "description": description,
-                "status_code": status,
-                "source_url": source_url,
-                "link_count": links.len(),
-            });
-        }
-        ScrapeFormat::Screenshot => {
-            // Browser path attaches path after grab; HTTP engine notes unsupported.
-            data["text"] = json!(text);
-            data["screenshot"] = json!({
-                "note": "screenshot format requires --engine browser; use grab for explicit capture",
-                "path": null,
-            });
-        }
-        ScrapeFormat::Summary => {
-            let summary = if text.len() > 400 {
-                format!("{}…", text.chars().take(400).collect::<String>())
-            } else {
-                text.clone()
-            };
-            data["summary"] = json!(summary);
-            data["text"] = json!(text);
-            data["llm_required_for_full"] = json!(true);
-        }
-        ScrapeFormat::Product => {
-            data["product"] = extract_json_ld_product(html);
-            data["text"] = json!(text);
-        }
-        ScrapeFormat::Branding => {
-            data["branding"] = extract_branding_hints(html, &title);
-            data["text"] = json!(text);
-        }
-    }
-    data
 }

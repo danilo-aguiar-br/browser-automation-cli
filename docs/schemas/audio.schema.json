@@ -1,0 +1,508 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/audio.schema.json",
+  "title": "audio command input",
+  "type": "object",
+  "description": "Local audio pipeline one-shot (no Chrome): info/download/convert/trim",
+  "properties": {
+    "action": {
+      "actions": {
+        "convert": {
+          "description": "Convert / remux audio (path→path via optional ffmpeg; smart copy/re-encode; `-vn`)",
+          "properties": {
+            "audio_stream": {
+              "argv": "--audio-stream",
+              "description": "Audio stream index (default 0)",
+              "required": false,
+              "source": "parser",
+              "step_key": "audio_stream",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "bitrate": {
+              "argv": "--bitrate",
+              "description": "Audio bitrate for lossy encode (default: XDG audio_default_bitrate)",
+              "required": false,
+              "source": "parser",
+              "step_key": "bitrate",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "channels": {
+              "argv": "--channels",
+              "description": "Channel count (optional re-encode)",
+              "required": false,
+              "source": "parser",
+              "step_key": "channels",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "codec": {
+              "argv": "--codec",
+              "description": "Audio codec: copy | mp3 | aac | opus | vorbis | flac | pcm | … (default: smart copy)",
+              "required": false,
+              "source": "parser",
+              "step_key": "codec",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "format": {
+              "argv": "--format",
+              "description": "Output format: mp3 | m4a | aac | ogg | opus | flac | wav",
+              "required": false,
+              "source": "parser",
+              "step_key": "format",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output path (default under XDG cache)",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Input audio path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "sample_rate": {
+              "argv": "--sample-rate",
+              "description": "Sample rate Hz (optional re-encode)",
+              "required": false,
+              "source": "parser",
+              "step_key": "sample_rate",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV); aliases: format→container|container_out, bytes|size→bytes_out, path→path|path_out, duration→duration_secs, codec→audio_codec",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Materialize stdin to a capped temp file",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "strip_metadata": {
+              "argv": "--strip-metadata",
+              "description": "Strip container metadata (opt-in; default preserves)",
+              "required": false,
+              "source": "parser",
+              "step_key": "strip_metadata",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "download": {
+          "description": "Download a direct media URL (SSRF + body cap + magic verify)",
+          "properties": {
+            "allow_non_audio": {
+              "argv": "--allow-non-audio",
+              "description": "Allow non-audio bodies (disables magic fail-closed)",
+              "required": false,
+              "source": "parser",
+              "step_key": "allow_non_audio",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "max_bytes": {
+              "argv": "--max-bytes",
+              "description": "Max body bytes (default: XDG audio_download_max_bytes)",
+              "required": false,
+              "source": "parser",
+              "step_key": "max_bytes",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "integer"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output path (default under XDG cache)",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "require_audio": {
+              "argv": "--require-audio",
+              "default": true,
+              "description": "Fail closed unless body is a known audio container magic (default)",
+              "required": false,
+              "source": "parser",
+              "step_key": "require_audio",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV); aliases: format→container, bytes→bytes, path→path",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "argv": "<URL>",
+              "description": "http(s) URL of the media file (not a site player page)",
+              "required": true,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "info": {
+          "description": "Probe container magic + audio streams (ffprobe when available; no media dump)",
+          "properties": {
+            "path": {
+              "argv": "--path",
+              "description": "Audio file path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV): path,container,audio_codec,duration_secs,sha256,…; aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs, codec→audio_codec",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Materialize stdin to a capped temp file",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            }
+          }
+        },
+        "trim": {
+          "description": "Trim a time range (path→path via optional ffmpeg)",
+          "properties": {
+            "bitrate": {
+              "argv": "--bitrate",
+              "description": "Bitrate when re-encoding (default: XDG audio_default_bitrate)",
+              "required": false,
+              "source": "parser",
+              "step_key": "bitrate",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "codec": {
+              "argv": "--codec",
+              "description": "Audio codec intent (default: copy when muxable)",
+              "required": false,
+              "source": "parser",
+              "step_key": "codec",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "duration": {
+              "argv": "--duration",
+              "description": "Duration in seconds (mutually exclusive with `--to`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "duration",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "number"
+            },
+            "format": {
+              "argv": "--format",
+              "description": "Output format override (default: inferred / XDG)",
+              "required": false,
+              "source": "parser",
+              "step_key": "format",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "out": {
+              "argv": "--out",
+              "description": "Output path (default under XDG cache)",
+              "required": false,
+              "source": "parser",
+              "step_key": "out",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Input audio path (omit with `--stdin`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "select": {
+              "argv": "--select",
+              "description": "Project envelope fields (CSV); aliases: format→container|container_out, bytes|size→bytes_out, path→path|path_out, duration→duration_secs, codec→audio_codec",
+              "required": false,
+              "source": "parser",
+              "step_key": "select",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "start": {
+              "argv": "--start",
+              "description": "Start time in seconds",
+              "required": true,
+              "source": "parser",
+              "step_key": "start",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "number"
+            },
+            "stdin": {
+              "argv": "--stdin",
+              "description": "Materialize stdin to a capped temp file",
+              "required": false,
+              "source": "parser",
+              "step_key": "stdin",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "boolean"
+            },
+            "to": {
+              "argv": "--to",
+              "description": "End time in seconds (exclusive end; use with `--start`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "to",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "number"
+            }
+          }
+        }
+      },
+      "argv": "<ACTION>",
+      "description": "Subcommand action word",
+      "enum": [
+        "info",
+        "download",
+        "convert",
+        "trim"
+      ],
+      "required": true,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "allow_non_audio": {
+      "source": "catalog",
+      "step_key": "allow_non_audio",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "audio_stream": {
+      "minimum": 0,
+      "source": "catalog",
+      "step_key": "audio_stream",
+      "surfaces": [],
+      "type": "integer"
+    },
+    "bitrate": {
+      "source": "catalog",
+      "step_key": "bitrate",
+      "surfaces": [],
+      "type": "string"
+    },
+    "channels": {
+      "minimum": 1,
+      "source": "catalog",
+      "step_key": "channels",
+      "surfaces": [],
+      "type": "integer"
+    },
+    "codec": {
+      "source": "catalog",
+      "step_key": "codec",
+      "surfaces": [],
+      "type": "string"
+    },
+    "duration": {
+      "description": "Trim duration seconds (action=trim; exclusive with to)",
+      "source": "catalog",
+      "step_key": "duration",
+      "surfaces": [],
+      "type": "number"
+    },
+    "format": {
+      "enum": [
+        "mp3",
+        "m4a",
+        "aac",
+        "ogg",
+        "opus",
+        "flac",
+        "wav"
+      ],
+      "source": "catalog",
+      "step_key": "format",
+      "surfaces": [],
+      "type": "string"
+    },
+    "max_bytes": {
+      "minimum": 1,
+      "source": "catalog",
+      "step_key": "max_bytes",
+      "surfaces": [],
+      "type": "integer"
+    },
+    "out": {
+      "source": "catalog",
+      "step_key": "out",
+      "surfaces": [],
+      "type": "string"
+    },
+    "path": {
+      "source": "catalog",
+      "step_key": "path",
+      "surfaces": [],
+      "type": "string"
+    },
+    "require_audio": {
+      "source": "catalog",
+      "step_key": "require_audio",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "sample_rate": {
+      "minimum": 1,
+      "source": "catalog",
+      "step_key": "sample_rate",
+      "surfaces": [],
+      "type": "integer"
+    },
+    "select": {
+      "description": "CSV field projection; aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs, codec→audio_codec",
+      "source": "catalog",
+      "step_key": "select",
+      "surfaces": [],
+      "type": "string"
+    },
+    "start": {
+      "description": "Trim start seconds (action=trim)",
+      "source": "catalog",
+      "step_key": "start",
+      "surfaces": [],
+      "type": "number"
+    },
+    "stdin": {
+      "source": "catalog",
+      "step_key": "stdin",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "strip_metadata": {
+      "source": "catalog",
+      "step_key": "strip_metadata",
+      "surfaces": [],
+      "type": "boolean"
+    },
+    "to": {
+      "description": "Trim end seconds (action=trim; exclusive with duration)",
+      "source": "catalog",
+      "step_key": "to",
+      "surfaces": [],
+      "type": "number"
+    },
+    "url": {
+      "source": "catalog",
+      "step_key": "url",
+      "surfaces": [],
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

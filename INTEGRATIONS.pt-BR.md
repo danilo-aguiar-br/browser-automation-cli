@@ -17,14 +17,14 @@
 - Use `grab --path <file>` (não path posicional bare)
 - Use `wait --text` repetível para semântica OR entre várias strings
 - Use `scrape --format` / `scrape --engine` para formatos de scrape local
-- Scrape browser aplica `--format` via outerHTML (markdown/html/links/metadata/raw-html/screenshot/summary/product/branding)
+- Scrape browser aplica `--format` via outerHTML; 14 formatos vivos: `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed` (`raw-html` continua alias aceito de `rawHtml`)
 - `0.1.0` entrega a superfície de paridade DevTools default-on mais gates de categoria
 - `0.1.1` adiciona `config` XDG, MITM local, journal de workflow e superfície local scrape/crawl/map/search/parse (`batch-scrape`, `crawl`, `map`, `search`, `parse`, `scrape` expandido)
 - `0.1.2` fecha gaps agent-first e adiciona `print-pdf`, `monitor`, `qr`, `find-paths`, tipos de documento no parse, extract LLM e chaves de config expandidas
 - `0.1.3` fecha residual-zero e contratos de agente: `run` NDJSON|array JSON, reload/beforeunload/init_script CDP, honestidade Redis/Lighthouse, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 comandos de topo; 53 tools DevTools e2e)
 - `0.1.4` fecha gaps agent-first: `--json-steps`, `wait` url/navigation/multi-seletor, `select-option`/`pick` (run/schema), assert `console_*`, `schema <cmd>` posicional, MITM `capture-url` + `--mitm*`, scrape multi-formato, batch/crawl `--engine browser`, `print-pdf` no `run`
 - `0.1.5` fecha residual-zero de disco (RES-01…12): BORN auto-GC de dirs Chromium Singleton-only em `/tmp` (piso de idade 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + campo de topo `residual` (`ResidualDiskReport`), nunca mata Chrome Flatpak do host; honestidade de inventário com `locale`/`man`
-- `0.1.6` fecha confiança agent-first de diálogo/select/scrape/wait: booleano `dialog_settled` + XDG `dialog_settle_ms`, isolamento multi-aba de diálogo por `session_id` com gate e2e, select nativo `input`+`change`, `wait_timeout_ms` em `run`, scrape `format`/`formats` em `run`, grab só `png|jpeg|webp` (encode AVIF removido); inventário **65** nomes via `commands --json` (inclui `submit`, `storage`, `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (mock lighthouse SKIP honesto)
+- `0.1.6` fecha confiança agent-first de diálogo/select/scrape/wait: booleano `dialog_settled` + XDG `dialog_settle_ms`, isolamento multi-aba de diálogo por `session_id` com gate e2e, select nativo `input`+`change`, `wait_timeout_ms` em `run`, scrape `format`/`formats` em `run`, grab só `png|jpeg|webp` (encode AVIF removido); inventário tip 0.1.7 **69** via `commands --json` (0.1.6: `submit`/`storage` → 65; 0.1.7: `image`+`video`+`audio` → 68 depois `record` → 69; também `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (mock lighthouse SKIP honesto)
 - Ferramentas experimentais exigem `--experimental-vision` ou `--experimental-screencast`
 
 ## Tabela Resumo
@@ -45,7 +45,13 @@
 browser-automation-cli doctor --offline --quick --json
 browser-automation-cli --json goto https://example.com
 browser-automation-cli --json view
-browser-automation-cli --json run --script '[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]'
+browser-automation-cli --json run --script /tmp/steps.jsonl
+browser-automation-cli --json --json-steps run --script /tmp/steps.jsonl
+```
+- `--script` é caminho de arquivo, nunca JSON inline; `/tmp/steps.jsonl` guarda um objeto de passo por linha:
+```json
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"view"}
 ```
 
 ## Codex
@@ -76,7 +82,7 @@ echo "$out" | jaq -e '.ok == true'
 - `0.1.0`: gates de categoria, vision e screencast experimentais, flags de capture, schema discovery
 - `0.1.1`: `config` XDG (`init`/`path`/`show`/`get`/`set`), `mitm` (CA local + proxy one-shot em `127.0.0.1`), `workflow` (`run`/`resume`/`status`), superfície local de scrape (`scrape --format/--engine`, `batch-scrape`, `crawl`, `map`, `search`, `parse`), `wait --text` multi OR, `grab --path`
 - `0.1.2`:
-  - `scrape --engine browser` aplica `--format` (incl. `raw-html`, `screenshot`, `summary`, `product`, `branding`) via outerHTML
+  - `scrape --engine browser` aplica `--format` via outerHTML nos 14 formatos vivos `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed` (`raw-html` continua alias aceito de `rawHtml`)
   - Aliases de scroll em `run` `dy`/`dx` para `delta_y`/`delta_x`; envelopes de erro fail-fast podem incluir `data.steps` parciais
   - `schema --cmd` expandido para `goto`/`eval`/`type`/`scroll`/`assert`
   - `--lang pt-BR` e `config set lang` localizam sugestões humanas
@@ -84,7 +90,7 @@ echo "$out" | jaq -e '.ok == true'
   - `search` limpa redirects SERP `uddg=`
   - `print-pdf` one-shot CDP; `monitor check --url --baseline [--write-baseline]`
   - `parse` PDF/DOCX/xlsx/ods + `--redact-pii`; `extract --llm --question --schema-json` (XDG `openrouter_api_key`, `llm_base_url`, `llm_model`)
-  - `qr encode|decode`, `find-paths`
+  - `qr encode|decode`, `image info|convert|resize|download|exif`, `video info|download|convert|to-mp3|trim|thumbnail|manifest`, `find-paths`
   - Aliases de `assert` `url_contains`/`text_contains`; fallback de property DOM em `attr`
   - Chaves de config: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
   - Inventário de comandos com 56 nomes de topo (`commands --json`), incluindo `print-pdf`, `monitor`, `qr`, `find-paths`
@@ -115,7 +121,7 @@ echo "$out" | jaq -e '.ok == true'
   - Higiene residual-zero de disco (product law: residual-zero de processo + disco)
   - BORN auto-GC: `scavenge_stale_singleton_orphans` de dirs `/tmp` `org.chromium.Chromium.*` Singleton-only com mais de 60s
   - FINALIZE dual scavenge + re-scan de dirs marker owned (prefixo `browser-automation-cli-chrome-`); nunca mata Chrome Flatpak do host
-  - Checagem doctor `residual_disk` + campo JSON de topo `residual` (`ResidualDiskReport`): `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+  - Checagem doctor `residual_disk` + campo JSON de topo `residual` (`ResidualDiskReport`): `scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legado), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
   - Gates locais de residual: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (somente local)
   - Honestidade de descoberta: inventário inclui `locale` e `man`
   - Inventário (histórico 0.1.5): **63** nomes de agente via `commands --json`
@@ -126,6 +132,6 @@ echo "$out" | jaq -e '.ok == true'
   - Run: `wait_timeout_ms` público nos passos wait; scrape com `format`/`formats` (texto compacto sem monstro HTML quando só text)
   - Grab: `--format png|jpeg|webp` apenas — encode AVIF removido
   - Lighthouse: fixtures unitárias com LHR capturado (forma 13.4.1); e2e mock permanece SKIP (nunca alegar PASS de parser a partir do mock)
-  - Inventário: **65** nomes de agente via `commands --json` (inclui `submit`, `storage`, `select-option`, `pick`, `locale`, `man`, …)
+  - Inventário tip: **69** nomes de agente via `commands --json` (inclui `submit`, `storage`, 0.1.7 `image`+`video`+`audio`+`record`, `select-option`, `pick`, `locale`, `man`, …)
   - Descubra o conjunto completo de chaves com `config list-keys --json` (não é contagem fixa de 16)
   - Residual intencional: GAP-022 ~53 multi-versões de dependência; GAP-023/024 wishlist PRD sem paridade completa

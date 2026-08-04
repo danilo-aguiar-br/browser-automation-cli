@@ -7,8 +7,8 @@
   "properties": {
     "engine": {
       "argv": "--engine",
-      "default": "browser",
-      "description": "http (reqwest+scraper) or browser (CDP)",
+      "default": "http",
+      "description": "http (reqwest+scraper) or browser (CDP); default XDG scrape_default_engine (http)",
       "required": false,
       "source": "parser",
       "step_key": "engine",
@@ -19,10 +19,26 @@
       ],
       "type": "string"
     },
+    "exclude_selector": {
+      "argv": "--exclude-selector",
+      "description": "CSS selectors to exclude (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "exclude_selector",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "array"
+    },
     "format": {
       "argv": "--format",
       "default": "text",
-      "description": "text | markdown | html | links | metadata | … (CSV or repeatable; alias --formats)",
+      "description": "text | markdown | html | rawHtml | links | metadata | screenshot | summary | product | branding | images | jsonld | json | feed (CSV or repeatable)",
       "items": {
         "type": "string"
       },
@@ -56,6 +72,51 @@
         "exec"
       ]
     },
+    "header": {
+      "argv": "--header",
+      "description": "Extra HTTP header `Name: value` (repeatable; cookies/auth)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "header",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "array"
+    },
+    "include_selector": {
+      "argv": "--include-selector",
+      "description": "CSS selectors to include (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "include_selector",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "array"
+    },
+    "max_text_chars": {
+      "argv": "--max-text-chars",
+      "description": "Cap text/markdown/html chars (0 = XDG scrape_max_text_chars)",
+      "required": false,
+      "source": "parser",
+      "step_key": "max_text_chars",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "integer"
+    },
     "only_main_content": {
       "argv": "--only-main-content",
       "description": "Prefer main/article content heuristics",
@@ -68,6 +129,58 @@
         "exec"
       ],
       "type": "boolean"
+    },
+    "question": {
+      "argv": "--question",
+      "description": "Question for format=json LLM extract",
+      "required": false,
+      "source": "parser",
+      "step_key": "question",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
+    },
+    "redact_pii": {
+      "argv": "--redact-pii",
+      "description": "Redact email/phone/card-like patterns in text/markdown",
+      "required": false,
+      "source": "parser",
+      "step_key": "redact_pii",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "boolean"
+    },
+    "schema_json": {
+      "argv": "--schema-json",
+      "description": "JSON Schema file for format=json LLM extract",
+      "required": false,
+      "source": "parser",
+      "step_key": "schema_json",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
+    },
+    "select": {
+      "argv": "--select",
+      "description": "Project data fields (CSV); agent CLEAN STDOUT",
+      "required": false,
+      "source": "parser",
+      "step_key": "select",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
     },
     "url": {
       "argv": "<URL>",
@@ -82,6 +195,20 @@
       ],
       "type": "string"
     },
+    "wait_ms": {
+      "argv": "--wait-ms",
+      "default": 0,
+      "description": "Browser engine: wait ms after navigation before capture (base waitFor)",
+      "required": false,
+      "source": "parser",
+      "step_key": "wait_ms",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "integer"
+    },
     "webhook_url": {
       "argv": "--webhook-url",
       "description": "Optional one-shot webhook POST of the result envelope data (127.0.0.1/operator URL)",
@@ -94,6 +221,19 @@
         "exec"
       ],
       "type": "string"
+    },
+    "with_content_hash": {
+      "argv": "--with-content-hash",
+      "description": "Include content_hash (sha256 of text/markdown)",
+      "required": false,
+      "source": "parser",
+      "step_key": "with_content_hash",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "boolean"
     }
   },
   "required": [

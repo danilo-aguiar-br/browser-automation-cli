@@ -69,6 +69,9 @@ High-level GAP fixes and surface growth landed in `0.1.2`:
 ### Browser scrape and formats
 - Browser engine scrape captures `outerHTML` and applies `--format` (markdown/html/links/metadata/…) instead of silent text-only
 - Additional scrape format tokens: `summary`, `product`, `branding`, plus `raw-html` / `rawHtml` aliases and `screenshot` format token
+- Historical note: that alias claim describes `0.1.2` behavior and is no longer live
+- In `0.1.7` `rawHtml` is a distinct format with its own `rawHtml` envelope key
+- See section `0.1.6 → 0.1.7` for the measured split between `html` and `rawHtml`
 - Optional scrape `--webhook-url` one-shot operator POST of result data (not product telemetry)
 
 ### Run script ergonomics
@@ -243,12 +246,16 @@ Hard-close residual-zero **disk** hygiene (RES-01…12, Pass 27) and meta discov
 ### Doctor residual surface
 - New check id: `residual_disk` (path-light; no Chrome launch for the report itself)
 - Top-level doctor JSON field: `residual` (`ResidualDiskReport`)
-- Fields: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
-- Status: `fail` if live marker processes; `warn` if marker dirs or singleton orphans remain; else `pass`
+- Fields as of 0.1.5: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Status as of 0.1.5: `fail` if live marker processes; `warn` if marker dirs or singleton orphans remain; else `pass`
+- Both lines above describe **0.1.5** and are kept as the historical record; tip is different
+- Tip 0.1.7 adds six fields: `scanned_roots`, `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
+- Tip 0.1.7 status: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; a live sibling is healthy and never fails
+- Tip 0.1.7 agent contract: do **not** require zero `live_cli_marker_processes` — see `docs/AGENTS.md`
 
 ### Inventory and meta commands
-- Live inventory is **63** agent names via `commands --json`
-Clap product surface is **63** names (excludes agent-only `select-option` / `pick`)
+- Live inventory as of 0.1.5 was **63** agent names; tip 0.1.7 is **69** (includes `image`+`video`+`audio`+`record`) via `commands --json`
+Clap product surface is **66** names (excludes agent-only `select-option` / `pick`)
 - Meta already in binary and inventory: `locale` (UI locale diagnostics), `man` (roff via clap_mangen; no Chrome)
 - DevTools tool-ref e2e remains **53 tools**
 
@@ -274,7 +281,7 @@ Agent-first dialog settle, native select events, scrape format in run, wait dead
 - **`wait_timeout_ms` (GAP-053):** run wait steps honor the public deadline key (parser no longer silently discards it)
 - **Scrape formats in run (GAP-057):** run steps accept `format` / `formats`; text-only requests must not dump large `html` fields
 - **AVIF encode removed (breaking):** `grab` supports **png | jpeg | webp** only (image crate features drop avif / yanked core2)
-- **Inventory 65:** `commands --json` lists **65** agent names (adds **`submit`**, **`storage`**); clap product surface **63** (excludes agent-only `select-option`/`pick`)
+- **Inventory (0.1.6 → 0.1.7):** `commands --json` lists **69** agent names (0.1.6 added **`submit`**, **`storage`**; 0.1.7 adds **`image`**, **`video`**, **`audio`**, **`record`**); clap product surface **67** (excludes agent-only `select-option`/`pick`)
 - **`submit`:** form submit by form or field target; waits for navigation/request outcome
 - **`storage`:** `export|import --path` for cookies + localStorage + sessionStorage (explicit path)
 - **Config key discovery:** do **not** claim a fixed “16 keys” count — always discover with `config list-keys --json` (includes `dialog_settle_ms` and more)
@@ -283,27 +290,27 @@ Agent-first dialog settle, native select events, scrape format in run, wait dead
 - **GAP-023/024 intentional:** PRD wishlist flags/commands remain divergences in `parity_intentional_divergences.json` — not full PRD parity
 - **Residual-zero disk:** 0.1.5 product law (RES-01…12) is **still current**
 
-### Full agent inventory (65) — v0.1.6
+### Full agent inventory (69) — tip 0.1.7 (0.1.6 base + `image` + `video` + `audio` + `record`)
 
 Discover live: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
-find-paths forward goto grab heap hover keys lighthouse locale man map mitm monitor
+find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
 net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
 scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 63. Inventory note for names often missed in older docs: `click-at`, `completions`, `cookie`, `devtools3p`, `drag`, `fill-form`, `hover`, `net`, `resize`, `upload`, `webmcp`.
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 66. Inventory note for names often missed in older docs: `click-at`, `completions`, `cookie`, `devtools3p`, `drag`, `fill-form`, `hover`, `net`, `resize`, `upload`, `webmcp`.
 
 ### Step-by-step migration for agents
 1. Rebuild/install `0.1.6` (`cargo install --path . --force --locked`)
 2. Confirm version and inventory:
 ```bash
 browser-automation-cli --version   # 0.1.6
-browser-automation-cli --json commands | jaq '.data.commands | length'  # 65
+browser-automation-cli --json commands | jaq '.data.commands | length'  # 69
 ```
 3. After real dialog answers, parse `dialog_settled`; remove invented post-dialog waits when true
 4. If hosts need a longer Closed budget: `config set dialog_settle_ms <ms>` (XDG)
@@ -329,9 +336,72 @@ browser-automation-cli --json config get dialog_settle_ms
   - `dialog_settle_ms` is a config key
   - run wait honors `wait_timeout_ms` as a public step key
   - run scrape honors `format`/`formats`
-  - inventory is 65 / includes `submit` and `storage`
+  - inventory is **69** / includes `submit`, `storage`, and `image`+`video`+`audio`+`record`
   - grab refuses AVIF (0.1.5 may still accept depending on build features)
 - Residual-zero disk fields remain valid when rolling back only if staying on 0.1.5+
+
+## 0.1.6 → 0.1.7
+### Breaking: `rawHtml` stopped being an alias of `html`
+- Before `0.1.7` the spellings `html`, `rawHtml`, `raw-html`, `rawhtml` and `raw_html` collapsed
+- All five resolved to a single internal format, so raw requests returned processed markup
+- In `0.1.7` `--format rawHtml` returns the untouched response body
+- That raw body is emitted under the envelope key `rawHtml`
+- In `0.1.7` `--format html` returns the body after main-content extraction and selector filters
+- That processed body is emitted under the envelope key `html`
+- The spellings `raw-html`, `rawhtml` and `raw_html` remain spellings of `rawHtml`
+- Measured against `https://doc.rust-lang.org/std/index.html` with `--engine http --only-main-content`
+- `--format rawHtml` returned 54441 characters under the key `rawHtml`
+- `--format html` returned 32769 characters under the key `html`
+- Agents that already passed `rawHtml` now receive different bytes under a different key
+- Update any parser that read `data.html` while requesting `rawHtml`
+
+### Envelope operators: eight new global flags
+- `--fields <PATHS>` projects the envelope down to dotted paths
+- `--filter-rows <EXPR>` keeps only the rows matching an expression
+- `--limit-rows <N>` caps how many rows the envelope emits
+- `--sort-rows <PATH>` orders rows by a dotted path
+- `--dedupe-by <PATH>` drops rows repeating a dotted path value
+- `--count-only` replaces the payload with a count
+- `--truncate-content <CHARS>` shortens long content fields
+- `--max-output-bytes <BYTES>` caps the serialized payload size
+- The `-rows` suffix exists because `--select`, `--filter`, `--limit` and `--sort` were already per-command flags
+- Those four are not global and return exit `2` in global scope
+- Measured: `--select`, `--filter`, `--limit` and `--sort` each exit `2` before the subcommand
+
+### New `agent_ops` envelope field
+- Success envelopes gain `agent_ops` only when one of those eight flags runs
+- Do not treat that as a guarantee: a flag that resolves cleanly leaves `agent_ops` absent
+- Parse it as optional, exactly as `docs/schemas/envelope-success.schema.json` declares it
+- `agent_ops.unresolved_paths` names a requested path that no row carries
+- Each entry reports the originating `flag` and the unresolved `path`
+- Absence of `agent_ops` means no envelope operator was applied
+
+### Doctor budget honesty
+- Before, `doctor` returned exit `0` with empty stdout when the payload exceeded `--max-output-bytes`
+- Now `doctor` returns exit `2` with an error envelope of kind `usage`
+- The message names the offending budget and suggests `--fields` to narrow output
+
+### Richer `scrape --format metadata`
+- The metadata format grew past its previous five fields
+- It now harvests Open Graph, Dublin Core and `article:` properties
+- It also harvests Twitter card tags, canonical URL and favicon
+- It also reports document `charset` and `html_lang`
+- Fields stay conditional, so a page missing a tag simply omits it
+
+### New XDG keys and `--urls-file` cap
+- `batch-scrape --urls-file` now has a size ceiling instead of unbounded reads
+- `max_urls_file_bytes` governs that ceiling, default `8388608`
+- `run_max_include_depth` caps nested `run` includes, default `16`
+- `mitm_rebind_attempts` caps MITM listener rebind retries, default `3`
+- `network_idle_window_ms` sets the network idle window, default `500`
+- `dom_stable_window_ms` sets the DOM stability window, default `500`
+- `chrome_default_timeout_ms` sets the default Chrome timeout, default `25000`
+- `drag_move_steps` sets intermediate `drag` move steps, default `6`
+- `drag_move_gap_ms` sets the gap between drag moves, default `16`
+- `robots_fetch_timeout_secs` caps the robots fetch, default `30`
+- Live key total is `176`, documented in `docs/CONFIGURATION.md`
+- Discover the live list with `config list-keys --json`
+
 
 ## Step-by-Step Migration
 ### From any older tree to 0.1.1
@@ -404,7 +474,7 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Parse doctor JSON for top-level `residual` and check `residual_disk` when diagnosing leaks
 - Do not rely on residual GC wiping host Flatpak Chrome temp (never targeted)
 - Discover meta commands: `locale`, `man` (already in inventory; confirm with `commands --json`)
-- Confirm inventory with `commands --json` (**63**) and regenerate schemas if packaging docs
+- Confirm inventory with `commands --json` (**69**) and regenerate schemas if packaging docs
 - Prefer residual gates when validating browser paths:
 ```bash
 cargo test --lib residual:: --locked
@@ -423,10 +493,23 @@ bash scripts/residual-check.sh
 - Pass `format`/`formats` on run scrape steps
 - Stop using `grab --format avif` (png|jpeg|webp only)
 - Discover `submit` and `storage` via `commands --json` / `schema`
-- Confirm inventory **65**; regenerate schemas if packaging docs
+- Confirm inventory **69**; regenerate schemas if packaging docs
 - Expect e2e lighthouse mock **SKIP** (not PASS)
 - Keep residual-zero disk law from 0.1.5
 - Re-run local gates: `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate`, residual suite, e2e 53-tool script
+
+### From 0.1.6 to 0.1.7
+- Rebuild/install `0.1.7`
+- Audit every `scrape --format rawHtml` caller and read `data.rawHtml`, not `data.html`
+- Keep `--format html` only when you want main-content extraction applied
+- Adopt `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows` for envelope shaping
+- Adopt `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes` for payload budgets
+- Do not pass `--select`, `--filter`, `--limit` or `--sort` globally: exit `2`
+- Parse `agent_ops.unresolved_paths` when a projection returns fewer fields than expected
+- Stop treating a `doctor` budget overflow as exit `0` with empty stdout
+- Expect richer `scrape --format metadata` and treat every field as conditional
+- Size `batch-scrape --urls-file` inputs against `max_urls_file_bytes`
+- Re-discover config keys with `config list-keys --json` (live total `176`)
 
 ## JSON Schema Changes
 - Before: free-form prose or ad-hoc JSON without `schema_version`
@@ -448,6 +531,9 @@ bash scripts/residual-check.sh
 - v0.1.4: wait/assert/schema/run fragments expand for multi-selector, url wait, console asserts, json-steps; inventory adds `select-option`/`pick` as run/schema names
 - v0.1.5: doctor residual report fields; inventory adds `locale` / `man` (meta); residual-zero disk contract
 - v0.1.6: dialog settle / `dialog_settled`; `dialog_settle_ms`; run `wait_timeout_ms` + scrape `format`/`formats`; inventory **65** (`submit`, `storage`); grab drops AVIF; lighthouse unit LHR fixtures; e2e lighthouse mock SKIP
+- 0.1.7: inventory **69** adds local `image` + `video` + `audio` pipelines (image info|convert|resize|download|exif; video info|download|convert|to-mp3|trim|thumbnail|manifest)
+- 0.1.7: success envelopes may carry `agent_ops` with `unresolved_paths` when envelope operators run
+- 0.1.7: `scrape --format rawHtml` emits key `rawHtml`; `--format html` emits key `html`
 - Prefer live `schema <cmd>` after upgrades to confirm the installed binary
 
 
@@ -462,9 +548,21 @@ bash scripts/residual-check.sh
 - Agents that assumed `batch-scrape` was HTTP-only must accept optional `--engine browser` in 0.1.4
 - Agents that treated `select-option`/`pick` as clap subcommands must use `run`/`exec` steps instead
 - Agents that only checked process residual in 0.1.3/0.1.4 should also parse doctor `residual` disk fields in 0.1.5
-- Inventory size moves 61 → **63** (`locale`, `man`) in 0.1.5, then **63 → 65** (`submit`, `storage`) in 0.1.6
+- Inventory size moves 61 → **63** (`locale`, `man`) in 0.1.5, then **63 → 65** (`submit`, `storage`) in 0.1.6, then **65 → 66** (`image`), then **66 → 67** (`video`), then **67 → 68** (`audio`), then **68 → 69** (`record`) in 0.1.7
 - Agents that hard-coded “16 config keys” must switch to `config list-keys --json`
 - GAP-022 residual dependency duplicates and GAP-023/024 PRD wishlist divergences are intentional in 0.1.6 (not full PRD parity)
+- Agents that called `image ocr` must drop it: the action was REMOVED in 0.1.7
+- The calling agent reads images natively, so embedded OCR was redundant middleware
+- OCR also dragged the external C binary `tesseract` into a rust-native, self-contained tool
+- The XDG keys `ocr_engine`, `ocr_lang` and `tesseract_path` were REMOVED with it
+- A legacy `config.toml` carrying those three keys still loads without error
+- The config model uses `#[serde(default)]` and does NOT set `deny_unknown_fields`
+- Unknown keys are ignored on load, so no manual edit is required before upgrading
+- `image` now exposes 5 actions: `info`, `convert`, `resize`, `download`, `exif`
+- `video` gains `manifest` and now exposes 7 actions, with `manifest` summarising HLS/DASH playlists
+- Agents that treated `rawHtml` as an alias of `html` must migrate in 0.1.7
+- `rawHtml` now returns the untouched body under its own `rawHtml` envelope key
+- Agents that relied on `doctor` exiting `0` with empty stdout under a byte budget must handle exit `2`
 
 
 ## Rollback

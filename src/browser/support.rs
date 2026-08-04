@@ -7,7 +7,38 @@ use serde_json::Value;
 
 use super::session::{CaptureOpts, OneShotSession};
 
-fn mark_launched(life: &Lifecycle, pid: Option<u32>, profile: Option<std::path::PathBuf>) {
+/// Process group of `pid`, but only when it is safe to signal as a group.
+///
+/// # Why the equality check is not optional
+///
+/// FINALIZE reaches a group with `kill(-pgid, …)`, which signals **every** member
+/// — including this CLI if the browser shares our group. The self-spawn path puts
+/// Chrome in its own group precisely so that cannot happen, but the legacy
+/// `chromiumoxide::Browser::launch` fallback does not, and there the child
+/// inherits our group. Returning `None` in that case degrades FINALIZE to the
+/// pid-tree walk instead of turning a residual reap into suicide.
+fn owned_process_group(pid: u32) -> Option<i32> {
+    let pgid = crate::native::cdp::spawn::host().process_group_of(pid)?;
+    let own = crate::native::cdp::spawn::host().process_group_of(std::process::id());
+    if own == Some(pgid) {
+        return None;
+    }
+    Some(pgid)
+}
+
+/// Record launch ownership on the ledger, then settle and scan side-channels.
+///
+/// `async` because of the settle window: the previous version used
+/// `std::thread::sleep` while being reached only from `launch_marked`, an
+/// `async fn`, so it blocked a Tokio worker for the whole settle. The
+/// doc-comment on that sleep asserted it was on a sync path, which was not true
+/// of any live call site.
+async fn mark_launched(
+    life: &Lifecycle,
+    pid: Option<u32>,
+    pgid: Option<i32>,
+    profile: Option<std::path::PathBuf>,
+) {
     let launch_t = std::time::SystemTime::now();
     // Deliberate PathBuf clone: ledger takes ownership of `profile`, while residual
     // discovery after the settle sleep still needs the same path (rules: name clones).
@@ -16,6 +47,9 @@ fn mark_launched(life: &Lifecycle, pid: Option<u32>, profile: Option<std::path::
     life.with_ledger_mut(|ledger| {
         ledger.chrome_launched = true;
         ledger.chrome_pid = pid;
+        // Group kill needs this: without it FINALIZE can only signal the
+        // launcher pid and every renderer child survives.
+        ledger.chrome_pgid = pgid;
         // Move profile into the ledger — caller transfers ownership of the Option.
         if let Some(dir) = profile {
             // Track Singleton side-channel under the profile when present.
@@ -35,12 +69,12 @@ fn mark_launched(life: &Lifecycle, pid: Option<u32>, profile: Option<std::path::
         }
     });
     // GAP-020: discover owned /tmp/org.chromium.* created for this launch only.
-    // Brief settle so Chrome can create Singleton side-channels.
-    // Sync path (FINALIZE / post-launch ledger) — not a Tokio async worker
-    // (rules: std::thread::sleep forbidden only inside async fn).
-    std::thread::sleep(std::time::Duration::from_millis(
+    // Brief settle so Chrome can create Singleton side-channels. Async sleep:
+    // this runs on a Tokio worker, which `std::thread::sleep` would pin.
+    tokio::time::sleep(std::time::Duration::from_millis(
         crate::xdg::policy::policy_u64(crate::xdg::policy::key::DEFAULT_SUPPORT_SETTLE_MS),
-    ));
+    ))
+    .await;
     let extras = crate::residual::discover_owned_chromium_tmp_side_channels(
         profile_scan.as_deref(),
         pid,
@@ -70,7 +104,14 @@ pub(crate) async fn launch_marked(
     capture: CaptureOpts,
 ) -> Result<OneShotSession, CliError> {
     let session = OneShotSession::launch_headless_with_capture(capture).await?;
-    mark_launched(life, session.chrome_pid(), session.temp_user_data_dir());
+    let pid = session.chrome_pid();
+    mark_launched(
+        life,
+        pid,
+        pid.and_then(owned_process_group),
+        session.temp_user_data_dir(),
+    )
+    .await;
     Ok(session)
 }
 

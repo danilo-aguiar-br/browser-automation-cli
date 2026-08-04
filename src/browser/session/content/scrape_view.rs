@@ -14,11 +14,13 @@ impl OneShotSession {
     ///
     /// Empty `formats` defaults to `text` (agent-first: no HTML dump). Multi-format
     /// requests share one CDP HTML fetch and [`crate::scrape_local::build_formats_map`].
-    pub async fn scrape(
+    /// Scrape with optional settle wait after navigation (`wait_ms`).
+    pub async fn scrape_with_wait(
         &mut self,
         url: &str,
         robots: crate::robots::RobotsPolicy,
         formats: &[&str],
+        wait_ms: u64,
     ) -> Result<Value, CliError> {
         let formats: Vec<&str> = if formats.is_empty() {
             vec!["text"]
@@ -26,6 +28,35 @@ impl OneShotSession {
             formats.to_vec()
         };
         let nav = self.goto(url, robots).await?;
+        if wait_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
+        }
+        self.scrape_after_nav(url, robots, &formats, nav).await
+    }
+
+    /// Extract page content in the requested formats (empty formats → text).
+    pub async fn scrape(
+        &mut self,
+        url: &str,
+        robots: crate::robots::RobotsPolicy,
+        formats: &[&str],
+    ) -> Result<Value, CliError> {
+        self.scrape_with_wait(url, robots, formats, 0).await
+    }
+
+    /// Shared HTML extract path after navigation (and optional wait).
+    async fn scrape_after_nav(
+        &mut self,
+        url: &str,
+        robots: crate::robots::RobotsPolicy,
+        formats: &[&str],
+        nav: Value,
+    ) -> Result<Value, CliError> {
+        let formats: Vec<&str> = if formats.is_empty() {
+            vec!["text"]
+        } else {
+            formats.to_vec()
+        };
         let source = nav
             .get("url")
             .and_then(|v| v.as_str())
@@ -91,8 +122,14 @@ impl OneShotSession {
             return Ok(payload);
         }
 
+        let base_opts = crate::scrape_local::ScrapeOpts {
+            format: crate::scrape_local::ScrapeFormat::Html,
+            only_main_content: false,
+            engine: "browser".into(),
+            ..Default::default()
+        };
         let formats_out = crate::scrape_local::build_formats_map(
-            &source, 200, &html_s, &formats, false, "browser", robots,
+            &source, 200, &html_s, &formats, &base_opts, "browser", robots,
         )?;
         Ok(json!({
             "source_url": source,

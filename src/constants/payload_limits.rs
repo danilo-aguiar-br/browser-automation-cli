@@ -8,6 +8,26 @@
 /// allocation budget on external input). Named constant; not a product env.
 pub const MAX_SG_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
+/// Upper bound for the `--urls-file` list read by `batch-scrape` (8 MiB).
+///
+/// This was the only user-supplied file the product read with an unbounded
+/// `read_to_string`, while every sibling reader (`sg`, local parse, JSON
+/// manifests) already checked metadata size first. 8 MiB holds well over a
+/// hundred thousand URLs, so the ceiling constrains hostile input and not use.
+pub const MAX_URLS_FILE_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Max nesting depth for `run --script` include chains.
+///
+/// Anti-DoS: a self-including manifest would otherwise recurse without bound.
+/// Its sibling `scrape_crawl_max_depth` is a knob; this one was a literal.
+pub const RUN_MAX_INCLUDE_DEPTH: u64 = 16;
+
+/// Bind retries when the MITM proxy port is transiently in use.
+///
+/// The product has an entire `RETRY_*` family of knobs; this rebind loop was
+/// the one retry count nobody could tune.
+pub const MITM_REBIND_ATTEMPTS: u64 = 3;
+
 /// Default ceiling for one JSON/NDJSON **script or manifest** file (bytes).
 ///
 /// Operator override: XDG `config set max_json_file_bytes <n>` (`> 0`).

@@ -5,15 +5,6 @@ use std::path::PathBuf;
 
 use super::ledger::Lifecycle;
 
-/// Record the Chrome user-data-dir profile path for FINALIZE wipe.
-pub fn mark_profile_dir(life: &Lifecycle, dir: Option<PathBuf>) {
-    if let Some(dir) = dir {
-        life.with_ledger_mut(|ledger| {
-            ledger.profile_dir = Some(dir);
-        });
-    }
-}
-
 /// Record a side-channel path (SingletonLock, etc.) owned by this launch.
 pub fn mark_side_channel(life: &Lifecycle, path: PathBuf) {
     life.with_ledger_mut(|ledger| {

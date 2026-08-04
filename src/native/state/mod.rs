@@ -17,9 +17,9 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use dispatch::{dispatch_state_command, find_auto_state_file};
+pub use dispatch::dispatch_state_command;
 pub use fs_ops::{
     get_sessions_dir, get_state_dir, state_clean, state_clear, state_list, state_rename, state_show,
 };
-pub use save_load::{load_state, save_auto_state_transactional, save_state, validate_state_file};
+pub use save_load::{load_state, save_state};
 pub use types::{OriginStorage, StorageEntry, StorageState};

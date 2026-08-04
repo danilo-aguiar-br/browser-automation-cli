@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! HTML extractors, PII redaction, markdown (CPU-bound helpers).
+//! Link/image/branding extraction plus the stable HTML helper facade.
+//!
+//! | Module | Responsibility |
+//! |--------|----------------|
+//! | `html_jsonld` | JSON-LD blocks and Product typing |
+//! | `html_sanitize` | selector-based DOM reduction and PII redaction |
+//! | `html_text` | DOM text nodes and `<meta>` values |
+//! | `html_markdown` | HTML to Markdown conversion |
+//!
+//! Consumers keep importing everything from `super::html::*`.
 
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
@@ -9,46 +18,17 @@ use scraper::{Html, Selector};
 use serde_json::{json, Value};
 use url::Url;
 
-pub(crate) fn extract_json_ld_product(html: &str) -> Value {
-    let doc = Html::parse_document(html);
-    let Ok(sel) = Selector::parse("script[type=\"application/ld+json\"]") else {
-        return json!({ "found": false });
-    };
-    for el in doc.select(&sel) {
-        let raw = el.text().collect::<String>();
-        if let Ok(v) = crate::json_util::value_from_str(&raw) {
-            if is_product_ld(&v) {
-                return json!({ "found": true, "json_ld": v });
-            }
-            if let Some(arr) = v.as_array() {
-                for item in arr {
-                    if is_product_ld(item) {
-                        return json!({ "found": true, "json_ld": item });
-                    }
-                }
-            }
-            if let Some(graph) = v.get("@graph").and_then(|g| g.as_array()) {
-                for item in graph {
-                    if is_product_ld(item) {
-                        return json!({ "found": true, "json_ld": item });
-                    }
-                }
-            }
-        }
-    }
-    json!({ "found": false, "json_ld": null })
-}
+pub(crate) use super::html_jsonld::{extract_all_json_ld, extract_json_ld_product};
+pub(crate) use super::html_markdown::html_to_markdown_simple;
+pub(crate) use super::html_sanitize::{filter_html_by_selectors, redact_pii};
+pub(crate) use super::html_text::{join_text_collapsed, meta_content, text_of_first, visible_text};
 
-pub(crate) fn is_product_ld(v: &Value) -> bool {
-    match v.get("@type") {
-        Some(Value::String(s)) => s.eq_ignore_ascii_case("Product"),
-        Some(Value::Array(a)) => a.iter().any(|x| {
-            x.as_str()
-                .map(|s| s.eq_ignore_ascii_case("Product"))
-                .unwrap_or(false)
-        }),
-        _ => false,
-    }
+/// SHA-256 hex of UTF-8 text (content_hash for agent compare).
+pub(crate) fn content_hash_hex(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(text.as_bytes());
+    hex::encode(h.finalize())
 }
 
 /// Compiled once: hex color samples in branding heuristics.
@@ -61,26 +41,7 @@ pub(crate) fn re_hex_color() -> &'static Regex {
     &RE
 }
 
-/// Compiled once: email / phone / card-like PII redaction.
-pub(crate) struct PiiRegexes {
-    email: Regex,
-    phone: Regex,
-    card: Regex,
-}
-
-pub(crate) fn pii_regexes() -> &'static PiiRegexes {
-    static RE: LazyLock<PiiRegexes> = LazyLock::new(|| PiiRegexes {
-        email: Regex::new(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
-            .expect("email regex"),
-        phone: Regex::new(
-            r"\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{4}\b",
-        )
-        .expect("phone regex"),
-        card: Regex::new(r"\b(?:\d[ -]*?){13,19}\b").expect("card regex"),
-    });
-    &RE
-}
-
+/// Heuristic branding signal: title plus a capped set of hex color samples.
 pub(crate) fn extract_branding_hints(html: &str, title: &str) -> Value {
     let mut colors = BTreeSet::new();
     for m in re_hex_color().find_iter(html).take(32) {
@@ -93,38 +54,16 @@ pub(crate) fn extract_branding_hints(html: &str, title: &str) -> Value {
     })
 }
 
-/// Redact common PII patterns in text (email, phone, card-like digits).
-pub fn redact_pii(text: &str) -> String {
-    let re = pii_regexes();
-    let mut out = re.email.replace_all(text, "[REDACTED_EMAIL]").into_owned();
-    out = re.phone.replace_all(&out, "[REDACTED_PHONE]").into_owned();
-    out = re.card.replace_all(&out, "[REDACTED_CARD]").into_owned();
-    out
-}
-
-pub(crate) fn text_of_first(doc: &Html, sel: &str) -> String {
-    let Ok(selector) = Selector::parse(sel) else {
-        return String::new();
-    };
-    doc.select(&selector)
-        .next()
-        .map(|e| e.text().collect::<String>().trim().to_string())
-        .unwrap_or_default()
-}
-
-pub(crate) fn meta_content(doc: &Html, name: &str) -> Option<String> {
-    let sel =
-        format!("meta[name=\"{name}\"], meta[property=\"{name}\"], meta[property=\"og:{name}\"]");
-    let Ok(selector) = Selector::parse(&sel) else {
-        return None;
-    };
-    doc.select(&selector)
-        .find_map(|e| e.value().attr("content").map(|s| s.trim().to_string()))
-        .filter(|s| !s.is_empty())
-}
-
+/// First main-content container of the document, when one is present.
 pub(crate) fn extract_main_html(doc: &Html) -> Option<String> {
-    for sel in ["main", "article", "[role=main]", "#content", ".content"] {
+    for sel in [
+        "main",
+        "article",
+        "[role=main]",
+        "#content",
+        ".content",
+        "#main",
+    ] {
         if let Ok(selector) = Selector::parse(sel) {
             if let Some(el) = doc.select(&selector).next() {
                 return Some(el.html());
@@ -134,91 +73,59 @@ pub(crate) fn extract_main_html(doc: &Html) -> Option<String> {
     None
 }
 
-/// Join DOM text nodes and collapse internal whitespace without an intermediate
-/// `Vec` of tokens.
-///
-/// Cause: `split_whitespace().collect::<Vec<_>>().join(" ")` double-allocates
-/// (token vec + joined string) on every scrape text/link path.
-/// Effect: single `String`; hot scrape path pays one heap instead of two.
-pub(crate) fn join_text_collapsed<'a, I>(iter: I) -> String
-where
-    I: Iterator<Item = &'a str>,
-{
-    let mut out = String::new();
-    let mut need_space = false;
-    for chunk in iter {
-        for word in chunk.split_whitespace() {
-            if need_space {
-                out.push(' ');
-            }
-            out.push_str(word);
-            need_space = true;
-        }
-    }
-    out
-}
-
-pub(crate) fn visible_text(doc: &Html) -> String {
-    let Ok(selector) = Selector::parse("body") else {
-        return String::new();
+/// Extract image URLs (absolute) with optional alt text (capped).
+pub(crate) fn extract_images(base: &str, doc: &Html) -> Vec<Value> {
+    let Ok(selector) = Selector::parse("img[src]") else {
+        return Vec::new();
     };
-    doc.select(&selector)
-        .next()
-        .map(|e| join_text_collapsed(e.text()))
-        .unwrap_or_default()
-}
-
-pub(crate) fn html_to_markdown_simple(html: &str, title: &str) -> String {
-    let doc = Html::parse_document(html);
-    let mut out = String::new();
-    if !title.is_empty() {
-        out.push_str("# ");
-        out.push_str(title);
-        out.push_str("\n\n");
-    }
-    // Headings (static selectors avoid SelectorErrorKind lifetime on dynamic strings).
-    const HEADINGS: &[&str] = &["h1", "h2", "h3", "h4", "h5", "h6"];
-    for (idx, sel) in HEADINGS.iter().enumerate() {
-        let level = idx + 1;
-        let Ok(selector) = Selector::parse(sel) else {
+    let base_url = Url::parse(base).ok();
+    let mut out = Vec::new();
+    let mut seen = BTreeSet::new();
+    let cap = crate::constants::DEFAULT_SCRAPE_LINK_TEXT_CHARS;
+    for el in doc.select(&selector) {
+        let src = el.value().attr("src").unwrap_or("").trim();
+        if src.is_empty() || src.starts_with("data:") {
             continue;
+        }
+        let abs = match (&base_url, Url::parse(src)) {
+            (_, Ok(u)) if u.scheme() == "http" || u.scheme() == "https" => u.to_string(),
+            (Some(b), _) => b
+                .join(src)
+                .map(|u| u.to_string())
+                .unwrap_or_else(|_| src.to_string()),
+            _ => src.to_string(),
         };
-        for el in doc.select(&selector) {
-            let t = el.text().collect::<String>().trim().to_string();
-            if !t.is_empty() {
-                out.push_str(&"#".repeat(level));
-                out.push(' ');
-                out.push_str(&t);
-                out.push_str("\n\n");
-            }
+        if !seen.insert(abs.clone()) {
+            continue;
         }
-    }
-    // Paragraphs
-    if let Ok(selector) = Selector::parse("p") {
-        for el in doc.select(&selector) {
-            let t = join_text_collapsed(el.text());
-            if !t.is_empty() {
-                out.push_str(&t);
-                out.push_str("\n\n");
-            }
+        let alt = el.value().attr("alt").unwrap_or("").trim();
+        let alt_capped: String = alt.chars().take(cap).collect();
+        let mut item = serde_json::Map::new();
+        item.insert("url".into(), json!(abs));
+        if !alt_capped.is_empty() {
+            item.insert("alt".into(), json!(alt_capped));
         }
-    }
-    if out.trim().is_empty() {
-        out = visible_text(&doc);
+        out.push(Value::Object(item));
     }
     out
 }
 
-pub(crate) fn extract_links(base: &str, doc: &Html) -> Vec<Value> {
+/// Extract deduplicated absolute anchor targets with capped link text.
+pub(crate) fn extract_links(base: &str, doc: &Html, honor_nofollow: bool) -> Vec<Value> {
     let Ok(selector) = Selector::parse("a[href]") else {
         return Vec::new();
     };
     let base_url = Url::parse(base).ok();
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
+    let cap = crate::constants::DEFAULT_SCRAPE_LINK_TEXT_CHARS;
     for el in doc.select(&selector) {
         let href = el.value().attr("href").unwrap_or("").trim();
         if href.is_empty() || href.starts_with('#') || href.starts_with("javascript:") {
+            continue;
+        }
+        let nofollow = super::directives::rel_has_nofollow(el.value().attr("rel"));
+        if honor_nofollow && nofollow {
             continue;
         }
         let abs = match (&base_url, Url::parse(href)) {
@@ -231,9 +138,19 @@ pub(crate) fn extract_links(base: &str, doc: &Html) -> Vec<Value> {
                 .unwrap_or_else(|_| href.to_string()),
             _ => href.to_string(),
         };
+        let abs = super::path_filter::normalize_url_for_dedup(&abs);
         if seen.insert(abs.clone()) {
             let text = join_text_collapsed(el.text());
-            out.push(json!({ "url": abs, "text": text }));
+            let text: String = text.chars().take(cap).collect();
+            let mut item = serde_json::Map::new();
+            item.insert("url".into(), json!(abs));
+            if !text.is_empty() {
+                item.insert("text".into(), json!(text));
+            }
+            if nofollow {
+                item.insert("nofollow".into(), json!(true));
+            }
+            out.push(Value::Object(item));
         }
     }
     out

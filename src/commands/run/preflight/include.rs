@@ -3,7 +3,7 @@
 
 use super::super::execute::reject_unknown_step_fields;
 use super::super::parse::parse_run_script;
-use super::{INCLUDE_CMD, MAX_INCLUDE_DEPTH};
+use super::{max_include_depth, INCLUDE_CMD};
 use crate::error::{CliError, ErrorKind};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -14,11 +14,12 @@ pub(super) fn load_expanded(
     stack: &mut Vec<PathBuf>,
     depth: usize,
 ) -> Result<Vec<Value>, CliError> {
-    if depth > MAX_INCLUDE_DEPTH {
+    let max_depth = max_include_depth();
+    if depth > max_depth {
         return Err(CliError::with_suggestion(
             ErrorKind::Data,
             format!(
-                "include nesting deeper than {MAX_INCLUDE_DEPTH} levels at {}",
+                "include nesting deeper than {max_depth} levels at {}",
                 path.display()
             ),
             crate::i18n::suggestion_key("include_depth", None),

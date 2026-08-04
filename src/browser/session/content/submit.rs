@@ -190,8 +190,9 @@ impl OneShotSession {
         let budget = timeout_ms.unwrap_or(10_000).max(1);
         let started = std::time::Instant::now();
         let deadline = started + std::time::Duration::from_millis(budget);
-        let quiet =
-            std::time::Duration::from_millis(crate::constants::DEFAULT_NETWORK_IDLE_WINDOW_MS);
+        let quiet = std::time::Duration::from_millis(crate::xdg::policy::policy_u64(
+            crate::xdg::policy::key::DEFAULT_NETWORK_IDLE_WINDOW_MS,
+        ));
         let mut saw_request = false;
 
         loop {

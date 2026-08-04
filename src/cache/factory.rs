@@ -30,11 +30,3 @@ pub fn default_cache() -> Result<Box<dyn HttpCache>, CliError> {
         })),
     }
 }
-
-/// Layered only (tests / explicit sqlite path).
-pub fn sqlite_layered_cache() -> Result<LayeredCache, CliError> {
-    Ok(LayeredCache {
-        l1: MemoryCache::default(),
-        l2: SqliteCache::open_default()?,
-    })
-}

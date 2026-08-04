@@ -50,7 +50,11 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
     }
 
     // Chrome only honors the last --disable-features switch — keep a single list.
-    let mut disable_features: Vec<String> = vec!["Translate".to_string()];
+    // `TranslateUI` is the switch chromiumoxide's DEFAULT_ARGS used; `Translate`
+    // is the newer name. Both are listed because the rename is version-dependent
+    // and an unknown feature name is ignored rather than rejected.
+    let mut disable_features: Vec<String> =
+        vec!["Translate".to_string(), "TranslateUI".to_string()];
     let has_extensions = options
         .extensions
         .as_ref()
@@ -60,9 +64,45 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
         disable_features.push("DisableLoadExtensionCommandLineSwitch".to_string());
     }
 
+    // ── Parity with chromiumoxide DEFAULT_ARGS (24 switches) ─────────────
+    //
+    // `Browser::launch` injected its own DEFAULT_ARGS on top of ours. The
+    // self-spawn path passes exactly this argv, so each of those 24 switches was
+    // audited. ADOPT means it is emitted below; REJECT records why it is not.
+    //
+    // | # | chromiumoxide switch                              | Verdict | Note |
+    // |---|---------------------------------------------------|---------|------|
+    // | 1 | disable-background-networking                     | ADOPT   | already present |
+    // | 2 | enable-features=NetworkService,…InProcess         | ADOPT   | already in `enable_features` |
+    // | 3 | disable-background-timer-throttling               | ADOPT   | added: hidden tabs must keep timers for scraping |
+    // | 4 | disable-backgrounding-occluded-windows            | ADOPT   | already present |
+    // | 5 | disable-breakpad                                  | ADOPT   | already present |
+    // | 6 | disable-client-side-phishing-detection            | ADOPT   | already present |
+    // | 7 | disable-component-extensions-with-background-pages| ADOPT   | already present |
+    // | 8 | disable-default-apps                              | ADOPT   | already present |
+    // | 9 | disable-dev-shm-usage                             | ADOPT   | conditional via `should_disable_dev_shm` |
+    // |10 | disable-features=TranslateUI                      | ADOPT   | merged into the single disable list |
+    // |11 | disable-hang-monitor                              | ADOPT   | already present |
+    // |12 | disable-ipc-flooding-protection                   | ADOPT   | added: CDP bursts trip the throttle |
+    // |13 | disable-popup-blocking                            | ADOPT   | already present |
+    // |14 | disable-prompt-on-repost                          | ADOPT   | already present |
+    // |15 | disable-renderer-backgrounding                    | ADOPT   | added: pairs with #3 for offscreen work |
+    // |16 | disable-sync                                      | ADOPT   | already present |
+    // |17 | force-color-profile=srgb                          | ADOPT   | added: screenshot bytes must not vary by host profile |
+    // |18 | metrics-recording-only                            | REJECT  | GAP-016 / PRD §5F forbid enabling the metrics subsystem at all; we hard-disable it instead |
+    // |19 | enable-automation                                 | REJECT  | sets `navigator.webdriver` and an infobar; the product deliberately does not announce itself |
+    // |20 | password-store=basic                              | ADOPT   | conditional on `!use_real_keychain` |
+    // |21 | use-mock-keychain                                 | ADOPT   | same condition as #20 |
+    // |22 | enable-blink-features=IdleDetection               | REJECT  | enables an API no command uses; pure attack surface |
+    // |23 | lang=en_US                                        | REJECT  | would pin `Accept-Language` and change scraped content, overriding the product `--lang` |
     let mut args = vec![
         "--remote-debugging-port=0".to_string(),
         "--no-first-run".to_string(),
+        // #3 / #12 / #15 / #17: adopted from chromiumoxide DEFAULT_ARGS.
+        "--disable-background-timer-throttling".to_string(),
+        "--disable-ipc-flooding-protection".to_string(),
+        "--disable-renderer-backgrounding".to_string(),
+        "--force-color-profile=srgb".to_string(),
         "--no-default-browser-check".to_string(),
         "--disable-background-networking".to_string(),
         "--disable-backgrounding-occluded-windows".to_string(),

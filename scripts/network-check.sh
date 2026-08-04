@@ -4,6 +4,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=scripts/lib/rust-regions.sh
+source "$ROOT/scripts/lib/rust-regions.sh"
 
 source "$ROOT/scripts/lib/module_paths.sh"
 module_paths_self_test || exit 65
@@ -70,8 +72,31 @@ else
   bad "SSRF assert missing on scrape/webhook"
 fi
 
-# 6) no 0.0.0.0 bind in production src (comments allowed)
-bind_bad=$(rg -n '0\.0\.0\.0' src/ --glob '*.rs' | rg -v 'never|Never|//|product law|comment|docs|note|assert|test' || true)
+# 6) no 0.0.0.0 bind in production src (comments and tests allowed)
+#
+# TESTS MUST BE ABLE TO NAME THE BAD INPUT
+#   A test that proves the product REJECTS a wildcard bind has to write the
+#   wildcard down. Filtering on the word "test" only catches lines that happen to
+#   contain it, so the fixture line itself slips through and the gate fails on
+#   the very evidence that the invariant holds.
+#
+#   Measured case: `src/native/cdp/chrome/spawn.rs` has
+#   `pin_debugging_port_forces_loopback_bind`, whose whole point is to feed
+#   `--remote-debugging-address=0.0.0.0` in and assert that loopback comes out.
+#   The better the test, the more certainly it tripped this gate.
+#
+#   `awk`-free by house rule: strip each file's `#[cfg(test)]` tail with `bat`
+#   before matching, so only production lines can ever reach the filter.
+bind_bad=""
+while IFS=: read -r rs lineno rest; do
+  [[ -z "$rs" || -z "$lineno" ]] && continue
+  read -r test_open test_close < <(inline_test_span "$rs")
+  # Inside the inline `#[cfg(test)]` BLOCK: not production, not this gate's
+  # business. Items below the block still count — see scripts/lib/rust-regions.sh.
+  [[ "$test_open" -gt 0 && "$lineno" -ge "$test_open" && "$lineno" -le "$test_close" ]] && continue
+  bind_bad="${bind_bad}${rs}:${lineno}:${rest}"$'\n'
+done < <(rg -n '0\.0\.0\.0' src/ --glob '*.rs' 2>/dev/null || true)
+bind_bad=$(printf '%s' "$bind_bad" | rg -v '^$|never|Never|//|product law|comment|docs|note|assert' || true)
 if [ -z "$bind_bad" ]; then
   pass "no production 0.0.0.0 bind"
 else

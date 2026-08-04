@@ -24,6 +24,8 @@
 mod args;
 mod discover;
 mod options;
+mod process;
+mod spawn;
 mod tooling;
 
 #[cfg(test)]
@@ -31,5 +33,7 @@ mod tests;
 
 pub use discover::find_chrome;
 pub use options::LaunchOptions;
+pub use process::ChromeProcess;
+pub use spawn::{launch_self_spawned, ChromeLaunch};
 
 pub(crate) use args::build_chrome_args;

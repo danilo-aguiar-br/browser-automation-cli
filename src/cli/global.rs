@@ -303,4 +303,12 @@ pub struct GlobalOpts {
         help_heading = "MITM"
     )]
     pub mitm_redact_secrets: bool,
+
+    /// Universal data operations applied to `data` before it reaches stdout.
+    ///
+    /// Declared in its own module so this file stays under the 300-line ceiling
+    /// `scripts/filesize-check.sh` enforces, and because payload reduction is a
+    /// responsibility of its own rather than another global knob.
+    #[command(flatten)]
+    pub agent_ops: super::agent_ops_args::AgentOpsArgs,
 }

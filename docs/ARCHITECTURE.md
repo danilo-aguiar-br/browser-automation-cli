@@ -4,7 +4,7 @@
 
 - One-shot Chrome CDP automation for AI agents
 - Lifecycle is always: BORN → EXECUTE → FINALIZE → DIE (single process; no daemon)
-- Full agent command list (**65** names): see [docs/HOW_TO_USE.md](HOW_TO_USE.md) and `browser-automation-cli commands --json`
+- Full agent command list (**69** names): see [docs/HOW_TO_USE.md](HOW_TO_USE.md) and `browser-automation-cli commands --json`
 
 ## Layers
 
@@ -57,12 +57,30 @@ FINALIZE dual scavenge = invocation-window orphans **plus** stale Singleton GC s
 
 - Check id: `residual_disk` (path-light; no Chrome launch for the report itself).
 - Top-level doctor JSON field: `residual` (`ResidualDiskReport`).
-- Fields:
-  - `cli_marker_dirs` — count of `browser-automation-cli-chrome-*` under temp
+- Fields (all ten; a shorter list here used to disagree with the struct):
+  - `scanned_roots` — the roots this report actually walked; a zero without them is unfalsifiable
+  - `cli_marker_dirs` — count of `browser-automation-cli-chrome-*` under the scanned roots
   - `chromium_tmp_singleton_orphans` — Singleton-only Chromium tmp that looks orphaned
   - `scavenge_safe_candidates` — paths stale GC would wipe now (age ≥ 60s, owned, no live holder)
-  - `live_cli_marker_processes` — live processes whose cmdline contains the CLI chrome marker prefix
-- Status: `fail` if live marker processes; `warn` if marker dirs or singleton orphans remain; else `pass`.
+  - `live_cli_marker_processes` — legacy per-process count; agents MUST NOT require zero
+  - `sibling_live_processes` — concurrent invocations; informational, never fails
+  - `orphan_marker_dirs` — marker dir past the age floor whose owner pid is dead
+  - `foreign_root_orphans` — held marker PROFILES outside the scanned roots
+  - `ghost_marker_processes` — live CLI browser whose marker profile dir is gone
+  - `process_table_unavailable` — enumeration failed, so every wipe is refused
+- Status: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; `warn` on marker dirs or
+  Singleton orphans; else `pass`. A live sibling invocation is healthy and never fails the check.
+
+### How a process is identified as a browser
+
+- Identity comes from the kernel-reported executable path, never from argv.
+- argv is written by the process itself; `sysinfo` documents `cmd[0]` as untrustworthy for this.
+- The predicate is split by consequence, because the same error costs opposite things:
+  - Verdict and reaping are STRICT — an unknown executable is never treated as a browser.
+  - Wipe protection is PERMISSIVE — anything that might hold a profile keeps it alive.
+- Known blind spot: sandbox wrappers report `bwrap` (Flatpak) or `snap` as the tree root, so the
+  strict counts under-report those roots. Under-reporting cannot fail a healthy host or signal an
+  innocent process, which is why the trade goes this way.
 
 Local maintainer gates (local maintainer scripts only): `scripts/residual-check.sh`, `scripts/residual-stress.sh`.
 
@@ -81,7 +99,7 @@ Product settings (including language) use **flags + XDG only**. Do not invent or
 ## Module map (`commands`)
 
 - `mod.rs` — `dispatch` match on `Commands` + browser/session handlers  
-- `meta/` — `commands` / `schema` inventory for agents (**65** names via `commands --json`; schema SRP dir)  
+- `meta/` — `commands` / `schema` inventory for agents (**69** names via `commands --json`; schema SRP dir)  
 - `run/` — multi-step `run` / `exec` script engine (NDJSON steps)
 
 ### Dialog multi-tab and settle (v0.1.6)
@@ -98,7 +116,7 @@ Product settings (including language) use **flags + XDG only**. Do not invent or
 - **Scrape `format`/`formats` in run:** without HTML monster when only text is requested (GAP-057).
 - **Native select:** `pick` / `select-option` dispatch `input` then `change`, report `via: native_select` (GAP-055).
 - **`grab` encode:** **png|jpeg|webp** only; AVIF removed (breaking).
-- Inventory **65** includes `submit` + `storage`; clap product surface is 63 (`pick` / `select-option` are inventory/run multi-step names).
+- Inventory **69** includes `submit` + `storage` + `image` + `video` + `audio` + `record`; clap product surface is **67** (`pick` / `select-option` are inventory/run multi-step names).
 
 ### Lighthouse LHR pure parse (v0.1.6)
 
@@ -108,20 +126,61 @@ Product settings (including language) use **flags + XDG only**. Do not invent or
 - Residual-zero disk law from 0.1.5 still current.
 - Product config: flags + XDG only (never product env vars).
 
-## Full agent inventory (65)
+## Agent output operations (`agent_ops`)
+- `src/agent_ops/` applies eight universal operations over `data` before stdout
+- One implementation covers all 69 commands, including the ones nobody wired locally
+- Four of the global flags are `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`
+- The other four are `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`
+- `--select`, `--filter`, `--limit` and `--sort` are not global flags
+- They exist only as per-command flags on `scrape`, `crawl`, `map` and `search`
+- `batch-scrape` and the media info verbs also declare that per-command set
+- The `-rows` suffix stops clap from handing one value to both projections
+- Order of operations: select, resolve rows, filter, sort, dedupe, limit
+- Then string truncation, the count-only collapse and the byte ceiling
+- `select` runs first because it also disambiguates data holding two arrays
+- The envelope gains the `agent_ops` field only when some flag actually ran
+- An untouched envelope keeps its exact previous shape for existing consumers
+- A flag that ran and resolved cleanly also omits the field, so running one is necessary and not sufficient
+- Members are all optional: `total`, `matched`, `truncated`, `omitted_rows`, `unresolved_paths`
+- `unresolved_paths` is a list of `{flag, path}` entries
+- It names a requested dotted path that no row actually carries
+- Without it a mistyped path returns exit 0 and looks like success
+- `src/agent_ops/path.rs` has `project()` returning `(Value, Vec<String>)`
+- The second element is the set of paths that did not resolve
+- `src/agent_ops/filter.rs` has the pure `rows_with_key()` probe
+- It runs before dedupe and sort, which would otherwise erase the evidence
+- A row operation against data with no single list fails as `Usage`
+
+## Document metadata harvest (`html_meta`)
+- `src/scrape_local/html_meta.rs` backs the `metadata` scrape format
+- `collect_metadata()` reads the document already parsed by `build_scrape_payload`
+- The extra coverage costs one selector pass per field and no new dependency
+- Harvested families: Open Graph, Dublin Core, `article:` and Twitter card
+- Also harvested: canonical URL, favicon, declared charset and `html_lang`
+- Simple `<meta>` names cover keywords, author, language, robots, viewport, generator and theme-color
+- Qualified prefixes are keyed as `prefix_name`, without the colon
+- Absent fields are omitted rather than emitted as null (CLEAN stdout)
+- Favicon tries `icon`, then `shortcut icon`, then `apple-touch-icon`
+- `html_lang` comes from the `<html lang>` attribute, not the `language` meta
+- `meta_property()` uses a literal selector match for qualified prefixes
+- The shared helper adds an implicit `og:` fallback to every lookup
+- That fallback would make `dc:title` silently answer with `og:title`
+- Literal matching keeps the harvest from reporting fields the page never declared
+
+## Full agent inventory (69)
 
 Discover live: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
-find-paths forward goto grab heap hover keys lighthouse locale man map mitm monitor
+find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
 net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
 scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 63.
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 67.
 
 Large handler surface remains in `mod.rs` by design (single match table for agent
 parity). Prefer extracting **new** command families into sibling modules rather
@@ -161,7 +220,7 @@ Puppeteer/Playwright caches.
 - `docs/COOKBOOK.md` — agent recipes
 - `docs/TESTING.md` — how to run gates
 - `docs/CROSS_PLATFORM.md` — OS matrix, browser paths, sandboxes
-- `docs/HOW_TO_USE.md` — full inventory of 65 commands
+- `docs/HOW_TO_USE.md` — full inventory of **69** commands
 - `docs/ARCHITECTURE.pt-BR.md` — Portuguese mirror
 - `gaps.md` — Status v0.1.6 residual DoD + historical 0.1.5 audit catalogue
 - `PRIVACY.md` — local-only data handling

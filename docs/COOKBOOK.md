@@ -8,7 +8,7 @@
 ## Latency Note
 - Chrome launch dominates cold start on browser-engine commands
 - Prefer one `run` script over many separate launches when steps share state
-- HTTP scrape, crawl, map, search, parse, qr, find-paths, sheet-write, sg-scan, and sg-rewrite avoid Chrome when you only need content or local IO
+- HTTP scrape, crawl, map, search, parse, qr, image, video, find-paths, sheet-write, sg-scan, and sg-rewrite avoid Chrome when you only need content or local IO
 - Each process is BORN, EXECUTE, FINALIZE, DIE with no shared browser across invocations
 
 
@@ -74,8 +74,12 @@ browser-automation-cli doctor --offline --quick --json
 ## How To Verify Residual-Zero Disk Hygiene
 ```bash
 # Path-light residual report (BORN may already have scavenged stale Singleton orphans)
-browser-automation-cli doctor --offline --quick --json \
-  | jaq '{ok, residual, residual_disk: [.checks[] | select(.id=="residual_disk")]}'
+# The binary reduces the payload; no JSON processor in the prompt.
+browser-automation-cli --json --fields residual doctor --offline --quick
+
+# Just the residual verdict, from a 26 KB envelope down to one line
+browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' \
+  doctor --offline --quick
 
 # One-shot browser work should leave no CLI chrome markers
 # Note: --url about:blank is intentional residual smoke (url present); not a blank PDF without url (GAP-013)
@@ -84,13 +88,84 @@ browser-automation-cli --json print-pdf --url about:blank --path /tmp/browser-au
 # Re-check residual fields after DIE
 browser-automation-cli doctor --offline --quick --json | jaq '.residual'
 ```
-- Top-level `residual` fields: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
-- Check id `residual_disk`: `fail` when live marker processes remain; `warn` when marker dirs or Singleton orphans remain; else `pass`
+- Top-level `residual` fields: `scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legacy), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
+- Check id `residual_disk`: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; `warn` when marker dirs or Singleton orphans remain; else `pass`. A live sibling invocation is healthy and never fails.
 - Residual-zero means zero live CLI marker processes, zero `browser-automation-cli-chrome-*` dirs, zero owned Singleton-only Chromium tmp litter after DIE
 - Age floor for cross-run stale GC is 60s; host Flatpak Chrome temp is never wiped
 - Maintainers (optional local gates, local maintainer scripts only):
   - `bash scripts/residual-check.sh`
   - `bash scripts/residual-stress.sh`
+
+
+## How To Shrink an Envelope With --fields
+```bash
+# Full doctor envelope measures 26277 bytes on this host
+browser-automation-cli --json doctor --offline --quick
+
+# One dotted path takes the same answer down to 80 bytes
+browser-automation-cli --json --fields residual.ghost_marker_processes doctor --offline --quick
+
+# Paths are relative to data, so metadata resolves and data.metadata does not
+browser-automation-cli --json --fields metadata scrape https://example.com --format metadata --engine http
+
+# A path that resolves to nothing is reported, never silently dropped
+browser-automation-cli --json --fields residual.nao_existe doctor --offline --quick
+```
+- `--fields` takes one CSV of dotted paths and is not repeatable
+- Paths are rooted at `data`, so write `residual`, never `data.residual`
+- The projection rebuilds the nesting each path implies
+- Unresolved paths land in `agent_ops.unresolved_paths` with `flag` and `path`
+- The reduction happens inside the binary, so no JSON processor is needed
+
+
+## How To Count Rows With --count-only
+```bash
+# Replace the whole row payload with a single count
+browser-automation-cli --json --fields checks --count-only doctor --offline --quick
+
+# Count only the rows a filter keeps
+browser-automation-cli --json --fields checks --filter-rows status=info --count-only \
+  doctor --offline --quick
+```
+- `--count-only` emits `{"count": N}` in place of the rows
+- `agent_ops.total` and `agent_ops.matched` still report the filter arithmetic
+- Use it to size a result set before you pay for the rows
+
+
+## How To Sort, Limit, and Dedupe Rows
+```bash
+# Deterministic order plus a hard row ceiling
+browser-automation-cli --json --fields checks --sort-rows id --limit-rows 3 \
+  --truncate-content 24 doctor --offline --quick
+
+# Keep the first row of each distinct status
+browser-automation-cli --json --fields checks --dedupe-by status \
+  --truncate-content 24 doctor --offline --quick
+
+# Narrow to one row by id, then cap it
+browser-automation-cli --json --fields checks --filter-rows id=residual_disk --limit-rows 1 \
+  doctor --offline --quick
+```
+- `--sort-rows` takes a dotted path and compares numbers numerically
+- `--limit-rows` applies after filter, dedupe, and sort
+- `--dedupe-by` keeps the first row for each distinct value
+- `--filter-rows` accepts `key=value`, `key!=value`, and `key~substring`
+- A missing field never matches, so absence is not difference under `!=`
+
+
+## How To Cap Payload With --truncate-content and --max-output-bytes
+```bash
+# Cut every string in the payload to 24 characters
+browser-automation-cli --json --fields checks --filter-rows id=chrome --truncate-content 24 \
+  doctor --offline --quick
+
+# Hard byte ceiling; rows are shed from the end
+browser-automation-cli --json --fields checks --max-output-bytes 400 doctor --offline --quick
+```
+- `--truncate-content N` cuts strings and marks `agent_ops.truncated` true
+- `--max-output-bytes` sheds whole rows and reports `agent_ops.omitted_rows`
+- Both flags are global, so they work on any command that emits JSON
+- Combine them with `--fields` when one projection is still too large
 
 
 ## How To Open a Page and Snapshot
@@ -527,9 +602,26 @@ browser-automation-cli --timeout 90 --json run --script /tmp/emulate.browser-aut
 ## How To Scrape With Markdown Over HTTP
 ```bash
 browser-automation-cli --json scrape https://example.com --format markdown --engine http
+# agent-native CLEAN STDOUT (project fields; no jq):
+browser-automation-cli --json scrape https://example.com --engine http \
+  --format markdown --only-main-content \
+  --select source_url,title,markdown,status_code --max-text-chars 8000
 ```
-- Formats: `text`, `markdown`, `html`, `links`, `metadata`, `summary`, `product`, `branding`, `raw-html`, `screenshot`
-- Engine `http` uses reqwest and skips Chrome
+- Formats: `text`, `markdown`, `html`, `links`, `metadata`, `summary`, `product`, `branding`, `raw-html`, `screenshot`, `images`
+- Engine `http` uses reqwest and skips Chrome (prefer `http` when static HTML is enough)
+- `--select` projects fields in the binary; `--max-text-chars` caps text/markdown/html (XDG `scrape_max_text_chars` default)
+- Local one-shot scraping-oriented surface — **not** a hosted scraping SaaS (no CAPTCHA/proxy SaaS)
+
+## How To Map With Sitemap and Path Filters
+```bash
+browser-automation-cli --json map https://example.com --limit 20 --use-sitemap \
+  --include-path /docs --exclude-path /admin --select urls,count
+browser-automation-cli --json crawl https://example.com --limit 10 --format markdown \
+  --filter http_error=false --select source_url,title,markdown --output-mode json
+```
+- `--use-sitemap` default follows XDG `scrape_use_sitemap` (true)
+- `--filter` is AND `key=value` / `key!=value` on batch/crawl pages
+- `--output-mode ndjson` streams one page object per stdout line
 
 
 ## How To Scrape Multi-format
@@ -541,6 +633,39 @@ browser-automation-cli --json scrape https://example.com --formats markdown,link
 - CSV or repeatable `--format` returns multiple format fields in one invocation (GAP-009)
 - Alias `--formats` is accepted where supported (GAP-018)
 - Envelope includes per-format output when more than one format is requested
+
+
+## How To Read Expanded metadata
+```bash
+# A page that declares Open Graph and Twitter card tags
+browser-automation-cli --json --fields metadata \
+  scrape https://blog.rust-lang.org/2024/02/08/Rust-1.76.0/ --format metadata --engine http
+
+# A bare page: undeclared keys are absent, not null
+browser-automation-cli --json --fields metadata scrape https://example.com \
+  --format metadata --engine http
+```
+- `metadata` collects Open Graph, Dublin Core, `article:`, Twitter card, canonical, favicon, charset, and `html_lang`
+- Keys are flattened as `og_title`, `dc_creator`, `article_published_time`, `twitter_card`
+- Fields the page does not declare are omitted, never emitted as null
+- Test presence with a key check, not with a null comparison
+
+
+## How To Choose Between rawHtml and html
+```bash
+# rawHtml returns the document exactly as fetched
+browser-automation-cli --json --fields rawHtml --truncate-content 90 \
+  scrape https://docs.rs/serde/latest/serde/ --format rawHtml --engine http
+
+# html returns the body after main-content extraction and selector filters
+browser-automation-cli --json --fields html --truncate-content 90 \
+  scrape https://docs.rs/serde/latest/serde/ --format html --engine http --only-main-content
+```
+- `rawHtml` lands under the `rawHtml` key and starts at the doctype
+- `html` lands under the `html` key and starts at the extracted root
+- On that docs page the raw document is 25628 chars against 8185 extracted
+- They are no longer aliases of one another, so pick the one you mean
+- Use `rawHtml` for fidelity and `html` for content you intend to reprocess
 
 
 ## How To Scrape With the Browser Engine and Formats
@@ -639,6 +764,77 @@ browser-automation-cli --json qr decode --path /tmp/qr.png
 - No Chrome required
 - Encode formats include `png`, `svg`, and `terminal`
 
+
+## How To Process Images Locally (agent-native)
+```bash
+# Download with SSRF + body cap + magic (no Chrome)
+browser-automation-cli --json image download 'https://example.com/a.png' -o /tmp/a.png
+# Compact envelope projection (anti-token)
+browser-automation-cli --json image info --path /tmp/a.png --select format,width,height,sha256
+# Convert (re-encode strips EXIF; local webp is lossless — quality applies to jpeg)
+browser-automation-cli --json image convert --path /tmp/a.png --format webp -o /tmp/a.webp
+# Screenshot without pixel base64; opt-in: grab --include-base64
+browser-automation-cli --json grab --format webp --path /tmp/g.webp
+# Upload converted file into a file input (Chrome one-shot / run)
+# --script takes a file path or `-` for NDJSON on stdin; inline JSON is not a form
+printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"upload","target":"input[type=file]","path":"/tmp/a.webp"}' | browser-automation-cli --json run --script -
+```
+- Never dumps pixel base64 by default (agent-native stdout)
+- Limits via XDG: `image_max_input_bytes`, `image_max_pixels`, `image_download_max_bytes`
+- Magic bytes decide format (extension is not trusted); AVIF/HEIC rejected; GIF `frame_count` is 1 (no multi-frame reassemble)
+- `image download` is a single image URL (SSRF + body cap) — not a whole-site tree `download`
+- EXIF only (`kamadak-exif`); no IPTC/XMP; `--select tags` aliases to `exif`
+- SVG: no resvg raster; use `--allow-non-image` only when raw non-image bytes are intentional
+- No OCR action: the calling agent reads images natively, so embedded OCR was redundant middleware
+
+
+## How To Process Videos Locally (agent-native)
+```bash
+# Probe magic + streams (ffprobe optional; JSON path/meta only — never raw media on stdout)
+browser-automation-cli --json video info --path /tmp/in.mp4 --select container,duration_secs,streams,sha256
+# agent aliases also work: --select format,bytes,path → container,size_bytes,path
+# Convert/remux: smart copy when muxable; auto re-encode for WebM from H.264 (no manual ffmpeg)
+browser-automation-cli --json video convert --path /tmp/in.mp4 --format webm -o /tmp/out.webm --select path_out,auto_reencoded,video_codec,bytes_out
+# Extract audio
+browser-automation-cli --json video to-mp3 --path /tmp/in.mp4 -o /tmp/a.mp3
+# Trim + thumbnail frame (path→path)
+browser-automation-cli --json video trim --path /tmp/in.mp4 --start 0 --duration 2 -o /tmp/clip.mp4
+browser-automation-cli --json video thumbnail --path /tmp/in.mp4 --at 1 -o /tmp/thumb.png
+# Summarise an HLS .m3u8 or DASH .mpd manifest without downloading any media
+browser-automation-cli --json video manifest --path /tmp/master.m3u8
+# Direct media URL download (SSRF + body cap + magic) — not a site player/yt-dlp
+# browser-automation-cli --json video download 'https://example.com/clip.mp4' -o /tmp/in.bin
+# Upload into a form (reuse existing CDP upload)
+# --script takes a file path or `-` for NDJSON on stdin; inline JSON is not a form
+printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"upload","target":"input[type=file]","path":"/tmp/out.webm"}' | browser-automation-cli --json run --script -
+```
+- Requires optional OS `ffmpeg`/`ffprobe` (XDG `ffmpeg_path` / PATH); never links libav in the product crate
+- Limits via XDG: `video_max_input_bytes`, `video_download_max_bytes`, `video_default_container`, `video_default_crf`, `video_default_audio_bitrate`, `ffmpeg_timeout_secs`
+- Magic bytes decide container; extension is not trusted; path→path only (no full-file load in the CLI process)
+- Agent honesty fields: `stream_copy`, `auto_reencoded`, `reencode_reason`, `faststart_applied`
+- `video manifest` reads HLS `.m3u8` and DASH `.mpd` structure only; it never fetches segments
+- Not in core: adaptive HLS/DASH playback, yt-dlp site extractors, pure-Rust H.264 encode
+
+## How To Process Local Audio (path→path)
+
+```bash
+# Probe (magic + optional ffprobe) — no media dump
+browser-automation-cli --json audio info --path /tmp/in.wav --select format,codec,duration,bytes,sha256
+# Convert to MP3 (ffmpeg optional; smart copy when muxable)
+browser-automation-cli --json audio convert --path /tmp/in.wav --format mp3 -o /tmp/a.mp3
+# Extract audio from a video container (-vn)
+browser-automation-cli --json audio convert --path /tmp/clip.mp4 --format m4a -o /tmp/a.m4a
+# Trim
+browser-automation-cli --json audio trim --path /tmp/a.mp3 --start 1 --duration 5 -o /tmp/cut.mp3
+# Direct media URL download (SSRF + body cap + magic)
+# browser-automation-cli --json audio download 'https://example.com/a.mp3' -o /tmp/a.mp3
+# Upload into a form (existing CDP upload)
+browser-automation-cli --json upload @e1 /tmp/a.mp3
+```
+- Requires optional OS `ffmpeg`/`ffprobe` (XDG `ffmpeg_path` / PATH); never links libav
+- Limits via XDG: `audio_max_input_bytes`, `audio_download_max_bytes`, `audio_default_format`, `audio_default_bitrate`, `ffmpeg_timeout_secs`
+- Magic bytes decide container; extension is not trusted; envelope may set `lossy_transcode` on lossy→lossy recompress
+- Not in core: cpal device I/O, BPM/fingerprint, pure-Rust encode stack, yt-dlp/HLS
 
 ## How To Find Paths on Disk
 ```bash
@@ -870,7 +1066,7 @@ browser-automation-cli --json perf --help >/dev/null
 browser-automation-cli --json resize --help >/dev/null
 browser-automation-cli completions bash >/dev/null
 ```
-- Every agent name appears in `commands --json` (**65**)
+- Every agent name appears in `commands --json` (**69**)
 - `select-option` / `pick` appear in inventory and run/schema only
 - Prefer `schema <name>` before inventing argv for gated surfaces
 
@@ -899,7 +1095,7 @@ browser-automation-cli schema workflow --json
 browser-automation-cli schema locale --json
 browser-automation-cli schema man --json
 ```
-- `commands` lists the agent-facing surface (**65** names)
+- `commands` lists the agent-facing surface (**69** names)
 - `schema <cmd>` or `schema --cmd` prints a JSON Schema fragment for one command
 - Useful for tool registration in agent frameworks
 
@@ -970,22 +1166,22 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
 - URL assert supports exact match or contains semantics (`contains` or `url_contains`)
 - Text assert can target a selector via `target` or use `text_contains`
 
-## Full Command Inventory (65)
-- Live source of truth: `browser-automation-cli commands --json` (**65** agent-facing names)
-Clap product surface is **63** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
+## Full Command Inventory (69)
+- Live source of truth: `browser-automation-cli commands --json` (**69** agent-facing names)
+Clap product surface is **66** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53; lighthouse mock SKIP)
-- Full agent command list (all **65**):
+- Full agent command list (all **69**):
   - Meta / discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
   - Agent inventory + run/exec/schema (not clap standalone): `select-option`, `pick`
   - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
-  - Multi-step: `run`, `exec`
+  - Multi-step: `run`, `exec`, `record`
   - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
-  - Local IO (no Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+  - Local IO (no Chrome): `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
   - Emulation / perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
-- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
+- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Discover argv with `schema <name> --json` for any name above

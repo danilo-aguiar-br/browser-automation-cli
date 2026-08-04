@@ -42,6 +42,7 @@ impl Lifecycle {
             } else {
                 None
             };
+            let kill_pgid = ledger.chrome_pgid.take();
             let job_handle = ledger.windows_job_handle;
             // Ownership of the job moves out with the snapshot; zero ledger so a
             // concurrent with_ledger_mut cannot double-close.
@@ -52,6 +53,7 @@ impl Lifecycle {
             let side_channels = std::mem::take(&mut ledger.side_channels);
             FinalizeSnapshot {
                 kill_pid,
+                kill_pgid,
                 job_handle,
                 pid_for_scavenge,
                 profile,
@@ -62,7 +64,7 @@ impl Lifecycle {
 
         // --- outside lock: kill / discover / wipe / scavenge ---
         if let Some(pid) = snap.kill_pid {
-            residual_kill_child(pid, snap.job_handle);
+            residual_kill_child(pid, snap.kill_pgid, snap.job_handle);
         } else {
             // No pid kill path: still close a recorded Windows job handle.
             #[cfg(windows)]
@@ -113,6 +115,7 @@ impl Lifecycle {
 /// Lives only on the finalize stack; never shared across threads.
 struct FinalizeSnapshot {
     kill_pid: Option<u32>,
+    kill_pgid: Option<i32>,
     job_handle: usize,
     pid_for_scavenge: Option<u32>,
     profile: Option<PathBuf>,

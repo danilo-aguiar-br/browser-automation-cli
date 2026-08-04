@@ -10,7 +10,7 @@ use chromiumoxide::cdp::browser_protocol::page::{
 use chromiumoxide::cdp::js_protocol::heap_profiler::{
     EventAddHeapSnapshotChunk, EventReportHeapSnapshotProgress,
 };
-use chromiumoxide::cdp::js_protocol::runtime::EventConsoleApiCalled;
+use chromiumoxide::cdp::js_protocol::runtime::{EventBindingCalled, EventConsoleApiCalled};
 
 use super::forwarders::attach_page_event_forwarder;
 use super::types::CdpClient;
@@ -22,6 +22,43 @@ impl CdpClient {
     /// invocation owns; nothing is buffered before the forwarder is attached.
     pub async fn attach_page_console_forwarders(&self) -> Result<(), String> {
         self.attach_page_event_forwarders_console().await
+    }
+
+    /// Page-level `Runtime.bindingCalled` (page-scoped CDP events).
+    ///
+    /// Attached on demand by `record` rather than at launch: a binding event
+    /// only exists once `Runtime.addBinding` published one, so forwarding it
+    /// unconditionally would spawn a listener task every invocation pays for
+    /// and no invocation reads.
+    pub async fn attach_page_binding_forwarders(&self) -> Result<(), String> {
+        let pages = {
+            let browser = self.browser.lock().await;
+            browser
+                .pages()
+                .await
+                .map_err(|e| format!("Browser::pages for binding listeners: {e}"))?
+        };
+        let event_tx = self.event_tx.clone();
+        let limit = crate::concurrency::effective_limit_capped(8);
+        let futs: Vec<_> = pages
+            .into_iter()
+            .map(|page| {
+                let event_tx = event_tx.clone();
+                async move {
+                    attach_page_event_forwarder::<EventBindingCalled>(
+                        &page,
+                        "Runtime.bindingCalled",
+                        event_tx,
+                    )
+                    .await
+                }
+            })
+            .collect();
+        let results = crate::concurrency::join_bounded(futs, limit).await;
+        for r in results {
+            r?;
+        }
+        Ok(())
     }
 
     /// Page-level Network.requestWillBeSent (page-scoped CDP events).

@@ -5,6 +5,39 @@
   "type": "object",
   "description": "Crawl from a seed URL (HTTP BFS or browser, one-shot)",
   "properties": {
+    "dedup_key": {
+      "argv": "--dedup-key",
+      "description": "Deduplicate pages by field",
+      "required": false,
+      "source": "parser",
+      "step_key": "dedup_key",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "dedup_similar": {
+      "argv": "--dedup-similar",
+      "description": "Collapse near-duplicate pages by content similarity; threshold is XDG scrape_dedup_similar_distance (default: XDG scrape_dedup_similar = false)",
+      "required": false,
+      "source": "parser",
+      "step_key": "dedup_similar",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
+    "dry_run": {
+      "argv": "--dry-run",
+      "description": "Resolve and print the effective plan without fetching anything",
+      "required": false,
+      "source": "parser",
+      "step_key": "dry_run",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
     "engine": {
       "argv": "--engine",
       "default": "http",
@@ -17,17 +50,109 @@
       ],
       "type": "string"
     },
+    "exclude_path": {
+      "argv": "--exclude-path",
+      "description": "Exclude path prefixes (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "exclude_path",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
+    "exclude_selector": {
+      "argv": "--exclude-selector",
+      "description": "CSS exclude selectors",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "exclude_selector",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
+    "filter": {
+      "argv": "--filter",
+      "description": "Filter pages: key=value AND expressions",
+      "required": false,
+      "source": "parser",
+      "step_key": "filter",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "follow_rel_next": {
+      "argv": "--follow-rel-next",
+      "description": "Follow `rel=next` pagination links (default: XDG scrape_follow_rel_next = false)",
+      "required": false,
+      "source": "parser",
+      "step_key": "follow_rel_next",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
     "format": {
       "argv": "--format",
       "default": "text",
-      "description": "Output format applied to every page",
+      "description": "Output format(s) applied to every page (CSV or repeatable)",
+      "items": {
+        "type": "string"
+      },
       "required": false,
       "source": "parser",
       "step_key": "format",
       "surfaces": [
         "argv"
       ],
-      "type": "string"
+      "type": "array"
+    },
+    "ignore_query_params": {
+      "argv": "--ignore-query-params",
+      "description": "Collapse query params when deduping URLs",
+      "required": false,
+      "source": "parser",
+      "step_key": "ignore_query_params",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
+    "include_path": {
+      "argv": "--include-path",
+      "description": "Include only path prefixes (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "include_path",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
+    "include_selector": {
+      "argv": "--include-selector",
+      "description": "CSS include selectors",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "include_selector",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
     },
     "limit": {
       "argv": "--limit",
@@ -61,6 +186,40 @@
       "surfaces": [],
       "type": "integer"
     },
+    "max_text_chars": {
+      "argv": "--max-text-chars",
+      "description": "Cap text/markdown/html chars (0 = XDG default)",
+      "required": false,
+      "source": "parser",
+      "step_key": "max_text_chars",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "integer"
+    },
+    "output_mode": {
+      "argv": "--output-mode",
+      "default": "json",
+      "description": "json (default), ndjson, csv, or llms-txt (site summary for models)",
+      "required": false,
+      "source": "parser",
+      "step_key": "output_mode",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "redact_pii": {
+      "argv": "--redact-pii",
+      "description": "Redact PII",
+      "required": false,
+      "source": "parser",
+      "step_key": "redact_pii",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
     "same_host": {
       "argv": "--same-host",
       "default": true,
@@ -73,6 +232,28 @@
       ],
       "type": "boolean"
     },
+    "select": {
+      "argv": "--select",
+      "description": "Project data fields (CSV)",
+      "required": false,
+      "source": "parser",
+      "step_key": "select",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "sort": {
+      "argv": "--sort",
+      "description": "Sort pages by field",
+      "required": false,
+      "source": "parser",
+      "step_key": "sort",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
     "url": {
       "argv": "<URL>",
       "description": "Seed URL the breadth-first crawl starts from",
@@ -83,6 +264,28 @@
         "argv"
       ],
       "type": "string"
+    },
+    "use_sitemap": {
+      "argv": "--use-sitemap",
+      "description": "Seed frontier from sitemap.xml (default: XDG scrape_use_sitemap)",
+      "required": false,
+      "source": "parser",
+      "step_key": "use_sitemap",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
+    "with_content_hash": {
+      "argv": "--with-content-hash",
+      "description": "Include content_hash",
+      "required": false,
+      "source": "parser",
+      "step_key": "with_content_hash",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
     }
   },
   "required": [

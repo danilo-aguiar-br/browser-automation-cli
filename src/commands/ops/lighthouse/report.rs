@@ -249,8 +249,8 @@ mod tests {
 
     #[test]
     fn scores_from_chrome_captured_lhr_fixture() {
-        let lhr: serde_json::Value =
-            serde_json::from_str(CHROME_CAPTURED_LHR_JSON).expect("chrome_captured_lhr.json parses");
+        let lhr: serde_json::Value = serde_json::from_str(CHROME_CAPTURED_LHR_JSON)
+            .expect("chrome_captured_lhr.json parses");
         assert!(
             lhr["lighthouseVersion"]
                 .as_str()

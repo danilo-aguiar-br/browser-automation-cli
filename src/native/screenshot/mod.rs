@@ -26,4 +26,7 @@ mod tests;
 
 pub use capture::take_screenshot;
 pub use save::save_screenshot_async;
-pub use types::{AnnotationBox, ScreenshotAnnotation, ScreenshotOptions, ScreenshotResult};
+pub use types::{
+    screenshot_ext_for_format, AnnotationBox, ScreenshotAnnotation, ScreenshotOptions,
+    ScreenshotResult,
+};

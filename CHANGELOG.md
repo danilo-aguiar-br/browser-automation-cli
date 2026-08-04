@@ -9,6 +9,146 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-08-04
+
+### Added
+- Universal agent data operations on the success envelope, applied to `data` before it reaches stdout and therefore covering all **69** commands with one implementation: `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`. The four row-scoped names carry the `-rows` suffix because `--select`, `--filter`, `--limit` and `--sort` were already taken as per-command flags on `scrape`, `crawl`, `map`, `search`, `batch-scrape` and the media `info` verbs; promoting those spellings to the global scope would have collided with 32 existing declarations. Previously only 8 of 69 commands offered any of these and they disagreed — `crawl` had eight, `scrape` had one, `doctor` had none. Measured on `doctor --offline --quick`: 26_277 bytes → **80** bytes with `--fields residual.ghost_marker_processes`. The envelope gains `agent_ops` (`total`, `matched`, `truncated`, `omitted_rows`) only when a flag ran, so untouched envelopes keep their exact previous shape
+- `scripts/natives-check.sh` Pass N pins the `*-sys` / native-crate allowlist and forbids `openssl` and `nasm-rs`; it also fires when `aws-lc-sys` LEAVES, so `cmake` gets retired from the documented prerequisites instead of outliving its cause. Four new controls in `scripts/verifier-controls-check.sh` prove the gate detects each mutation
+- `docs/CONFIGURATION.md` and `docs/CONFIGURATION.pt-BR.md`: the complete XDG reference, all **176** keys with default and purpose. **132** of them appeared in no public document, so the only way to learn the surface was `config list-keys --json` — serviceable for an agent, invisible to a human comparing the product against alternatives
+- `scripts/doc-coverage-check.sh`: reads the LIVE binary for keys and commands and fails when the prose drifts from either. `scripts/docs-check.sh` validates rustdoc and never opens README; `scripts/inventory-flat-check.sh` pins the command COUNT without checking that each name is documented anywhere, and says nothing at all about configuration keys. The flag-scope assertion is deliberately scope-aware: a naive "does this flag exist" check would pass on `--select`, because it exists on `scrape`
+- `PRIVACY.pt-BR.md`: the policy existed in English only and was the one root document with no bilingual mirror
+- `agent_ops.unresolved_paths`, which names the flag and the path exactly as the caller typed them whenever a requested key resolves on no row. A bare count would not have been actionable
+- `scripts/agent-ops-check.sh` and `tests/agent_ops_cli.rs`: ten assertions driven through argv against the compiled binary. Integration coverage of the eight envelope flags was previously zero — the only `--fields` match under `tests/` was `--fields-json` from `fill-form`
+- Nine XDG keys promoted out of source literals: `max_urls_file_bytes`, `run_max_include_depth`, `mitm_rebind_attempts`, `network_idle_window_ms`, `dom_stable_window_ms`, `chrome_default_timeout_ms`, `drag_move_steps`, `drag_move_gap_ms`, `robots_fetch_timeout_secs`. The two wait budgets are the most user-visible in the product, and the Lightpanda engine already had a session-timeout key while the Chrome engine had none
+- `scrape --format metadata` now harvests Open Graph, Dublin Core, `article:`, Twitter card, canonical, favicon, charset and `html_lang`. It emitted five fixed fields while those tags sat in the same parsed document and were discarded, so a page with no author and no publish date was indistinguishable from a page the CLI never inspected. Qualified prefixes use a literal selector match, because the shared helper adds an implicit `og:` fallback that would make `dc:title` silently answer with `og:title`
+- AVIF encode via `ravif` with `default-features = false` (feature `image-avif`), keeping `rav1e/asm`, `nasm-rs` and `cc` out of the tree
+- HEIC decode via `heif-oxide` over `rust_h265` (feature `image-heic`), pure Rust with zero C
+- SVG sanitise and rasterise via `resvg` and `tiny-skia` (feature `image-svg`)
+- SIMD resize via `fast_image_resize` (feature `image-simd-resize`, on by default)
+- GIF multi-frame extraction and reassembly, retiring the `frame_count: 1` placeholder
+- IPTC IIM and XMP reading, written from scratch over `quick-xml`: no pure-Rust crate exposes them and `xmp_toolkit` is FFI to Adobe's C++ SDK
+- HLS and DASH manifest parsing via `m3u8-rs` and `dash-mpd` (feature `media-manifest`, on by default)
+- `video manifest`, which summarises an HLS `.m3u8` or DASH `.mpd` without fetching a single media segment. `video` now exposes 7 actions: `info`, `download`, `convert`, `to-mp3`, `trim`, `thumbnail`, `manifest`
+- `source_hash` in the `version` envelope, so an agent can pin the exact source tree behind a binary instead of trusting the version string alone
+- `scrape --format feed` for RSS, Atom and JSON Feed via `feed-rs`
+- `crawl --follow-rel-next` for `rel=next` pagination, bounded by the existing limit, depth, robots and politeness rules
+- `crawl`/`batch-scrape --dedup-similar`, a from-scratch SimHash that collapses near-identical content rather than identical URLs, reporting how many pages were collapsed
+- XDG key `chrome_startup_timeout_secs`, defaulting to 20 to match chromiumoxide's `LAUNCH_TIMEOUT`
+- `tests/fuzz_magic_parsers_gate.rs`: deterministic fuzzing of every magic parser over a xorshift corpus of 15 real container prefixes, truncated and bit-flipped. Replaces a `cargo fuzz` recipe that had been in `docs/TESTING.md` since auditoria-04 without a `fuzz/` directory ever existing — it needed nightly, needed libFuzzer from LLVM in a rust-native crate, and no gate invoked it
+- `scripts/lib/rust-regions.sh`: shared `#[cfg(test)]` span detection for verifiers. Spanning to end-of-file was wrong twice — `mod tests;` without a body declares the tests elsewhere, and Rust allows items after the test module
+- Residual scrape agent-native CLEAN STDOUT (wave 04): fix `--filter http_error=false` on OK pages; multi-format `--select` promotes nested fields; `build_formats_map` propagates selectors/redact/hash; format `json` real LLM extract via XDG OpenRouter; `--header` / browser `--wait-ms`; map `--sitemap-only`; `change_status` (fresh|unchanged) + content_hash; URL-normalize dedup trailing slash; gate expanded (10 tests); schemas residual flags; orphan `src/src` removed
+- Residual scrape agent-native CLEAN STDOUT (wave 03): crawl multi-format; `--include-selector`/`--exclude-selector`; formats `jsonld`/`json`; `--redact-pii`; `--with-content-hash`; batch/crawl `--output-mode csv`; `--sort`/`--dedup-key`; map `--search`; crawl `--ignore-query-params`; default scrape engine `http`; politeness delay jitter (XDG `scrape_delay_jitter_ratio`); XDG keys `scrape_default_engine`, `scrape_summary_chars`, `scrape_sitemap_max_bytes`, `scrape_charset_peek_bytes`
+- Residual scrape local scraping agent-native (CLEAN STDOUT): `--select`, `--max-text-chars` on scrape/batch-scrape/crawl/map/search; `--filter` / `--output-mode ndjson` on batch/crawl; `--include-path` / `--exclude-path` / `--use-sitemap` on crawl/map; batch multi-format CSV; format `images`
+- Politeness: Crawl-delay honor (`robots/politeness.rs`) + XDG `scrape_min_delay_ms`; encoding_rs charset pipeline; meta/X-Robots noindex; nofollow skip; HTTP 4xx/5xx structured (`http_error`)
+- XDG keys: `scrape_max_text_chars`, `scrape_min_delay_ms`, `scrape_honor_meta_robots`, `scrape_honor_nofollow`, `scrape_use_sitemap`
+- i18n EN+PT: `http_status_scrape`, `meta_robots_noindex`; gate `tests/scrape_agent_native_gate.rs`
+- WAVE-C TREATED honesty: CAPTCHA/proxy/agent SaaS/async jobs not in product; feed/ETag deferred TREATED
+- Local audio pipeline (no Chrome): `audio info|download|convert|trim` (magic-first; ffprobe/ffmpeg optional via XDG `ffmpeg_path`; path→path; agent JSON only; no PCM/base64 stdout)
+- XDG keys: `audio_max_input_bytes`, `audio_download_max_bytes`, `audio_default_format`, `audio_default_bitrate`
+- Schema: `docs/schemas/audio.schema.json`; concurrency matrix `audio` = `sequential_justified`
+- Inventory agent surface: **68** names via `commands --json` (adds `audio`); recipe download→convert→`upload`
+- i18n EN+PT: `audio_too_large`, `audio_magic_invalid`, `audio_format_unsupported`, `audio_lossy_transcode`
+- Integration `tests/audio_local_gate.rs`; inventory flat gate EXPECTED=68 + has_audio (renamed to `scripts/inventory-flat-check.sh`; `scripts/verify-inventory-flat.sh` kept as shim so `scripts/ci-check.sh` glob `scripts/*-check.sh` finally discovers it)
+- Local video pipeline (no Chrome): `video info|download|convert|to-mp3|trim|thumbnail` (magic-first; ffprobe/ffmpeg optional via XDG `ffmpeg_path`; path→path; agent JSON only)
+- Residual discovery/docs Locale-Parity (auditoria-04): flat lists/Utils/HOW_TO/README inventário **67** + `video`; clap tip **65**; schemas README `video.schema.json`; run INTENTIONAL_RUN_EXCLUDE video
+- Residual auditoria-05: `video --select` agent aliases (`format`/`bytes`/`path`); compact ffmpeg error messages; `run` unknown cmd uses INTENTIONAL_RUN_EXCLUDE reasons; ROADMAP Wave C honesty + inventory `video`; skills formulas image/video; TESTING.pt-BR inventário 67
+- Residual auditoria-06: flat inventory blocks **67** + `video` (TESTING/MIGRATION/CROSS); MIGRATION jaq/timeline **67**; schema `--select` aliases; magic open Permission denied suggestion (i18n input+output); AGENTS.pt-BR + COOKBOOK local-IO video
+- Residual auditoria-07: MIGRATION.pt-BR inventory heading `+ video`; schema per-action `--select` aliases; magic read uses `io_open_err`; gaps naming image-06 vs execucao-06
+- Residual auditoria-08: `scripts/verify-inventory-flat.sh` local gate (67+image+video); hash/stat I/O uses `io_open_err` suggestion; image backlog hard-TREATED; TESTING pointer
+- Residual auditoria-09: FTL/enum PT media parity; FS path I/O uses `io_path_err` suggestion (stat/mkdir/rename/stdin); verify script README.pt-BR; gaps mid-08 hygiene
+- Residual auditoria-10: image path FS uses `io_path_err` suggestion (parity video); pt_br media indent hygiene; unit coverage mkdir/rename/open
+- Residual auditoria: schema Wave B (trim/thumbnail/`no_faststart`), filesize SRP split (`ffmpeg_ops`/`ops`/`resolve_media`/`set_media`), `ffmpeg_io_failed` i18n, integration `tests/video_local_gate.rs`, soft tip **67** Locale-Parity
+- Smart convert: stream-copy when muxable; auto re-encode when copy incompatible (e.g. H.264→WebM) with honesty fields `auto_reencoded` / `reencode_reason`
+- Atomic ffmpeg outputs (`.ba-partial.<ext>` → rename); fail cleans residual; dedicated `ffmpeg_failed` i18n suggestion
+- Faststart default for MP4-family (`--no-faststart` opt-out); doctor reports optional `ffprobe`
+- XDG keys: `video_max_input_bytes`, `video_download_max_bytes`, `video_default_container`, `video_default_crf`, `video_default_audio_bitrate`
+- Schema: `docs/schemas/video.schema.json`; concurrency matrix `video` = `sequential_justified`
+- Shared agent projection helper `json_util::project_fields` (DRY image+video)
+- Local image pipeline (no Chrome): `image info|convert|resize|download|exif`
+- Pure-Rust EXIF via `kamadak-exif` (GPS omitted by default; `--include-gps`)
+- `image download` over the shared SSRF-guarded HTTP path, bounded by `image_download_max_bytes`
+- XDG keys: `image_max_input_bytes`, `image_max_pixels`, `image_default_format`, `image_default_quality`, `image_download_max_bytes`
+- Magic-byte format probe (png/jpeg/webp/gif; AVIF/HEIC detect-and-reject)
+- Agent projection: `image info --select` CSV fields; `image convert --strip-exif` / `--keep-exif`
+- `grab --include-base64` opt-in (default off; key omitted from JSON when off)
+- Unit tests: `image_local` (**17**) for magic, limits, convert, resize, atomic, select, SSRF, EXIF APP1, webp quality honesty, select aliases, magic-first path
+
+### Changed
+- `scripts/verify-inventory-flat.sh` became `scripts/inventory-flat-check.sh`. `scripts/ci-check.sh` discovers verifiers with the glob `scripts/*-check.sh`, which the old name never matched, so the gate never ran in the bundle. The old path is kept as a delegating shim
+- The inventory gate now also covers `docs/HOW_TO_USE.md`, `docs/HOW_TO_USE.pt-BR.md` and `docs/schemas/README.md`, and asserts the clap surface as well as the agent inventory
+- `scripts/schema-drift-check.sh` wires the generator's long-existing `--check` into the bundle, closing a drift of 8 schemas in 68
+- `scripts/filesize-check.sh` discounts inline `#[cfg(test)] mod tests`; it was demanding that production code shrink to make room for table-driven tests
+- `scripts/ci-check.sh` writes a citable artifact to `target/gates/ci-check.txt`, so a close can cite an execution instead of prose
+- `scripts/network-check.sh`, `scripts/json-ndjson-check.sh` and `scripts/natives-check.sh` stopped flagging test code as production. The network gate was failing on the very test that proves the product rejects a `0.0.0.0` bind
+- `#![recursion_limit = "256"]` on the crate root; the XDG key catalog crossed `serde_json::json!`'s default expansion ceiling
+- Inventory agent surface: **68** names via `commands --json` (adds `image`, `video`, `audio`); clap product **66**
+- `ScreenshotResult.base64` is `Option<String>` (None by default)
+- Human image line includes `w=`/`h=` when present
+- `gaps.md` versioned living inventory (image closed/open + auditoria-02 + auditoria-03 residual)
+- Docs/skills/CLAUDE inventory honesty: flat lists + Local IO include `image`+`video`; clap product surface **65**; schemas `image.schema.json`+`video.schema.json`
+- Docs honesty residual: MIGRATION timeline 65→66 Unreleased `image`; PT 0.1.5 as-of 63; CONTRIBUTING/INTEGRATIONS tip Unreleased (not “0.1.6=66”); CLAUDE image playbook; rustdoc `ImageSource` link fixed (docs-check PASS)
+- Agent-honest convert envelope: `quality_applied`, `keep_exif_honored` (local webp lossless per image 0.25 docs.rs)
+- Doctor budget matrix includes `image` (sequential_justified single-file)
+- `image exif --select` field projection (DRY with info)
+- COOKBOOK recipes for local image pipeline (agent-native, no pixel base64 default)
+
+### Fixed
+- Residual process identity now comes from the kernel-reported executable, never from argv. A shell script carrying `--user-data-dir=<marker> --type=renderer` satisfied the old substring classifier, so `ghost_marker_processes` reported it and `doctor --offline --quick` exited **1** on a host with no Chrome running; the same classification also put an unrelated pid in front of the reaper. `sysinfo` documents `cmd[0]` as untrustworthy for exactly this reason. The predicate is now split by consequence: verdict and reaping are strict (unknown executable is never a browser), wipe protection stays permissive (anything that might hold a profile keeps it alive)
+- `reconcile` no longer signals a process it cannot identify: `browsers_pinning` stays unfiltered because the reparenting proof reads it as tree topology (a Flatpak root is `bwrap`, not a browser, and filtering it out would re-read its children as orphaned roots), while the new `browsers_reapable` gates the kill. When any holder is unidentified the pass declines the whole directory — killing the identified subset and wiping anyway would have manufactured a `ghost_marker_processes` of its own
+- `foreign_root_orphans` counts marker PROFILES, not processes. It used to count entries, so one invocation with renderer, GPU and utility children reported three orphans for one directory — the same Chrome-subprocess inflation already fixed twice elsewhere in the module
+- `residual::proc` enumerates with `without_tasks()` instead of collecting every Linux thread and discarding it afterwards; the index is built during BORN on every invocation, so that cost was charged to every run
+- The `cargo fmt` diff left by the `residual-honesty-04` wave is cleared, and the wave's own smoke (`cargo test --lib residual::` plus one integration test) is replaced by the canonical bundle — a literal recurrence of `NC-GATE-BUNDLE-NUNCA-RODOU`
+- Residual field list and status ladder corrected in **16** documentation sites that still described four fields and a `fail` rule retired by GAP-002/GAP-006 (ARCHITECTURE, COOKBOOK, HOW_TO_USE, README, INTEGRATIONS, llms-full; EN+PT). `MIGRATION` keeps the 0.1.5 text as historical record and gains a tip annotation instead
+- The `Cargo.toml` note claiming `cc`/`cmake` reach the graph "only via the pre-existing TLS stack" was measured wrong: `libsqlite3-sys` (bundled), `libmimalloc-sys` and `zstd-sys` compile C too — five units, not two. Removing `cmake` was attempted and reverted with the measurement recorded: `reqwest/rustls-no-provider` does not drop `aws-lc-sys`, because `hudsucker` declares `tokio-rustls` without `default-features = false` and Cargo feature unification is additive. hudsucker 0.25.0 is the newest release, so `cmake` stays a documented prerequisite rather than an undocumented surprise
+- `scripts/inventory-flat-check.sh` no longer false-green: `STALE_COUNT=EXPECTED-1` (68), requires live `record`, README `**69**`+`record`, anti-stale targets include README/ARCHITECTURE/llms and secondary tip docs
+- Residual honesty-02: skills EN+PT `all/estes 69`+`record`; CONTRIBUTING/INTEGRATIONS tip **69**+`record`; llms* flat 69 unique (no `record, record`); gate phrase-family + flat uniqueness
+- Residual honesty-03: TESTING EN+PT bare inventory notes **69**+`record`; MIGRATION jaq comment/timeline/tip paren include `record`→69; gate bare-phrase `(inventory N)` / `commands --json` (N) + skills set-equality vs live
+- Residual honesty-04: agent residual contract aligns with doctor — fail on `orphan_marker_dirs` + `ghost_marker_processes` (live CLI Chrome with missing marker dir); skills/AGENTS/TESTING stop requiring zero `live_cli_marker_processes`; `sibling_live_processes` documented as healthy concurrency; TESTING documents `RUST_MIN_STACK` for clap-tree stack overflow
+- `doctor` reported success for a payload it never emitted. `src/doctor/run.rs` discarded the over-budget error in `Err(_) => {}` because `run_doctor` returns `i32` rather than `Result`, so `--max-output-bytes 1000`, `4000` and `10000` each returned exit **0** with an empty stdout and an empty stderr — which an agent reads as "the host is healthy". Seven other commands already returned exit 2 on the same input; `doctor` is the one agents use to validate residual-zero, and the silent band reached roughly 20000 bytes, covering every operationally plausible value
+- A requested path that resolves on no row is no longer indistinguishable from success. `--fields NAO.EXISTE` returned `{"ok":true,"data":{}}`; `--sort-rows` with an absent key fell into `(None, None) => Ordering::Equal` and, because `sort_by` is stable, produced a perfect no-op reported as `matched == total`; `--dedupe-by` with an absent key reported every row as unique. All three now report `unresolved_paths`, while a path that does resolve keeps the envelope byte-identical
+- The three `agent-ops-*` recovery messages suggested `--select`, which is not a global flag. On 61 of the 69 commands, following the advice produced `error: unexpected argument '--select' found`, so the message meant to recover from one error produced a second
+- `scrape --format rawHtml` returns raw HTML under the `rawHtml` key. The alias collapsed into `ScrapeFormat::Html`, so a caller asking for raw received the body after main-content extraction and selector filtering, under the `html` key. The `"rawHtml"` match arm was also unreachable: it sat after `to_ascii_lowercase()`
+- `batch-scrape --urls-file` had no size ceiling and was the only reader in the product without one, over user-controlled input. It now checks file metadata first, like every sibling reader already did, against the new `max_urls_file_bytes`
+- `verify_image_magic` read the whole file to inspect its first bytes; `IMAGE_MAGIC_PROBE_BYTES` existed for exactly this purpose and was never used
+- `scrape_local::emit` cloned the entire result array in order to iterate it, doubling peak memory on a crawl of hundreds of markdown pages, and carried a dead conditional whose two branches were identical
+- `src/output.rs` acquired the stdout lock and flushed once per line, so an NDJSON batch of N items cost N lock acquisitions and N syscalls. Per-line flushing protects long-lived streaming; this CLI is one-shot and emits in batches, so batch emission now takes one lock and one flush
+- `batch-scrape` published a `concurrency_budget` it never spent: the loop is serial by construction on a single CDP session, so the envelope advertised parallelism beside a note stating it is sequential. It now reports the effective value
+- The browser engine matched robots rules under a different identity than the HTTP engine. `nav.rs` passed a bare product-name literal while the HTTP path passed the versioned `HTTP_USER_AGENT`, so the same site could be allowed on one engine and denied on the other
+- BORN reconciliation now reaps orphans it could only *report* before. The reaper listed profiles under `residual_scan_roots()`, which derives from `XDG_CACHE_HOME`, while `foreign_root_orphans` already found them by reading command lines. Detection and action had different scopes, so a tree from an earlier build survived every invocation. It now works over the union of both views
+- Legacy profiles carrying no owner-pid marker are collectable again. Requiring the marker failed closed, leaving every pre-GAP-052 profile permanently pinned. When the marker is absent the proof is read from the kernel instead: the tree root's parent must not be a live CLI of this product, and the age floor is multiplied tenfold because the substitute replaces the weaker half of the proof
+- `ERROR chromiumoxide::handler: WS Connection error` no longer appears on a successful run. `Browser.close` drops the socket without a handshake and chromiumoxide logs that from inside its handler; FINALIZE now stops the event pump first, so the reset is never observed rather than observed and filtered
+- `run --script <(…)` explains itself. Shell process substitution hands over a path under `/proc/<pid>/fd/<n>`, which no allowed root can contain; the refusal now points at `run --script -`, which reads NDJSON steps from stdin
+- One-shot DIE now holds under hard kill. Chrome is spawned by the product instead of by chromiumoxide, with `PR_SET_PDEATHSIG` plus `setpgid(0, 0)` on Linux, a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` on Windows, and a `kqueue` `NOTE_EXIT` watchdog on macOS. `SIGKILL` on the CLI now takes the browser down through the kernel, not through `Drop`
+- `BrowserProcess` gained a `Chrome` variant, so `chrome_pid()` stops returning `None` on the Chrome path. FINALIZE reaches `residual_kill_child` for the first time; previously only chromiumoxide's `kill_on_drop` did any reaping, and `panic = "abort"` bypassed even that
+- Residual kill escalates from a single pid to the process group. `kill(-pgid, …)` reaches zygote, GPU, network and renderer children, with a `sysinfo` parent-child walk as fallback when the pgid is unavailable
+- `doctor` emits `residual.scanned_roots[]`. Residual-zero was silently relative to the caller's `XDG_CACHE_HOME`: the same binary on the same host reported `cli_marker_dirs: 0` from one shell and `2` from another
+- `doctor` emits `foreign_root_orphans`, which counts marker-holding browsers whose profile sits outside every scanned root — residue every other field was blind to
+- `live_cli_marker_processes` no longer inflates by the thread count. `sysinfo` enumerates `/proc/<pid>/task`, so each Chrome thread arrived as its own process; the reported figure was 382 on a host with 22. Threads are now filtered via `Process::thread_kind()`, a no-op outside Linux
+- `cargo test` no longer aborts with SIGABRT. Building the 68-subcommand clap tree overflowed the 2 MiB test-thread stack, so the whole suite was unrunnable and gates were only ever invoked per-module — which is how a global `--lang` collision survived ten audits
+- `std::thread::sleep` on an async path in `src/browser/support.rs` no longer blocks a Tokio worker
+- Residual-audio-03 (agent-native honesty): AGENTS/CONTRIBUTING inventário **68**+`audio`; convert/trim (+video) omit null Option keys; media max write uses DEFAULT_* (not 0); full_dump omits JSON null; libvorbis uses `-q:a` (8 kHz ogg); verify-flat checks AGENTS
+- BUG-IMG-001: `grab --format webp` default path now uses `.webp` extension
+- BUG-IMG-002: QR decode is magic-first (no longer trusts file extension)
+- BUG-IMG-003: screenshot save is atomic (tmp + fsync + rename)
+- BUG-IMG-004: drop retained CDP base64 after disk write (agent-native; no pixel dump)
+- BUG-AUD-001/002: `image` registered in agent `COMMANDS` inventory + categories (schema discoverable)
+- BUG-AUD-003: clippy clean on image pipeline (`-D warnings`)
+- grab lossy quality applied for `webp` as well as `jpeg`
+
+### Removed
+- The `image ocr` action. The agent that consumes this CLI reads images natively, so an OCR pass in the middle only spent tokens restating what the caller could already see
+- OCR was also the one path that dragged an external C binary — `tesseract` — into a tool whose whole premise is rust-native and self-contained
+- The XDG keys `ocr_engine`, `ocr_lang` and `tesseract_path` went with it. A legacy `config.toml` still carrying them loads without error, because the config model is `#[serde(default)]` and never sets `deny_unknown_fields`
+- `image` now exposes 5 actions: `info`, `convert`, `resize`, `download`, `exif`
+
+### Documentation
+- Inventory honesty tip: **69** plus `record` across README, ARCHITECTURE, HOW_TO_USE, AGENTS, schemas, llms, TESTING and COOKBOOK (EN+PT); clap product surface **67**; README current version **0.1.7**
+- The XDG configuration surface is documented for the first time. Public prose described 44 of 176 keys and pointed readers at `config list-keys --json` for the rest
+- `CLAUDE.md` stopped requiring zero `live_cli_marker_processes`, which `docs/AGENTS.md` and both skills already contradicted. The field is legacy and counts Chrome child processes, so a healthy concurrent run inflates it
+- Every public document now has a `.pt-BR` mirror, and every link in `llms.txt`, `llms.pt-BR.txt`, `llms-full.txt` and `llms-full.pt-BR.txt` resolves to a file that exists
+- Inventory corrected from **67** to **68** and the clap product surface from **65** to **66** across eighteen files, EN and pt-BR. Historical statements were left intact; only live claims were changed
+- The `CHANGELOG` no longer carries two consecutive `### Added` sections under one `## [Unreleased]`
+
 ## [0.1.6] - 2026-07-31
 
 ### Added

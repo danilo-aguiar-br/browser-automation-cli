@@ -116,108 +116,6 @@ pub async fn save_state(
     Ok(save_path)
 }
 
-/// [`save_state`] written atomically for the auto-save path.
-///
-/// Auto-save runs at shutdown, where a crash mid-write would leave a truncated
-/// file in place of a working session. Writing to a temp file and renaming means
-/// the old state survives a failed save instead of being destroyed by it.
-pub async fn save_auto_state_transactional(
-    client: &CdpClient,
-    session_id: &str,
-    session_name: &str,
-    session_id_str: &str,
-    visited_origins: &FxHashSet<String>,
-) -> Result<String, String> {
-    if !is_valid_session_name(session_name) {
-        return Err(session_name_error(session_name));
-    }
-
-    let dir = get_sessions_dir();
-    // PAR-80: mkdir/rename off async worker.
-    crate::concurrency::create_dir_all_blocking(dir.clone())
-        .await
-        .map_err(|e| format!("Failed to create state directory {}: {e}", dir.display()))?;
-
-    let tmp_dir = dir.join(".tmp");
-    crate::concurrency::create_dir_all_blocking(tmp_dir.clone())
-        .await
-        .map_err(|e| {
-            format!(
-                "Failed to create temporary state directory {}: {e}",
-                tmp_dir.display()
-            )
-        })?;
-
-    let base_name = format!("{session_name}-{session_id_str}");
-    let final_json_path = dir.join(format!("{base_name}.json"));
-    let final_path = if crate::xdg::encryption_key().is_some() {
-        PathBuf::from(format!("{}.enc", final_json_path.to_string_lossy()))
-    } else {
-        final_json_path
-    };
-    let candidate_json_path = tmp_dir.join(format!(
-        "{}-candidate-{}.json",
-        base_name,
-        std::process::id()
-    ));
-    let candidate_arg = candidate_json_path.to_string_lossy().to_string();
-
-    let candidate_path = save_state(
-        client,
-        session_id,
-        Some(&candidate_arg),
-        Some(session_name),
-        session_id_str,
-        visited_origins,
-    )
-    .await?;
-
-    let candidate_for_validate = candidate_path.clone();
-    if let Err(err) =
-        tokio::task::spawn_blocking(move || validate_state_file(&candidate_for_validate))
-            .await
-            .map_err(|e| format!("state validate join: {e}"))?
-    {
-        let _ = fs::remove_file(&candidate_path);
-        return Err(err);
-    }
-
-    let previous_path = PathBuf::from(format!("{}.previous", final_path.to_string_lossy()));
-    let final_exists = final_path.exists();
-    if final_exists {
-        let _ = fs::remove_file(&previous_path);
-        crate::concurrency::rename_blocking(final_path.clone(), previous_path.clone())
-            .await
-            .map_err(|e| {
-                format!(
-                    "Failed to rotate previous state {} to {}: {e}",
-                    final_path.display(),
-                    previous_path.display()
-                )
-            })?;
-    }
-
-    let candidate = PathBuf::from(&candidate_path);
-    if let Err(err) =
-        crate::concurrency::rename_blocking(candidate.clone(), final_path.clone()).await
-    {
-        if previous_path.exists() && !final_path.exists() {
-            let _ = crate::concurrency::rename_blocking(previous_path.clone(), final_path.clone())
-                .await;
-        }
-        return Err(format!(
-            "Failed to promote state {} to {}: {err}",
-            candidate.display(),
-            final_path.display()
-        ));
-    }
-    if previous_path.exists() {
-        let _ = fs::remove_file(&previous_path);
-    }
-
-    Ok(final_path.to_string_lossy().to_string())
-}
-
 pub(crate) fn read_state_json(path: &str) -> Result<String, String> {
     if is_encrypted_state(std::path::Path::new(path)) {
         let key = crate::xdg::encryption_key().ok_or_else(|| {
@@ -246,14 +144,6 @@ pub(crate) fn read_state_json(path: &str) -> Result<String, String> {
             }
         }
     }
-}
-
-/// Check that a file parses as a state file before anything acts on it.
-pub fn validate_state_file(path: &str) -> Result<(), String> {
-    let json_str = read_state_json(path)?;
-    let _: StorageState =
-        crate::json_util::from_str(&json_str).map_err(|e| format!("Invalid state file: {e}"))?;
-    Ok(())
 }
 
 /// Async read of state JSON (PAR-77: disk off the async worker).

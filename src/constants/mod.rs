@@ -25,6 +25,7 @@
 //! | logging | Tracing level and log rotation defaults |
 //! | cache | Redis/RESP budgets and L2 cache TTLs |
 //! | payload_limits | Input-size ceilings and anti-DoS clamps |
+//! | record | Interaction-recorder budgets and binding name |
 //! | media | Screenshot / screencast quality defaults |
 //! | timing | Event-pump slices, settle delays, perf polling |
 //! | heap | Heap snapshot ceilings and node-op caps |
@@ -48,6 +49,7 @@ mod media;
 mod mitm;
 mod network_presets;
 mod payload_limits;
+mod record;
 mod retry;
 mod timing;
 mod viewport;
@@ -66,6 +68,7 @@ pub use media::*;
 pub use mitm::*;
 pub use network_presets::*;
 pub use payload_limits::*;
+pub use record::*;
 pub use retry::*;
 pub use timing::*;
 pub use viewport::*;

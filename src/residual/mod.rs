@@ -39,12 +39,14 @@
 //! | `proc` | Live-process index (PAR-89 / GAP-045) |
 //! | `owner` | Owner-pid marker for CLI profiles (GAP-052) |
 //! | `report` | `ResidualDiskReport` |
+//! | `reconcile` | BORN reap of profiles pinned by an orphaned browser |
 
 mod classify;
 mod constants;
 mod discover;
 mod owner;
 mod proc;
+mod reconcile;
 mod report;
 mod roots;
 mod scavenge;
@@ -63,7 +65,11 @@ pub use discover::{
     list_cli_chrome_marker_dirs_in_roots,
 };
 pub use owner::{has_owner_pid, owner_pid_path, read_owner_pid, write_owner_pid, OWNER_PID_FILE};
-pub use proc::{index_live_processes, index_proc_cmdlines, LiveProcessIndex};
+pub use proc::{index_live_processes, index_proc_cmdlines, LiveProcessIndex, ProcessEntry};
+pub use reconcile::{
+    abandoned_marker_dirs, browsers_pinning, browsers_reapable, marker_dirs_from_live_cmdlines,
+    reconcile_abandoned_profiles, reconcile_abandoned_profiles_with_min_age, ReconcileOutcome,
+};
 pub use report::{residual_disk_report, ResidualDiskReport};
 pub use scavenge::{
     scavenge_owned_chromium_tmp_orphans, scavenge_stale_singleton_orphans,

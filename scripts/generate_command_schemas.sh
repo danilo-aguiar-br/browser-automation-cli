@@ -11,12 +11,40 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-BIN="${BIN:-$ROOT/target/release/browser-automation-cli}"
-if [[ ! -x "$BIN" ]]; then
-  BIN="$ROOT/target/debug/browser-automation-cli"
+# PICK THE NEWER BINARY, NOT THE PREFERRED ONE
+#   The old order was release-then-debug, which silently compares `docs/schemas`
+#   against a STALE artifact: any workflow that iterates with `cargo build`
+#   (debug) while an older `target/release` sits on disk gets a green check for a
+#   binary that no longer reflects the source. That is the same false-green this
+#   gate exists to prevent, one level down — the drift moves from the schema file
+#   to the thing the schema file is compared against.
+#
+#   An explicit `BIN=` still wins, because a caller naming a binary means it.
+if [[ -z "${BIN:-}" ]]; then
+  REL="$ROOT/target/release/browser-automation-cli"
+  DBG="$ROOT/target/debug/browser-automation-cli"
+  if [[ -x "$REL" && -x "$DBG" ]]; then
+    if [[ "$DBG" -nt "$REL" ]]; then BIN="$DBG"; else BIN="$REL"; fi
+  elif [[ -x "$REL" ]]; then
+    BIN="$REL"
+  else
+    BIN="$DBG"
+  fi
 fi
 if [[ ! -x "$BIN" ]]; then
   echo "error: binary not found; build with cargo build --release --locked or set BIN=" >&2
+  exit 2
+fi
+
+# STALENESS IS A FAILURE, NOT A WARNING
+#   Even the newer of the two binaries can predate the sources. Comparing a
+#   derived artifact against something older than the code it derives from
+#   answers a question nobody asked, and answers it green.
+newest_src="$(fd -e rs . "$ROOT/src" --exec-batch ls -t 2>/dev/null | head -1 || true)"
+if [[ -n "$newest_src" && "$newest_src" -nt "$BIN" ]]; then
+  echo "error: $BIN is older than $newest_src" >&2
+  echo "       rebuild before checking schemas, or the comparison is meaningless" >&2
+  echo "       cargo build --release --locked   # then re-run" >&2
   exit 2
 fi
 

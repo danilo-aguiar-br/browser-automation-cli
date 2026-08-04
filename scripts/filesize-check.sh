@@ -76,6 +76,45 @@ is_test_file() {
   return 1
 }
 
+# INLINE `#[cfg(test)] mod tests` IS NOT PRODUCTION CODE
+#   `is_test_file` exempts test PATHS, but says nothing about a test module
+#   living inside a production file. Measured case: src/scrape_local/project.rs
+#   reported 352 code lines, of which ~50 are an inline `mod tests` starting at
+#   line 360. The gate was demanding that production code be split to make room
+#   for table-driven tests — the exact perverse incentive the header warns about
+#   for doc comments, one layer down.
+#
+#   Same unit as the rest of the gate: the tail is measured with tokei, not with
+#   a physical line count, so blanks and comments inside the test module are
+#   treated identically to everywhere else.
+inline_test_code_lines() {
+  local file="$1"
+  local mod_line start
+  # Anchor on the module declaration, not on `#[cfg(test)]`: a cfg-gated `fn`
+  # or `use` is production surface and must keep counting. The attribute sits on
+  # the line directly above, so the tail starts one line earlier.
+  mod_line="$(rg -n '^\s*(pub )?mod tests \{' "$file" 2>/dev/null | head -1 | choose -f ':' 0 || true)"
+  [[ -z "$mod_line" ]] && { echo 0; return 0; }
+  start=$((mod_line - 1))
+  # Guard: only discount when the module really is cfg-gated.
+  rg -q '^\s*#\[cfg\(test\)\]' <(bat -pP -r "${start}:${start}" "$file" 2>/dev/null) 2>/dev/null || {
+    echo 0
+    return 0
+  }
+
+  local tmp
+  tmp="$(mktemp -t filesize-check-XXXXXX.rs)"
+  bat -pP -r "${start}:" "$file" >"$tmp" 2>/dev/null || {
+    rm -f "$tmp"
+    echo 0
+    return 0
+  }
+  local tail_code
+  tail_code="$(tokei "$tmp" -o json 2>/dev/null | jaq -r '.Rust.reports[0].stats.code // 0' 2>/dev/null || echo 0)"
+  rm -f "$tmp"
+  echo "${tail_code:-0}"
+}
+
 echo "== filesize-check (limit ${LIMIT} code lines, target ${TARGET_DIR}) =="
 
 # One tokei pass for the whole tree. Per-file invocation would be correct but
@@ -101,6 +140,17 @@ while IFS= read -r file; do
     continue
   fi
   [[ "$lines" -le "$LIMIT" ]] && continue
+  # Only pay the per-file tokei pass for files that would otherwise FAIL.
+  inline_tests="$(inline_test_code_lines "$file")"
+  if [[ "$inline_tests" -gt 0 ]]; then
+    prod_lines=$((lines - inline_tests))
+    if [[ "$prod_lines" -le "$LIMIT" ]]; then
+      printf 'INFO  %5d  %s  (%d production + %d inline tests)\n' \
+        "$lines" "$file" "$prod_lines" "$inline_tests"
+      continue
+    fi
+    lines="$prod_lines"
+  fi
   if is_exception "$file"; then
     printf 'INFO  %5d  %s  (declared exception)\n' "$lines" "$file"
     exempted=$((exempted + 1))

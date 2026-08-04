@@ -20,19 +20,91 @@
 //! with one code path.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use super::classify::cmdline_holds_path;
+use super::classify::entry_holds_path_protective;
 use super::owner::read_owner_pid;
+
+/// One live process in the snapshot.
+///
+/// # Why `exe` is carried next to `cmdline`
+///
+/// argv is written by the process itself and can say anything. `sysinfo`'s own
+/// documentation for `Process::exe` puts it plainly: a process "may change its
+/// `cmd[0]` value freely, making this an untrustworthy source of information".
+/// The executable path comes from the kernel instead, so it is the only field
+/// here that a process cannot forge about itself.
+///
+/// That distinction is not academic. Classifying browsers by argv substring let
+/// a shell script holding `--user-data-dir=<marker> --type=renderer` be counted
+/// as a live Chrome, which failed `doctor` on a clean host and — worse — put an
+/// unrelated pid in front of the reaper.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ProcessEntry {
+    /// OS process id.
+    pub pid: u32,
+    /// Parent process id, when the host reports one.
+    pub ppid: Option<u32>,
+    /// Space-joined argv, empty when the host hid it.
+    pub cmdline: String,
+    /// Kernel-reported executable path, `None` when it could not be read.
+    ///
+    /// `None` means "unknown", never "not a browser": the two polarities in
+    /// the classifiers treat that ignorance in opposite directions on purpose.
+    pub exe: Option<PathBuf>,
+}
+
+impl ProcessEntry {
+    /// A process observed without a trustworthy executable path.
+    ///
+    /// `#[non_exhaustive]` makes this the only way to build one from outside the
+    /// crate, which is deliberate: adding `exe` as a bare public field would have
+    /// broken every fixture silently on the next field after it.
+    #[must_use]
+    pub fn new(pid: u32, ppid: Option<u32>, cmdline: impl Into<String>) -> Self {
+        Self {
+            pid,
+            ppid,
+            cmdline: cmdline.into(),
+            exe: None,
+        }
+    }
+
+    /// Attach the kernel-reported executable path.
+    #[must_use]
+    pub fn with_exe(mut self, exe: impl Into<PathBuf>) -> Self {
+        self.exe = Some(exe.into());
+        self
+    }
+
+    /// Executable path as `&str`, when it is present and valid UTF-8.
+    #[must_use]
+    pub fn exe_str(&self) -> Option<&str> {
+        self.exe.as_deref().and_then(Path::to_str)
+    }
+}
 
 /// Snapshot of the live processes on this host.
 ///
 /// **PAR-89:** build **once** per scavenge, then pass by reference into
 /// `map_cpu` tasks. Never rebuild inside a parallel task.
+///
+/// # Why entries are keyed by pid
+///
+/// The previous shape stored a bare `Vec<String>` of command lines. Counting
+/// that vector answers "how many argv strings mention a marker", which is not
+/// the same question as "how many processes hold a marker": Chrome renders each
+/// process's argv once, but a single invocation contributes renderer, GPU,
+/// zygote and utility children, and the same pid can be observed under more than
+/// one rendering. Measured on this host, the old count reported 368 where 22
+/// processes existed. Keeping the pid alongside the cmdline is what makes the
+/// count deduplicable, and it is also what makes a parent→child walk possible
+/// without a second process-table implementation.
 #[derive(Debug, Default, Clone)]
 pub struct LiveProcessIndex {
     pids: HashSet<u32>,
-    cmdlines: Vec<String>,
+    entries: Vec<ProcessEntry>,
 }
 
 impl LiveProcessIndex {
@@ -42,10 +114,49 @@ impl LiveProcessIndex {
         self.pids.contains(&pid)
     }
 
-    /// Command lines observed in this snapshot.
+    /// Every process observed in this snapshot.
     #[must_use]
-    pub fn cmdlines(&self) -> &[String] {
-        &self.cmdlines
+    pub fn entries(&self) -> &[ProcessEntry] {
+        &self.entries
+    }
+
+    /// Command lines observed in this snapshot, one per process.
+    #[must_use]
+    pub fn cmdlines(&self) -> Vec<&str> {
+        self.entries.iter().map(|e| e.cmdline.as_str()).collect()
+    }
+
+    /// Direct children of `parent` in this snapshot.
+    #[must_use]
+    pub fn children_of(&self, parent: u32) -> Vec<u32> {
+        self.entries
+            .iter()
+            .filter(|e| e.ppid == Some(parent))
+            .map(|e| e.pid)
+            .collect()
+    }
+
+    /// Distinct pids whose entry satisfies `predicate`.
+    ///
+    /// Deduplicating by pid is the point: a count over raw command lines
+    /// answers a different question and inflates by roughly the Chrome
+    /// subprocess factor.
+    ///
+    /// The predicate takes the whole [`ProcessEntry`] and not just the command
+    /// line. Passing `&str` was what forced every caller to decide identity from
+    /// argv alone, which is exactly the substring heuristic that let a shell
+    /// script be counted as a browser.
+    #[must_use]
+    pub fn count_distinct_pids<F>(&self, predicate: F) -> usize
+    where
+        F: Fn(&ProcessEntry) -> bool,
+    {
+        self.entries
+            .iter()
+            .filter(|e| predicate(e))
+            .map(|e| e.pid)
+            .collect::<HashSet<u32>>()
+            .len()
     }
 
     /// Number of live processes in this snapshot.
@@ -61,9 +172,32 @@ impl LiveProcessIndex {
     }
 
     /// Build an index from explicit parts (tests and alternative backends).
+    ///
+    /// Command lines arrive without pids here, so each is given a synthetic pid
+    /// drawn from outside `pids`. That keeps every entry distinct, which is what
+    /// the dedupe path assumes.
     #[must_use]
     pub fn from_parts(pids: HashSet<u32>, cmdlines: Vec<String>) -> Self {
-        Self { pids, cmdlines }
+        let mut next_synthetic = pids.iter().copied().max().unwrap_or(0).saturating_add(1);
+        let entries = cmdlines
+            .into_iter()
+            .map(|cmdline| {
+                let pid = next_synthetic;
+                next_synthetic = next_synthetic.saturating_add(1);
+                // No executable path: these fixtures describe argv only. That is
+                // faithful rather than lossy — it exercises the "unknown exe"
+                // branch, which is the one that must stay protective.
+                ProcessEntry::new(pid, None, cmdline)
+            })
+            .collect();
+        Self { pids, entries }
+    }
+
+    /// Build an index from fully specified entries (tests, tree-walk fixtures).
+    #[must_use]
+    pub fn from_entries(entries: Vec<ProcessEntry>) -> Self {
+        let pids = entries.iter().map(|e| e.pid).collect();
+        Self { pids, entries }
     }
 }
 
@@ -83,7 +217,7 @@ pub fn index_live_processes() -> Option<LiveProcessIndex> {
 #[must_use]
 pub fn index_proc_cmdlines() -> Vec<String> {
     index_live_processes()
-        .map(|idx| idx.cmdlines)
+        .map(|idx| idx.entries.into_iter().map(|entry| entry.cmdline).collect())
         .unwrap_or_default()
 }
 
@@ -108,47 +242,95 @@ pub(crate) fn path_has_live_process(path: &Path, index: &LiveProcessIndex) -> bo
         return false;
     }
     index
-        .cmdlines
+        .entries
         .iter()
-        .any(|cmd| cmdline_holds_path(cmd, &needle))
+        .any(|entry| entry_holds_path_protective(entry, &needle))
 }
 
 mod backend {
     use sysinfo::{ProcessRefreshKind, RefreshKind, System, UpdateKind};
 
-    use super::LiveProcessIndex;
+    use super::{LiveProcessIndex, ProcessEntry};
 
     /// Enumerate the host process table on Linux, macOS and Windows alike.
     ///
-    /// Only process command lines are refreshed; CPU, memory, disk and user data
-    /// are left out so the snapshot stays cheap.
+    /// Command lines and executable paths are refreshed; CPU, memory, disk and
+    /// user data are left out so the snapshot stays cheap.
     ///
     /// Returns `None` when enumeration cannot be trusted. The self-test is that
     /// **this** process must appear in its own snapshot: a live host always has at
     /// least one process, so a table that omits us is a failure, not an empty
     /// host. `None` makes every caller fail closed (GAP-045).
+    ///
+    /// # Why `without_tasks`
+    ///
+    /// `ProcessRefreshKind::nothing()` is not as empty as it reads: its `tasks`
+    /// field defaults to `true`, because Linux treats tasks as processes. So the
+    /// previous shape enumerated every THREAD, paid a `/proc` read for each, and
+    /// then threw them away in the `thread_kind()` filter below. Chrome runs on
+    /// the order of sixteen threads per process, and the index is built on every
+    /// invocation during BORN, so that cost was charged to every single run.
+    /// `without_tasks()` declines the work instead of undoing it.
     pub(super) fn collect() -> Option<LiveProcessIndex> {
         let system = System::new_with_specifics(
-            RefreshKind::nothing()
-                .with_processes(ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always)),
+            RefreshKind::nothing().with_processes(
+                ProcessRefreshKind::nothing()
+                    .with_cmd(UpdateKind::Always)
+                    // Kernel-reported identity. argv is self-declared and cannot
+                    // be trusted to say what a process actually is.
+                    .with_exe(UpdateKind::Always)
+                    .without_tasks(),
+            ),
         );
 
         let mut index = LiveProcessIndex::default();
         for (pid, process) in system.processes() {
-            index.pids.insert(pid.as_u32());
-            if process.cmd().is_empty() {
+            // On Linux `processes()` enumerates every task in `/proc/<pid>/task`,
+            // so each THREAD arrives as its own entry carrying the parent's argv.
+            // Chrome runs on the order of sixteen threads per process, and the
+            // measured effect was a residual report claiming 382 marker-holding
+            // browsers on a host that had 23 — an inflation of ~16.6x that made
+            // the number useless for any agent decision.
+            //
+            // `thread_kind()` is `None` exactly for real processes, and is
+            // documented to return `None` on every non-Linux platform, so this
+            // filter is a no-op on macOS and Windows rather than a `#[cfg]`.
+            //
+            // Kept even though `without_tasks()` above should make it moot:
+            // sysinfo documents that ruling out a refresh does not guarantee the
+            // information is withheld when it comes for free. Belt and braces on
+            // a filter this cheap is better than re-deriving the 16.6x inflation
+            // the day that guarantee changes.
+            if process.thread_kind().is_some() {
                 continue;
             }
+            let pid = pid.as_u32();
+            index.pids.insert(pid);
             // Space-joined, not NUL-joined: the browser/text-tool heuristics in
             // `classify` match on `" --type="` and `"rg "`, which only hold for a
             // space-separated rendering of argv.
-            let cmd = process
+            let cmdline = process
                 .cmd()
                 .iter()
                 .map(|part| part.to_string_lossy())
                 .collect::<Vec<_>>()
                 .join(" ");
-            index.cmdlines.push(cmd);
+            // On Linux a failed `/proc/<pid>/exe` read yields an EMPTY path, not
+            // `None` — different uid, a different pid namespace, or a deleted
+            // binary all land here. Folding empty into `None` is what keeps
+            // "unknown" distinguishable from "known to be something"; without it
+            // an empty path would compare against the browser allowlist and quietly
+            // answer "not a browser" for a process we simply could not read.
+            let exe = process
+                .exe()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(std::path::Path::to_path_buf);
+            // Kept even when argv is hidden: the entry still carries the ppid,
+            // which the residual tree walk needs to reach deeper descendants.
+            let mut entry =
+                ProcessEntry::new(pid, process.parent().map(sysinfo::Pid::as_u32), cmdline);
+            entry.exe = exe;
+            index.entries.push(entry);
         }
 
         if !index.pids.contains(&std::process::id()) {

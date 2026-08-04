@@ -7,8 +7,9 @@ use url::Url;
 use crate::error::CliError;
 use crate::robots::RobotsPolicy;
 
-use super::crawl::map_http;
+use super::crawl_map::map_http;
 use super::http::scrape_http;
+use super::path_filter::PathFilter;
 use super::types::{ScrapeFormat, ScrapeOpts};
 
 /// Local search: fetch a public HTML search page or treat query as URL list seed.
@@ -24,7 +25,16 @@ pub async fn search_http(
     );
     let q = query.trim();
     if q.starts_with("http://") || q.starts_with("https://") {
-        return map_http(q, robots, limit, 1).await;
+        return map_http(
+            q,
+            robots,
+            limit,
+            1,
+            &PathFilter::default(),
+            crate::xdg::resolve_scrape_use_sitemap(),
+            None,
+        )
+        .await;
     }
     // Endpoint from XDG `search_base_url` or named const DEFAULT_SEARCH_BASE_URL.
     let base = crate::xdg::search_base_url();

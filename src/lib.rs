@@ -6,6 +6,17 @@
 #![doc = include_str!("lib.md")]
 // docs.rs / nightly: `doc_cfg` only (rules_rust_docsrs — no `doc_auto_cfg`).
 #![cfg_attr(docsrs, feature(doc_cfg))]
+// `serde_json::json!` recurses once per nesting level, and rustc's default
+// ceiling of 128 is an arbitrary compiler guard, not a design limit. The XDG
+// key catalog in `xdg::config_ops::keys` is one long array literal of shallow
+// objects; it crossed the ceiling when the Wave 6 media knobs landed and failed
+// the build with "recursion limit reached while expanding `json_internal!`".
+//
+// Raising the ceiling is the fix serde_json documents. The alternative —
+// shredding one readable catalog into arbitrary chunks to appease a macro
+// expander — trades legibility for nothing. Entries are still pushed rather
+// than nested where that keeps expansion flat.
+#![recursion_limit = "256"]
 #![warn(missing_docs)]
 #![warn(rustdoc::missing_crate_level_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
@@ -36,6 +47,9 @@
 
 /// Chrome one-shot session: launch, actions, reap.
 pub mod agent_context;
+pub mod agent_ops;
+/// One-shot local audio pipeline (probe/download/convert/trim; no Chrome).
+pub mod audio_local;
 /// Browser session lifecycle, CDP commands, and shutdown signal wiring.
 pub mod browser;
 /// HTTP/parse cache under XDG (one-shot L1 + SQLite L2).
@@ -68,6 +82,8 @@ pub mod find_paths;
 pub mod fs_roots;
 /// Locale messaging helpers.
 pub mod i18n;
+/// One-shot local image pipeline (probe/convert/resize/download/exif; no Chrome).
+pub mod image_local;
 /// Install path helpers for doctor and packaging checks.
 pub mod install;
 /// Shared JSON / NDJSON helpers (BOM strip, size ceilings, compact encode).
@@ -108,6 +124,8 @@ pub mod sync_util;
 pub mod tracing_local;
 /// Input and path validation helpers.
 pub mod validation;
+/// One-shot local video pipeline (probe/download/convert/to-mp3; no Chrome).
+pub mod video_local;
 /// Windows Job Object helpers (stubs on non-Windows).
 pub mod win_job;
 /// Workflow journal DAG (petgraph + SQLite), one-shot run/resume.

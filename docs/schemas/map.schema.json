@@ -5,6 +5,45 @@
   "type": "object",
   "description": "Map site URLs from a seed (HTTP)",
   "properties": {
+    "dedup_key": {
+      "argv": "--dedup-key",
+      "description": "Deduplicate urls key",
+      "required": false,
+      "source": "parser",
+      "step_key": "dedup_key",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "exclude_path": {
+      "argv": "--exclude-path",
+      "description": "Exclude path prefixes (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "exclude_path",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
+    "include_path": {
+      "argv": "--include-path",
+      "description": "Include only path prefixes (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "include_path",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
     "limit": {
       "argv": "--limit",
       "default": 50,
@@ -29,6 +68,50 @@
       ],
       "type": "integer"
     },
+    "search": {
+      "argv": "--search",
+      "description": "Filter URLs by substring (case-insensitive)",
+      "required": false,
+      "source": "parser",
+      "step_key": "search",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "select": {
+      "argv": "--select",
+      "description": "Project data fields (CSV)",
+      "required": false,
+      "source": "parser",
+      "step_key": "select",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "sitemap_only": {
+      "argv": "--sitemap-only",
+      "description": "Only return sitemap URLs (no HTML link BFS)",
+      "required": false,
+      "source": "parser",
+      "step_key": "sitemap_only",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
+    "sort": {
+      "argv": "--sort",
+      "description": "Sort urls",
+      "required": false,
+      "source": "parser",
+      "step_key": "sort",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
     "url": {
       "argv": "<URL>",
       "description": "Seed URL to expand into a URL list",
@@ -39,6 +122,17 @@
         "argv"
       ],
       "type": "string"
+    },
+    "use_sitemap": {
+      "argv": "--use-sitemap",
+      "description": "Enrich with sitemap.xml (default: XDG scrape_use_sitemap)",
+      "required": false,
+      "source": "parser",
+      "step_key": "use_sitemap",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
     }
   },
   "required": [

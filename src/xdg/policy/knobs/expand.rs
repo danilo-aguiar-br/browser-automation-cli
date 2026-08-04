@@ -60,7 +60,16 @@ macro_rules! policy_knobs {
         }
 
         /// Strict `config set` arm; `None` when the key is not a policy key.
+        ///
+        /// Key membership is decided BEFORE the value is parsed. Parsing first
+        /// made an unknown key with a non-numeric value report `<key> must be a
+        /// positive integer`, so the same missing key was diagnosed two
+        /// different ways depending on the value, and the caller was told the
+        /// key exists when it does not.
         pub fn policy_set(cfg: &mut PolicyConfig, key: &str, raw: &str) -> Option<Result<(), CliError>> {
+            if !matches!(key, $( stringify!($key) )|*) {
+                return None;
+            }
             let parsed = match parse_policy_value(key, raw) {
                 Ok(n) => n,
                 Err(e) => return Some(Err(e)),

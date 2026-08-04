@@ -43,6 +43,26 @@ pub const DEFAULT_PERF_TRACE_INNER_ITERS: u32 = 5;
 /// warning rather than a silent false positive (GAP-030).
 pub const DRAG_INTERCEPT_BUDGET_MS: u64 = 1_500;
 
+/// Intermediate mouse positions synthesized for one HTML5 drag gesture.
+///
+/// Lived next to its use site while its sibling `DRAG_INTERCEPT_BUDGET_MS` was
+/// promoted here, which left one half of the same gesture tunable and the other
+/// half frozen. Both belong to the same budget family.
+pub const DRAG_MOVE_STEPS: u64 = 6;
+
+/// Delay between synthesized drag positions (milliseconds).
+///
+/// Roughly one animation frame. Sites that throttle `dragover` need a wider gap,
+/// which is why it is a knob and not a literal.
+pub const DRAG_MOVE_GAP_MS: u64 = 16;
+
+/// Default per-operation timeout for the Chrome engine (milliseconds).
+///
+/// The Lightpanda engine has always exposed `lightpanda_session_timeout_secs`
+/// while Chrome — the default engine — had this frozen at its call site. Same
+/// class of budget, same right to be tuned.
+pub const CHROME_DEFAULT_TIMEOUT_MS: u64 = 25_000;
+
 /// Default quiet window for `wait --network-idle` (milliseconds): how long the
 /// in-flight request count must stay at zero before the page counts as idle.
 pub const DEFAULT_NETWORK_IDLE_WINDOW_MS: u64 = 500;

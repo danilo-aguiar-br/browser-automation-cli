@@ -16,7 +16,7 @@ mod tests;
 
 pub use locator::{assign_locators, DurableLocator};
 pub use queries::*;
-pub use refs::{parse_ref, set_active_frame, RefEntry, RefMap};
+pub use refs::{parse_ref, RefEntry, RefMap};
 pub use resolve::{resolve_element_center, resolve_element_object_id};
 
 pub(crate) use resolve::resolve_ax_session;

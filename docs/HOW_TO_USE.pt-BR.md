@@ -39,11 +39,16 @@ browser-automation-cli --json view
 - Extraia conteúdo com multi-formato `scrape --format markdown,html,links` quando precisar de várias formas de uma vez
 - Parseie arquivos locais com `parse` (html/md/txt/pdf/docx/xlsx/ods; opcional `--redact-pii`)
 - Codifique ou decodifique QR com `qr encode|decode` (sem Chrome)
+- Processe imagens localmente com `image info|convert|resize|download|exif` (sem Chrome; sem base64 de pixels por padrão)
+- Processe vídeos localmente com `video info|download|convert|to-mp3|trim|thumbnail|manifest` (sem Chrome; ffmpeg opcional via XDG `ffmpeg_path`; só path/meta; smart copy/re-encode)
+- Resuma manifesto HLS/DASH sem baixar mídia com `video manifest`
+- Processe áudio localmente com `audio info|download|convert|trim` (sem Chrome; ffmpeg opcional via XDG `ffmpeg_path`; só path/meta; smart copy/re-encode; upload via `upload` existente)
+- Screenshot com `grab --format png|jpeg|webp` (opt-in `--include-base64`); receitas no COOKBOOK
 - Descubra paths no filesystem com `find-paths` (pattern regex e/ou `--glob '**/*.rs'`; sem Chrome)
 - Escreva XLSX a partir de CSV/JSON com `sheet-write <input> -o <out.xlsx>` (sem Chrome)
 - Lint estrutural com `sg-scan [paths…]` e rewrite dry-run com `sg-rewrite [paths…]` (`--apply` para gravar)
 - Verifique mudança de página contra baseline com `monitor check`
-- Liste o inventário vivo (**65** nomes de agente) com `commands --json`
+- Liste o inventário vivo (**69** nomes de agente) com `commands --json`
 - Descubra formatos de argv com `schema <name> --json` ou `schema --cmd <name> --json`
 - Imprima a versão do produto com `version`
 - Inspecione o locale de UI resolvido com `locale --json` (só sugestões humanas)
@@ -68,6 +73,13 @@ browser-automation-cli --json schema run
 - Não existe modo daemon de produto
 - Em erro fail-fast, o envelope de erro pode incluir `data.steps` parcial para recuperação
 - O corpo do script aceita **NDJSON** (um objeto JSON por linha) **ou** um **array JSON** de passos no topo
+- `run --script -` lê os passos NDJSON do **stdin**, um por linha, contra uma única sessão viva
+- Modo stdin continua one-shot: um BORN, um DIE, sem daemon; EOF no stdin dispara o FINALIZE
+- Modo stdin valida cada linha ao chegar e reporta `validation: "per-line"`
+- Modo arquivo, ao contrário, pré-valida o script inteiro antes do BORN, então typo nunca lança o Chrome
+- Modo stdin mantém fail-fast: a primeira linha que falha para o loop e o envelope carrega os passos executados
+- Modo stdin aceita somente NDJSON; array JSON no topo exige caminho de arquivo real
+- Prefira stdin a process substitution do shell: `run --script <(printf ...)` é recusado, porque o caminho cai em `/proc/<pid>/fd/<n>` fora das raízes permitidas
 - Envelope final `--json` inclui `ok` e `steps[].data` completo
 - Global `--json-steps` streama uma linha NDJSON por passo (`step`, `cmd`, `ok`, `result`)
 - Inventário de agente + multi-passo: `select-option` / `pick` com `target` + `option` (via run/exec; não clap standalone; `<select>` nativo despacha `input` e depois `change`, `via: native_select`)
@@ -95,6 +107,12 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.browser-automa
 
 # Stream progressivo de passos (GAP-020)
 browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.browser-automation.array.json
+
+# Passos NDJSON direto do stdin — sem arquivo temporário (GAP-034)
+printf '%s\n' \
+  '{"cmd":"goto","url":"https://example.com"}' \
+  '{"cmd":"view"}' \
+  | browser-automation-cli --timeout 60 --json run --script -
 ```
 - Linhas NDJSON e elementos de array usam o campo `cmd` com nome real de subcomando ou inventário run
 - Scroll aceita `dy`/`dx` como aliases de `delta_y`/`delta_x`
@@ -143,7 +161,7 @@ browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.b
 - Cache backend só via XDG: `config set cache_backend sqlite|memory|redis` e opcional `config set cache_redis_url redis://127.0.0.1:6379`
 - `rediss://` é fail-closed (somente TCP plain; não use URLs rediss)
 - Doctor reporta Chrome, origem do lighthouse, `cache_redis` quando cache Redis está configurado, e higiene residual de disco
-- Check do doctor `residual_disk` e JSON de topo `residual`: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Check do doctor `residual_disk` e JSON de topo `residual`: `scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legado), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
 - Localize sugestões humanas: `--lang pt-BR` ou `config set lang pt-BR` (só flags + XDG)
 - Verbosity: `--verbose` (info), `--debug` (máximo), `-q`/`--quiet` ou `config set log_level debug`
 - Cor: `config set color true|false` (valores truthy: `true`, `1`, `yes`)
@@ -164,13 +182,136 @@ browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/demo.b
 - Inspecione com doctor (relatório residual path-light; sem launch de Chrome para o relatório):
 
 ```bash
-browser-automation-cli doctor --offline --quick --json \
-  | jaq '{ok, residual, residual_disk: [.checks[] | select(.id=="residual_disk")]}'
+# O binário reduz o payload; nenhum processador JSON no prompt.
+browser-automation-cli --json --fields residual doctor --offline --quick
+
+# Só o veredito residual, de um envelope de 26 KB para uma linha
+browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' \
+  doctor --offline --quick
 ```
 
-- Campos JSON de topo `residual`: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
-- Check id `residual_disk`: `fail` quando há processos marker vivos; `warn` quando restam dirs marker ou orphans Singleton; senão `pass`
+- Campos JSON de topo `residual`: `scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legado), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
+- Check id `residual_disk`: `fail` em `orphan_marker_dirs` ou `ghost_marker_processes`; `warn` quando restam dirs marker ou orphans Singleton; senão `pass`. Uma invocação irmã viva é saudável e nunca reprova.
 - Mantenedores podem rodar gates locais: `bash scripts/residual-check.sh` e `bash scripts/residual-stress.sh` (só scripts locais do mantenedor)
+
+
+## Redução de Payload para Agentes (oito flags globais)
+- Oito flags globais encolhem o envelope JSON antes de ele chegar ao seu prompt
+- Os nomes são `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`
+- Elas se combinam livremente e rodam dentro do binário, sem processador JSON
+- Medido aqui: `doctor --offline --quick` emite 26276 bytes sem redução
+- A mesma chamada com `--fields residual.ghost_marker_processes` emite 79 bytes
+- O envelope ganha um objeto `agent_ops` só quando alguma delas roda
+- Rodar a flag é necessário mas não suficiente: `agent_ops` é omitido quando não há o que reportar
+- Medido: `--fields commands commands` resolve limpo e não carrega `agent_ops`
+- Medido: acrescentar `--limit-rows 3` à mesma chamada produz `total`, `matched` e `truncated`
+
+### --fields
+- Projeta o payload em caminhos pontilhados, passados como lista CSV
+- O aninhamento que cada caminho implica é reconstruído, preservando a forma documentada
+- Também desambigua comandos cujo data guarda mais de uma lista
+
+```bash
+# de 26276 bytes para 79 bytes
+browser-automation-cli --json --fields residual.ghost_marker_processes \
+  doctor --offline --quick
+```
+
+### --filter-rows
+- Mantém só linhas que casam `key=value`, `key!=value` ou `key~substring`
+- A flag é repetível e cada expressão entra com AND
+- Campo ausente nunca casa, inclusive sob `!=`
+
+```bash
+# só a linha do veredito residual
+browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' \
+  doctor --offline --quick
+```
+
+### --limit-rows
+- Emite no máximo N linhas da lista selecionada
+- O corte roda depois de filtro, dedupe e ordenação
+
+```bash
+browser-automation-cli --json --fields checks --limit-rows 3 doctor --offline --quick
+```
+
+### --sort-rows
+- Ordena linhas por um caminho pontilhado antes de qualquer corte
+- Valores numéricos comparam numericamente, não como texto
+
+```bash
+browser-automation-cli --json --fields checks --sort-rows id --limit-rows 2 \
+  doctor --offline --quick
+```
+
+### --dedupe-by
+- Descarta linhas cujo valor no caminho pontilhado repete, mantendo a primeira
+- Transforma uma lista longa em uma linha por valor distinto
+
+```bash
+browser-automation-cli --json --fields checks --dedupe-by status doctor --offline --quick
+```
+
+### --count-only
+- Emite só `{"count": N}` no lugar das próprias linhas
+- Use quando a resposta é uma quantidade, não o payload
+
+```bash
+browser-automation-cli --json --fields checks --count-only doctor --offline --quick
+```
+- O `--fields` dessa linha não é enfeite: ele nomeia qual lista contar
+- Medido: `--count-only commands` sozinho sai com exit `2` e `data holds more than one list`
+- O erro nomeia as listas concorrentes, então leia e estreite com `--fields`
+
+### --truncate-content
+- Corta toda string do payload em N caracteres
+- O envelope marca `truncated`, então o corte nunca é silencioso
+
+```bash
+browser-automation-cli --json --fields checks --filter-rows 'id=browsers_dir' \
+  --truncate-content 12 doctor --offline --quick
+```
+
+### --max-output-bytes
+- Define um teto duro sobre os bytes emitidos
+- Linhas caem a partir do fim e `omitted_rows` registra a perda
+- Teto impossível devolve exit 2 com envelope de erro, nunca sucesso vazio silencioso
+
+```bash
+# exit 0, linhas cortadas a partir do fim
+browser-automation-cli --json --fields checks --max-output-bytes 512 doctor --offline --quick
+
+# exit 2: o payload não cabe
+browser-automation-cli --json --fields checks --max-output-bytes 8 doctor --offline --quick
+```
+
+### Lendo agent_ops
+- `agent_ops.total` conta linhas antes da redução e `matched` conta as mantidas
+- `agent_ops.truncated` marca payload cortado por qualquer teto
+- `agent_ops.omitted_rows` conta linhas descartadas por `--max-output-bytes`
+- Caminho pedido que nenhuma linha carrega aparece em `agent_ops.unresolved_paths`
+- Caminho não resolvido nunca reprova a chamada, então sempre leia esse array
+
+```bash
+browser-automation-cli --json --fields residual.ghost_marker_processes,residual.campo_inexistente \
+  doctor --offline --quick
+```
+
+### Flags que não são globais
+- `--select`, `--filter`, `--limit` e `--sort` não são flags globais
+- Passá-las no escopo global devolve exit 2 com envelope de usage
+- Elas existem por comando em scrape, crawl, map, search e batch-scrape
+- Cada comando dá a elas um sentido próprio, como um seletor CSS
+- Uma flag local e uma flag global ainda combinam numa só chamada
+
+```bash
+# exit 2: --select não é flag global
+browser-automation-cli --json --select checks doctor --offline --quick
+
+# exit 0: --limit é do map, --count-only é global
+browser-automation-cli --json --count-only map https://example.com --limit 5
+```
 
 
 ## Configuração (XDG)
@@ -180,7 +321,9 @@ browser-automation-cli doctor --offline --quick --json \
 - Resolva paths vivos de config/data/state com `config path --json`
 - Logging de produto é controlado por `--verbose` / `--debug` / `-q` e XDG `log_level`
 - Idioma das sugestões humanas: só `--lang` ou XDG `lang` (sem catálogos de env de produto)
-- Descubra o conjunto **vivo** de chaves XDG com `config list-keys --json` (não fixe contagem como “16 chaves”; o conjunto cresce — ex.: `dialog_settle_ms` na v0.1.6)
+- Leia a referência completa de chaves XDG em `docs/CONFIGURATION.pt-BR.md`, que documenta as 176 chaves
+- Confirme o conjunto vivo com `config list-keys --json` antes de gravar chave desconhecida
+- Nunca fixe uma contagem de chaves, porque o conjunto cresce a cada release
 - Chaves comuns incluem: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`, `dialog_settle_ms`
 - Valores truthy de color: `true`, `1`, `yes`
 - Valores falsy ou outros resolvem para desligado salvo set truthy
@@ -394,91 +537,23 @@ browser-automation-cli --json workflow status --name demo
 - Causa: destino do screenshot foi passado como posicional
 - Correção: use `grab --path /tmp/page.png` (e opcional `--full-page`)
 
+### Erros de usage do clap sob --json (GAP-002)
+- Sintoma: falhas de usage ainda precisam de parse por máquina
+- Causa: argv inválido com `--json` já na linha de comando
+- Correção: leia o envelope JSON de erro no stdout (`ok: false`); não raspe só a prosa do clap
 
-## Integração com Scripts de Shell
-- Peça sempre stdout legível por máquina com `--json`
-- Inspecione `$?` (ou `$LASTEXITCODE`) antes de confiar no payload
-- Pipeie stdout em `jaq` / `jq` para extração de campos
-- Mantenha diagnósticos no stderr com `--quiet` quando só quiser envelopes
-- Em erros de `run`, inspecione `data.steps` parcial quando presente
-- Use `--json-steps` quando linhas progressivas de passo forem mais fáceis de streamar que um único envelope final
+### print-pdf em branco (GAP-013)
+- Sintoma: exit não zero ao imprimir sem conteúdo de página
+- Causa: `print-pdf` recusa about:blank sem conteúdo navegado ou `url`
+- Correção: passe `--url` / campo `url` do passo, ou faça `goto` antes no mesmo processo `run`
 
-```bash
-browser-automation-cli --timeout 60 --json goto https://example.com \
-  | jaq -e '.ok == true'
-
-browser-automation-cli --json scrape https://example.com --format markdown --engine http \
-  | jaq -r '.data // .'
-
-printf '%s\n' 'https://example.com' > /tmp/urls.txt
-browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 2 \
-  | jaq .
-```
-- Exit `141` de broken pipe significa que o reader fechou cedo, não necessariamente bug da CLI
-- Prefira caminhos HTTP de scrape / batch / crawl em pipelines de shell puro que não precisam de CDP
+### Wait navigation é booleano
+- Sintoma: passo wait ignorado ou recusado ao usar string como `"load"`
+- Causa: o campo run `navigation` é booleano `true`, não nome de lifecycle em string
+- Correção: use `{"cmd":"wait","navigation":true}`
 
 
-## Integração com Agentes de IA
-- Spawne `browser-automation-cli` como subprocesso one-shot por fronteira de tarefa
-- Passe `--json` em toda chamada programática
-- Parseie só envelopes do stdout; trate stderr como diagnóstico
-- Ramifique no campo `ok` do envelope e no exit code do processo
-- Descubra inventário com `commands --json` (**65** nomes de agente)
-- Descubra argv com `schema <name> --json` ou `schema --cmd <name> --json`
-- Após trabalho browser, confirme higiene residual com `doctor --json` → `residual` / check `residual_disk`
-- Colapse trabalho browser multi-passo em um processo `run --script` quando refs importam (opcional `--json-steps`)
-- Prefira flags para controle pontual; use `config` para defaults XDG duráveis
-- Não invente daemon entre turns do agente
-- Configure settings de produto só com flags e `config set` / `config get` / `config path`
-- Logging de produto usa `--verbose` / `--debug` / `-q` ou `config set log_level`
-- Cor usa `config set color`; path do Chrome usa `config set chrome_path`
-- Editores e runners compatíveis incluem Claude Code, Codex, Cursor, Continue e Cline via shell ou subprocesso
-- Contrato completo de agente: [docs/AGENTS.pt-BR.md](AGENTS.pt-BR.md) e [INTEGRATIONS.pt-BR.md](../INTEGRATIONS.pt-BR.md)
-
-
-## Integração com Crates Rust
-- Chame o binário com `std::process::Command`
-- Capture stdout, cheque status, desserialise com `serde_json`
-- Mantenha o nome do binário exato: `browser-automation-cli`
-
-```rust
-use serde_json::Value;
-use std::process::Command;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let output = Command::new("browser-automation-cli")
-        .args([
-            "--json",
-            "scrape",
-            "https://example.com",
-            "--format",
-            "text",
-            "--engine",
-            "http",
-        ])
-        .output()?;
-
-    if !output.status.success() {
-        eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-        std::process::exit(output.status.code().unwrap_or(1));
-    }
-
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
-    if envelope.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-        eprintln!("envelope not ok: {envelope}");
-        std::process::exit(1);
-    }
-
-    println!("{envelope}");
-    Ok(())
-}
-```
-- Prefira `scrape` HTTP em checks estilo unit que não devem lançar Chrome
-- Use `run --script` quando o crate orquestra fluxos CDP multi-passo
-- Veja notas orientadas a crates em [docs/AGENTS.pt-BR.md](AGENTS.pt-BR.md) e [INTEGRATIONS.pt-BR.md](../INTEGRATIONS.pt-BR.md)
-
-
-## Padrões v0.1.6 (dialog, wait, scrape, grab, submit, storage)
+## Padrões v0.1.7 (dialog, wait, scrape, grab, submit, storage)
 ```bash
 # Dialog accept e próximo passo de página — leia dialog_settled; sem wait artificial quando true
 cat > /tmp/dialog-settled.run.json <<'JSON'
@@ -546,24 +621,107 @@ browser-automation-cli --timeout 60 --json run --script /tmp/grab-webp.run.json
 - A lei residual-zero de disco da v0.1.5 permanece corrente (GC Singleton em BORN + FINALIZE)
 
 
-## Inventário Completo de Comandos (65)
-- Fonte viva: `browser-automation-cli commands --json` (**65** nomes voltados a agentes)
-- Superfície clap de produto é **63** nomes (exclui `select-option` / `pick` de inventário de agente; esses dois usam-se via run/exec/schema)
+## Integração com Scripts de Shell
+- Peça sempre stdout legível por máquina com `--json`
+- Inspecione `$?` (ou `$LASTEXITCODE`) antes de confiar no payload
+- Pipeie stdout em `jaq` / `jq` para extração de campos
+- Mantenha diagnósticos no stderr com `--quiet` quando só quiser envelopes
+- Em erros de `run`, inspecione `data.steps` parcial quando presente
+- Use `--json-steps` quando linhas progressivas de passo forem mais fáceis de streamar que um único envelope final
+
+```bash
+browser-automation-cli --timeout 60 --json goto https://example.com \
+  | jaq -e '.ok == true'
+
+browser-automation-cli --json scrape https://example.com --format markdown --engine http \
+  | jaq -r '.data // .'
+
+printf '%s\n' 'https://example.com' > /tmp/urls.txt
+browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 2 \
+  | jaq .
+```
+- Exit `141` de broken pipe significa que o reader fechou cedo, não necessariamente bug da CLI
+- Prefira caminhos HTTP de scrape / batch / crawl em pipelines de shell puro que não precisam de CDP
+
+
+## Integração com Agentes de IA
+- Spawne `browser-automation-cli` como subprocesso one-shot por fronteira de tarefa
+- Passe `--json` em toda chamada programática
+- Parseie só envelopes do stdout; trate stderr como diagnóstico
+- Ramifique no campo `ok` do envelope e no exit code do processo
+- Descubra inventário com `commands --json` (**69** nomes de agente)
+- Descubra argv com `schema <name> --json` ou `schema --cmd <name> --json`
+- Após trabalho browser, confirme higiene residual com `doctor --json` → `residual` / check `residual_disk`
+- Colapse trabalho browser multi-passo em um processo `run --script` quando refs importam (opcional `--json-steps`)
+- Prefira flags para controle pontual; use `config` para defaults XDG duráveis
+- Não invente daemon entre turns do agente
+- Configure settings de produto só com flags e `config set` / `config get` / `config path`
+- Logging de produto usa `--verbose` / `--debug` / `-q` ou `config set log_level`
+- Cor usa `config set color`; path do Chrome usa `config set chrome_path`
+- Editores e runners compatíveis incluem Claude Code, Codex, Cursor, Continue e Cline via shell ou subprocesso
+- Contrato completo de agente: [docs/AGENTS.pt-BR.md](AGENTS.pt-BR.md) e [INTEGRATIONS.pt-BR.md](../INTEGRATIONS.pt-BR.md)
+
+
+## Integração com Crates Rust
+- Chame o binário com `std::process::Command`
+- Capture stdout, cheque status, desserialise com `serde_json`
+- Mantenha o nome do binário exato: `browser-automation-cli`
+
+```rust
+use serde_json::Value;
+use std::process::Command;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new("browser-automation-cli")
+        .args([
+            "--json",
+            "scrape",
+            "https://example.com",
+            "--format",
+            "text",
+            "--engine",
+            "http",
+        ])
+        .output()?;
+
+    if !output.status.success() {
+        eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+        std::process::exit(output.status.code().unwrap_or(1));
+    }
+
+    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    if envelope.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        eprintln!("envelope not ok: {envelope}");
+        std::process::exit(1);
+    }
+
+    println!("{envelope}");
+    Ok(())
+}
+```
+- Prefira `scrape` HTTP em checks estilo unit que não devem lançar Chrome
+- Use `run --script` quando o crate orquestra fluxos CDP multi-passo
+- Veja notas orientadas a crates em [docs/AGENTS.pt-BR.md](AGENTS.pt-BR.md) e [INTEGRATIONS.pt-BR.md](../INTEGRATIONS.pt-BR.md)
+
+
+## Inventário Completo de Comandos (69)
+- Fonte viva: `browser-automation-cli commands --json` (**69** nomes voltados a agentes)
+- Superfície clap de produto é **67** nomes (exclui `select-option` / `pick` de inventário de agente; esses dois usam-se via run/exec/schema)
 - O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53; lighthouse mock = **SKIP**, não PASS)
-- Lista completa de comandos de agente (todos os **65** nomes):
+- Lista completa de comandos de agente (todos os **69** nomes):
   - Meta / descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
   - Agent inventory + run/exec/schema (not clap standalone): `select-option`, `pick`
   - Observação: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Captura: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
-  - Multi-passo: `run`, `exec`
+  - Multi-passo: `run`, `exec`, `record`
   - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
-  - IO local (sem Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+  - IO local (sem Chrome): `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
   - Emulação/perf: `emulate`, `resize`, `perf`, `heap`
   - Portões de categoria: `extension`, `devtools3p`, `webmcp`
-- Lista plana completa: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
+- Lista plana completa: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Descubra argv com `schema <name> --json` para qualquer nome acima
 
 ## Próximos Passos

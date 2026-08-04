@@ -11,20 +11,24 @@ browser-automation-cli is a single-process Rust CLI that launches system Chrome 
 - [HOW_TO_USE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/HOW_TO_USE.md): first command in 60 seconds
 - [AGENTS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/AGENTS.md): agent integration contract
 - [COOKBOOK](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/COOKBOOK.md): practical recipes
+- [CONFIGURATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CONFIGURATION.md): all 176 XDG keys with defaults
 - [INTEGRATIONS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/INTEGRATIONS.md): orchestrator coverage
 - [CROSS_PLATFORM](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CROSS_PLATFORM.md): platform matrix
 - [MIGRATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/MIGRATION.md): version migration
 - [TESTING](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/TESTING.md): test categories
 - [schemas](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/schemas/README.md): JSON schema index
+- [ARCHITECTURE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/ARCHITECTURE.md): module layout and lifecycle internals
+- [ROADMAP](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/ROADMAP.md): planned work and limits closed by physics
 - [SKILL en](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/skills/browser-automation-cli-en/SKILL.md): imperative skill
 - [CHANGELOG](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CHANGELOG.md): release history
 - [SECURITY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/SECURITY.md): vulnerability reporting
 - [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): expanded discovery map
 - [llms-full pt-BR](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.pt-BR.txt): mapa expandido em português
 
-## Command Surface (v0.1.6)
-- Full inventory (**65** names via `commands --json`, sorted): assert, attr, back, batch-scrape, click-at, commands, completions, config, console, cookie, crawl, devtools3p, dialog, doctor, drag, emulate, eval, exec, extension, extract, find-paths, fill-form, forward, goto, grab, heap, hover, keys, lighthouse, locale, man, map, mitm, monitor, net, page, parse, perf, pick, press, print-pdf, qr, reload, resize, run, schema, scrape, screencast, scroll, search, select-option, sg-rewrite, sg-scan, sheet-write, storage, submit, text, type, upload, version, view, wait, webmcp, workflow, write
+## Command Surface (v0.1.7)
+- Full inventory (**69** names via `commands --json`, sorted): assert, attr, audio, back, batch-scrape, click-at, commands, completions, config, console, cookie, crawl, devtools3p, dialog, doctor, drag, emulate, eval, exec, extension, extract, fill-form, find-paths, forward, goto, grab, heap, hover, image, keys, lighthouse, locale, man, map, mitm, monitor, net, page, parse, perf, pick, press, print-pdf, qr, record, reload, resize, run, schema, scrape, screencast, scroll, search, select-option, sg-rewrite, sg-scan, sheet-write, storage, submit, text, type, upload, version, video, view, wait, webmcp, workflow, write
 - Discovery: doctor (browsers_dir, lighthouse source, cache_redis, residual_disk + residual JSON), commands, schema (`schema <cmd>` or `schema --cmd`), version, locale, man, completions
+- Global flags: **43** long flags in the global help, being **41** product flags plus `--help` and `--version`; source of truth is `browser-automation-cli --help`
 - Config XDG: config init|path|show|get|set|list-keys (discover full keys via `config list-keys --json`)
 - Navigate: goto (init-script, handle-before-unload accept|dismiss), back, forward, reload (CDP Page.reload + ignoreCache)
 - Scrape: scrape (multi-format --format/--formats; --engine http|browser; format/formats in run), batch-scrape, crawl, map, search (uddg clean), parse (PDF/DOCX/xlsx/ods, --redact-pii)
@@ -32,15 +36,22 @@ browser-automation-cli is a single-process Rust CLI that launches system Chrome 
 - Observe: extract (--llm/--question/--schema-json), text, scroll (dy/dx in run), attr, assert, grab (png|jpeg|webp only; AVIF removed)
 - Tabs/Dialogs: page, dialog accept|dismiss (`.data.dialog_settled`; multi-tab session_id isolation; --if-present), cookie, storage
 - Capture/utils: console, net, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite
+- Network observability: `--capture-network` in the SAME process, then `net list` (--page-idx, --page-size, --resource-types, --include-preserved) and `net get <IDX>` (--request-path, --response-path)
+- Local media one-shot (no Chrome): image info|convert|resize|download|exif, video info|download|convert|to-mp3|trim|thumbnail|manifest, audio info|download|convert|trim
 - Advanced: eval, emulate, resize, perf, lighthouse (flag→XDG→PATH; unit fixtures incl. chrome-captured LHR 13.4.1; e2e mock SKIP), screencast, heap, extension, devtools3p, webmcp, mitm, workflow
-- Multi-step: run (NDJSON or JSON array; --json full steps[]; --json-steps stream; partial data.steps on fail-fast), exec
+- Multi-step: run (NDJSON or JSON array; --json full steps[]; --json-steps stream; partial data.steps on fail-fast), exec, record --url --path (--seconds default 30, --max-events default 200; writes replayable `run --script` NDJSON)
+- Multi-step stdin: `run --script -` reads NDJSON steps from stdin, one step per line, against a single live session
+- Stdin mode validates each line as it arrives (`validation: "per-line"`); EOF is the FINALIZE trigger
+- Prefer stdin over shell process substitution: `run --script <(printf ...)` is rejected by the file jail
 - Residual-zero disk (0.1.5 RES-01…12 still true): BORN auto-GC Singleton-only Chromium `/tmp` (60s floor); FINALIZE dual scavenge + re-scan; never kills host Flatpak Chrome
 - Intentional residual: GAP-022 ~53 dups; GAP-023/024 PRD divergences
 - Lifecycle: BORN, EXECUTE, FINALIZE, DIE; product law residual-zero process + disk
 
 ## Settings Contract
 - Product settings: CLI flags + XDG via `config path|init|show|set|get|list-keys` only
-- Important keys: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_*, cache_backend, cache_redis_url, lang, log_level — full list via `config list-keys --json` (count is not fixed at 16)
+- Important keys: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_*, cache_backend, cache_redis_url, lang, log_level
+- Complete reference: all **176** keys with default and purpose in [CONFIGURATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CONFIGURATION.md); machine-readable via `config list-keys --json`
+- PRIVACY: [PRIVACY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/PRIVACY.md) states that no product environment variable is ever read
 - Logging: `--verbose`/`--debug`/`-q` or `config set log_level` / `log_to_file`
 - Color: `config set color true|false`
 - Chrome / Lighthouse: shell path or `config set chrome_path|lighthouse_path` (lighthouse also flag)

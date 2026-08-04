@@ -64,9 +64,9 @@ pub fn parse_file_opts(path: &Path, redact: bool) -> Result<Value, CliError> {
             ("csv", s, "local")
         }
         "pdf" => {
-            let (kind, text, engine, pages, ocr_needed) = parse_pdf_bytes(&bytes)?;
+            let (kind, text, engine, pages, text_layer_empty) = parse_pdf_bytes(&bytes)?;
             extra["pages"] = json!(pages);
-            extra["ocr_needed"] = json!(ocr_needed);
+            extra["text_layer_empty"] = json!(text_layer_empty);
             (kind, text, engine)
         }
         "docx" => parse_docx_bytes(&bytes)?,
@@ -153,8 +153,8 @@ pub(crate) fn parse_pdf_bytes(
     let text = doc
         .extract_text(&page_numbers)
         .map_err(|e| CliError::new(ErrorKind::Data, format!("pdf extract_text: {e}")))?;
-    let ocr_needed = text.trim().is_empty();
-    Ok(("pdf", text, "lopdf", page_count, ocr_needed))
+    let text_layer_empty = text.trim().is_empty();
+    Ok(("pdf", text, "lopdf", page_count, text_layer_empty))
 }
 
 pub(crate) fn parse_docx_bytes(

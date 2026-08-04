@@ -7,9 +7,11 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
 use super::classify::{
-    cmdline_holds_path, is_google_chrome_tmp_name, is_live_cli_chrome_cmdline,
+    cmdline_holds_path, entry_holds_path_protective, entry_is_browser_strict,
+    entry_is_live_cli_chrome_strict, entry_is_owning_cli, is_google_chrome_tmp_name,
     is_singleton_only_or_small,
 };
+use super::proc::ProcessEntry;
 use super::wipe::wipe_safe_candidates_with_index;
 use super::*;
 
@@ -108,12 +110,155 @@ fn google_chrome_tmp_names_excluded_from_stale_gc_list() {
     assert!(!is_google_chrome_tmp_name("org.chromium.Chromium.XYZ"));
 }
 
+/// The argv a real Chrome child carries, and that anything else can also carry.
+///
+/// This exact string is the regression: it is what the reproduction script was
+/// launched with, and every predicate below is judged against it.
+const BROWSER_SHAPED_ARGV: &str = concat!(
+    "--user-data-dir=/tmp/browser-automation-cli-chrome-abc",
+    " --type=renderer --headless=new"
+);
+
+/// A process that only *mentions* the marker is not a browser, whatever it says.
+///
+/// # Why the old version of this test proved nothing
+///
+/// It asserted on `"bash -c ls /tmp/browser-automation-cli-chrome-abc"`. That
+/// string contains no `--user-data-dir=` and no `--type=`, so it failed the
+/// browser-shape test on the FIRST condition and never reached the denylist the
+/// test was named after. It passed by construction while the real input — a
+/// shell carrying browser flags — was counted as a live Chrome, failed `doctor`
+/// on a clean host, and put an unrelated pid in front of the reaper.
+///
+/// A fixture easier than the field is a fixture that measures nothing.
 #[test]
-fn live_cli_chrome_cmdline_ignores_shell_mentions() {
-    let shell = "bash -c ls /tmp/browser-automation-cli-chrome-abc";
-    assert!(!is_live_cli_chrome_cmdline(shell));
-    let chrome = "/usr/bin/chromium-browser --user-data-dir=/tmp/browser-automation-cli-chrome-abc --headless=new";
-    assert!(is_live_cli_chrome_cmdline(chrome));
+fn impostor_shell_with_browser_flags_is_not_a_browser() {
+    let impostor = ProcessEntry::new(
+        4242,
+        None,
+        format!("/bin/bash run.sh {BROWSER_SHAPED_ARGV}"),
+    )
+    .with_exe("/usr/bin/bash");
+    assert!(
+        !entry_is_browser_strict(&impostor),
+        "argv is self-declared; the kernel says this is bash"
+    );
+    assert!(
+        !entry_is_live_cli_chrome_strict(&impostor),
+        "counting this as a live CLI Chrome is what failed doctor on a clean host"
+    );
+
+    // The denylist that used to guard this cannot: it never listed a shell.
+    for interpreter in [
+        "/usr/bin/python3",
+        "/usr/bin/node",
+        "/bin/sh",
+        "/usr/bin/perl",
+    ] {
+        let e = ProcessEntry::new(1, None, format!("{interpreter} x {BROWSER_SHAPED_ARGV}"))
+            .with_exe(interpreter);
+        assert!(
+            !entry_is_browser_strict(&e),
+            "{interpreter} must never classify as a browser"
+        );
+    }
+}
+
+/// The same argv IS a browser once the kernel agrees.
+#[test]
+fn same_argv_with_a_browser_exe_is_a_browser() {
+    for exe in [
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome-stable",
+        "/opt/microsoft/msedge/msedge",
+        "C:\\Program Files\\Google\\Chrome\\chrome.exe",
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome Helper (Renderer)",
+    ] {
+        let e = ProcessEntry::new(7, None, format!("{exe} {BROWSER_SHAPED_ARGV}")).with_exe(exe);
+        assert!(
+            entry_is_browser_strict(&e),
+            "{exe} must classify as browser"
+        );
+        assert!(
+            entry_is_live_cli_chrome_strict(&e),
+            "{exe} holds our marker"
+        );
+    }
+}
+
+/// Unknown identity is ignorance, and the two polarities read it in opposite ways.
+#[test]
+fn unknown_exe_is_strict_false_but_still_protective() {
+    let unknown = ProcessEntry::new(99, None, format!("? {BROWSER_SHAPED_ARGV}"));
+    assert!(
+        unknown.exe.is_none(),
+        "fixture models an unreadable /proc/pid/exe"
+    );
+
+    // Verdict and kill: never act on what we cannot name.
+    assert!(!entry_is_browser_strict(&unknown));
+    assert!(!entry_is_live_cli_chrome_strict(&unknown));
+
+    // Protection: a profile that might be in use is never collected. Deleting a
+    // live sibling's profile is the expensive mistake; keeping a directory one
+    // run too long is not.
+    assert!(
+        entry_holds_path_protective(&unknown, "/tmp/browser-automation-cli-chrome-abc"),
+        "unknown identity must still pin the profile it names"
+    );
+}
+
+/// Ownership is read from the kernel, so a URL in argv cannot revoke it.
+///
+/// The argv predicate rejects anything browser-shaped, because our marker prefix
+/// contains the product binary name and every Chrome child would otherwise look
+/// like its own owner. That rule has a mirror image: a real invocation whose argv
+/// merely mentions `chromium` used to read as a browser, stop being an owner, and
+/// leave its own live tree looking orphaned.
+#[test]
+fn owning_cli_is_identified_by_exe_not_by_argv() {
+    let bin = crate::constants::PRODUCT_BIN_NAME;
+
+    let scraping_chromium_org = ProcessEntry::new(
+        10,
+        None,
+        format!("/usr/bin/{bin} scrape https://www.chromium.org --format text"),
+    )
+    .with_exe(format!("/usr/bin/{bin}"));
+    assert!(
+        entry_is_owning_cli(&scraping_chromium_org),
+        "a live owner must not lose ownership because a URL says chromium"
+    );
+
+    // And the exclusion it replaces still holds: a Chrome child carries the
+    // product name inside `--user-data-dir` and is never an owner.
+    let chrome_child = ProcessEntry::new(11, None, format!("chromium {BROWSER_SHAPED_ARGV}"))
+        .with_exe("/usr/bin/chromium");
+    assert!(!entry_is_owning_cli(&chrome_child));
+}
+
+#[test]
+fn missing_cli_marker_dir_detects_ghost_profile_path() {
+    // Non-marker path is never a ghost profile.
+    assert!(!super::report::is_missing_cli_marker_dir(
+        "/tmp/other-chrome-profile"
+    ));
+    // Marker-shaped path that does not exist is a ghost.
+    let ghost = std::env::temp_dir().join(format!(
+        "{}ghost-{}",
+        CLI_CHROME_MARKER_PREFIX,
+        uuid::Uuid::new_v4()
+    ));
+    assert!(!ghost.exists());
+    assert!(super::report::is_missing_cli_marker_dir(
+        ghost.to_str().expect("utf8 path")
+    ));
+    // Existing marker dir is not a ghost.
+    let live = marker_fixture("ghost-live");
+    assert!(!super::report::is_missing_cli_marker_dir(
+        live.to_str().expect("utf8 path")
+    ));
+    let _ = fs::remove_dir_all(&live);
 }
 
 /// GAP-045: an unavailable process table must never authorize a wipe.

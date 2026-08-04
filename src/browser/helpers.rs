@@ -5,20 +5,29 @@ use std::path::Path;
 
 use crate::error::{CliError, ErrorKind};
 
+/// Confirm a file's magic bytes match `format`, reading only the header.
+///
+/// Reads `IMAGE_MAGIC_PROBE_BYTES` instead of the whole file: this checks the
+/// first few bytes, and slurping a 500 MB screenshot into RAM to inspect twelve
+/// of them is a cost with no upside. The constant existed for exactly this and
+/// was not being used.
 pub(crate) fn verify_image_magic(path: &Path, format: &str) -> bool {
-    let Ok(bytes) = std::fs::read(path) else {
+    use std::io::Read;
+
+    let Ok(file) = std::fs::File::open(path) else {
         return false;
     };
-    match format {
-        "png" => bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]),
-        "jpeg" | "jpg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
-        "webp" => {
-            bytes.len() >= 12
-                && bytes[0..4] == [0x52, 0x49, 0x46, 0x46]
-                && bytes[8..12] == [0x57, 0x45, 0x42, 0x50]
-        }
-        _ => !bytes.is_empty(),
+    let mut head = Vec::with_capacity(crate::constants::IMAGE_MAGIC_PROBE_BYTES);
+    // `take` caps the read at the probe window; a shorter file simply yields
+    // fewer bytes and the format check fails on its own terms.
+    if file
+        .take(crate::constants::IMAGE_MAGIC_PROBE_BYTES as u64)
+        .read_to_end(&mut head)
+        .is_err()
+    {
+        return false;
     }
+    crate::image_local::verify_format_name(&head, format)
 }
 
 /// Rewrite native `[ref=eN]` markers to agent-facing `[@eN]`.

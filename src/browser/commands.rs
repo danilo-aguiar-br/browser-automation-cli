@@ -61,8 +61,19 @@ pub async fn run_scrape(
     robots: crate::robots::RobotsPolicy,
     capture: CaptureOpts,
 ) -> Result<Value, CliError> {
+    run_scrape_wait(life, url, robots, capture, 0).await
+}
+
+/// Browser scrape with optional post-navigation wait (base waitFor parity, ms).
+pub async fn run_scrape_wait(
+    life: &Lifecycle,
+    url: &str,
+    robots: crate::robots::RobotsPolicy,
+    capture: CaptureOpts,
+    wait_ms: u64,
+) -> Result<Value, CliError> {
     let mut session = launch_marked(life, capture).await?;
-    let work = session.scrape(url, robots, &[]).await;
+    let work = session.scrape_with_wait(url, robots, &[], wait_ms).await;
     finish(life, session, work).await
 }
 

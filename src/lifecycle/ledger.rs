@@ -16,6 +16,12 @@ pub struct ResourceLedger {
     pub chrome_launched: bool,
     /// Optional OS process id of launched Chrome for last-resort kill.
     pub chrome_pid: Option<u32>,
+    /// POSIX process group of launched Chrome, when the host models one.
+    ///
+    /// `Some` lets FINALIZE signal the whole browser tree with `kill(-pgid, …)`.
+    /// `None` (legacy chromiumoxide launch, or a host without process groups)
+    /// forces the pid-tree fallback in [`super::kill::kill_unix_tree`].
+    pub chrome_pgid: Option<i32>,
     /// Temporary profile directory created for this invocation, if any.
     pub profile_dir: Option<PathBuf>,
     /// Side-channel paths owned by this launch (e.g. SingletonLock under /tmp).
@@ -76,6 +82,19 @@ impl Lifecycle {
                 "lifecycle BORN scavenge_stale_singleton_orphans"
             );
         }
+        // Reap browser trees whose owning CLI already died. The scavenger above
+        // cannot do this: it refuses any path with a live holder, and an orphaned
+        // Chrome *is* a live holder of its own profile, so the two pin each other
+        // forever. A live owner pid is never touched, so a concurrent invocation
+        // is safe (see `crate::residual::reconcile`).
+        let reconciled = crate::residual::reconcile_abandoned_profiles();
+        if !reconciled.is_empty() {
+            tracing::debug!(
+                killed = reconciled.killed_pids.len(),
+                wiped = reconciled.wiped_paths.len(),
+                "lifecycle BORN reconcile_abandoned_profiles"
+            );
+        }
         lc
     }
 
@@ -93,9 +112,18 @@ impl Lifecycle {
 
     /// Record that this invocation launched Chrome (residual kill target).
     pub fn record_chrome(&self, pid: Option<u32>) {
+        self.record_chrome_group(pid, None);
+    }
+
+    /// Record the launched Chrome together with its process group.
+    ///
+    /// Prefer this over [`Self::record_chrome`]: without the group, FINALIZE can
+    /// only signal the launcher pid and every renderer child survives.
+    pub fn record_chrome_group(&self, pid: Option<u32>, pgid: Option<i32>) {
         self.with_ledger_mut(|ledger| {
             ledger.chrome_launched = true;
             ledger.chrome_pid = pid;
+            ledger.chrome_pgid = pgid;
         });
     }
 
@@ -104,6 +132,7 @@ impl Lifecycle {
         self.with_ledger_mut(|ledger| {
             ledger.chrome_launched = false;
             ledger.chrome_pid = None;
+            ledger.chrome_pgid = None;
         });
     }
 
@@ -112,6 +141,7 @@ impl Lifecycle {
         self.with_ledger_mut(|ledger| {
             ledger.chrome_launched = false;
             ledger.chrome_pid = None;
+            ledger.chrome_pgid = None;
             ledger.profile_dir = None;
             ledger.side_channels.clear();
         });

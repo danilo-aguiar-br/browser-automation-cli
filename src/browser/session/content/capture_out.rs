@@ -83,17 +83,21 @@ impl OneShotSession {
         full_page: bool,
         quality: Option<i32>,
         element: Option<&str>,
+        include_base64: bool,
     ) -> Result<Value, CliError> {
-        use crate::native::screenshot::{take_screenshot, ScreenshotOptions};
+        use crate::native::screenshot::{
+            screenshot_ext_for_format, take_screenshot, ScreenshotOptions,
+        };
 
         let session_id = self.session_id()?;
+        let ext = screenshot_ext_for_format(format);
 
         let out_path = path.map(|p| p.to_path_buf()).unwrap_or_else(|| {
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis())
                 .unwrap_or(0);
-            std::path::PathBuf::from(format!("grab-{stamp}.{format}"))
+            std::path::PathBuf::from(format!("grab-{stamp}.{ext}"))
         });
 
         let options = ScreenshotOptions {
@@ -102,6 +106,7 @@ impl OneShotSession {
             full_page,
             quality,
             selector: element.map(|s| s.to_string()),
+            include_base64,
             ..ScreenshotOptions::default()
         };
 
@@ -129,26 +134,46 @@ impl OneShotSession {
         let path_buf = std::path::PathBuf::from(&path_str);
         let path_for_meta = path_buf.clone();
         let format_owned = format.to_string();
-        let (written, magic_ok, byte_size) = tokio::task::spawn_blocking(move || {
+        // Dimensions are read here, on the blocking pool, alongside the size
+        // and magic probe that already stat the file.
+        //
+        // Emitting them is the difference between one invocation and two: the
+        // caller almost always needs to know how tall a `--full-page` capture
+        // came out, and without these fields the only way to learn it is a
+        // second process running `image info` on a file this command just
+        // wrote. Reading a PNG/JPEG/WebP header costs bytes, not a round trip.
+        let (written, magic_ok, byte_size, dims) = tokio::task::spawn_blocking(move || {
             let written = path_for_meta.exists();
             let magic_ok = written && verify_image_magic(&path_for_meta, &format_owned);
             let byte_size = std::fs::metadata(&path_for_meta)
                 .map(|m| m.len())
                 .unwrap_or(0);
-            (written, magic_ok, byte_size)
+            let dims = written
+                .then(|| image::image_dimensions(&path_for_meta).ok())
+                .flatten();
+            (written, magic_ok, byte_size, dims)
         })
         .await
-        .unwrap_or((false, false, 0));
+        .unwrap_or((false, false, 0, None));
 
-        Ok(json!({
+        // Agent-native: omit base64 key unless explicitly requested.
+        let mut data = json!({
             "path": path_str,
             "format": format,
             "written": written,
             "magic_ok": magic_ok,
             "byte_size": byte_size,
+            "width": dims.map(|(w, _)| w),
+            "height": dims.map(|(_, h)| h),
             "full_page": full_page,
             "quality": quality,
             "element": element,
-        }))
+        });
+        if let Some(b64) = result.base64 {
+            if let Some(obj) = data.as_object_mut() {
+                obj.insert("base64".into(), json!(b64));
+            }
+        }
+        Ok(data)
     }
 }

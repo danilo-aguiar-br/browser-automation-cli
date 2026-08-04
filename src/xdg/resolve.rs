@@ -234,16 +234,6 @@ pub fn resolve_http_connect_timeout_secs() -> u64 {
         .unwrap_or(crate::constants::DEFAULT_HTTP_CONNECT_TIMEOUT_SECS)
 }
 
-/// Max HTTP scrape body bytes.
-pub fn resolve_scrape_max_body_bytes() -> usize {
-    load_config()
-        .ok()
-        .and_then(|c| c.scrape_max_body_bytes)
-        .filter(|&n| n > 0)
-        .map(|n| n as usize)
-        .unwrap_or(crate::constants::DEFAULT_SCRAPE_MAX_BODY_BYTES)
-}
-
 /// LLM/webhook blocking HTTP timeout (seconds).
 pub fn resolve_llm_http_timeout_secs() -> u64 {
     load_config()
@@ -266,6 +256,17 @@ pub fn resolve_robots_loopback_exempt() -> bool {
         .unwrap_or(true)
 }
 
+/// Whether the Chrome launch path falls back to `chromiumoxide::Browser::launch`.
+///
+/// Defaults to `false`: the product self-spawns Chrome so it owns the pid and the
+/// process group. See [`crate::xdg::ProductConfig::chrome_legacy_oxide_launch`].
+pub fn resolve_chrome_legacy_oxide_launch() -> bool {
+    load_config()
+        .ok()
+        .and_then(|c| c.chrome_legacy_oxide_launch)
+        .unwrap_or(false)
+}
+
 /// Allow non-loopback Redis hosts.
 pub fn resolve_redis_allow_remote() -> bool {
     load_config()
@@ -282,3 +283,6 @@ pub fn resolve_redis_connect_timeout_secs() -> u64 {
         .filter(|&n| n > 0 && n <= crate::constants::EXTERNAL_PROCESS_TIMEOUT_CAP_SECS)
         .unwrap_or(crate::constants::REDIS_CONNECT_TIMEOUT_SECS)
 }
+
+// Media (image/video) resolvers live in resolve_media for file-size hygiene.
+pub use super::resolve_media::*;

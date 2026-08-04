@@ -7,7 +7,53 @@
   "properties": {
     "schema_version": { "const": 1 },
     "ok": { "const": true },
-    "data": {}
+    "data": {},
+    "agent_ops": {
+      "type": "object",
+      "description": "Report emitted only when at least one universal agent-ops flag ran (--fields, --filter-rows, --limit-rows, --sort-rows, --dedupe-by, --count-only, --truncate-content, --max-output-bytes). Absent on every untouched envelope, so a consumer that never passes those flags sees the exact previous shape. Every member is optional and only present when the corresponding operation produced something worth reporting.",
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows found in data before any row-scoped operation ran"
+        },
+        "matched": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows surviving the row-scoped operations; compare against total to see how much was cut"
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when --truncate-content cut at least one string; the only way to tell a short payload from a cut one"
+        },
+        "omitted_rows": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows dropped by --limit-rows"
+        },
+        "unresolved_paths": {
+          "type": "array",
+          "description": "Dotted paths the caller asked for that no row (or the payload) carried. Without this an absent key is indistinguishable from a key that exists and is empty, and a sort or dedupe on a missing key reports matched == total, which reads as success.",
+          "items": {
+            "type": "object",
+            "required": ["flag", "path"],
+            "properties": {
+              "flag": {
+                "type": "string",
+                "enum": ["fields", "filter-rows", "sort-rows", "dedupe-by"],
+                "description": "Which flag carried the path, so the caller knows which argument to correct"
+              },
+              "path": {
+                "type": "string",
+                "description": "The path exactly as the caller typed it"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": true
 }

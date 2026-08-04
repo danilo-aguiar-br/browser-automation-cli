@@ -20,14 +20,29 @@ export LC_ALL=C
 
 failed=()
 
+# ── Citable artifact (OPP-GATE-BUNDLE) ──────────────────────────────────────
+# Six audit waves wrote "filesize PASS (over_limit=0)" into gaps.md while the
+# script reported 5 offenders. Nothing forced the CLAIM to come from a RUN, so
+# the VERIFY list was copied from the previous wave instead of re-executed.
+#
+# Every step now appends its real verdict here. A close that cites this file
+# cites an execution; a close that cites prose is visibly not citing this file.
+ARTIFACT_DIR="$ROOT/target/gates"
+ARTIFACT="$ARTIFACT_DIR/ci-check.txt"
+mkdir -p "$ARTIFACT_DIR"
+: >"$ARTIFACT"
+printf 'ci-check run\nrepo=%s\n\n' "$ROOT" >>"$ARTIFACT"
+
 step() {
   local name="$1"
   shift
   printf '\n== %s ==\n' "$name"
   if "$@"; then
     printf 'PASS  %s\n' "$name"
+    printf 'PASS  %s\n' "$name" >>"$ARTIFACT"
   else
     printf 'FAIL  %s\n' "$name"
+    printf 'FAIL  %s\n' "$name" >>"$ARTIFACT"
     failed+=("$name")
   fi
 }
@@ -139,12 +154,16 @@ fi
 # ── Summary ─────────────────────────────────────────────────────────────────
 printf '\n== summary ==\n'
 if [[ ${#failed[@]} -eq 0 ]]; then
-  printf 'ci-check OK (all steps passed)\n'
+  printf 'ci-check OK (all steps passed)\n' | tee -a "$ARTIFACT"
+  printf 'artifact: %s\n' "$ARTIFACT"
   exit 0
 fi
 
-printf 'ci-check FAILED (%d step(s)):\n' "${#failed[@]}"
-for name in "${failed[@]}"; do
-  printf '  - %s\n' "$name"
-done
+{
+  printf 'ci-check FAILED (%d step(s)):\n' "${#failed[@]}"
+  for name in "${failed[@]}"; do
+    printf '  - %s\n' "$name"
+  done
+} | tee -a "$ARTIFACT"
+printf 'artifact: %s\n' "$ARTIFACT"
 exit 1

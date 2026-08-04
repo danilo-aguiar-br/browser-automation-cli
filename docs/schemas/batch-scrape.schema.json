@@ -17,6 +17,28 @@
       ],
       "type": "integer"
     },
+    "dedup_key": {
+      "argv": "--dedup-key",
+      "description": "Deduplicate pages by field (first wins)",
+      "required": false,
+      "source": "parser",
+      "step_key": "dedup_key",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "dedup_similar": {
+      "argv": "--dedup-similar",
+      "description": "Collapse near-duplicate results by content similarity; threshold is XDG scrape_dedup_similar_distance (default: XDG scrape_dedup_similar = false)",
+      "required": false,
+      "source": "parser",
+      "step_key": "dedup_similar",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
     "engine": {
       "argv": "--engine",
       "default": "http",
@@ -29,13 +51,111 @@
       ],
       "type": "string"
     },
+    "exclude_selector": {
+      "argv": "--exclude-selector",
+      "description": "CSS selectors to exclude (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "exclude_selector",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
+    "filter": {
+      "argv": "--filter",
+      "description": "Filter pages: key=value AND expressions (e.g. http_error=false)",
+      "required": false,
+      "source": "parser",
+      "step_key": "filter",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
     "format": {
       "argv": "--format",
       "default": "text",
-      "description": "Output format applied to every URL",
+      "description": "Output format(s) applied to every URL (CSV / repeatable)",
+      "items": {
+        "type": "string"
+      },
       "required": false,
       "source": "parser",
       "step_key": "format",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
+    "include_selector": {
+      "argv": "--include-selector",
+      "description": "CSS selectors to include (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "include_selector",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
+    "max_text_chars": {
+      "argv": "--max-text-chars",
+      "description": "Cap text/markdown/html chars (0 = XDG default)",
+      "required": false,
+      "source": "parser",
+      "step_key": "max_text_chars",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "integer"
+    },
+    "output_mode": {
+      "argv": "--output-mode",
+      "default": "json",
+      "description": "json (default), ndjson, or csv (header row)",
+      "required": false,
+      "source": "parser",
+      "step_key": "output_mode",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "redact_pii": {
+      "argv": "--redact-pii",
+      "description": "Redact PII in text/markdown",
+      "required": false,
+      "source": "parser",
+      "step_key": "redact_pii",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
+    "select": {
+      "argv": "--select",
+      "description": "Project data fields (CSV)",
+      "required": false,
+      "source": "parser",
+      "step_key": "select",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "sort": {
+      "argv": "--sort",
+      "description": "Sort pages by field (asc)",
+      "required": false,
+      "source": "parser",
+      "step_key": "sort",
       "surfaces": [
         "argv"
       ],
@@ -51,6 +171,17 @@
         "argv"
       ],
       "type": "string"
+    },
+    "with_content_hash": {
+      "argv": "--with-content-hash",
+      "description": "Include content_hash",
+      "required": false,
+      "source": "parser",
+      "step_key": "with_content_hash",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
     }
   },
   "required": [

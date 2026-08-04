@@ -25,6 +25,7 @@
 #[cfg(test)]
 use std::collections::BTreeSet;
 
+use clap::builder::ValueParser;
 use clap::{Arg, ArgAction, Command, CommandFactory};
 use serde_json::{json, Map, Value};
 
@@ -54,8 +55,13 @@ pub(crate) struct DerivedCommand {
 /// subcommand: step-only commands such as `select-option` are reachable from
 /// `run` and `exec` but cannot be typed as `browser-automation-cli select-option`.
 pub(crate) fn surfaces_for(cmd: &str) -> Vec<&'static str> {
+    surfaces_in(&Cli::command(), cmd)
+}
+
+/// [`surfaces_for`] against an already built tree (one build per caller).
+fn surfaces_in(root: &Command, cmd: &str) -> Vec<&'static str> {
     let mut out = Vec::new();
-    if find_subcommand(cmd).is_some() {
+    if find_subcommand(root, cmd).is_some() {
         out.push(SURFACE_ARGV);
     }
     if RUN_DISPATCHED_CMDS.contains(&cmd) {
@@ -66,11 +72,11 @@ pub(crate) fn surfaces_for(cmd: &str) -> Vec<&'static str> {
 }
 
 /// Locate a top-level subcommand by its CLI name.
-fn find_subcommand(cmd: &str) -> Option<Command> {
-    Cli::command()
-        .get_subcommands()
-        .find(|s| s.get_name() == cmd)
-        .cloned()
+///
+/// Borrows out of `root` instead of cloning: `Command` is a large struct and a
+/// clone landed a full copy in the caller's frame on every lookup.
+fn find_subcommand<'tree>(root: &'tree Command, cmd: &str) -> Option<&'tree Command> {
+    root.get_subcommands().find(|s| s.get_name() == cmd)
 }
 
 /// True for clap's auto-generated `help` / `version` args.
@@ -94,27 +100,24 @@ fn json_type(arg: &Arg) -> &'static str {
 /// parsers built here for the same Rust types.
 fn scalar_type(arg: &Arg) -> &'static str {
     let id = arg.get_value_parser().type_id();
-    // `AnyValueId` is not re-exported by clap, so probe args carrying a known
-    // Rust type supply the comparison values.
-    macro_rules! is_type {
-        ($t:ty) => {
-            Arg::new("probe")
-                .value_parser(clap::value_parser!($t))
-                .get_value_parser()
-                .type_id()
-                == id
-        };
-    }
-    if is_type!(bool) {
+    // `AnyValueId` is not re-exported by clap, so the probe values come from
+    // parsers built here for known Rust types. The probe is a bare
+    // `ValueParser` (not a whole `Arg`) and lives in a closure, so the eleven
+    // comparisons below reuse one small slot instead of stacking eleven `Arg`
+    // temporaries in this frame.
+    let is_type = |probe: ValueParser| probe.type_id() == id;
+    // `value_parser!(bool)` already yields a `ValueParser`; the numeric ones
+    // yield typed parsers that still need the conversion.
+    if is_type(clap::value_parser!(bool)) {
         "boolean"
-    } else if is_type!(f64) || is_type!(f32) {
+    } else if is_type(clap::value_parser!(f64).into()) || is_type(clap::value_parser!(f32).into()) {
         "number"
-    } else if is_type!(u64)
-        || is_type!(i64)
-        || is_type!(u32)
-        || is_type!(i32)
-        || is_type!(usize)
-        || is_type!(u8)
+    } else if is_type(clap::value_parser!(u64).into())
+        || is_type(clap::value_parser!(i64).into())
+        || is_type(clap::value_parser!(u32).into())
+        || is_type(clap::value_parser!(i32).into())
+        || is_type(clap::value_parser!(usize).into())
+        || is_type(clap::value_parser!(u8).into())
     {
         "integer"
     } else {
@@ -237,8 +240,9 @@ fn action_property(sub: &Command, surfaces: &[&'static str]) -> Option<(String, 
 /// Project one CLI command into schema properties, or `None` when the command
 /// has no clap subcommand (step-only surfaces such as `select-option`).
 pub(crate) fn derive_command(cmd: &str) -> Option<DerivedCommand> {
-    let sub = find_subcommand(cmd)?;
-    let surfaces = surfaces_for(cmd);
+    let root = Cli::command();
+    let sub = find_subcommand(&root, cmd)?;
+    let surfaces = surfaces_in(&root, cmd);
     let mut properties = Map::new();
     let mut required = Vec::new();
 
@@ -249,7 +253,7 @@ pub(crate) fn derive_command(cmd: &str) -> Option<DerivedCommand> {
         let (key, value) = property_for(arg, &surfaces);
         properties.insert(key, value);
     }
-    if let Some((key, value)) = action_property(&sub, &surfaces) {
+    if let Some((key, value)) = action_property(sub, &surfaces) {
         if sub.is_subcommand_required_set() {
             required.push(key.clone());
         }
@@ -275,7 +279,8 @@ pub(crate) fn parser_command_names() -> BTreeSet<String> {
 /// Argv long flags declared by one clap subcommand (conformance helper).
 #[cfg(test)]
 pub(crate) fn parser_arg_keys(cmd: &str) -> Option<BTreeSet<String>> {
-    let sub = find_subcommand(cmd)?;
+    let root = Cli::command();
+    let sub = find_subcommand(&root, cmd)?;
     Some(
         sub.get_arguments()
             .filter(|a| !is_builtin(a))
@@ -290,55 +295,67 @@ mod tests {
 
     #[test]
     fn derives_scroll_with_include_snapshot() {
-        let d = derive_command("scroll").expect("scroll subcommand");
-        let props = d.properties.as_object().expect("object");
-        assert!(props.contains_key("include_snapshot"), "{props:?}");
-        assert_eq!(props["include_snapshot"]["type"], json!("boolean"));
-        assert_eq!(
-            props["include_snapshot"]["argv"],
-            json!("--include-snapshot")
-        );
-        assert_eq!(props["delta_y"]["type"], json!("number"));
+        crate::cli::on_clap_stack(|| {
+            let d = derive_command("scroll").expect("scroll subcommand");
+            let props = d.properties.as_object().expect("object");
+            assert!(props.contains_key("include_snapshot"), "{props:?}");
+            assert_eq!(props["include_snapshot"]["type"], json!("boolean"));
+            assert_eq!(
+                props["include_snapshot"]["argv"],
+                json!("--include-snapshot")
+            );
+            assert_eq!(props["delta_y"]["type"], json!("number"));
+        });
     }
 
     #[test]
     fn positional_args_keep_step_key_and_argv_form() {
-        let d = derive_command("goto").expect("goto subcommand");
-        let props = d.properties.as_object().expect("object");
-        assert_eq!(props["url"]["argv"], json!("<URL>"));
-        assert_eq!(props["url"]["step_key"], json!("url"));
-        assert!(d.required.contains(&"url".to_string()));
+        crate::cli::on_clap_stack(|| {
+            let d = derive_command("goto").expect("goto subcommand");
+            let props = d.properties.as_object().expect("object");
+            assert_eq!(props["url"]["argv"], json!("<URL>"));
+            assert_eq!(props["url"]["step_key"], json!("url"));
+            assert!(d.required.contains(&"url".to_string()));
+        });
     }
 
     #[test]
     fn surfaces_split_meta_from_step_commands() {
-        assert_eq!(surfaces_for("doctor"), vec![SURFACE_ARGV]);
-        assert_eq!(
-            surfaces_for("goto"),
-            vec![SURFACE_ARGV, SURFACE_RUN_STEP, SURFACE_EXEC]
-        );
+        crate::cli::on_clap_stack(|| {
+            assert_eq!(surfaces_for("doctor"), vec![SURFACE_ARGV]);
+            assert_eq!(
+                surfaces_for("goto"),
+                vec![SURFACE_ARGV, SURFACE_RUN_STEP, SURFACE_EXEC]
+            );
+        });
     }
 
     #[test]
     fn value_enum_args_expose_enum_values() {
-        let d = derive_command("grab").expect("grab subcommand");
-        let props = d.properties.as_object().expect("object");
-        let values = props["format"]["enum"].as_array().expect("enum");
-        assert!(values.iter().any(|v| v == "png"), "{values:?}");
+        crate::cli::on_clap_stack(|| {
+            let d = derive_command("grab").expect("grab subcommand");
+            let props = d.properties.as_object().expect("object");
+            let values = props["format"]["enum"].as_array().expect("enum");
+            assert!(values.iter().any(|v| v == "png"), "{values:?}");
+        });
     }
 
     #[test]
     fn subcommand_actions_are_projected() {
-        let d = derive_command("console").expect("console subcommand");
-        let props = d.properties.as_object().expect("object");
-        let action = &props["action"];
-        let names = action["enum"].as_array().expect("enum");
-        assert!(names.iter().any(|v| v == "list"), "{names:?}");
-        assert!(action["actions"]["list"]["properties"]["page_idx"].is_object());
+        crate::cli::on_clap_stack(|| {
+            let d = derive_command("console").expect("console subcommand");
+            let props = d.properties.as_object().expect("object");
+            let action = &props["action"];
+            let names = action["enum"].as_array().expect("enum");
+            assert!(names.iter().any(|v| v == "list"), "{names:?}");
+            assert!(action["actions"]["list"]["properties"]["page_idx"].is_object());
+        });
     }
 
     #[test]
     fn step_only_command_has_no_parser_projection() {
-        assert!(derive_command("select-option").is_none());
+        crate::cli::on_clap_stack(|| {
+            assert!(derive_command("select-option").is_none());
+        });
     }
 }

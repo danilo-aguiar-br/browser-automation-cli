@@ -22,6 +22,44 @@ fn version_envelope_has_schema_ok_data() {
     assert_eq!(v["data"]["name"], "browser-automation-cli");
 }
 
+/// `version` must identify the compiled bytes, not just the last commit.
+///
+/// `git_sha` alone is ambiguous: build from a modified worktree and it points
+/// at source the binary does not contain. `source_hash` fingerprints what was
+/// actually compiled, so an agent can check out `git_sha`, rebuild, and compare
+/// the field to learn whether it is holding the same code.
+///
+/// There is no `dirty` flag by design — no heuristic available to `build.rs`
+/// can prove a clean tree, and a field that guesses would be worse than none.
+#[test]
+fn version_envelope_carries_a_source_fingerprint() {
+    let assert = cargo_bin_cmd!("browser-automation-cli")
+        .args(["--json", "version"])
+        .assert()
+        .success();
+    let v = parse_stdout(&assert);
+    let data = &v["data"];
+
+    let hash = data["source_hash"]
+        .as_str()
+        .expect("source_hash must be a string");
+    assert_ne!(
+        hash, "unknown",
+        "source_hash must be embedded at build time"
+    );
+    assert_eq!(hash.len(), 16, "source_hash is 16 hex chars, got {hash:?}");
+    assert!(
+        hash.bytes().all(|b| b.is_ascii_hexdigit()),
+        "source_hash must be hex, got {hash:?}"
+    );
+
+    assert!(data.get("git_sha").is_some(), "git_sha must stay present");
+    assert!(
+        data.get("dirty").is_none(),
+        "no dirty flag: build.rs cannot prove a clean worktree"
+    );
+}
+
 #[test]
 fn commands_json_includes_devtools_tool_map() {
     let assert = cargo_bin_cmd!("browser-automation-cli")

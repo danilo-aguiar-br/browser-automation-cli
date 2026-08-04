@@ -11,9 +11,9 @@
 - Scripts multi-passo preservam refs de acessibilidade sem daemon
 - Gates de categoria mantêm superfícies experimentais opt-in
 - Superfície local de scrape / crawl / map / search / parse embarca como subcomandos de primeira classe
-- Helpers de artefato (`print-pdf`, `monitor`, `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) e chaves LLM XDG estendem fluxos de agente sem daemons
+- Helpers de artefato (`print-pdf`, `monitor`, `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) e chaves LLM XDG estendem fluxos de agente sem daemons
 - Defaults duráveis vivem em flags e XDG `config path|init|show|set|get`
-- v0.1.6 agent-first: booleano `dialog_settled` após resposta real de diálogo; XDG `dialog_settle_ms`; inventário **65** (adiciona `submit`, `storage`); grab só **png|jpeg|webp** (AVIF removido); run `wait_timeout_ms` + scrape `format`/`formats`
+- v0.1.7 agent-first: booleano `dialog_settled` após resposta real de diálogo; XDG `dialog_settle_ms`; inventário **69** vivo (0.1.6 adicionou `submit`/`storage`; 0.1.7 adiciona `image`+`video`+`audio`+`record`); grab só **png|jpeg|webp** (AVIF removido); run `wait_timeout_ms` + scrape `format`/`formats`
 - Isolamento multi-aba de diálogo via `Page::session_id` / `dialog_map_key`; select nativo `via: native_select` (input e depois change)
 - Lei residual-zero de disco da v0.1.5 permanece corrente: GC Singleton em BORN + FINALIZE, doctor `residual_disk` / JSON `residual`, cmds meta `locale` e `man`
 - Config de produto: só flags + XDG (nunca env de produto); descubra chaves via `config list-keys --json`
@@ -25,6 +25,9 @@
 - Evite servers de browser long-lived que vazam entre turns do agente
 - Pague o custo de launch do Chrome só quando a tarefa precisa de página real
 - Prefira `scrape` / `batch-scrape` / `crawl` / `map` HTTP quando só conteúdo basta
+- CLEAN STDOUT scrape: use sempre `--select` (ex. `source_url,title,markdown,status_code`); engine default `http`; prefira `--format markdown` + `--only-main-content`; `--max-text-chars` / XDG; opcional `--include-selector`/`--exclude-selector`, `--redact-pii`, `--with-content-hash`, `--header "Nome: valor"`, browser `--wait-ms`; multi-format + `--select` promove campos aninhados; format `json` + `--schema-json`/`--question` (OpenRouter XDG, fail-closed); batch/crawl: `--filter http_error=false`, `--sort`, `--dedup-key`, `--output-mode json|ndjson|csv`
+- Map/crawl: `--use-sitemap`, `--sitemap-only`, `--include-path` / `--exclude-path`, map `--search`; batch/crawl `--filter http_error=false`, opcional `--output-mode ndjson|csv`
+- Superfície local scraping-oriented one-shot — não é a hosted scraping SaaS (CAPTCHA/proxy/async SaaS TREATED fora do produto)
 - Colapse fluxos multi-passo em um processo `run` quando refs importam
 - Stream de feedback progressivo com `--json-steps` em vez de re-spawnar para status
 - Reutilize `schema <cmd>` uma vez por sessão em vez de adivinhar argv
@@ -64,15 +67,17 @@
 - Passe sempre `--json` para parsing por máquina
 - Leia envelopes de sucesso e erro no stdout
 - Mantenha stderr só para logs humanos ou debug
-- Use `commands --json` para descobrir o inventário vivo (**65 nomes de agente**)
-- O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, submit, storage, select-option, pick, locale, man e tools de paridade DevTools (65 no total; e2e 53 tools com lighthouse mock SKIP)
-- Nota: `select-option` e `pick` estão no inventário de agente **65** (`commands --json`) e usam-se via `run` / `exec` / `schema`; **não** são subcomandos clap standalone (superfície clap de produto é **63** nomes, excluindo `help`)
+- Use `commands --json` para descobrir o inventário vivo (**69 nomes de agente**)
+- O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, submit, storage, select-option, pick, locale, man e tools de paridade DevTools (**69** no total, inclui `image`, `video`, `audio`; e2e 53 tools com lighthouse mock SKIP)
+- Nota: `select-option` e `pick` estão no inventário de agente **69** (`commands --json`) e usam-se via `run` / `exec` / `schema`; **não** são subcomandos clap standalone (superfície clap de produto é **67** nomes, excluindo `help`)
 - Use `schema <name> --json` ou `schema --cmd <name> --json` antes de gerar argv de comandos pouco familiares
 - Prefira flags para controle pontual
 - Use `config init|set|get|path|show|list-keys` para defaults XDG duráveis
 - Descubra chaves vivas de config via `config list-keys --json` (não fixe contagem; inclui `dialog_settle_ms` e mais)
 - Resolva paths com `config path --json`
 - Para multi-passo que precisa de refs `@eN` compartilhadas, use um processo `run --script` (NDJSON **ou** array JSON de passos)
+- `run --script -` lê os passos NDJSON do **stdin**, um por linha, contra uma única sessão viva
+- Prefira stdin a process substitution do shell: `run --script <(printf ...)` é recusado, porque o caminho cai em `/proc/<pid>/fd/<n>` e o jail de arquivos recusa leitura fora dos roots permitidos
 - Envelope final de `run --json` inclui `ok` e `steps[].data` completo
 - Stream por passo NDJSON com global `--json-steps` (`step`, `cmd`, `ok`, `result`)
 - Wait com texto OR: `wait --text A --text B`
@@ -88,7 +93,15 @@
 - Assert console: `{"cmd":"assert","kind":"console_empty"}` ou `console_no_match` + `pattern` (precisa `--capture-console`)
 - CLI assert: `assert console-empty` / `assert console-no-match --pattern …`
 - Em erros fail-fast de `run`, inspecione `data.steps` parcial quando presente
-- Scrape com multi-formato `--format text|markdown|html|links|metadata|summary|product|branding|raw-html|screenshot` e `--engine http|browser`
+- Scrape com multi-formato `--format text|markdown|html|rawHtml|links|metadata|summary|product|branding|screenshot` e `--engine http|browser`
+- `html` é o corpo processado (extração de main-content e filtros de seletor aplicados); `rawHtml` é o corpo da resposta intacto, sob a própria chave `rawHtml`
+- `metadata` colhe o que o documento declara: `og_*`, `dc_*`, `article_*`, `twitter_*`, `canonical`, `favicon`, `charset`, `html_lang`, mais title/description/status_code/source_url/link_count
+- Campos de metadata ausentes são omitidos, nunca emitidos como null
+- Open Graph chega como `og_title`, `og_description`, `og_image`, `og_site_name`, `og_type`, `og_url`
+- Dublin Core chega como `dc_creator`, `dc_title`, `dc_subject`, `dc_publisher`, `dc_date`
+- Datas de artigo chegam como `article_published_time`, `article_modified_time`, `article_author`, `article_section`
+- Twitter card chega como `twitter_card`, `twitter_title`, `twitter_description`, `twitter_image`, `twitter_site`
+- Nunca indexe uma chave de metadata às cegas; leia a chave só após checar presença
 - Passos scrape em run honram `format` / `formats` sem despejar HTML quando só texto foi pedido
 - Batch/crawl: opcional `--engine browser` (default http)
 - Webhook opcional de operador no scrape: `--webhook-url` (POST one-shot, não telemetria de produto)
@@ -98,7 +111,7 @@
 - Extract LLM falha fechado sem XDG `openrouter_api_key`
 - Localize sugestões humanas com `--lang pt-BR` ou `config set lang pt-BR` (só flags + XDG)
 - Inspecione locale resolvido com `locale --json`; gere man page com `man`
-- Após trabalho browser, espere residual-zero em disco: check do doctor `residual_disk` e topo `residual` (`cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`)
+- Após trabalho browser, espere residual-zero em disco quando sozinho: check do doctor `residual_disk` não `fail` e topo `residual` com zeros em `orphan_marker_dirs`, `ghost_marker_processes`, e (após DIE sozinho) `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes` é concorrência informativa; **não** exija zero `live_cli_marker_processes`
 - Erros de usage clap emitem JSON quando `--json` já está no argv
 - Diálogo soft: `dialog accept --if-present` / `dialog dismiss --if-present`
 - Beforeunload: `goto` / `reload` com `--handle-before-unload accept|dismiss`
@@ -131,7 +144,7 @@ fn main() {
 
 
 ## Descoberta de Superfície para Agentes
-- Inventário: `browser-automation-cli commands --json` (**65** nomes de agente)
+- Inventário: `browser-automation-cli commands --json` (**69** nomes de agente)
 - Fragments de input: `browser-automation-cli schema <name> --json` ou `schema --cmd <name> --json`
 - Paths de config: `browser-automation-cli config path --json`
 - Chaves de config: descubra com `config list-keys --json` (inclui `dialog_settle_ms`; nunca invente env de produto)
@@ -139,34 +152,34 @@ fn main() {
 - Globais MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
 - Workflow: `workflow run|resume|status`
 - Superfície local de scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
-- Artefatos e IO local: `print-pdf`, `monitor check`, `qr encode|decode`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
+- Artefatos e IO local: `print-pdf`, `monitor check`, `qr encode|decode`, `image info|convert|resize|download|exif`, `video info|download|convert|to-mp3|trim|thumbnail|manifest`, `audio info|download|convert|trim`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
 - Forms / estado: `submit`, `storage export|import`, `select-option` / `pick` (inventário + run/exec; não clap standalone)
 - Meta: `locale` (diagnósticos de locale de UI), `man` (página man roff; sem Chrome)
 - Extract LLM: `extract --llm --question …` (só chaves XDG)
 - Saúde: `doctor --json` (descoberta de Chrome, XDG browsers_dir, origem do lighthouse, `cache_redis` quando configurado, higiene residual de disco)
-- Residual: topo `residual` + check `residual_disk` com campos `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
+- Residual: topo `residual` + check `residual_disk` com campos `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legado), `sibling_live_processes`, `orphan_marker_dirs`, `ghost_marker_processes`, `foreign_root_orphans`, `scanned_roots`
 - Cache: XDG `cache_backend` (`sqlite|memory|redis`) e `cache_redis_url` (somente `redis://`; `rediss://` fail-closed)
 - Lighthouse: flag → XDG `lighthouse_path` → PATH; envelope `binary_source` é `real` ou `mock`; e2e mock é SKIP (nunca alegue PASS completo do parser lighthouse em e2e)
 
 
-## Inventário Completo de Comandos (65)
-- Fonte viva: `browser-automation-cli commands --json` (**65** nomes voltados a agentes)
-- Superfície clap de produto é **63** nomes (exclui `select-option` / `pick` de inventário de agente)
+## Inventário Completo de Comandos (69)
+- Fonte viva: `browser-automation-cli commands --json` (**69** nomes voltados a agentes)
+- Superfície clap de produto é **67** nomes (exclui `select-option` / `pick` de inventário de agente)
 - O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53; lighthouse mock SKIP)
-- Lista completa de comandos de agente (todos os **65**):
+- Lista completa de comandos de agente (todos os **69**):
   - Meta / descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
   - Agent inventory + run/exec/schema (not clap standalone): `select-option`, `pick`
   - Observação: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Captura: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
-  - Multi-passo: `run`, `exec`
+  - Multi-passo: `run`, `exec`, `record`
   - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
-  - IO local (sem Chrome): `qr`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
+  - IO local (sem Chrome): `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
   - Emulação/perf: `emulate`, `resize`, `perf`, `heap`
   - Portões de categoria: `extension`, `devtools3p`, `webmcp`
-- Lista plana completa: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
+- Lista plana completa: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Descubra argv com `schema <name> --json` para qualquer nome acima
 
 ## Ciclo de Vida
@@ -174,13 +187,13 @@ fn main() {
 - Um processo possui uma sessão Chrome do launch até o FINALIZE
 - BORN faz scavenge de Chromium tmp Singleton-only stale (age floor 60s)
 - FINALIZE é idempotente (Browser.close, wait, kill fallback) e faz dual scavenge: janela de invocação + orphans Singleton stale
-- Contrato residual para agentes: após DIE espere zero processos marker CLI vivos, zero dirs marker CLI, zero lixo Singleton-only de Chromium tmp owned
+- Contrato residual para agentes: após DIE sozinho espere zero `orphan_marker_dirs`, zero `ghost_marker_processes`, zero dirs marker CLI, zero lixo Singleton-only de Chromium tmp owned; `sibling_live_processes>0` é concorrência saudável; não exija zero `live_cli_marker_processes`
 - Chrome Flatpak do host **nunca** é morto ou apagado pelo GC residual do produto
 - Não espere sessão ou refs `@eN` sobreviverem ao exit do processo
 - Verifique com `doctor --offline --quick --json` → `residual` / check `residual_disk`
 
 
-## Contrato Técnico (v0.1.6)
+## Contrato Técnico (v0.1.7)
 ### REQUIRED
 - Passe `--json` para consumo programático
 - Trate um processo como um ciclo de vida de Chrome (BORN EXECUTE FINALIZE DIE)
@@ -196,7 +209,7 @@ fn main() {
 - Ramifique no campo `ok` do envelope
 - Mantenha gates de categoria e experimental explícitos quando necessários
 - Configure settings duráveis de produto só via `config` / flags (`--lang` + XDG para idioma)
-- Descubra comandos desconhecidos com `commands --json` (**65**) e `schema <cmd>` ou `schema --cmd`
+- Descubra comandos desconhecidos com `commands --json` (**69**) e `schema <cmd>` ou `schema --cmd`
 - Descubra chaves de config com `config list-keys --json` (nunca fixe contagem de chaves)
 - Após one-shots browser, trate residual-zero como parte do sucesso: inspecione `residual` do doctor ao diagnosticar leaks
 
@@ -259,6 +272,32 @@ browser-automation-cli -q --json doctor --offline --quick
 - Erros de usage clap com `--json` no argv emitem envelopes de erro JSON
 - Índice de schemas: [docs/schemas/README.md](schemas/README.md)
 - Fragments vivos de input sempre vêm de `schema <cmd>` / `schema --cmd`; arquivos estáticos podem atrasar
+
+
+## Reduzindo o Payload (nunca canalize por um processador JSON)
+- Estas flags são GLOBAIS e funcionam em todos os 69 comandos
+- O binário as aplica sobre `data` antes de escrever, então o modelo nunca recebe o que descartaria
+- `--fields PATHS` projeta caminhos pontilhados (CSV) e mantém o aninhamento documentado
+- `--filter-rows EXPR` mantém linhas que casam `key=value`, `key!=value` ou `key~substring`; repetível e com AND
+- `--limit-rows N` limita linhas depois de filtro, dedupe e ordenação
+- `--sort-rows PATH` ordena linhas; números comparam numericamente, não como texto
+- `--dedupe-by PATH` descarta repetidos, mantendo o primeiro
+- `--count-only` devolve `{"count": N}` em vez das linhas
+- `--truncate-content CHARS` corta toda string do payload
+- `--max-output-bytes BYTES` é teto duro que descarta linhas do fim
+- Medido: `doctor --offline --quick` tem 26.277 bytes; com `--fields residual.ghost_marker_processes` tem 80
+- Quando uma operação de linha rodou, o envelope ganha `agent_ops` com `total`, `matched`, `truncated`, `omitted_rows`
+- `--fields` opera em CAMINHOS, não em linhas, então não reporta contadores de linha — um `total` ali seria falso
+- `agent_ops` é omitido inteiro quando não há o que reportar, então projeção limpa mantém o envelope anterior
+- `unresolved_paths` lista todo caminho pontilhado que não resolveu, cada um com a `flag` que o pediu
+- Leia sempre: `--fields typo` devolve `data:{}` e `--sort-rows typo` devolve as linhas intactas com `matched == total`
+- Os dois são indistinguíveis de sucesso sem esse campo
+- `truncated` é a única forma de distinguir payload curto de payload cortado — sempre leia
+- Envelopes intocados nunca ganham o campo, então parsers existentes não são afetados
+- Filtro que não casa nada devolve lista vazia com `ok: true`, nunca erro e nunca a lista sem filtro
+- Campo ausente nunca casa, nem sob `!=`: ausência não é diferença
+- Operações de linha exigem uma lista; quando `data` tem várias, o erro as nomeia e `--fields` estreita antes
+- NÃO DEVE canalizar stdout por `jaq` para encolher payload — esse trabalho é do binário
 
 
 ## Códigos de Saída

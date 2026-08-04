@@ -14,7 +14,10 @@ pub use process::LightpandaProcess;
 pub(crate) use process::lightpanda_startup_timeout;
 
 #[cfg(test)]
+pub(crate) use crate::native::cdp::spawn::LaunchLogBuffer;
+
+#[cfg(test)]
 pub(crate) use launch::{
     build_lightpanda_serve_args, lightpanda_launch_error, start_log_drainers,
-    wait_for_lightpanda_ready, LaunchLogBuffer,
+    wait_for_lightpanda_ready,
 };
