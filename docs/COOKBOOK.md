@@ -48,7 +48,20 @@ browser-automation-cli --json config get dialog_settle_ms
 - `config init` creates XDG dirs and default `config.toml`
 - Discover live keys with `config list-keys --json` (do not hard-code a fixed count; includes `dialog_settle_ms` and more)
 - Flags always override file config for that invocation
-- Product settings use only flags and `config path|init|show|set|get|list-keys`
+- Product settings use only flags and `config path|init|show|set|get|unset|list-keys`
+
+
+## How To Unset a Config Key
+```bash
+browser-automation-cli --json config set stealth_seed fleet-01
+browser-automation-cli --json config get stealth_seed
+browser-automation-cli --json config unset stealth_seed
+browser-automation-cli --json config get stealth_seed
+```
+- `config unset <KEY>` restores one key to its built-in default and is the real inverse of `set`
+- `config set <key> ""` is not an inverse: on a string key it writes an empty value the normal path never produces
+- On a numeric key that same empty value is a parse error, not a reset
+- Unsetting a key that is already absent succeeds, so a script never needs to know the previous state
 
 
 ## How To Configure XDG LLM Keys
@@ -166,6 +179,110 @@ browser-automation-cli --json --fields checks --max-output-bytes 400 doctor --of
 - `--max-output-bytes` sheds whole rows and reports `agent_ops.omitted_rows`
 - Both flags are global, so they work on any command that emits JSON
 - Combine them with `--fields` when one projection is still too large
+
+
+## How To Pin One Stealth Identity Across Processes
+```bash
+# Without a seed each of these is a different machine to the far end
+browser-automation-cli --timeout 60 --json goto https://example.com
+
+# With a seed the whole fleet of one-shot processes looks like one browser
+browser-automation-cli --timeout 60 --json --stealth-seed fleet-01 goto https://example.com
+browser-automation-cli --timeout 60 --json --stealth-seed fleet-01 scrape https://example.com --format text
+
+# Make it durable instead of repeating the flag
+browser-automation-cli --json config set stealth_seed fleet-01
+browser-automation-cli --json config set stealth_profile chrome-linux
+```
+- Stealth is ON by default and masks the automation markers a real Chrome never exposes
+- `--stealth-profile` accepts `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`, and `auto` follows the host
+- Without `--stealth-seed` every run draws a fresh identity, so a 50-URL crawl presents 50 different machines
+- XDG keys are `stealth` (`true`), `stealth_profile` (`auto`), `stealth_seed` (no default)
+- `browser_mode` (`auto`) is `auto|headed|headless`; `auto` resolves to headless and `doctor` reports the effective mode
+- Turn the patches off for one run with `--no-stealth` when you are testing your own front end
+
+
+## How To Route Through an Egress Proxy
+```bash
+browser-automation-cli --json --proxy socks5://127.0.0.1:1080 \
+  scrape https://example.com --format text --engine http
+
+browser-automation-cli --timeout 60 --json --proxy http://127.0.0.1:8888 \
+  --proxy-bypass '127.0.0.1,localhost' goto https://example.com
+
+# Credentials belong in XDG, never in argv
+browser-automation-cli --json config set proxy_url http://127.0.0.1:8888
+browser-automation-cli --json config set proxy_username agent
+browser-automation-cli --json config set proxy_password secret
+```
+- `--proxy` accepts `http`, `https`, and `socks5`, and applies to Chrome and the HTTP engine alike
+- `--proxy-bypass` uses Chrome's bypass-list syntax
+- XDG keys are `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`
+- Keep the credentials in XDG only, because argv shows up in the process table
+- `cdp_proxy_bypass_loopback` (`true`) always bypasses loopback so the CDP control channel survives the proxy
+- `robots_user_agent` sets the user-agent token robots.txt rules are matched against
+
+
+## How To Shape Input Like a Human
+```bash
+# Reproducible human kinematics
+browser-automation-cli --timeout 60 --json --input-profile human --input-seed 42 \
+  goto https://example.com
+
+# One event per action, exactly deterministic
+browser-automation-cli --timeout 60 --json --input-profile direct goto https://example.com
+
+browser-automation-cli --json config set input_profile human
+```
+- `human` is the default and interpolates pointer trajectories, dwells between press and release, and paces typing
+- `--input-seed` seeds the jitter so a `human` run reproduces exactly
+- Kinematics keys: `input_move_steps` (`24`), `input_move_gap_ms` (`12`), `input_click_dwell_ms` (`65`)
+- Kinematics keys: `input_key_dwell_ms` (`45`), `input_type_delay_ms` (`95`), `input_target_jitter_px` (`3`)
+- Scroll keys: `input_scroll_tick_px` (`100`), `input_scroll_max_ticks` (`40`), `input_scroll_settle_rounds` (`3`)
+
+
+## How To Warm a Session Before the Target URL
+```bash
+# Land on the origin root first, then the deep URL
+browser-automation-cli --timeout 60 --json --warmup goto https://example.com/deep/page
+
+# Warm the real entry point when the edge hands out the session elsewhere
+browser-automation-cli --timeout 60 --json --warmup-url https://example.com/login \
+  goto https://example.com/app
+
+# Headed on Linux without the private virtual display
+browser-automation-cli --timeout 60 --json --headed --no-xvfb goto https://example.com
+```
+- `--warmup` gives the session cookies and a referrer chain before the target request
+- `--warmup-url` implies `--warmup`, so passing it alone is enough
+- `--no-xvfb` is only meaningful headed on Linux
+
+
+## How To Keep the HTTP/2 Fingerprint Constant
+```bash
+browser-automation-cli --json config set http2_enabled true
+browser-automation-cli --json config set http2_initial_stream_window_size 6291456
+browser-automation-cli --json config set http2_initial_connection_window_size 15663105
+browser-automation-cli --json config set http2_max_header_list_size 262144
+browser-automation-cli --json config set http2_max_frame_size 16384
+browser-automation-cli --json config set http2_adaptive_window false
+```
+- `http2_enabled` (`true`) negotiates HTTP/2 on the shared HTTP client
+- The four window and size keys carry the defaults shown above
+- `http2_adaptive_window` (`false`) stays off so the fingerprint stays constant
+
+
+## How To Assert on the Emitted Payload
+```bash
+# Reported only: exit stays 0 and agent_ops.expectation_unmet lists the misses
+browser-automation-cli --json --expect 'ok=true' doctor --offline --quick
+
+# Opt in to failing the run
+browser-automation-cli --json --expect 'ok=true' --expect-exit-code doctor --offline --quick
+```
+- `--expect` accepts `key=value`, `key!=value`, and `key~substring`, repeats, and ANDs every expression
+- `--expect-exit-code` exits `65` when an expectation is unmet
+- It stays off by default because changing an exit code on data content would silently break callers that already branch on it
 
 
 ## How To Open a Page and Snapshot
@@ -317,6 +434,8 @@ cat > /tmp/pick.run.json <<'JSON'
 ]
 JSON
 # browser-automation-cli --timeout 90 --json run --script /tmp/pick.run.json
+browser-automation-cli --json schema select-option
+browser-automation-cli --json schema pick
 ```
 - `pick` / `select-option` are agent inventory + run/exec/schema (not clap standalone subcommands)
 - Require `target` (trigger) and `option` (text, selector, or role label)
@@ -709,6 +828,7 @@ browser-automation-cli --timeout 120 --json crawl https://example.com --limit 5 
 - `--same-host` is a boolean flag with no value
 - Do not write `--same-host true`
 - Default engine is HTTP BFS; pass `--engine browser` when JS rendering is required
+- With `--same-host` the crawl stays on the seed host
 
 
 ## How To Map a Site
@@ -816,7 +936,6 @@ printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"upload","tar
 - Not in core: adaptive HLS/DASH playback, yt-dlp site extractors, pure-Rust H.264 encode
 
 ## How To Process Local Audio (path→path)
-
 ```bash
 # Probe (magic + optional ffprobe) — no media dump
 browser-automation-cli --json audio info --path /tmp/in.wav --select format,codec,duration,bytes,sha256
@@ -835,6 +954,7 @@ browser-automation-cli --json upload @e1 /tmp/a.mp3
 - Limits via XDG: `audio_max_input_bytes`, `audio_download_max_bytes`, `audio_default_format`, `audio_default_bitrate`, `ffmpeg_timeout_secs`
 - Magic bytes decide container; extension is not trusted; envelope may set `lossy_transcode` on lossy→lossy recompress
 - Not in core: cpal device I/O, BPM/fingerprint, pure-Rust encode stack, yt-dlp/HLS
+
 
 ## How To Find Paths on Disk
 ```bash
@@ -1168,7 +1288,7 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
 
 ## Full Command Inventory (69)
 - Live source of truth: `browser-automation-cli commands --json` (**69** agent-facing names)
-Clap product surface is **66** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
+- Clap product surface is **66** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53; lighthouse mock SKIP)
 - Full agent command list (all **69**):
   - Meta / discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`

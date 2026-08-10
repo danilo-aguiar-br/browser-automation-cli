@@ -180,3 +180,68 @@ fn is_noop_recognises_an_empty_request() {
     o.count_only = true;
     assert!(!o.is_noop());
 }
+
+/// Build an `--expect` request from raw expressions.
+fn expecting(raws: &[&str]) -> AgentOps {
+    let mut o = ops();
+    o.expect = raws
+        .iter()
+        .map(|r| ((*r).to_string(), FilterExpr::parse(r).expect("parse")))
+        .collect();
+    o
+}
+
+#[test]
+fn a_held_expectation_reports_nothing() {
+    let unmet = unmet_expectations(&doctor_like(), &expecting(&["id=chrome"]));
+    assert!(unmet.is_empty(), "{unmet:?}");
+}
+
+#[test]
+fn an_unmet_expectation_echoes_the_caller_argument() {
+    // Echoed verbatim so the agent matches the string it typed instead of
+    // reconstructing one from a normalised parse.
+    let unmet = unmet_expectations(&doctor_like(), &expecting(&["id=nosuchcheck"]));
+    assert_eq!(unmet, vec!["id=nosuchcheck".to_string()]);
+}
+
+#[test]
+fn every_unmet_expectation_is_listed_not_just_the_first() {
+    // A single-item report would send the agent round the loop once per typo.
+    let unmet = unmet_expectations(&doctor_like(), &expecting(&["id=nope", "status=exploded"]));
+    assert_eq!(unmet.len(), 2, "{unmet:?}");
+}
+
+#[test]
+fn one_matching_row_satisfies_an_expectation() {
+    // `--expect status=warn` asks "is there a warn in here?", which is the
+    // question an agent has. The stricter reading is available by filtering
+    // first, so the loose one is the useful default.
+    assert!(unmet_expectations(&doctor_like(), &expecting(&["status=warn"])).is_empty());
+}
+
+#[test]
+fn a_payload_with_no_rows_is_asserted_against_itself() {
+    let flat = json!({"ok_detail": true, "engine": "http"});
+    assert!(unmet_expectations(&flat, &expecting(&["engine=http"])).is_empty());
+    assert_eq!(
+        unmet_expectations(&flat, &expecting(&["engine=browser"])).len(),
+        1
+    );
+}
+
+#[test]
+fn a_missing_key_never_satisfies_an_expectation() {
+    // Consistent with `--filter-rows`: absence is not difference, so `!=`
+    // does not turn a missing field into a match.
+    let unmet = unmet_expectations(&doctor_like(), &expecting(&["absent!=whatever"]));
+    assert_eq!(unmet.len(), 1, "{unmet:?}");
+}
+
+#[test]
+fn expectations_do_not_alter_the_payload() {
+    // The assertion observes; it must never become another reduction step.
+    let data = doctor_like();
+    let (out, _) = apply(data.clone(), &expecting(&["id=chrome"])).expect("apply");
+    assert_eq!(out, data);
+}

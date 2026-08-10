@@ -13,7 +13,8 @@
 - Local scrape / crawl / map / search / parse surface ships as first-class subcommands
 - Artifact helpers (`print-pdf`, `monitor`, `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) and XDG LLM keys extend agent workflows without daemons
 - Durable defaults live in flags and XDG `config path|init|show|set|get`
-- v0.1.7 agent-first: `dialog_settled` boolean after real dialog answer; XDG `dialog_settle_ms`; inventory **69** live (0.1.6 added `submit`/`storage`; 0.1.7 adds `image`+`video`+`audio`+`record`); grab **png|jpeg|webp** only (AVIF removed); run `wait_timeout_ms` + scrape `format`/`formats`
+- v0.1.8 agent-first: anti-detection family shipped; scrape envelope unified; inventory **69** live; **204** XDG keys
+- Carried forward: `dialog_settled` boolean after real dialog answer; XDG `dialog_settle_ms`; grab **png|jpeg|webp** only (AVIF removed); run `wait_timeout_ms` + scrape `format`/`formats` (0.1.6 added `submit`/`storage`; 0.1.7 added `image`+`video`+`audio`+`record`)
 - Multi-tab dialog isolation via `Page::session_id` / `dialog_map_key`; native select `via: native_select` (input then change)
 - Residual-zero disk law from v0.1.5 remains current: BORN + FINALIZE Singleton GC, doctor `residual_disk` / JSON `residual`, meta cmds `locale` and `man`
 - Product config: flags + XDG only (never product env vars); discover keys via `config list-keys --json`
@@ -103,6 +104,11 @@
 - Twitter card arrives as `twitter_card`, `twitter_title`, `twitter_description`, `twitter_image`, `twitter_site`
 - Never index a metadata key blindly; read the key only after checking it is present
 - Run scrape steps honor `format` / `formats` without dumping HTML when only text was requested
+- Scrape envelope shape is unified since v0.1.8: one format and many produce the same keys
+- `formats` always exists and maps every requested format to its content
+- Each format is mirrored to its own top-level key, so single-format readers keep working
+- Diagnosis fields such as `status_code` and `source_url` survive a multi-format request
+- Before v0.1.8 a multi-format request dropped those diagnosis fields; never rely on that shape
 - Batch/crawl: optional `--engine browser` (default http)
 - Optional operator webhook on scrape: `--webhook-url` (one-shot POST, not product telemetry)
 - Capture screenshots with `grab --path <file>` (not a positional path)
@@ -154,7 +160,7 @@ fn main() {
 - Config paths: `browser-automation-cli config path --json`
 - Config keys: discover with `config list-keys --json` (includes `dialog_settle_ms`; never invent product env vars)
 - MITM: `mitm status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
-- Global MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
+- Global MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`, `--mitm-no-redact-secrets`
 - Workflow: `workflow run|resume|status`
 - Local scrape surface: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
 - Artifacts and local IO: `print-pdf`, `monitor check`, `qr encode|decode`, `image info|convert|resize|download|exif`, `video info|download|convert|to-mp3|trim|thumbnail|manifest`, `audio info|download|convert|trim`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
@@ -198,7 +204,7 @@ Clap product surface is **67** names (excludes agent-only `select-option` / `pic
 - Verify with `doctor --offline --quick --json` → `residual` / check `residual_disk`
 
 
-## Technical Contract (v0.1.7)
+## Technical Contract (v0.1.8)
 ### REQUIRED
 - Pass `--json` for programmatic consumption
 - Treat one process as one Chrome lifecycle (BORN EXECUTE FINALIZE DIE)
@@ -210,6 +216,9 @@ Clap product surface is **67** names (excludes agent-only `select-option` / `pic
 - Configure dialog settle only via XDG `config set dialog_settle_ms` (flags + XDG only; no product env)
 - Honor `wait_timeout_ms` on run wait steps as the public deadline key
 - Honor scrape `format` / `formats` in run steps (text-only must not emit HTML monsters)
+- Read `formats` on scrape envelopes; the shape no longer changes with the format count
+- Treat stealth, HTTP/2 fingerprinting and human input pacing as ON by default
+- Keep MITM secret masking on unless the operator explicitly asked for `--mitm-no-redact-secrets`
 - Check process exit code before trusting stdout
 - Branch on envelope field `ok`
 - Keep category and experimental gates explicit when needed
@@ -235,6 +244,9 @@ Clap product surface is **67** names (excludes agent-only `select-option` / `pic
 - Do not assume `print-pdf` succeeds without a navigated page or an explicit `url` (GAP-013); residual smokes may use `print-pdf --url about:blank` as a light one-shot when `url` is present
 - Do not kill or ask the CLI to wipe host Flatpak Chrome residual
 - Do not claim full e2e lighthouse parser PASS when the suite SKIPs the mock path
+- Do not disable MITM secret masking to make a capture easier to read
+- Do not tune HTTP/2 or input pacing keys without an explicit operator decision
+- Do not assume a multi-format scrape drops diagnosis fields; the envelope shape is unified
 
 ### Correct Pattern
 ```bash
@@ -306,11 +318,117 @@ browser-automation-cli -q --json doctor --offline --quick
 - A missing field never matches, including under `!=`: absence is not difference
 - Row operations need one list; when `data` holds several, the error names them and `--fields` narrows first
 - MUST NOT pipe stdout through `jaq` to shrink a payload — that work belongs in the binary
+- `--select`, `--filter`, `--limit` and `--sort` are LOCAL flags of some commands, never these globals
+- Passing a local flag as a global one fails at argv time with an unexpected-argument error
+
+
+## Asserting on the Payload
+- `--expect EXPR` states what the emitted payload must contain, using the `--filter-rows` grammar
+- Repeatable and ANDed, so several assertions can hold at once
+- Evaluated LAST, over the payload you actually receive, so projection or truncation cannot hide a failure
+- An expectation holds when at least ONE row satisfies it: `--expect status=200` asks "is there a 200 here?"
+- Filter first when you need every row to match — `--filter-rows` narrows, `--expect` then asserts
+- Unmet expectations arrive in `agent_ops.expectation_unmet`, echoed exactly as you typed them
+- The exit code stays `0` by default, because changing it on data content would break pipelines that branch on it
+- `--expect-exit-code` opts in to exit `65` when any expectation is unmet
+- The envelope is still written first: the payload is what explains the failure
+- A malformed expression fails at argv time with exit `2`, never as a silently empty match
+
+
+## Scrape Additions
+### Reading exact attributes
+- `--format attributes` with paired `--attribute-selector CSS` and `--attribute-name NAME`, both repeatable
+- Answers "what is at these exact places?", which no other format asks
+- Without it, reading one attribute off a list meant pulling `rawHtml` and parsing outside the binary
+- Pairs positionally; unequal counts fail at argv time rather than dropping a question silently
+- Each row carries `selector`, `attribute`, `values` and `count`; a bad selector adds `error` and the other rows survive
+- Read from the full document, so `--only-main-content` cannot remove the elements you named
+### Acting before scraping
+- `--action JSON`, repeatable, runs one `run --script` step before extraction
+- Example: `--action '{"cmd":"press","target":"#load-more"}'`
+- Same grammar as `run --script` on purpose, so a `record` capture stays replayable here
+- Runs in this session, between navigation and extraction — a separate invocation would lose the effect
+- Browser engine only; with `--engine http` it is rejected with exit `2` rather than silently ignored
+- A failing action fails the scrape: it was a precondition you stated for the extraction
+### Seeing what changed
+- `monitor check --diff-mode git|json` reports WHAT moved, not just that it did
+- `git` emits a unified diff as text; `json` emits `added` and `removed` as lists an agent reads directly
+- A diff needs the previous content, and the baseline file holds only a hash
+- So the content is kept in `<baseline>.content`, written whenever the flag is on
+- The first run with the flag has nothing to compare against and says so via `diff_available: false`
+- `added_count` and `removed_count` report the real size even when `diff_truncated` is set
+- `config set monitor_diff_max_bytes` moves the ceiling
+
+
+## Other Global Flags
+- Every flag below applies to all 69 commands and is accepted before or after the subcommand
+### Output and diagnostics
+- `--json` emits the machine envelope; `--json-steps` adds a per-step envelope inside `run`
+- `-q` / `--quiet` silences stderr prose; `--plain` drops ANSI from human output
+- `--verbose` and `--debug` raise tracing on stderr, never on stdout
+- `--correlation-id ID` stamps the envelope so a run can be traced across tools
+- `--artifacts-dir DIR` chooses where files land; `--dump-on-failure` writes console and network evidence there
+- Pair `--dump-on-failure` with `--capture-console` or `--capture-network`, since the capture dies with the process
+### Time and concurrency
+- `--timeout SECS` bounds the whole run; `--step-timeout SECS` bounds one step of `run`
+- `--max-concurrency N` caps fan-out for the commands that have any
+### Browser mode and anti-detection
+- `--headed` renders a real window; on Linux it goes into a private virtual display when `Xvfb` is available
+- `--no-xvfb` keeps a headed launch on the operator's own display instead
+- `doctor` reports `xvfb` with the install command for the detected distribution; the CLI never installs anything
+- `--no-stealth` turns the disguise off; `--stealth-profile` picks `auto`, `chrome-linux`, `chrome-win` or `chrome-mac`
+- `auto` follows the host platform, and a headless launch still gets a User-Agent override so it does not announce `HeadlessChrome`
+- `--stealth-seed SEED` pins the identity so it is stable across processes
+- `--input-profile human|direct` and `--input-seed SEED` govern pointer and keyboard timing
+- `--warmup` visits the origin root first; `--warmup-url URL` names a different entry point and implies `--warmup`
+- The cookie jar lives for one process only; the scrape envelope states that as `cookie_jar_persistent: false`
+- `doctor` repeats that scope as the `cookie_jar_scope` check, so the limit is discoverable without a scrape
+- Use `storage export` and `storage import` to carry a session between invocations
+- The envelope reports `profile_contradicts_host: true` when the stealth profile claims another platform
+- Read that field before blaming a block: TLS and HTTP/2 carry the real stack whatever the User-Agent says
+- Anti-detection defaults, all set with `config set` and never with an environment variable
+- `stealth` is `true`, `stealth_profile` is `auto`, `browser_mode` is `auto`
+- `stealth_seed` has no default; set it only when a stable identity is required
+- `http2_enabled` is `true`, so HTTP/2 fingerprinting is on before you ask for it
+- `http2_initial_stream_window_size` is 6291456 and `http2_initial_connection_window_size` is 15663105
+- `http2_max_header_list_size` is 262144 and `http2_max_frame_size` is 16384
+- `http2_adaptive_window` governs window growth during a live connection
+- Any HTTP/2 change moves the observable fingerprint, so it needs an explicit operator decision
+- `input_profile` is `human`, `input_move_steps` is 24, `input_move_gap_ms` is 12
+- `input_click_dwell_ms` is 65, `input_key_dwell_ms` is 45, `input_type_delay_ms` is 95
+- `input_scroll_tick_px` is 100, `input_scroll_max_ticks` is 40, `input_scroll_settle_rounds` is 3
+- `input_target_jitter_px` is 3 and spreads the pointer landing point
+- `input_profile direct` removes that pacing and is observable to the origin
+- `robots_user_agent` names the identity used when fetching robots
+- `scrape_no_cache` opts out of the scrape response cache
+- `monitor_diff_max_bytes` is 65536 and bounds the stored diff content
+### Network
+- `--proxy URL` routes both engines; credentials belong in XDG via `config set proxy_url`, never in argv
+- `--proxy-bypass HOSTS` adds hosts that skip the proxy
+- Loopback is bypassed automatically under `--proxy`, because the CDP control channel is loopback
+- Without it, a proxy failure surfaces as a Chrome startup timeout and blames the wrong component
+- `config set cdp_proxy_bypass_loopback false` opts out
+- `proxy_url`, `proxy_bypass`, `proxy_username` and `proxy_password` are XDG keys, never argv secrets
+- `cdp_proxy_bypass_loopback` is `true`, so the CDP control channel stays off the proxy
+- `--mitm` and its `--mitm-*` companions intercept traffic; `--allow-outside-roots` permits reads and writes outside the allowed roots
+- MITM secret masking is ON by default, so a capture never carries raw secrets by accident
+- `--mitm-redact-secrets` restates that default explicitly and changes nothing
+- `--mitm-no-redact-secrets` is the only way to turn the masking off
+- Asking for both resolves to MASK, because the safe reading of a contradiction about secrets is to mask
+- `--mitm-max-body-bytes` caps a captured body; the default ceiling is 65536 bytes
+- `--mitm-no-media-bodies` drops image, video and audio bodies from the capture
+- `--ignore-robots` needs `--i-accept-robots-risk` as well; one flag alone does not bypass robots
+### Feature gates
+- `--category-memory` for `heap`, `--category-extensions` for `extension`
+- `--category-third-party` for `devtools3p`, `--category-webmcp` for `webmcp`
+- `--experimental-vision` for `click-at`, `--experimental-screencast` for `screencast`
+- `--lang en|pt-BR` selects the message language
 
 
 ## Exit Codes
 - `0` success
 - `2` usage
+- `6` blocked — the origin served a bot check instead of content. Transport succeeded (HTTP 200, valid HTML), so `status_code` and `http_error` report success while the body carries a challenge. Read `error.suggestion`; retrying the same request escalates toward a ban
 - `65` data
 - `66` no input
 - `69` unavailable

@@ -39,6 +39,15 @@ pub fn build_formats_map(
             redact_pii: base_opts.redact_pii,
             with_content_hash: base_opts.with_content_hash,
             extra_headers: base_opts.extra_headers.clone(),
+            // Carried for the same reason as the selectors below: a derived
+            // format must ask the network the same question the base request
+            // asked, or `--no-cache` would hold for `text` and not for
+            // `text,markdown`.
+            no_cache: base_opts.no_cache,
+            // Carried through so `--format attributes` works in a multi-format
+            // request too. Dropping it here would make the same flags answer
+            // one way alone and another way alongside `markdown`.
+            attribute_targets: base_opts.attribute_targets.clone(),
         };
         let part = crate::scrape_local::build_scrape_payload(source, status, html, &opts, robots);
         formats_out.insert(f.replace('-', "_"), part);

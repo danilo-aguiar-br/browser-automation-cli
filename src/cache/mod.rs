@@ -43,4 +43,4 @@ pub use layered::LayeredCache;
 pub use memory::MemoryCache;
 pub use redis::RedisCache;
 pub use sqlite::SqliteCache;
-pub use types::{expires_after, CacheEntry, CacheKey, HttpCache};
+pub use types::{expires_after, CacheContext, CacheEntry, CacheKey, HttpCache};

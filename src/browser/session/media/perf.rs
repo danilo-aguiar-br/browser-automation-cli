@@ -191,10 +191,17 @@ impl OneShotSession {
     }
 
     /// Offline insight from a previously written trace path (no browser required).
-    /// Offline insight from a trace file without a live browser session.
     pub fn perf_insight_file(path: &Path, name: Option<&str>) -> Result<Value, CliError> {
         crate::native::perf_insight::analyze_file(path, name).map_err(|e| {
-            CliError::with_suggestion(ErrorKind::Io, e, "Pass a path produced by perf stop --path")
+            // Routed through the catalog rather than spelled here: an inline
+            // literal stays English under `--lang pt-BR`, and it also escapes
+            // the flag-existence check, which is how `--proxy` shipped as advice
+            // for a flag that did not exist.
+            CliError::with_suggestion(
+                ErrorKind::Io,
+                e,
+                crate::i18n::suggestion_key("perf_trace_path", None),
+            )
         })
     }
 }

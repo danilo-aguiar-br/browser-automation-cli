@@ -69,8 +69,29 @@ impl BrowserManager {
         Ok(())
     }
 
-    /// Override the user agent for this session only.
-    pub async fn set_user_agent(&self, user_agent: &str) -> Result<(), String> {
+    /// Override the user agent string, and nothing else, for this session.
+    ///
+    /// # What this deliberately does not do
+    ///
+    /// `Emulation.setUserAgentOverride` also accepts `userAgentMetadata`, which
+    /// is what drives the `sec-ch-ua`, `sec-ch-ua-mobile` and
+    /// `sec-ch-ua-platform` Client Hints. This call omits it, so the UA string
+    /// changes and the Client Hints keep whatever Chrome was already sending.
+    ///
+    /// That split is a detectable contradiction: a bot check reads the UA and
+    /// the hints side by side, and a header saying Windows next to a UA saying
+    /// macOS answers its question for it. The name says so out loud because the
+    /// short name `set_user_agent` invited call sites to assume the identity
+    /// moved as one piece.
+    ///
+    /// Use this only for `emulate --user-agent`, where the operator asked for
+    /// exactly this string and nothing more. Identity changes that must stay
+    /// coherent go through [`crate::native::stealth::user_agent_override`],
+    /// which carries the matching hints.
+    pub async fn set_user_agent_without_client_hints(
+        &self,
+        user_agent: &str,
+    ) -> Result<(), String> {
         let session_id = self.active_session_id()?;
         self.client
             .send_command(

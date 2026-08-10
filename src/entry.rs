@@ -136,6 +136,44 @@ where
     // Agent correlation: optional global flag → process-local context (envelopes / NDJSON).
     crate::agent_context::set_correlation_id(cli.globals.correlation_id.clone());
 
+    // Input shaping, published before any interaction runs. `value_parser` already
+    // rejected an unknown token, so an unparsed value here can only mean the flag
+    // was absent, which is the documented `human` default.
+    // Precedence is flag, then XDG, then the compiled default. Without the XDG
+    // arm the key would parse, store and read back correctly while changing
+    // nothing -- a knob that answers questions and steers no behaviour.
+    crate::native::interaction::set_input_profile(
+        cli.globals
+            .input_profile
+            .as_deref()
+            .and_then(crate::native::interaction::InputProfile::parse)
+            .or_else(|| {
+                crate::xdg::load_config()
+                    .ok()
+                    .and_then(|cfg| cfg.input_profile)
+                    .as_deref()
+                    .and_then(crate::native::interaction::InputProfile::parse)
+            })
+            .unwrap_or_default(),
+    );
+    crate::native::interaction::set_input_seed(cli.globals.input_seed);
+
+    // Browser policy, published before any launch. `--headed` and `no_xvfb` were
+    // both declared and read by nobody before this call existed: the session
+    // hard-coded `headless: true`, so the flag changed the help text and nothing
+    // else. Same precedence rule as the input profile above.
+    crate::browser_policy::publish(&crate::browser_policy::PolicyFlags {
+        headed: cli.globals.headed,
+        no_xvfb: cli.globals.no_xvfb,
+        no_stealth: cli.globals.no_stealth,
+        stealth_profile: cli.globals.stealth_profile.clone(),
+        warmup: cli.globals.warmup,
+        warmup_url: cli.globals.warmup_url.clone(),
+        proxy: cli.globals.proxy.clone(),
+        proxy_bypass: cli.globals.proxy_bypass.clone(),
+        stealth_seed: cli.globals.stealth_seed.clone(),
+    });
+
     // Universal data operations (agent CLEAN STDOUT). Parsed and validated HERE,
     // before the command runs, so a malformed `--filter` costs an argv error and
     // not a completed browser session whose output is then rejected.
@@ -153,6 +191,18 @@ where
     // reads `concurrency::effective_limit()`. `0` = auto (CPU × free RAM).
     crate::concurrency::install_limit(cli.globals.max_concurrency);
     crate::concurrency::install_rayon_pool_once();
+
+    // Capture policy for the MITM family. Installed here, beside the other
+    // process-wide budgets, because the hudsucker handler is cloned per
+    // request/response pair and cannot carry operator intent in its signature.
+    crate::mitm_local::policy::install(&crate::mitm_local::policy::CaptureFlags {
+        max_body_bytes: cli.globals.mitm_max_body_bytes,
+        no_media_bodies: cli.globals.mitm_no_media_bodies,
+        redact_secrets: cli.globals.mitm_redact_secrets,
+        no_redact_secrets: cli.globals.mitm_no_redact_secrets,
+        hosts: cli.globals.mitm_hosts.clone(),
+        har: cli.globals.mitm_har.clone(),
+    });
 
     // Install subscriber once; hold WorkerGuard (file path) until FINALIZE/DIE so
     // non_blocking flushes (rules_rust_logs: never mem::forget the guard).
@@ -181,6 +231,16 @@ where
     life.finalize();
     // Drop `_tracing_local` after flush so file WorkerGuard drains last lines.
     drop(_tracing_local);
+    // `--expect-exit-code` turns an unmet assertion into a failure, but only
+    // AFTER the envelope was written: the payload is what explains the
+    // failure, so raising the code must not cost the caller the evidence.
+    // A real command failure keeps its own code — an assertion never masks a
+    // more specific diagnosis.
+    let code = if code <= 0 && crate::agent_ops::expectation_unmet() {
+        crate::error::ErrorKind::Data.exit_code() as i32
+    } else {
+        code
+    };
     if code <= 0 {
         ExitCode::SUCCESS
     } else if code >= 256 {

@@ -5,6 +5,54 @@
   "type": "object",
   "description": "Navigate and return body text / formats (local HTTP or CDP scrape)",
   "properties": {
+    "action": {
+      "argv": "--action",
+      "description": "Act on the page before scraping it: one `run --script` step as JSON (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "action",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "array"
+    },
+    "attribute_name": {
+      "argv": "--attribute-name",
+      "description": "Attribute to read from the matching selector, for `--format attributes` (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "attribute_name",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "array"
+    },
+    "attribute_selector": {
+      "argv": "--attribute-selector",
+      "description": "CSS selector to read an attribute from, for `--format attributes` (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "attribute_selector",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "array"
+    },
     "engine": {
       "argv": "--engine",
       "default": "http",
@@ -116,6 +164,19 @@
         "exec"
       ],
       "type": "integer"
+    },
+    "no_cache": {
+      "argv": "--no-cache",
+      "description": "Ignore the response cache and fetch from origin (default: XDG scrape_no_cache = false)",
+      "required": false,
+      "source": "parser",
+      "step_key": "no_cache",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "boolean"
     },
     "only_main_content": {
       "argv": "--only-main-content",

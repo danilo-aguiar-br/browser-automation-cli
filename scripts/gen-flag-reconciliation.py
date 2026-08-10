@@ -67,10 +67,22 @@ def prd_global_flags() -> list:
     return flags
 
 
+def short_flags(text: str) -> set:
+    """Collect `short = 'q'` as `-q`.
+
+    The PRD lists some flags only in short form. Matching long names alone made
+    every one of them read as `absent`, which put `-q` and `-v` on the missing
+    list while `src/cli/global.rs` declared both -- a fictional debt that made
+    the whole scoreboard untrustworthy.
+    """
+    return {f"-{m}" for m in re.findall(r"short\s*=\s*'([A-Za-z0-9])'", text)}
+
+
 def real_globals() -> set:
     text = GLOBAL_RS.read_text(encoding="utf-8")
     names = {f"--{m.replace('_', '-')}" for m in re.findall(r"^\s+pub ([a-z_0-9]+):", text, re.M)}
     names |= {f"--{m}" for m in re.findall(r'long\s*=\s*"([a-z0-9-]+)"', text)}
+    names |= short_flags(text)
     if not names:
         die("GlobalOpts parsed to zero fields")
     return names
@@ -83,6 +95,7 @@ def local_flags() -> set:
             continue
         text = path.read_text(encoding="utf-8")
         out |= {f"--{m}" for m in re.findall(r'long\s*=\s*"([a-z0-9-]+)"', text)}
+        out |= short_flags(text)
         # `#[arg(long)]` derives the flag name from the field below it.
         for m in re.finditer(r"#\[arg\((?:[^)]*\blong\b)[^)]*\)\]\s*\n\s+([a-z_0-9]+):", text):
             out.add("--" + m.group(1).replace("_", "-"))

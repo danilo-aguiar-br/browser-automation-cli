@@ -44,6 +44,11 @@ pub struct ChromeLaunch {
     /// DevTools websocket URL of this browser.
     pub ws_url: String,
     /// Temp user-data-dir created for this one-shot (cleanup after FINALIZE).
+    ///
+    /// The private X server, when one was started, is NOT here: it lives
+    /// inside [`ChromeProcess`], which is what reaps the browser. Ownership is
+    /// what enforces the teardown order — kill the display first and Chrome
+    /// dies with it.
     pub temp_user_data_dir: Option<PathBuf>,
 }
 
@@ -127,9 +132,35 @@ pub async fn launch_self_spawned(options: &LaunchOptions) -> Result<ChromeLaunch
     let port = reserve_loopback_port()?;
     pin_debugging_port(&mut chrome_args.args, port);
 
+    // A headed Chrome on Linux draws into a private X server when one can be
+    // started, so the window is genuinely rendered and genuinely invisible.
+    // Failure here degrades to a plain headed window rather than failing the
+    // launch: the display sharpens the disguise, it is not what makes the
+    // browser work, and a missing optional package must not become an outage.
+    let xvfb = if crate::native::cdp::xvfb::should_use_private_display() {
+        match crate::native::cdp::xvfb::start_private_display() {
+            Ok(guard) => Some(guard),
+            Err(reason) => {
+                tracing::warn!(
+                    target: "browser_automation_cli::xvfb",
+                    reason = %reason,
+                    "private display unavailable; launching headed on the current display"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let envs = xvfb
+        .as_ref()
+        .map(|g| vec![("DISPLAY".to_string(), g.display_value())])
+        .unwrap_or_default();
+
     let request = SpawnRequest {
         program: executable,
         args: chrome_args.args.clone(),
+        envs,
     };
     // The fork itself blocks; keep it off the Tokio worker (the guard thread is
     // what actually owns the child, so `spawn_blocking` only carries the wait).
@@ -175,7 +206,10 @@ pub async fn launch_self_spawned(options: &LaunchOptions) -> Result<ChromeLaunch
         }
     };
 
-    let process = ChromeProcess::new(child, pgid, drainers);
+    // The display is handed to the process that renders into it, so teardown
+    // order is fixed by ownership rather than by call-site discipline: Chrome
+    // is reaped first, the server afterwards.
+    let process = ChromeProcess::new(child, pgid, drainers).with_private_display(xvfb);
     let (browser, handler) = Browser::connect_with_config(&ws_url, handler_config(options))
         .await
         .map_err(|e| format!("chromiumoxide Browser::connect_with_config: {e}"))?;

@@ -99,6 +99,39 @@ pub fn build_io_runtime() -> Result<tokio::runtime::Runtime, CliError> {
         })
 }
 
+/// Tear a runtime down under a hard deadline instead of an unbounded `Drop`.
+///
+/// # Why this is not the implicit drop
+///
+/// Dropping a [`tokio::runtime::Runtime`] waits for its blocking pool to drain,
+/// and that wait has no upper bound. [`tokio::task::spawn_blocking`] tasks
+/// **cannot be aborted once they start running**: calling `abort` on their
+/// handle is documented as having no effect, and runtime shutdown "will wait
+/// indefinitely for all started `spawn_blocking` to finish running".
+///
+/// This crate has ~48 `spawn_blocking` call sites, including PDF and HTML
+/// parsing of attacker-sized bodies. So a SIGTERM arriving mid-parse takes the
+/// cooperative path in [`block_on_with_shutdown`], returns exit 130 — and then
+/// the process still sits in `Drop` until the parse finishes on its own. The
+/// product law is BORN → EXECUTE → FINALIZE → **DIE**, and an unbounded drop
+/// silently converts the last step into "eventually".
+///
+/// [`tokio::runtime::Runtime::shutdown_timeout`] stops waiting after the
+/// deadline and lets the process exit. The threads are not killed — that is not
+/// something Tokio can promise — but they stop being able to hold the exit
+/// hostage, which is what residual-zero actually requires.
+///
+/// # Deadline
+///
+/// From the XDG knob `shutdown_deadline_secs` (default 30 s), the same budget
+/// the browser-exit wait already honours. Zero means "do not wait at all", which
+/// is a legitimate operator choice and is passed through unchanged.
+pub fn shutdown_runtime(rt: tokio::runtime::Runtime) {
+    let secs =
+        crate::xdg::policy::policy_u64(crate::xdg::policy::key::DEFAULT_SHUTDOWN_DEADLINE_SECS);
+    rt.shutdown_timeout(std::time::Duration::from_secs(secs));
+}
+
 /// Drive an async I/O future to completion on a budgeted multi-thread runtime.
 ///
 /// Use for HTTP scrape, batch scrape, crawl, and other non-CDP async entered
@@ -115,7 +148,11 @@ where
     F: std::future::Future<Output = Result<T, CliError>>,
 {
     let rt = build_io_runtime()?;
-    block_on_with_shutdown(&rt, fut, 0)
+    let out = block_on_with_shutdown(&rt, fut, 0);
+    // Bounded teardown on BOTH paths: an error return is exactly when a blocking
+    // parse is most likely still running. See [`shutdown_runtime`].
+    shutdown_runtime(rt);
+    out
 }
 
 /// Cancel-aware `Runtime::block_on` for one-shot CLI work (DRY for browser + I/O).

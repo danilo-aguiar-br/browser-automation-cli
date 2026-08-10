@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! The `doctor` checklist: assemble every probe into one envelope.
 
-use super::probes::{cache_redis_check, resolve_lighthouse_for_doctor, which_bin};
+use super::probes::{
+    cache_redis_check, cookie_jar_scope_check, jpeg_decoder_toolchain_check,
+    resolve_lighthouse_for_doctor, virtual_display_check, which_bin, xvfb_check,
+};
 use super::*;
 
 /// Run every host probe and emit one envelope; returns the process exit code.
@@ -150,6 +153,11 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
 
     // Cache backend health (R-LIVE-3): PING only when XDG cache_backend=redis.
     checks.push(cache_redis_check());
+
+    checks.push(xvfb_check());
+    checks.push(virtual_display_check());
+    checks.push(jpeg_decoder_toolchain_check());
+    checks.push(cookie_jar_scope_check());
 
     // Optional OS binary (no pure-Rust H.264 drop-in). Prefer XDG ffmpeg_path.
     let ffmpeg_xdg = crate::xdg::ffmpeg_path_from_config()

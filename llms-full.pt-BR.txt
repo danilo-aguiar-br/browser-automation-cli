@@ -31,13 +31,20 @@ Settings de produto são comandos, flags e XDG via `config path|init|show|set|ge
 - [CODE_OF_CONDUCT](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CODE_OF_CONDUCT.pt-BR.md): Contributor Covenant 2.1
 - [LICENSE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/LICENSE): ponteiro de dual license
 
-## Superfície de Comandos (v0.1.7)
+## Superfície de Comandos (v0.1.8)
 - Inventário completo (**69** nomes de agente via `commands --json`, ordenados): assert, attr, audio, back, batch-scrape, click-at, commands, completions, config, console, cookie, crawl, devtools3p, dialog, doctor, drag, emulate, eval, exec, extension, extract, fill-form, find-paths, forward, goto, grab, heap, hover, image, keys, lighthouse, locale, man, map, mitm, monitor, net, page, parse, perf, pick, press, print-pdf, qr, record, reload, resize, run, schema, scrape, screencast, scroll, search, select-option, sg-rewrite, sg-scan, sheet-write, storage, submit, text, type, upload, version, video, view, wait, webmcp, workflow, write
 - Nota: `select-option`, `pick`, `submit` e `storage` estão no inventário de agente (não mais documentados como multi-passo-only / omitidos)
 - Descoberta: doctor (browsers_dir, origem lighthouse, cache_redis, residual_disk + JSON residual ResidualDiskReport), commands, schema <cmd> ou schema --cmd (goto/eval/type/scroll/assert expandidos), version, locale, man, completions
-- Flags globais: **43** flags longas no help global, sendo **41** de produto mais `--help` e `--version`; fonte da verdade é `browser-automation-cli --help`
-- Config XDG: config init|path|show|get|set|list-keys
-  - Chaves importantes: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, lang, log_level — referência completa com todas as **176** chaves em `docs/CONFIGURATION.pt-BR.md`; legível por máquina via `config list-keys --json`
+- Flags globais: **56** flags longas no help global, sendo **54** de produto mais `--help` e `--version`; fonte da verdade é `browser-automation-cli --help`
+- Config XDG: config init|path|show|get|set|unset|list-keys
+  - Chaves importantes: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, lang, log_level, stealth, stealth_profile, stealth_seed, browser_mode, input_profile, proxy_url, proxy_bypass, proxy_username, proxy_password, http2_enabled, robots_user_agent, scrape_no_cache — referência completa com todas as **204** chaves em `docs/CONFIGURATION.pt-BR.md`; legível por máquina via `config list-keys --json`
+  - `config unset <KEY>` restaura uma chave ao default embutido e é o inverso de `set`; `config set <key> ""` NÃO é o inverso, porque para chave string grava um vazio que o caminho normal nunca produz e para chave numérica é erro de parse
+- Identidade stealth: stealth é ligado por padrão; `--no-stealth` desliga os patches anti-detecção nesta execução; `--stealth-profile <PROFILE>` aceita `auto`, `chrome-linux`, `chrome-win` ou `chrome-mac`; `--stealth-seed <SEED>` fixa a identidade entre processos, para que um crawl de N URLs espalhado por N processos one-shot não se apresente como N máquinas diferentes; chaves XDG stealth, stealth_profile, stealth_seed, browser_mode
+- Proxy: `--proxy <URL>` define o proxy de saída para o Chrome e para o motor HTTP e aceita `http`, `https` e `socks5`; `--proxy-bypass <HOSTS>` lista os hosts que ignoram o proxy, na sintaxe de bypass-list do Chrome; chaves XDG proxy_url, proxy_bypass, proxy_username, proxy_password
+- Credenciais de proxy: `proxy_username` e `proxy_password` vão SOMENTE no XDG, nunca em argv, porque a tabela de processos expõe argv
+- Ritmo de input humano: `--input-profile <PROFILE>` aceita `human` (padrão) ou `direct`; `human` interpola trajetórias do ponteiro, aplica dwell entre press e release e ritma a digitação; `--input-seed <SEED>` semeia o jitter de input para que a execução seja reprodutível; chave XDG input_profile
+- Modelagem de sessão: `--warmup` e `--warmup-url <URL>` aquecem a sessão antes de navegar para a URL alvo; `--no-xvfb` pula o display virtual privado no Linux
+- Afirmações de payload: `--expect <EXPR>` afirma que o payload casa com `key=value`, `key!=value` ou `key~substring`, é repetível e conjuga por AND; `--expect-exit-code` sai com 65 quando algum `--expect` falha
 - Navegação: goto, back, forward, reload (CDP Page.reload + ignoreCache; init_script removido após nav; handle_before_unload accept|dismiss via CDP)
 - Scrape/crawl/map/search/parse local:
   - scrape --format/--formats text|markdown|html|rawHtml|links|metadata|screenshot|summary|product|branding|images|jsonld|json|feed (**14** formatos vivos, repetível/CSV; `raw-html` continua alias aceito de `rawHtml`) --engine http|browser (browser aplica formatos via outerHTML; file:// + http → Usage; format/formats também no passo scrape do run)
@@ -68,8 +75,10 @@ Settings de produto são comandos, flags e XDG via `config path|init|show|set|ge
 - Clap: GlobalOpts Args+flatten; erros de usage do clap emitem JSON quando `--json` está no argv; tests/clap_command_debug_assert.rs + parity_run_inventory
 
 ## Contrato de Settings
-- Settings de produto: comandos, flags, XDG via `config path|init|show|set|get|list-keys` apenas
-- Chaves importantes: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, lang, log_level — referência completa com todas as **176** chaves em `docs/CONFIGURATION.pt-BR.md`; legível por máquina via `config list-keys --json`
+- Settings de produto: comandos, flags, XDG via `config path|init|show|set|get|unset|list-keys` apenas
+- Chaves importantes: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, lang, log_level, stealth, stealth_profile, stealth_seed, browser_mode, input_profile, proxy_url, proxy_bypass, proxy_username, proxy_password, http2_enabled, robots_user_agent, scrape_no_cache — referência completa com todas as **204** chaves em `docs/CONFIGURATION.pt-BR.md`; legível por máquina via `config list-keys --json`
+- Restaurar um default: `config unset <KEY>`; `config set <key> ""` NÃO é o inverso de `set`, porque para chave string grava um vazio que o caminho normal nunca produz e para chave numérica é erro de parse
+- Credenciais de proxy: `proxy_username` e `proxy_password` vão SOMENTE no XDG, nunca em argv, porque a tabela de processos expõe argv
 - Encryption: `config set encryption_key` apenas
 - Logging: `--verbose`/`--debug`/`-q` ou `config set log_level` / `log_to_file`
 - Cor: `config set color true|false`

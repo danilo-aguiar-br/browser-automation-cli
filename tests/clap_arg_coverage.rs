@@ -68,10 +68,11 @@ fn fill_form_fields_json_parses_into_payload_field() {
         ])
         .expect("parse fill-form");
         match cli.command {
-            Commands::FillForm { fields_json, .. } => {
+            Commands::FillForm(a) => {
                 assert!(
-                    fields_json.contains("@e1"),
-                    "fields-json not consumed: {fields_json}"
+                    a.fields_json.contains("@e1"),
+                    "fields-json not consumed: {}",
+                    a.fields_json
                 );
             }
             other => panic!("expected FillForm, got {other:?}"),
@@ -111,7 +112,7 @@ fn view_detailed_maps_to_verbose_field() {
         let cli = Cli::try_parse_from(["browser-automation-cli", "view", "--detailed"])
             .expect("parse view --detailed");
         match cli.command {
-            Commands::View { verbose, .. } => assert!(verbose, "--detailed must set verbose field"),
+            Commands::View(a) => assert!(a.verbose, "--detailed must set verbose field"),
             other => panic!("expected View, got {other:?}"),
         }
     });
@@ -162,28 +163,21 @@ fn more_subcommand_args_bind() {
     on_clap_stack(|| {
         let goto =
             Cli::try_parse_from(["browser-automation-cli", "goto", "about:blank"]).expect("goto");
-        assert!(matches!(goto.command, Commands::Goto { .. }));
+        assert!(matches!(goto.command, Commands::Goto(_)));
 
         let doctor =
             Cli::try_parse_from(["browser-automation-cli", "doctor", "--offline", "--quick"])
                 .expect("doctor");
-        assert!(matches!(
-            doctor.command,
-            Commands::Doctor {
-                offline: true,
-                quick: true,
-                ..
-            }
-        ));
+        match doctor.command {
+            Commands::Doctor(a) => assert!(a.offline && a.quick),
+            other => panic!("expected Doctor, got {other:?}"),
+        }
 
         let schema =
             Cli::try_parse_from(["browser-automation-cli", "schema", "run"]).expect("schema");
         match schema.command {
-            Commands::Schema {
-                cmd,
-                cmd_positional,
-            } => {
-                let resolved = cmd_positional.or(cmd);
+            Commands::Schema(a) => {
+                let resolved = a.cmd_positional.or(a.cmd);
                 assert_eq!(resolved.as_deref(), Some("run"));
             }
             other => panic!("expected Schema, got {other:?}"),

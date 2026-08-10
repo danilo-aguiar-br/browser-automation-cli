@@ -27,9 +27,10 @@ proptest! {
 
     #[test]
     fn cache_key_deterministic(url in "https://[a-z]{1,12}\\.example/[a-z0-9/]{0,32}") {
-        use browser_automation_cli::cache::CacheKey;
-        let a = CacheKey::http_get(&url);
-        let b = CacheKey::http_get(&url);
+        use browser_automation_cli::cache::{CacheContext, CacheKey};
+        let ctx = CacheContext::direct("chrome-linux");
+        let a = CacheKey::http_get(&url, &ctx);
+        let b = CacheKey::http_get(&url, &ctx);
         assert_eq!(a.as_str(), b.as_str());
     }
 

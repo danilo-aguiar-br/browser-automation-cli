@@ -91,7 +91,7 @@ impl OneShotSession {
             return Err(CliError::with_suggestion(
                 ErrorKind::Usage,
                 "assert console requires --capture-console on the same invocation",
-                "browser-automation-cli --capture-console run --script audit.jsonl",
+                crate::i18n::suggestion_key("console_capture_run", None),
             ));
         }
         self.drain_events();
@@ -125,7 +125,7 @@ impl OneShotSession {
             return Err(CliError::with_suggestion(
                 ErrorKind::Usage,
                 "assert console_empty requires --capture-console on the same invocation",
-                "browser-automation-cli --capture-console run --script audit.jsonl",
+                crate::i18n::suggestion_key("console_capture_run", None),
             ));
         }
         self.drain_events();
@@ -150,7 +150,7 @@ impl OneShotSession {
             return Err(CliError::with_suggestion(
                 ErrorKind::Usage,
                 "assert console_no_match requires --capture-console on the same invocation",
-                "browser-automation-cli --capture-console run --script audit.jsonl",
+                crate::i18n::suggestion_key("console_capture_run", None),
             ));
         }
         self.drain_events();

@@ -234,6 +234,111 @@ pub fn resolve_http_connect_timeout_secs() -> u64 {
         .unwrap_or(crate::constants::DEFAULT_HTTP_CONNECT_TIMEOUT_SECS)
 }
 
+/// Byte ceiling for the `monitor check --diff-mode` payload.
+pub fn resolve_monitor_diff_max_bytes() -> usize {
+    crate::xdg::policy::policy_u64(crate::xdg::policy::key::MONITOR_DIFF_MAX_BYTES) as usize
+}
+
+/// Whether loopback is bypassed when Chrome is launched behind `--proxy`.
+///
+/// Defaults to true because the CDP control channel is loopback, and routing
+/// it through an egress proxy produces a browser that never answers — a
+/// failure that surfaces as a Chrome startup timeout and blames the wrong
+/// component. Switch it off only when the proxy is deliberately expected to
+/// carry the control channel too.
+pub fn resolve_cdp_proxy_bypass_loopback() -> bool {
+    load_config()
+        .ok()
+        .and_then(|c| c.cdp_proxy_bypass_loopback)
+        .unwrap_or(true)
+}
+
+/// Whether the shared HTTP client negotiates HTTP/2.
+pub fn resolve_http2_enabled() -> bool {
+    load_config()
+        .ok()
+        .and_then(|c| c.http2_enabled)
+        .unwrap_or(crate::constants::DEFAULT_HTTP2_ENABLED)
+}
+
+/// HTTP/2 `SETTINGS_INITIAL_WINDOW_SIZE` advertised to the peer.
+///
+/// Values above `i32::MAX` are dropped rather than clamped: a clamp would ship
+/// a fingerprint the operator did not choose, and silently presenting the wrong
+/// identity is the failure this whole surface exists to avoid.
+pub fn resolve_http2_initial_stream_window_size() -> u32 {
+    load_config()
+        .ok()
+        .and_then(|c| c.http2_initial_stream_window_size)
+        .filter(|&n| n <= i32::MAX as u32)
+        .unwrap_or(crate::constants::HTTP2_INITIAL_STREAM_WINDOW_SIZE)
+}
+
+/// HTTP/2 connection-level flow-control window.
+pub fn resolve_http2_initial_connection_window_size() -> u32 {
+    load_config()
+        .ok()
+        .and_then(|c| c.http2_initial_connection_window_size)
+        .filter(|&n| n <= i32::MAX as u32)
+        .unwrap_or(crate::constants::HTTP2_INITIAL_CONNECTION_WINDOW_SIZE)
+}
+
+/// HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE`.
+pub fn resolve_http2_max_header_list_size() -> u32 {
+    load_config()
+        .ok()
+        .and_then(|c| c.http2_max_header_list_size)
+        .filter(|&n| n > 0)
+        .unwrap_or(crate::constants::HTTP2_MAX_HEADER_LIST_SIZE)
+}
+
+/// HTTP/2 `SETTINGS_MAX_FRAME_SIZE`, bounded by RFC 9113 §6.5.2.
+pub fn resolve_http2_max_frame_size() -> u32 {
+    load_config()
+        .ok()
+        .and_then(|c| c.http2_max_frame_size)
+        .filter(|&n| (16_384..=16_777_215).contains(&n))
+        .unwrap_or(crate::constants::HTTP2_MAX_FRAME_SIZE)
+}
+
+/// Whether the HTTP/2 flow-control window may resize at runtime.
+pub fn resolve_http2_adaptive_window() -> bool {
+    load_config()
+        .ok()
+        .and_then(|c| c.http2_adaptive_window)
+        .unwrap_or(crate::constants::HTTP2_ADAPTIVE_WINDOW)
+}
+
+/// Proxy credentials from XDG, as a pair, or `None` when either half is absent.
+///
+/// Both halves are required together: reqwest's `Proxy::basic` takes a pair, and
+/// sending a username with an empty password is an authentication attempt that
+/// fails differently from no authentication at all.
+pub fn resolve_proxy_credentials() -> Option<(String, String)> {
+    let cfg = load_config().ok()?;
+    let user = cfg.proxy_username.filter(|s| !s.is_empty())?;
+    let pass = cfg.proxy_password?;
+    Some((user, pass))
+}
+
+/// Explicit robots.txt user-agent token, when the operator pinned one.
+pub fn resolve_robots_user_agent() -> Option<String> {
+    load_config()
+        .ok()
+        .and_then(|c| c.robots_user_agent)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// The stealth identity seed, or `None` when the identity is redrawn per process.
+pub fn resolve_stealth_seed() -> Option<String> {
+    load_config()
+        .ok()
+        .and_then(|c| c.stealth_seed)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// LLM/webhook blocking HTTP timeout (seconds).
 pub fn resolve_llm_http_timeout_secs() -> u64 {
     load_config()

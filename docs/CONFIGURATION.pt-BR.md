@@ -2,7 +2,7 @@
 
 
 # Referência de Configuração
-> Referência canônica das 176 chaves XDG do `browser-automation-cli`.
+> Referência canônica XDG de toda chave durável de configuração do `browser-automation-cli`
 
 
 ## Como a Configuração é Resolvida
@@ -108,6 +108,7 @@
 - `scrape_feed_max_entries` — número máximo de entradas mantidas pelo formato `feed` de scrape, cobrindo RSS, Atom e JSON Feed. Padrão: `50`.
 - `scrape_follow_rel_next` — segue links de paginação com `rel=next` durante o crawl. Padrão: nenhum.
 - `scrape_dedup_similar` — colapsa páginas quase duplicadas por similaridade de conteúdo em crawl e batch-scrape. Padrão: nenhum.
+- `scrape_no_cache` — ignora o cache de resposta na LEITURA e sempre busca na origem. A resposta nova continua sendo gravada, então uma chamada que faz bypass atualiza a entrada para quem vier depois em vez de deixar uma entrada velha. `--no-cache` no `scrape` sobrescreve por invocação. Não há como dizer o mesmo com `scrape_http_cache_ttl_secs`: o TTL `0` já significa "nunca expira", que é o oposto, e a chave o rejeita. O `monitor check` faz bypass incondicional e ignora esta chave, porque um corpo vindo do cache o fazia comparar uma página armazenada consigo mesma e reportar `changed: false`. Padrão: `false`.
 - `scrape_dedup_similar_distance` — distância de Hamming do SimHash, de 0 até 64, abaixo da qual as páginas são quase duplicadas. Padrão: `3`.
 - `scrape_sitemap_max_bytes` — número máximo de bytes do corpo do sitemap. Padrão: `524288`.
 - `scrape_charset_peek_bytes` — janela de inspeção usada para detectar o charset, em bytes. Padrão: `4096`.
@@ -192,6 +193,32 @@
 - `dom_stable_window_ms` — janela de silêncio usada por `wait --dom-stable-ms` em milissegundos. Padrão: `500`.
 - `drag_move_steps` — número de posições intermediárias do mouse sintetizadas em um arrasto HTML5. Padrão: `6`.
 - `drag_move_gap_ms` — atraso entre as posições sintetizadas de arrasto em milissegundos. Padrão: `16`.
+- `input_profile` — modelagem de input padrão quando `--input-profile` está ausente: `human` sintetiza trajetória, tiques de roda e eventos de tecla; `direct` mantém o despacho anterior a 0.1.8. A flag continua vencendo. Padrão: `human`.
+- `browser_mode` — modo de janela: `auto` resolve para `headless`; `headed` coloca uma janela real no seu display, e no Linux essa janela é renderizada em um display virtual privado quando há Xvfb; `headless` é o mais barato e o mais detectável. `--headed` continua vencendo. Inverter o padrão de `auto` tem custo de latência e é decisão separada; o `doctor` reporta para que `auto` resolve neste host no check `virtual_display`, então a resposta nunca diverge do binário. Padrão: `auto`.
+- `stealth` — patches de anti-detecção aplicados antes da primeira navegação. `--no-stealth` desliga por uma execução. Padrão: `true`.
+- `stealth_profile` — identidade personificada: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`. `auto` segue o host, e é o único valor que não contradiz os hashes de Canvas e WebGL que a GPU real produz. Padrão: `auto`.
+- `proxy_url` — proxy de saída para o Chrome e para o motor HTTP (`http`, `https`, `socks5`, `socks5h`). Guarde credenciais aqui em vez de `--proxy`, onde a tabela de processos as expõe. Padrão: nenhum.
+- `proxy_bypass` — hosts que ignoram o proxy, na sintaxe de bypass-list do Chrome. Padrão: nenhum.
+- `proxy_username` — nome de conta do proxy, enviado como basic auth. Fica aqui e não no argv, onde a tabela de processos o exporia. Padrão: nenhum.
+- `proxy_password` — senha do proxy, enviada como basic auth. Nunca ecoada por `config get` nem `config show`. Padrão: nenhum.
+- `cdp_proxy_bypass_loopback` — sempre ignorar o loopback quando o Chrome roda sob `--proxy`. O canal de controle CDP é loopback, então um proxy que o captura produz um browser que nunca responde — reportado como timeout de inicialização do Chrome, o que culpa o componente errado. Padrão: `true`.
+- `stealth_seed` — fixa a identidade de stealth para reproduzir o mesmo fingerprint entre processos. A ausência significa identidade nova a cada execução, que é o padrão justamente porque cachear identidade a grava em disco. Padrão: nenhum.
+- `http2_enabled` — oferecer `h2` no ALPN. O ALPN é visível em claro durante o handshake TLS e o Chrome sempre lista `h2`, então um cliente que só oferece `http/1.1` já respondeu "não sou browser" antes de enviar um byte. Padrão: `true`.
+- `http2_initial_stream_window_size` — `SETTINGS_INITIAL_WINDOW_SIZE` anunciado ao par. Os defaults de biblioteca ficam três ordens de magnitude longe do Chrome. Padrão: o valor do Chrome.
+- `http2_initial_connection_window_size` — janela de controle de fluxo no nível da conexão anunciada ao par. Padrão: o valor do Chrome.
+- `http2_max_header_list_size` — `SETTINGS_MAX_HEADER_LIST_SIZE` anunciado ao par. Padrão: o valor do Chrome.
+- `http2_max_frame_size` — `SETTINGS_MAX_FRAME_SIZE` anunciado ao par. Padrão: o valor do Chrome.
+- `http2_adaptive_window` — deixar a pilha HTTP/2 redimensionar janelas dinamicamente. Desligado mantém os valores anunciados fixos, que é o que torna o fingerprint reproduzível. Padrão: o valor do Chrome.
+- `robots_user_agent` — token de user-agent contra o qual as regras do `robots.txt` são avaliadas. Defina quando o stealth enviar um User-Agent de navegador, para que as regras avaliadas sejam as que valem para a requisição realmente enviada. Padrão: nenhum.
+- `input_move_steps` — posições intermediárias do ponteiro sintetizadas em um movimento (perfil `human`). Padrão: `24`.
+- `input_move_gap_ms` — atraso entre as posições sintetizadas do ponteiro, em milissegundos. Padrão: `12`.
+- `input_click_dwell_ms` — tempo de retenção entre `mousePressed` e `mouseReleased`, em milissegundos. Padrão: `65`.
+- `input_key_dwell_ms` — tempo de retenção entre `keyDown` e `keyUp`, em milissegundos. Padrão: `45`.
+- `input_type_delay_ms` — atraso entre caracteres durante a digitação, em milissegundos. Padrão: `95`.
+- `input_scroll_tick_px` — distância de rolagem carregada por um tique de roda sintetizado, em pixels CSS. Padrão: `100`.
+- `input_scroll_max_ticks` — teto do número de tiques de roda que um gesto de rolagem sintetiza. Cada tique é um round-trip CDP, então sem teto o custo da rolagem cresce linearmente com a distância pedida e um `--delta-y` grande esgota o timeout do comando. Acima do teto cada tique carrega mais pixels; o percurso total não muda e só a granularidade degrada. Padrão: `40`.
+- `input_target_jitter_px` — raio do deslocamento aleatório aplicado ao alvo do clique, em pixels CSS. Padrão: `3`.
+- `input_scroll_settle_rounds` — rodadas extras permitidas para entregar um delta de roda que o renderizador descartou. Padrão: `3`.
 - `support_settle_ms` — estabilização da thread de suporte para os auxiliares síncronos, em milissegundos. Padrão: `80`.
 - `nav_micro_settle_ms` — microestabilização de navegação após transições de página, em milissegundos. Padrão: `100`.
 - `extension_attach_poll_ms` — fatia de sondagem ao anexar uma extensão, em milissegundos. Padrão: `150`.
@@ -223,6 +250,7 @@
 
 
 ## MITM
+- `monitor_diff_max_bytes` — teto em bytes do payload de `monitor check --diff-mode`. Uma página reescrita por inteiro produz um diff com a página duas vezes, e quem chamou perguntou o que mudou, não pediu tudo. `diff_truncated` avisa quando o teto valeu, e `added_count` / `removed_count` seguem reportando o tamanho real. Padrão: `65536`.
 - `mitm_list_limit_max` — teto de itens nas operações de listagem e consulta do MITM. Padrão: `10000`.
 - `mitm_proxy_seconds_max` — janela máxima do proxy MITM em execução única, em segundos. Padrão: `600`.
 - `mitm_chrome_settle_ms` — estabilização após a inicialização do Chrome no MITM, antes de navegar, em milissegundos. Padrão: `150`.

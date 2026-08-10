@@ -28,6 +28,7 @@ use crate::native::cdp::client::CdpClient;
 use crate::native::cdp::lightpanda::LightpandaProcess;
 
 mod emulate;
+mod identity_override;
 mod launch;
 mod lifecycle;
 mod navigate;

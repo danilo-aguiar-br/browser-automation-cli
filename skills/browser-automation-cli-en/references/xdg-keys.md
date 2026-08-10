@@ -2,13 +2,16 @@
 
 
 ## Configuration Contract
-- MUST configure this product ONLY through CLI flags and `config init|path|show|get|set|list-keys`
+- MUST treat this file as the complete inventory of the product XDG configuration surface
+- MUST configure this product ONLY through CLI flags and `config init|path|show|get|set|unset|list-keys`
 - NEVER treat any environment variable as product configuration; the product reads none
 - MUST apply precedence CLI flag first, then the XDG config file, then the built-in default
 - MUST discover the live key set with `browser-automation-cli --json config list-keys`
 - MUST resolve the config file location with `browser-automation-cli --json config path`
 - MUST inspect current values with `browser-automation-cli --json config show` and `config get <KEY>`
 - MUST write a value with `browser-automation-cli config set <KEY> <VALUE>`
+- MUST restore one key to its built-in default with `browser-automation-cli --json config unset <KEY>`
+- MUST know unsetting an already absent key succeeds, so a script never has to know the prior state
 - MUST read `Default: none` as a key with no built-in default; behaviour then falls back to the per-command logic
 - NEVER invent a key absent from this list or from `config list-keys`
 
@@ -21,6 +24,13 @@
 - `namespace` — Isolated state namespace. Default: none
 - `encryption_key` — Session encryption key material. Default: none
 - `color` — ANSI colors on human stderr. Default: none
+
+
+## Anti-Detection and Identity
+- `stealth` — Anti-detection patches before first navigation (--no-stealth opts out). Default: `true`
+- `stealth_profile` — Impersonated identity: auto|chrome-linux|chrome-win|chrome-mac. Default: `auto`
+- `stealth_seed` — Pin the stealth identity across processes (absent = redrawn per process). Default: none
+- `browser_mode` — Window mode: auto|headed|headless (auto resolves to headless; doctor reports it). Default: `auto`
 
 
 ## Local Logging
@@ -83,7 +93,7 @@
 ## Interaction and Waiting
 - `event_pump_slice_ms` — Wait/eval event pump slice (milliseconds). Default: `50`
 - `interact_settle_ms` — UI settle delay after click/type/extension (ms). Default: `200`
-- `dialog_settle_ms` — Max wait after JS dialog answer for javascriptDialogClosed (ms, GAP-054). Default: `2000`
+- `dialog_settle_ms` — Max wait after JS dialog answer for javascriptDialogClosed (ms). Default: `2000`
 - `network_idle_window_ms` — Quiet window for wait --network-idle (milliseconds). Default: `500`
 - `dom_stable_window_ms` — Quiet window for wait --dom-stable-ms (milliseconds). Default: `500`
 - `drag_move_steps` — Intermediate mouse positions synthesized for one HTML5 drag. Default: `6`
@@ -91,6 +101,19 @@
 - `eval_drain_slice_ms` — Eval drain slice while waiting for Runtime.evaluate results (milliseconds). Default: `40`
 - `support_settle_ms` — Support-thread settle for sync helpers (milliseconds). Default: `80`
 - `nav_micro_settle_ms` — Navigation micro-settle after page transitions (milliseconds). Default: `100`
+
+
+## Input Kinematics
+- `input_profile` — Default input shaping: human|direct. Default: `human`
+- `input_move_steps` — Intermediate pointer positions synthesized for one move (human profile). Default: `24`
+- `input_move_gap_ms` — Delay between synthesized pointer positions (milliseconds). Default: `12`
+- `input_click_dwell_ms` — Hold time between mousePressed and mouseReleased (milliseconds). Default: `65`
+- `input_key_dwell_ms` — Hold time between keyDown and keyUp (milliseconds). Default: `45`
+- `input_type_delay_ms` — Delay between characters while typing (milliseconds). Default: `95`
+- `input_scroll_tick_px` — Scroll distance carried by one synthesized wheel tick (CSS pixels). Default: `100`
+- `input_scroll_max_ticks` — Ceiling on wheel ticks per scroll gesture (one CDP round trip each). Default: `40`
+- `input_target_jitter_px` — Radius of the random offset applied to a click target (CSS pixels). Default: `3`
+- `input_scroll_settle_rounds` — Extra rounds allowed to deliver a wheel delta the renderer dropped. Default: `3`
 
 
 ## CDP and Chrome Session
@@ -114,8 +137,26 @@
 - `http_pool_max_idle_per_host` — reqwest pool max idle connections per host. Default: `4`
 
 
+## Egress Proxy
+- `proxy_url` — Egress proxy for Chrome and the HTTP engine. Default: none
+- `proxy_bypass` — Hosts bypassing the proxy (Chrome bypass-list syntax). Default: none
+- `proxy_username` — Proxy username (XDG only; argv is visible in the process table). Default: none
+- `proxy_password` — Proxy password (XDG only; argv is visible in the process table). Default: none
+- `cdp_proxy_bypass_loopback` — Always bypass loopback under --proxy so the CDP control channel survives. Default: `true`
+
+
+## HTTP/2 Fingerprint
+- `http2_enabled` — Negotiate HTTP/2 on the shared HTTP client (Chrome always offers h2). Default: `true`
+- `http2_initial_stream_window_size` — HTTP/2 SETTINGS_INITIAL_WINDOW_SIZE advertised to the peer. Default: `6291456`
+- `http2_initial_connection_window_size` — HTTP/2 connection-level flow-control window. Default: `15663105`
+- `http2_max_header_list_size` — HTTP/2 SETTINGS_MAX_HEADER_LIST_SIZE. Default: `262144`
+- `http2_max_frame_size` — HTTP/2 SETTINGS_MAX_FRAME_SIZE (16384..=16777215). Default: `16384`
+- `http2_adaptive_window` — Allow the HTTP/2 window to resize at runtime (off keeps the fingerprint constant). Default: `false`
+
+
 ## Robots
 - `robots_loopback_exempt` — Loopback hosts skip robots.txt (set false to enforce against localhost). Default: `true`
+- `robots_user_agent` — User-agent token robots.txt rules are matched against. Default: none
 - `robots_probe_timeout_secs` — robots.txt HEAD/probe timeout (seconds). Default: `5`
 - `robots_max_body_bytes` — Max robots.txt body bytes (anti-OOM). Default: `524288`
 - `robots_fetch_timeout_secs` — Timeout for fetching robots.txt (seconds). Default: `30`
@@ -172,6 +213,8 @@
 - `scrape_crawl_max_depth` — Max BFS depth for crawl/map. Default: `10`
 - `scrape_search_limit_max` — Max search result budget (anti-DoS clamp). Default: `50`
 - `scrape_max_parse_bytes` — Max local file parse size before reject (bytes). Default: `50000000`
+- `scrape_no_cache` — Ignore the response cache on read and always fetch from origin. Default: `false`
+- `monitor_diff_max_bytes` — Byte ceiling for the `monitor check --diff-mode` payload. Default: `65536`
 
 
 ## Operator Webhook

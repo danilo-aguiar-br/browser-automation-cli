@@ -130,7 +130,7 @@ pub fn workflow_resume(manifest_path: &Path, journal: Option<&Path>) -> Result<V
         return Err(CliError::with_suggestion(
             ErrorKind::NoInput,
             format!("journal not found: {}", jpath.display()),
-            "Run `workflow run` first or pass --journal",
+            crate::i18n::suggestion_key("workflow_run_first", None),
         ));
     }
     let conn = open_db(&jpath)?;

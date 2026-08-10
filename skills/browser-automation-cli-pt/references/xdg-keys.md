@@ -2,12 +2,16 @@
 
 
 ## Contrato de Configuração
-- DEVE tratar este arquivo como o inventário completo das 176 chaves XDG do produto
+- DEVE tratar este arquivo como o inventário completo da superfície XDG do produto
 - O produto NUNCA lê variável de ambiente de produto; NUNCA ensine `export` como configuração
-- DEVE configurar SOMENTE por flags CLI e por `config init|path|show|get|set|list-keys`
+- DEVE configurar SOMENTE por flags CLI e por `config init|path|show|get|set|unset|list-keys`
 - DEVE respeitar a precedência flag CLI, depois valor XDG, depois padrão embutido
 - DEVE descobrir a superfície viva legível por máquina com `browser-automation-cli --json config list-keys`
 - DEVE resolver o caminho real do arquivo com `browser-automation-cli --json config path`
+- DEVE inspecionar os valores atuais com `browser-automation-cli --json config show` e `config get <CHAVE>`
+- DEVE gravar um valor com `browser-automation-cli config set <CHAVE> <VALOR>`
+- DEVE devolver uma chave ao padrão embutido com `browser-automation-cli --json config unset <CHAVE>`
+- DEVE saber que desfazer chave já ausente devolve sucesso, então o script nunca precisa saber o estado anterior
 - DEVE ler `Padrão: nenhum` como ausência de padrão embutido, não como valor vazio
 - NUNCA invente chave fora desta lista; NUNCA recuse chave desta lista por memória
 
@@ -20,6 +24,13 @@
 - `namespace` — namespace isolado de estado. Padrão: nenhum.
 - `encryption_key` — material da chave de criptografia de sessão. Padrão: nenhum.
 - `color` — cores ANSI no stderr humano. Padrão: nenhum.
+
+
+## Anti-Detecção e Identidade
+- `stealth` — patches anti-detecção antes da primeira navegação (`--no-stealth` desliga). Padrão: `true`.
+- `stealth_profile` — identidade personificada: `auto|chrome-linux|chrome-win|chrome-mac`. Padrão: `auto`.
+- `stealth_seed` — fixa a identidade de stealth entre processos (ausente é redesenhada por processo). Padrão: nenhum.
+- `browser_mode` — modo de janela: `auto|headed|headless` (auto resolve para headless; o doctor reporta). Padrão: `auto`.
 
 
 ## Logging Local
@@ -82,7 +93,7 @@
 ## Interação e Espera
 - `event_pump_slice_ms` — fatia de bombeamento de eventos em wait e eval (milissegundos). Padrão: `50`.
 - `interact_settle_ms` — atraso de acomodação da UI após click, type ou extension (ms). Padrão: `200`.
-- `dialog_settle_ms` — espera máxima após responder diálogo JS pelo `javascriptDialogClosed` (ms, GAP-054). Padrão: `2000`.
+- `dialog_settle_ms` — espera máxima após responder diálogo JS pelo `javascriptDialogClosed` (ms). Padrão: `2000`.
 - `network_idle_window_ms` — janela de silêncio para `wait --network-idle` (milissegundos). Padrão: `500`.
 - `dom_stable_window_ms` — janela de silêncio para `wait --dom-stable-ms` (milissegundos). Padrão: `500`.
 - `drag_move_steps` — posições intermediárias de mouse sintetizadas em um drag HTML5. Padrão: `6`.
@@ -90,6 +101,19 @@
 - `eval_drain_slice_ms` — fatia de drenagem enquanto aguarda resultados de `Runtime.evaluate` (milissegundos). Padrão: `40`.
 - `support_settle_ms` — acomodação da thread de suporte para helpers síncronos (milissegundos). Padrão: `80`.
 - `nav_micro_settle_ms` — microacomodação de navegação após transições de página (milissegundos). Padrão: `100`.
+
+
+## Cinemática de Input
+- `input_profile` — modelagem padrão de input: `human|direct`. Padrão: `human`.
+- `input_move_steps` — posições intermediárias de ponteiro sintetizadas em um movimento (perfil human). Padrão: `24`.
+- `input_move_gap_ms` — atraso entre posições de ponteiro sintetizadas (milissegundos). Padrão: `12`.
+- `input_click_dwell_ms` — tempo de retenção entre `mousePressed` e `mouseReleased` (milissegundos). Padrão: `65`.
+- `input_key_dwell_ms` — tempo de retenção entre `keyDown` e `keyUp` (milissegundos). Padrão: `45`.
+- `input_type_delay_ms` — atraso entre caracteres durante a digitação (milissegundos). Padrão: `95`.
+- `input_scroll_tick_px` — distância de rolagem carregada por um tick de roda sintetizado (pixels CSS). Padrão: `100`.
+- `input_scroll_max_ticks` — teto de ticks de roda por gesto de rolagem (uma ida e volta CDP cada). Padrão: `40`.
+- `input_target_jitter_px` — raio do deslocamento aleatório aplicado ao alvo do clique (pixels CSS). Padrão: `3`.
+- `input_scroll_settle_rounds` — rodadas extras permitidas para entregar um delta de roda descartado pelo renderizador. Padrão: `3`.
 
 
 ## CDP e Sessão Chrome
@@ -113,8 +137,26 @@
 - `http_pool_max_idle_per_host` — máximo de conexões ociosas no pool reqwest por host. Padrão: `4`.
 
 
+## Proxy de Saída
+- `proxy_url` — proxy de saída do Chrome e do motor HTTP. Padrão: nenhum.
+- `proxy_bypass` — hosts que ignoram o proxy (sintaxe da bypass-list do Chrome). Padrão: nenhum.
+- `proxy_username` — usuário do proxy (somente XDG; o argv fica visível na tabela de processos). Padrão: nenhum.
+- `proxy_password` — senha do proxy (somente XDG; o argv fica visível na tabela de processos). Padrão: nenhum.
+- `cdp_proxy_bypass_loopback` — sempre ignorar o proxy em loopback sob `--proxy` para o canal de controle CDP sobreviver. Padrão: `true`.
+
+
+## Fingerprint HTTP/2
+- `http2_enabled` — negociar HTTP/2 no cliente HTTP compartilhado (o Chrome sempre oferece h2). Padrão: `true`.
+- `http2_initial_stream_window_size` — `SETTINGS_INITIAL_WINDOW_SIZE` de HTTP/2 anunciado ao par. Padrão: `6291456`.
+- `http2_initial_connection_window_size` — janela de controle de fluxo de HTTP/2 no nível da conexão. Padrão: `15663105`.
+- `http2_max_header_list_size` — `SETTINGS_MAX_HEADER_LIST_SIZE` de HTTP/2. Padrão: `262144`.
+- `http2_max_frame_size` — `SETTINGS_MAX_FRAME_SIZE` de HTTP/2 (16384..=16777215). Padrão: `16384`.
+- `http2_adaptive_window` — permitir que a janela HTTP/2 seja redimensionada em runtime (desligado mantém o fingerprint constante). Padrão: `false`.
+
+
 ## Robots
 - `robots_loopback_exempt` — hosts de loopback pulam o robots.txt (defina falso para impor contra localhost). Padrão: `true`.
+- `robots_user_agent` — token de user-agent contra o qual as regras do robots.txt são casadas. Padrão: nenhum.
 - `robots_probe_timeout_secs` — timeout de HEAD ou sonda do robots.txt (segundos). Padrão: `5`.
 - `robots_max_body_bytes` — máximo de bytes do corpo do robots.txt (anti-OOM). Padrão: `524288`.
 - `robots_fetch_timeout_secs` — timeout para buscar o robots.txt (segundos). Padrão: `30`.
@@ -171,6 +213,8 @@
 - `scrape_crawl_max_depth` — profundidade máxima de BFS em crawl e map. Padrão: `10`.
 - `scrape_search_limit_max` — orçamento máximo de resultados de busca (clamp anti-DoS). Padrão: `50`.
 - `scrape_max_parse_bytes` — tamanho máximo de parse de arquivo local antes da rejeição (bytes). Padrão: `50000000`.
+- `scrape_no_cache` — ignorar o cache de resposta na leitura e sempre buscar na origem. Padrão: `false`.
+- `monitor_diff_max_bytes` — teto de bytes do payload de `monitor check --diff-mode`. Padrão: `65536`.
 
 
 ## Webhook do Operador

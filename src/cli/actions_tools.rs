@@ -416,6 +416,16 @@ pub enum ConfigAction {
         /// New value; validated per key before it is persisted
         value: String,
     },
+    /// Restore one config key to its built-in default
+    ///
+    /// The inverse of `set`. `config set <key> ""` is not an inverse: for a
+    /// string key it stores an empty value the normal path never produces, and
+    /// for a numeric key it is a parse error. Unsetting a key that is already
+    /// absent succeeds, so a script never has to know the prior state.
+    Unset {
+        /// Config key to restore; must appear in `config list-keys`
+        key: String,
+    },
     /// Get one config key
     Get {
         /// Config key to read; omit to dump every key

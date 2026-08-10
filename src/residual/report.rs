@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use super::classify::{entry_is_live_cli_chrome_strict, path_older_than};
+use super::classify::{entry_is_live_cli_chrome_strict, entry_is_owning_cli, path_older_than};
 use super::discover::{
     count_chromium_singleton_shaped, discover_stale_singleton_candidates,
     list_cli_chrome_marker_dirs,
@@ -92,13 +92,26 @@ pub struct ResidualDiskReport {
     /// fixed in the fields above, left alive in the one nobody re-read.
     pub foreign_root_orphans: usize,
     /// Live browser pids whose `--user-data-dir` is a CLI marker path that is
-    /// **not** a directory any more (NC-RESIDUAL-ORPHAN-PROC-NO-DIR).
+    /// **not** a directory any more, and whose launcher is **gone**
+    /// (NC-RESIDUAL-ORPHAN-PROC-NO-DIR).
     ///
     /// Dir-based residual counts (`cli_marker_dirs`, `orphan_marker_dirs`) walk
     /// the filesystem. When DIE (or a foreign wipe) removes the profile while
     /// Chrome children stay alive, those counts report zero and the host looks
     /// clean. This field is the process-table backstop: marker-shaped
-    /// `--user-data-dir` + live browser + missing dir = fail `residual_disk`.
+    /// `--user-data-dir` + live browser + missing dir + **no live owner** =
+    /// fail `residual_disk`.
+    ///
+    /// The owner clause is load-bearing. FINALIZE deletes the profile and then
+    /// waits for the browser to exit, so a healthy shutdown matches the first
+    /// three conditions for the whole width of that window. Without the fourth,
+    /// this counts concurrency instead of residue — measured at 22 during a
+    /// serial test run on an otherwise clean host, and at 0 minutes later with
+    /// no cleanup in between.
+    ///
+    /// Only tree roots are judged: a ghost parented by another ghost is a Chrome
+    /// subprocess, and counting it would repeat the renderer/GPU/utility
+    /// inflation already fixed in the fields above.
     pub ghost_marker_processes: usize,
     /// True when the host process table could not be enumerated (GAP-045).
     ///
@@ -139,6 +152,44 @@ pub(crate) fn is_missing_cli_marker_dir(dir: &str) -> bool {
     let path = std::path::Path::new(dir);
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     name.starts_with(super::constants::CLI_CHROME_MARKER_PREFIX) && !path.is_dir()
+}
+
+/// Count live marker-holding browsers with a missing profile dir and no owner.
+///
+/// Split out of [`residual_disk_report`] so the rule has a gate: the report
+/// itself reads the real process table, and a rule that can only be exercised
+/// against the host it happens to run on is a rule nobody can prove wrong.
+///
+/// See [`ResidualDiskReport::ghost_marker_processes`] for why ownership -- and
+/// not elapsed time -- is the discriminator.
+pub(crate) fn count_disowned_ghosts(idx: &super::proc::LiveProcessIndex) -> usize {
+    let ghost_pids: std::collections::HashSet<u32> = idx
+        .entries()
+        .iter()
+        .filter(|entry| {
+            entry_is_live_cli_chrome_strict(entry)
+                && user_data_dir_of(&entry.cmdline).is_some_and(is_missing_cli_marker_dir)
+        })
+        .map(|entry| entry.pid)
+        .collect();
+    let disowned: std::collections::HashSet<u32> = idx
+        .entries()
+        .iter()
+        .filter(|entry| ghost_pids.contains(&entry.pid))
+        .filter(|entry| match entry.ppid {
+            // Child of another ghost: not a tree root, proves nothing.
+            Some(ppid) if ghost_pids.contains(&ppid) => false,
+            // Root: residue unless a live CLI of this product owns it.
+            Some(ppid) => !idx
+                .entries()
+                .iter()
+                .any(|owner| owner.pid == ppid && entry_is_owning_cli(owner)),
+            // No parent reported: nothing can be proven, so never a defect.
+            None => false,
+        })
+        .map(|entry| entry.pid)
+        .collect();
+    disowned.len()
 }
 
 /// Snapshot residual disk hygiene without mutating the filesystem.
@@ -213,15 +264,34 @@ pub fn residual_disk_report() -> ResidualDiskReport {
     // Ghost holders: live CLI Chrome whose marker profile dir is gone. Dir walks
     // cannot see these; without this count, doctor reports residual-zero while
     // Chrome children keep running against a deleted --user-data-dir.
-    let ghost_marker_processes = index
-        .as_ref()
-        .map(|idx| {
-            idx.count_distinct_pids(|entry| {
-                entry_is_live_cli_chrome_strict(entry)
-                    && user_data_dir_of(&entry.cmdline).is_some_and(is_missing_cli_marker_dir)
-            })
-        })
-        .unwrap_or(0);
+    //
+    // DISOWNED ONLY, and the qualifier is the whole correctness of the field.
+    //
+    // FINALIZE removes the profile directory and then waits for the browser to
+    // exit. Between those two instants every process of that healthy, supervised
+    // teardown matches "live CLI Chrome + missing marker dir" exactly. Counting
+    // the window as residue made a normal shutdown indistinguishable from an
+    // abandoned one.
+    //
+    // Measured 2026-08-06 on this host: under the serial test suite a doctor
+    // snapshot read ghost_marker_procs=22 next to live_cli_marker_procs=34 and
+    // reported `fail`, which is what turned `concurrent_invocation_keeps_doctor_
+    // exit_zero` red. A snapshot taken minutes later, with the same host and no
+    // cleanup performed, read 0 -- so nothing had leaked and there was nothing
+    // to collect. The counter was measuring concurrency, not residue.
+    //
+    // The discriminator is ownership, not time: a launcher that is still alive
+    // owns its browser and reaps it at DIE, so its teardown window is not a
+    // defect. A ghost whose launcher is gone has nobody left to collect it, and
+    // that is the leak this field exists to catch. Same rule, same helper as
+    // `browsers_are_reparented` in reconcile.rs -- one definition of "orphaned",
+    // not two.
+    //
+    // A ghost whose parent is another ghost is a Chrome subprocess and says
+    // nothing on its own; only tree roots are judged. That keeps the renderer /
+    // GPU / utility children from inflating the count, which is the same
+    // subprocess inflation already fixed twice in the fields above.
+    let ghost_marker_processes = index.as_ref().map(count_disowned_ghosts).unwrap_or(0);
 
     // Count chromium singleton-shaped dirs (including those younger than the floor).
     let orphans = count_chromium_singleton_shaped();

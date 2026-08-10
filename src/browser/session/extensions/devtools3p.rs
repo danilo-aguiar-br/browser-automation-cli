@@ -98,14 +98,17 @@ impl OneShotSession {
                 CliError::with_suggestion(
                     ErrorKind::Usage,
                     format!("invalid params JSON: {}", e.message()),
-                    r#"Pass --params '{"key":"value"}'"#,
+                    crate::i18n::suggestion_key("devtools3p_params_json", None),
                 )
             })?;
         if !parsed.is_object() {
+            // Same swap as the cookie path had: the catalog string was serving
+            // as the machine-facing message. `error.message` is the half agents
+            // match on and stays English; the localized half is the suggestion.
             return Err(CliError::with_suggestion(
                 ErrorKind::Usage,
-                crate::i18n::suggestion_key("json_object_payload", None),
-                r#"Pass --params '{"key":"value"}'"#,
+                "devtools3p params must be a JSON object",
+                crate::i18n::suggestion_key("devtools3p_params_json", None),
             ));
         }
         let name_js = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".into());
@@ -124,7 +127,7 @@ impl OneShotSession {
             return Err(CliError::with_suggestion(
                 ErrorKind::NoInput,
                 format!("devtools3p exec {name} failed"),
-                "List tools with browser-automation-cli --category-third-party devtools3p list --url <page>",
+                crate::i18n::suggestion_key("devtools3p_list_first", None),
             ));
         }
         let value = result

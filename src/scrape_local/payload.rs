@@ -7,6 +7,7 @@ use serde_json::{json, Map, Value};
 use crate::error::{CliError, ErrorKind};
 use crate::robots::RobotsPolicy;
 
+use super::disclosure::insert_disguise_disclosure;
 use super::html::{
     content_hash_hex, extract_all_json_ld, extract_branding_hints, extract_images,
     extract_json_ld_product, extract_links, extract_main_html, filter_html_by_selectors,
@@ -16,6 +17,10 @@ use super::project::apply_max_text_chars;
 use super::types::{ScrapeFormat, ScrapeOpts};
 
 /// Run [`build_scrape_payload`] on Tokio's blocking pool (CPU-bound HTML parse).
+///
+/// Admission is gated by [`crate::concurrency::spawn_cpu_blocking`]: a crawl or
+/// `batch-scrape` fan-out would otherwise admit one parser per blocking thread
+/// (up to 16) regardless of how many cores the host actually has.
 pub(super) async fn build_scrape_payload_blocking(
     source_url: String,
     status: u16,
@@ -23,7 +28,7 @@ pub(super) async fn build_scrape_payload_blocking(
     opts: ScrapeOpts,
     robots: RobotsPolicy,
 ) -> Result<Value, CliError> {
-    tokio::task::spawn_blocking(move || {
+    crate::concurrency::spawn_cpu_blocking(move || {
         build_scrape_payload(&source_url, status, &html, &opts, robots)
     })
     .await
@@ -78,6 +83,7 @@ pub fn build_scrape_payload(
     map.insert("title".into(), json!(title));
     map.insert("robots_policy".into(), json!(robots.as_str()));
     map.insert("engine".into(), json!(opts.engine));
+    insert_disguise_disclosure(&mut map, opts.engine_kind());
     // Explicit false so `--filter http_error=false` keeps OK rows (agent CLEAN).
     map.insert("http_error".into(), json!(false));
     map.insert(
@@ -166,6 +172,20 @@ pub fn build_scrape_payload(
             let found = feed.get("found").and_then(Value::as_bool).unwrap_or(false);
             map.insert("feed".into(), feed);
             map.insert("feed_found".into(), json!(found));
+        }
+        ScrapeFormat::Attributes => {
+            // Read from the FULL document, not the selector-reduced body: the
+            // caller already named the elements it wants, and letting
+            // `--only-main-content` silently remove them would answer a
+            // different question than the one asked.
+            let extracted = super::attributes::extract_attributes(html, &opts.attribute_targets);
+            let total: usize = extracted
+                .iter()
+                .filter_map(|e| e.get("values").and_then(Value::as_array))
+                .map(Vec::len)
+                .sum();
+            map.insert("attributes".into(), json!(extracted));
+            map.insert("attribute_count".into(), json!(total));
         }
         ScrapeFormat::Json => {
             // Placeholder: handler fills structured JSON via LLM when schema provided.

@@ -141,7 +141,12 @@ pub async fn set_intercept_drags(
         .map(|_| ())
 }
 
-async fn mouse(
+/// Dispatch one left-button mouse event.
+///
+/// `pub(super)` so [`super::pointer::drag`] shares it: the two drag routes used
+/// to carry separate dispatch code, which is how one of them ended up
+/// interpolating and the other jumping A→B in a single move.
+pub(super) async fn mouse(
     client: &CdpClient,
     session_id: &str,
     event_type: &str,
@@ -189,17 +194,29 @@ pub async fn start_drag_gesture(
         Some(1),
     )
     .await?;
-    let steps = drag_move_steps().max(1);
-    let gap_ms = drag_move_gap_ms();
-    for step in 1..=steps {
-        let t = step as f64 / steps as f64;
-        let x = from.0 + (to.0 - from.0) * t;
-        let y = from.1 + (to.1 - from.1) * t;
+    // G11 step 6: ONE trajectory generator for both drag routes.
+    //
+    // This loop used to interpolate `t = step / steps` on its own while
+    // `pointer::drag` had already moved to `kinematics`. Two code paths for the
+    // same gesture is how they drift: a straight line at constant speed is a
+    // synthetic signature by itself, so the HTML5 route was still emitting the
+    // exact pattern the other route had been fixed to stop emitting.
+    //
+    // `Kinematics::path` keeps the property this route actually needs -- several
+    // intermediate moves rather than one hop, so the gesture clears Chrome's
+    // drag threshold -- and adds the bowed Bezier and eased pacing for free.
+    // Under `--input-profile direct` it yields the destination alone, which is
+    // the documented byte-for-byte escape hatch.
+    // Route-local budget: `drag_move_*` predate `input_move_*`, are still
+    // documented and still settable, so they keep steering THIS route.
+    let mut kin =
+        super::kinematics::active().with_move_budget(drag_move_steps().max(1), drag_move_gap_ms());
+    for (x, y) in kin.path(from, to) {
         mouse(client, session_id, "mouseMoved", x, y, 1, None).await?;
         // The renderer starts a drag from its own input pipeline, not from the
         // CDP call return. Back-to-back moves get coalesced into one hop that
         // can skip the drag threshold entirely.
-        tokio::time::sleep(std::time::Duration::from_millis(gap_ms)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(kin.move_gap_ms())).await;
     }
     Ok(())
 }

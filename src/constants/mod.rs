@@ -51,6 +51,7 @@ mod network_presets;
 mod payload_limits;
 mod record;
 mod retry;
+mod stealth;
 mod timing;
 mod viewport;
 
@@ -70,6 +71,7 @@ pub use network_presets::*;
 pub use payload_limits::*;
 pub use record::*;
 pub use retry::*;
+pub use stealth::*;
 pub use timing::*;
 pub use viewport::*;
 
@@ -93,6 +95,14 @@ const _: () = assert!(DEFAULT_SCRAPE_MAX_BODY_BYTES > 0);
 const _: () = assert!(DEFAULT_BROWSER_SCRAPE_MAX_BODY_BYTES > 0);
 const _: () = assert!(HTTP_REDIRECT_MAX > 0);
 const _: () = assert!(HTTP_POOL_MAX_IDLE_PER_HOST > 0);
+// HTTP/2 SETTINGS are a fingerprint, so the bounds are RFC 9113 bounds, not
+// taste. A value outside them is rejected by the peer and the connection dies
+// before the first request, which would turn a stealth knob into an outage.
+const _: () = assert!(HTTP2_INITIAL_STREAM_WINDOW_SIZE <= i32::MAX as u32);
+const _: () = assert!(HTTP2_INITIAL_CONNECTION_WINDOW_SIZE <= i32::MAX as u32);
+const _: () = assert!(HTTP2_INITIAL_CONNECTION_WINDOW_SIZE >= HTTP2_INITIAL_STREAM_WINDOW_SIZE);
+const _: () = assert!(HTTP2_MAX_FRAME_SIZE >= 16_384 && HTTP2_MAX_FRAME_SIZE <= 16_777_215);
+const _: () = assert!(HTTP2_MAX_HEADER_LIST_SIZE > 0);
 const _: () = assert!(DEFAULT_LLM_HTTP_TIMEOUT_SECS > 0);
 const _: () = assert!(WEBHOOK_POST_TIMEOUT_SECS > 0);
 const _: () = assert!(WEBHOOK_MAX_ATTEMPTS > 0);

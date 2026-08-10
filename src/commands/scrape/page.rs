@@ -3,7 +3,7 @@
 
 use serde_json::json;
 
-use crate::browser::{block_on_browser_timeout, run_scrape_wait, CaptureOpts};
+use crate::browser::{block_on_browser_timeout, CaptureOpts};
 use crate::commands::common::emit_ok;
 use crate::commands::nav::post_webhook;
 use crate::error::CliError;
@@ -42,7 +42,14 @@ pub(crate) fn handle_scrape(
     question: Option<&str>,
     header: &[String],
     wait_ms: u64,
+    attribute_targets: &[(String, String)],
+    actions: &[serde_json::Value],
+    no_cache: Option<bool>,
 ) -> Result<(), CliError> {
+    // An omitted flag means the persisted preference wins, which is why this is
+    // `Option<bool>` and not `bool`: `--no-cache=false` must be able to override
+    // an XDG `scrape_no_cache = true`, and a plain `false` could not say that.
+    let no_cache = no_cache.unwrap_or_else(crate::xdg::resolve_scrape_no_cache);
     let formats: Vec<&str> = if formats.is_empty() {
         vec!["text"]
     } else {
@@ -51,6 +58,17 @@ pub(crate) fn handle_scrape(
     let engine_l = engine.to_ascii_lowercase();
     let max_text = resolve_max_text(max_text_chars);
     let extra_headers = parse_header_flags(header);
+
+    if engine_l == "http" && !actions.is_empty() {
+        // Refused rather than ignored. A flag that parses and does nothing is
+        // the exact defect `--no-xvfb` used to be: the help text promises an
+        // effect the run never delivers.
+        return Err(CliError::with_suggestion(
+            crate::error::ErrorKind::Usage,
+            "--action needs a page to act on; it requires --engine browser",
+            crate::i18n::suggestion_key("scrape_engine_choice", None),
+        ));
+    }
 
     if engine_l == "http" {
         if formats.len() == 1 {
@@ -65,6 +83,8 @@ pub(crate) fn handle_scrape(
                 redact_pii,
                 with_content_hash,
                 extra_headers,
+                attribute_targets: attribute_targets.to_vec(),
+                no_cache,
                 ..Default::default()
             };
             let mut data = block_on_browser_timeout(
@@ -74,6 +94,9 @@ pub(crate) fn handle_scrape(
             if matches!(fmt, crate::scrape_local::ScrapeFormat::Json) {
                 data = maybe_llm_json(data, schema_json, question)?;
             }
+            // One format still reports `formats` / `format_list`, so a caller
+            // never has to branch on how many values `--format` carried.
+            let data = crate::scrape_local::unify_single_format_shape(data, formats[0]);
             let data = finalize_scrape_value(data, select, None, Some(max_text));
             if let Some(wh) = webhook_url {
                 post_webhook(wh, &data)?;
@@ -95,6 +118,8 @@ pub(crate) fn handle_scrape(
             redact_pii,
             with_content_hash,
             extra_headers: parse_header_flags(header),
+            attribute_targets: attribute_targets.to_vec(),
+            no_cache,
             ..Default::default()
         };
         let base = block_on_browser_timeout(
@@ -119,12 +144,11 @@ pub(crate) fn handle_scrape(
             .unwrap_or(200) as u16;
         let formats_out =
             build_formats_map(&source, status, &html, &formats, &opts_html, "http", robots)?;
-        let data = json!({
-            "source_url": source,
-            "engine": "http",
-            "formats": formats_out,
-            "format_list": formats,
-        });
+        // Merge onto `base` rather than building a fresh object: `base` carries
+        // the transport diagnosis (status, cache, robots, stealth disclosure)
+        // that a from-scratch `json!` silently dropped whenever more than one
+        // format was requested.
+        let data = crate::scrape_local::unify_scrape_shape(base, formats_out, &formats);
         let data = finalize_scrape_value(data, select, None, Some(max_text));
         if let Some(wh) = webhook_url {
             post_webhook(wh, &data)?;
@@ -140,7 +164,7 @@ pub(crate) fn handle_scrape(
 
     // browser engine: CDP scrape once, derive formats from HTML.
     let data = block_on_browser_timeout(
-        run_scrape_wait(life, url, robots, capture, wait_ms),
+        crate::browser::run_scrape_actions(life, url, robots, capture, wait_ms, actions),
         timeout_secs,
     )?;
     let html = data
@@ -153,9 +177,10 @@ pub(crate) fn handle_scrape(
         .and_then(|v| v.as_str())
         .unwrap_or(url)
         .to_string();
+
     let data = if formats.len() == 1 {
         let fmt = crate::scrape_local::ScrapeFormat::parse(formats[0])?;
-        if html.is_empty() {
+        let single = if html.is_empty() {
             let mut d = data;
             if let Some(obj) = d.as_object_mut() {
                 obj.insert(
@@ -175,10 +200,15 @@ pub(crate) fn handle_scrape(
                 exclude_selectors: exclude_selector.to_vec(),
                 redact_pii,
                 with_content_hash,
+                attribute_targets: attribute_targets.to_vec(),
+                no_cache,
                 ..Default::default()
             };
             crate::scrape_local::build_scrape_payload(&source, 200, &html, &opts, robots)
-        }
+        };
+        // Same shape as the multi-format branch below, so a caller reads one
+        // layout regardless of how many formats it asked for.
+        crate::scrape_local::unify_single_format_shape(single, formats[0])
     } else {
         let opts_br = crate::scrape_local::ScrapeOpts {
             format: crate::scrape_local::ScrapeFormat::Html,
@@ -189,17 +219,21 @@ pub(crate) fn handle_scrape(
             exclude_selectors: exclude_selector.to_vec(),
             redact_pii,
             with_content_hash,
+            attribute_targets: attribute_targets.to_vec(),
+            no_cache,
             ..Default::default()
         };
         let formats_out =
             build_formats_map(&source, 200, &html, &formats, &opts_br, "browser", robots)?;
-        json!({
-            "source_url": source,
-            "engine": "browser",
-            "formats": formats_out,
-            "format_list": formats,
-            "robots_policy": robots.as_str(),
-        })
+        // Same reason as the HTTP branch: keep whatever the CDP scrape reported
+        // and add the formats to it, instead of replacing it with four keys.
+        let mut base = data;
+        if let Some(obj) = base.as_object_mut() {
+            obj.insert("source_url".into(), json!(source));
+            obj.insert("engine".into(), json!("browser"));
+            obj.insert("robots_policy".into(), json!(robots.as_str()));
+        }
+        crate::scrape_local::unify_scrape_shape(base, formats_out, &formats)
     };
     let data = finalize_scrape_value(data, select, None, Some(max_text));
     if let Some(wh) = webhook_url {

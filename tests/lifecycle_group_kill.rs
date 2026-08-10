@@ -42,10 +42,10 @@ fn wait_gone(pid: u32) -> bool {
 /// Spawn `sh -c 'sleep 300'` through the product guard, or skip when unavailable.
 fn spawn_sleeper() -> Option<(u32, Option<i32>, std::process::Child)> {
     let sh = browser_automation_cli::platform::which_bin("sh")?;
-    let guarded = spawn_guarded(SpawnRequest {
-        program: sh,
-        args: vec!["-c".to_string(), "sleep 300".to_string()],
-    })
+    let guarded = spawn_guarded(SpawnRequest::new(
+        sh,
+        vec!["-c".to_string(), "sleep 300".to_string()],
+    ))
     .ok()?;
     let pid = guarded.child.id();
     Some((pid, guarded.pgid, guarded.child))
@@ -80,10 +80,10 @@ fn group_kill_reaps_the_whole_group_not_just_the_leader() {
     // The leader forks a grandchild and then waits: killing only the leader pid
     // would leave the grandchild alive, which is exactly the residue this
     // escalation exists to prevent.
-    let guarded = spawn_guarded(SpawnRequest {
-        program: sh,
-        args: vec!["-c".to_string(), "sleep 300 & echo $! ; wait".to_string()],
-    })
+    let guarded = spawn_guarded(SpawnRequest::new(
+        sh,
+        vec!["-c".to_string(), "sleep 300 & echo $! ; wait".to_string()],
+    ))
     .expect("guard thread must fork the leader");
     let leader = guarded.child.id();
     let pgid = guarded

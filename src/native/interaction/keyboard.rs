@@ -11,6 +11,14 @@ use serde_json::Value;
 ///
 /// Slower than assigning `value`, and that is the point: a page that reacts to
 /// `keydown` (autocomplete, input masking, validation) only sees this route.
+///
+/// Under `--input-profile human` a printable character is wrapped in a real
+/// `keydown` / `keyup` pair around [`Input.insertText`]. Before 0.1.8 printables
+/// went through `insertText` alone, so the docstring above described the opposite
+/// of what the code did: an autocomplete listening for `keydown` saw nothing.
+/// `direct` keeps the bare `insertText`, which is the Electron-safe path.
+///
+/// [`Input.insertText`]: https://chromedevtools.github.io/devtools-protocol/tot/Input/#method-insertText
 pub async fn type_text(
     client: &CdpClient,
     session_id: &str,
@@ -79,7 +87,7 @@ pub async fn type_text_into_active_context(
     text: &str,
     delay_ms: Option<u64>,
 ) -> Result<(), String> {
-    let delay = delay_ms.unwrap_or(0);
+    let mut k = super::kinematics::active();
 
     for ch in text.chars() {
         if matches!(ch, '\n' | '\r' | '\t') {
@@ -120,8 +128,33 @@ pub async fn type_text_into_active_context(
                 .await?;
         } else {
             // VS Code/Electron webviews reject repeated dispatchKeyEvent calls
-            // carrying printable `text`. Insert printable characters directly
-            // and reserve key events for controls like Enter and Tab.
+            // that CARRY printable `text`. The rejection is about the payload,
+            // not about the events existing, so a keydown/keyup pair with `text`
+            // left empty brackets the insertion without reintroducing that bug:
+            // the page gets the events it listens for, `insertText` still owns
+            // the character. `direct` skips the pair entirely.
+            let (key, code, key_code) = char_to_key_info(ch);
+            let bracket = k.profile().is_human();
+
+            if bracket {
+                client
+                    .send_command_typed::<_, Value>(
+                        "Input.dispatchKeyEvent",
+                        &DispatchKeyEventParams {
+                            event_type: "keyDown".to_string(),
+                            key: Some(key.clone()),
+                            code: Some(code.clone()),
+                            text: None,
+                            unmodified_text: None,
+                            windows_virtual_key_code: Some(key_code),
+                            native_virtual_key_code: Some(key_code),
+                            modifiers: None,
+                        },
+                        Some(session_id),
+                    )
+                    .await?;
+            }
+
             client
                 .send_command_typed::<_, Value>(
                     "Input.insertText",
@@ -131,8 +164,32 @@ pub async fn type_text_into_active_context(
                     Some(session_id),
                 )
                 .await?;
+
+            if bracket {
+                let dwell = k.key_dwell_ms();
+                if dwell > 0 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(dwell)).await;
+                }
+                client
+                    .send_command_typed::<_, Value>(
+                        "Input.dispatchKeyEvent",
+                        &DispatchKeyEventParams {
+                            event_type: "keyUp".to_string(),
+                            key: Some(key),
+                            code: Some(code),
+                            text: None,
+                            unmodified_text: None,
+                            windows_virtual_key_code: Some(key_code),
+                            native_virtual_key_code: Some(key_code),
+                            modifiers: None,
+                        },
+                        Some(session_id),
+                    )
+                    .await?;
+            }
         }
 
+        let delay = k.type_delay_ms(delay_ms);
         if delay > 0 {
             tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
         }
@@ -186,6 +243,13 @@ pub async fn press_key_with_modifiers(
             Some(session_id),
         )
         .await?;
+
+    // Hold the key. A zero-length press cannot trigger auto-repeat and reads as
+    // instantaneous to any handler that measures duration.
+    let dwell = super::kinematics::active().key_dwell_ms();
+    if dwell > 0 {
+        tokio::time::sleep(tokio::time::Duration::from_millis(dwell)).await;
+    }
 
     client
         .send_command_typed::<_, Value>(

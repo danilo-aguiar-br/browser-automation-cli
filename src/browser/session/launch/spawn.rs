@@ -35,12 +35,24 @@ impl OneShotSession {
         capture: CaptureOpts,
         proxy_server: Option<&str>,
     ) -> Result<Self, CliError> {
+        // A local MITM proxy is an explicit route the caller asked for, so it
+        // outranks the egress proxy from policy. Chaining the two would need an
+        // upstream hop the MITM handler does not implement, and silently
+        // dropping one of them would send traffic somewhere nobody chose.
+        let mitm_proxy = proxy_server.map(|s| s.to_string());
+        let egress_proxy = crate::browser_policy::proxy().map(str::to_string);
+        let proxy = mitm_proxy.clone().or(egress_proxy);
+
         let options = LaunchOptions {
-            headless: true,
+            // Read from policy instead of hard-coding `true`. Before this, the
+            // `--headed` flag parsed and was dropped on the floor.
+            headless: crate::browser_policy::mode().launches_headless(),
             hide_scrollbars: true,
-            proxy: proxy_server.map(|s| s.to_string()),
+            proxy,
+            proxy_bypass: crate::browser_policy::proxy_bypass().map(str::to_string),
+            no_xvfb: crate::browser_policy::no_xvfb(),
             // Trust MITM CA via ignore certs for one-shot local intercept (PRD §5E).
-            ignore_https_errors: proxy_server.is_some(),
+            ignore_https_errors: mitm_proxy.is_some(),
             ..LaunchOptions::default()
         };
         let manager = BrowserManager::launch(options, Some("chrome"))
@@ -114,6 +126,9 @@ impl OneShotSession {
             headless: false,
             hide_scrollbars: true,
             extensions: Some(extensions.clone()),
+            proxy: crate::browser_policy::proxy().map(str::to_string),
+            proxy_bypass: crate::browser_policy::proxy_bypass().map(str::to_string),
+            no_xvfb: crate::browser_policy::no_xvfb(),
             ..LaunchOptions::default()
         };
         let manager = BrowserManager::launch(options, Some("chrome"))

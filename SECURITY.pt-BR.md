@@ -54,6 +54,9 @@
 - Nunca use `rediss://` para cache (somente TCP plain; `rediss://` é fail-closed)
 - Armazene URL Redis só com `config set cache_redis_url` sob XDG (nunca env de produto)
 - Armazene chaves LLM só com `config set openrouter_api_key` sob XDG
+- Armazene credenciais do proxy de saída só com `config set proxy_username` e `config set proxy_password` sob XDG, e nunca passe essas credenciais em argv, porque a tabela de processos expõe argv a qualquer usuário da máquina
+- `proxy_password` está nas varreduras de zeroize de `src/xdg/secrets.rs`, portanto é limpo no drop junto de `encryption_key`, `openrouter_api_key` e `cache_redis_url`
+- Não confunda o proxy de saída (`--proxy`, chave XDG `proxy_url`) com o proxy MITM local de interceptação tratado abaixo: o primeiro roteia seu tráfego para fora por um terceiro, o segundo decifra o seu próprio tráfego em `127.0.0.1`
 - Higiene residual: doctor `residual_disk` reporta dirs temporários órfãos locais; BORN/FINALIZE fazem scavenge só de markers owned da CLI e dirs Chromium Singleton-only stale (nunca mata Chrome Flatpak do host)
 
 ## Boas Práticas MITM

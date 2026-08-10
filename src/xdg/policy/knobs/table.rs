@@ -120,6 +120,9 @@ policy_knobs! {
     DEFAULT_SCREENCAST_STOP_PUMP_ITERS => screencast_stop_pump_iters,
         "Screencast stop: drain pump iterations before Page.stopScreencast";
 
+    MONITOR_DIFF_MAX_BYTES => monitor_diff_max_bytes,
+        "Byte ceiling for the `monitor check --diff-mode` payload";
+
     // ── mitm clamps and capture windows ──────────────────────────────────
     MITM_LIST_LIMIT_MAX => mitm_list_limit_max,
         "MITM list/query max items clamp";
@@ -157,6 +160,24 @@ policy_knobs! {
         "Intermediate mouse positions synthesized for one HTML5 drag";
     DRAG_MOVE_GAP_MS => drag_move_gap_ms,
         "Delay between synthesized drag positions (milliseconds)";
+    INPUT_MOVE_STEPS => input_move_steps,
+        "Intermediate pointer positions synthesized for one move (human profile)";
+    INPUT_MOVE_GAP_MS => input_move_gap_ms,
+        "Delay between synthesized pointer positions (milliseconds)";
+    INPUT_CLICK_DWELL_MS => input_click_dwell_ms,
+        "Hold time between mousePressed and mouseReleased (milliseconds)";
+    INPUT_KEY_DWELL_MS => input_key_dwell_ms,
+        "Hold time between keyDown and keyUp (milliseconds)";
+    INPUT_TYPE_DELAY_MS => input_type_delay_ms,
+        "Delay between characters while typing (milliseconds)";
+    INPUT_SCROLL_TICK_PX => input_scroll_tick_px,
+        "Scroll distance carried by one synthesized wheel tick (CSS pixels)";
+    INPUT_SCROLL_MAX_TICKS => input_scroll_max_ticks,
+        "Ceiling on wheel ticks per scroll gesture (one CDP round trip each)";
+    INPUT_TARGET_JITTER_PX => input_target_jitter_px,
+        "Radius of the random offset applied to a click target (CSS pixels)";
+    INPUT_SCROLL_SETTLE_ROUNDS => input_scroll_settle_rounds,
+        "Extra rounds allowed to deliver a wheel delta the renderer dropped";
     ROBOTS_FETCH_TIMEOUT_SECS => robots_fetch_timeout_secs,
         "Timeout for fetching robots.txt (seconds)";
     SCRAPE_CRAWL_LIMIT_MAX => scrape_crawl_limit_max,

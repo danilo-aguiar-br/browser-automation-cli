@@ -44,9 +44,11 @@ pub(super) fn apply_scrape_set(
             })?;
             cfg.scrape_min_delay_ms = Some(n);
         }
-        "scrape_honor_meta_robots" => cfg.scrape_honor_meta_robots = Some(parse_boolish(value)),
-        "scrape_honor_nofollow" => cfg.scrape_honor_nofollow = Some(parse_boolish(value)),
-        "scrape_use_sitemap" => cfg.scrape_use_sitemap = Some(parse_boolish(value)),
+        "scrape_honor_meta_robots" => {
+            cfg.scrape_honor_meta_robots = Some(parse_boolish(value, key)?)
+        }
+        "scrape_honor_nofollow" => cfg.scrape_honor_nofollow = Some(parse_boolish(value, key)?),
+        "scrape_use_sitemap" => cfg.scrape_use_sitemap = Some(parse_boolish(value, key)?),
         "scrape_default_engine" => {
             let eng = value.trim().to_ascii_lowercase();
             if eng != "http" && eng != "browser" {
@@ -82,8 +84,9 @@ pub(super) fn apply_scrape_set(
             cfg.scrape_feed_max_entries =
                 Some(parse_positive_u64(value, "scrape_feed_max_entries")?);
         }
-        "scrape_follow_rel_next" => cfg.scrape_follow_rel_next = Some(parse_boolish(value)),
-        "scrape_dedup_similar" => cfg.scrape_dedup_similar = Some(parse_boolish(value)),
+        "scrape_follow_rel_next" => cfg.scrape_follow_rel_next = Some(parse_boolish(value, key)?),
+        "scrape_dedup_similar" => cfg.scrape_dedup_similar = Some(parse_boolish(value, key)?),
+        "scrape_no_cache" => cfg.scrape_no_cache = Some(parse_boolish(value, key)?),
         "scrape_dedup_similar_distance" => {
             // 0 is meaningful (identical fingerprints only), so this cannot use
             // parse_positive_u64; the ceiling is the fingerprint width.

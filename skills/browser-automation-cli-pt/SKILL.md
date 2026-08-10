@@ -1,6 +1,6 @@
 ---
 name: browser-automation-cli
-description: Esta skill DEVE ser usada quando a tarefa exigir operar a CLI browser-automation-cli para automação Chrome via CDP, scraping local, mídia local e diagnóstico de páginas. DEVE ativar em navegar, clicar, digitar, submit, fill-form, storage export e import, snapshot de acessibilidade com refs @eN, screenshot, PDF, extract com LLM, scrape multi-formato com rawHtml, batch-scrape, crawl, map, search, parse de PDF DOCX XLSX ODS, monitor, QR, sheet-write, sg-scan, sg-rewrite, find-paths, console, rede, MITM em loopback, captura de tráfego com HAR, descoberta de endpoints REST e GraphQL, emulate, perf, lighthouse, screencast, heap, extension, webmcp, workflow, run multi-passo, record de interações replayáveis, image info convert resize exif download, video info convert trim thumbnail manifest, audio info convert trim download. Entrega fórmulas de argv, oito flags de redução de payload, envelope JSON, exit codes, 176 chaves XDG sem variáveis de ambiente, robots e residual-zero em disco.
+description: Esta skill DEVE ser usada quando a tarefa exigir operar a CLI browser-automation-cli para automação Chrome via CDP, scraping local, mídia local e diagnóstico de páginas. DEVE ativar em navegar, clicar, digitar, submit, fill-form, storage export e import, snapshot de acessibilidade com refs @eN, screenshot, PDF, extract com LLM, scrape multi-formato com rawHtml, batch-scrape, crawl, map, search, parse de PDF DOCX XLSX ODS, monitor, QR, sheet-write, sg-scan, sg-rewrite, find-paths, console, rede, MITM em loopback, captura de tráfego com HAR, descoberta de endpoints REST e GraphQL, emulate, perf, lighthouse, screencast, heap, extension, webmcp, workflow, run multi-passo, record de interações replayáveis, image info convert resize exif download, video info convert trim thumbnail manifest, audio info convert trim download. Entrega fórmulas de argv, oito flags de redução de payload, envelope JSON, exit codes, 204 chaves XDG sem variáveis de ambiente, robots e residual-zero em disco.
 ---
 
 # browser-automation-cli
@@ -75,24 +75,64 @@ description: Esta skill DEVE ser usada quando a tarefa exigir operar a CLI brows
 - DEVE passar `--headed` somente para debug interativo; `--lang en` ou `--lang pt-BR`
 - DEVE elevar tracing com `--verbose` ou `--debug` ou `config set log_level` — NUNCA env
 - DEVE passar gates só quando a família exigir — `--category-memory` (`heap`), `--category-extensions` (`extension`), `--category-third-party` (`devtools3p`), `--category-webmcp` (`webmcp`), `--experimental-vision` (`click-at`), `--experimental-screencast` (`screencast`)
-- DEVE passar `--mitm` e combinar com `--mitm-har|--mitm-hosts|--mitm-ca-dir|--mitm-ws|--mitm-max-body-bytes|--mitm-no-media-bodies|--mitm-redact-secrets` somente quando a intercepção exigir
+- DEVE passar `--mitm` e combinar com `--mitm-har|--mitm-hosts|--mitm-ca-dir|--mitm-ws|--mitm-max-body-bytes|--mitm-no-media-bodies|--mitm-redact-secrets|--mitm-no-redact-secrets` somente quando a intercepção exigir
+- DEVE saber que a redação de segredos na captura MITM é LIGADA por padrão
+- DEVE tratar `--mitm-redact-secrets` como reafirmação explícita desse padrão, que não muda nada
+- DEVE passar `--mitm-no-redact-secrets` como a ÚNICA maneira de desligar o mascaramento
+- DEVE saber que pedir mascaramento e pedir desligá-lo na mesma execução resolve MASCARANDO, porque a leitura segura de uma contradição sobre segredos é mascarar
+- DEVE saber que o padrão é LIGADO porque a captura é gravada em disco e lida depois por um agente, então esquecer a flag custa um cabeçalho ausente enquanto o padrão oposto custaria um cookie de sessão vazado
 - DEVE passar `--dump-on-failure` para gravar evidência de console e rede no diretório de artefatos
 - DEVE combinar `--dump-on-failure` com `--artifacts-dir` e com `--capture-console` ou `--capture-network`
 - DEVE manter essas capturas no MESMO processo, porque a captura morre com o DIE
 - DEVE passar `--allow-outside-roots` para ler local e gravar artefato FORA das raízes permitidas
 - DEVE tratar `--allow-outside-roots` como aceitação explícita de risco, só com intenção declarada
 - DEVE preferir a superfície normal da chave XDG `allowed_roots` a `--allow-outside-roots`
+- DEVE saber que o stealth é LIGADO por padrão e mascara os marcadores de automação que um Chrome real nunca expõe
+- DEVE passar `--no-stealth` para desligar os patches anti-detecção nesta execução
+- DEVE passar `--stealth-profile auto|chrome-linux|chrome-win|chrome-mac` para escolher a identidade personificada
+- DEVE preferir `--stealth-profile auto` porque ele segue o host e quase sempre está certo
+- DEVE passar `--stealth-seed <SEED>` para fixar uma identidade entre processos
+- DEVE saber que sem semente cada execução sorteia identidade nova, então um crawl de 50 URLs em 50 processos one-shot se apresenta como 50 máquinas distintas
+- DEVE passar `--proxy <URL>` (`http`, `https`, `socks5`) como proxy de saída para o Chrome E para o motor HTTP
+- DEVE passar `--proxy-bypass <HOSTS>` para os hosts que ignoram o proxy, na sintaxe de bypass-list do Chrome
+- DEVE guardar credenciais de proxy com `config set proxy_username` e `config set proxy_password` no XDG, NUNCA em argv, porque a tabela de processos expõe argv
+- DEVE saber que `config set browser_mode auto` é a ÚNICA rota para o modo de browser
+- DEVE saber que NENHUMA flag global expõe `browser_mode`, então argv jamais o alcança
+- DEVE saber que a família `http2_*` controla o fingerprint HTTP/2 do motor `--engine http`
+- DEVE ajustar esse fingerprint só por XDG com `config set http2_enabled`, `config set http2_adaptive_window` e `config set http2_max_frame_size`
+- DEVE ajustar as janelas com `config set http2_initial_stream_window_size` e `config set http2_initial_connection_window_size`
+- DEVE ajustar o cabeçalho com `config set http2_max_header_list_size`
+- DEVE saber que NENHUMA dessas sete chaves tem flag equivalente na linha de comando
+- DEVE executar `config set stealth false` como equivalente persistente de `--no-stealth`
+- DEVE executar `config set stealth_profile` e `config set stealth_seed` para persistir o que as flags fazem por processo
+- DEVE descobrir a superfície viva com `config list-keys --json` em vez de confiar em lista estática
+- DEVE passar `--input-profile human|direct`; `human` é o padrão
+- DEVE saber que `human` interpola trajetórias do ponteiro, aplica dwell entre press e release e ritma a digitação
+- DEVE passar `--input-seed <SEED>` para semear o jitter de input e reproduzir exatamente uma execução `human`
+- DEVE saber que sem `--input-seed` o jitter vem do sistema e duas execuções diferem
+- DEVE passar `--warmup` para visitar a raiz da origem antes da URL alvo, de modo que a sessão já carregue cookies e cadeia de referrer
+- DEVE passar `--warmup-url <URL>` para aquecer essa URL em vez da raiz da origem alvo
+- DEVE passar `--no-xvfb` somente em modo headed no Linux, para pular o display virtual privado e usar o display atual
+- DEVE passar `--expect <EXPR>` com `key=value`, `key!=value` ou `key~substring` para afirmar o payload emitido (repetível, com AND)
+- DEVE passar `--expect-exit-code` para sair com 65 quando algum `--expect` falhar, em vez de apenas reportar
+- DEVE saber que `--expect-exit-code` é desligado por padrão porque mudar exit code por conteúdo de dado quebraria chamadores em silêncio
 ### FORBIDDEN
 - NUNCA espere captura sobreviver ao DIE; NUNCA ligue gate por padrão; NUNCA omita `--json` em pipeline de agente
+- NUNCA passe credenciais de proxy em argv; NUNCA declare plataforma estrangeira em `--stealth-profile` quando o host disser outra coisa
+- NUNCA passe `--mitm-no-redact-secrets` salvo quando o próprio segredo for o objeto da depuração
 
 ## Config XDG
 ### REQUIRED
-- DEVE configurar SOMENTE por flags CLI e `config init|path|show|get|set|list-keys`
+- DEVE configurar SOMENTE por flags CLI e `config init|path|show|get|set|unset|list-keys`
 - DEVE descobrir chaves com `config list-keys --json`; resolver caminhos com `config path --json` — NUNCA inventar paths XDG
 - DEVE tratar flag CLI como override; setar segredos com `config set encryption_key` e `openrouter_api_key`
+- DEVE executar `browser-automation-cli --json config unset <CHAVE>` para restaurar uma chave ao default embutido
+- DEVE saber que `config unset` é o inverso de `set`, enquanto `config set <chave> ""` NÃO é
+- DEVE saber que `config set <chave> ""` grava em chave string um valor vazio que o caminho normal nunca produz, e em chave numérica é erro de parse
+- DEVE saber que desfazer chave já ausente tem sucesso, então um script nunca precisa saber o estado anterior
 - DEVE setar binários com `chrome_path`, `lighthouse_path`, `ffmpeg_path`; cache com `cache_backend sqlite|memory|redis` e Redis plain em `cache_redis_url`
 - DEVE setar `dialog_settle_ms` e `log_level` via config set
-- DEVE consultar `references/xdg-keys.md` para o inventário completo das 176 chaves XDG com padrão e descrição
+- DEVE consultar `references/xdg-keys.md` para o inventário completo das 204 chaves XDG com padrão e descrição
 - DEVE confirmar a superfície viva com `config list-keys --json` antes de setar chave fora das citadas acima
 ### FORBIDDEN
 - NUNCA invente env de produto; NUNCA logue segredos/cookies; NUNCA use `rediss://`; NUNCA configure redis sem `cache_redis_url`
@@ -143,6 +183,15 @@ description: Esta skill DEVE ser usada quando a tarefa exigir operar a CLI brows
 - DEVE manter fora de `run` — meta, config, mitm, storage, workflow, crawl, map, batch-scrape, search, parse, qr, find-paths, sg-scan, sg-rewrite, sheet-write, monitor, extension install|uninstall
 ### FORBIDDEN
 - NUNCA divida passos `@eN` entre processos; NUNCA ignore `data.steps` parciais; NUNCA use `exec` como multi-passo
+### Passos Críticos em Uma Linha
+- DEVE serializar `{"cmd":"goto","url":"https://example.com","handle_before_unload":"accept","navigation_timeout_ms":15000}`
+- DEVE serializar `{"cmd":"wait","selector":"h1, main, #content","wait_timeout_ms":10000}`
+- DEVE serializar `{"cmd":"view","verbose":true}` e `{"cmd":"write","target":"@e1","value":"olá"}`
+- DEVE serializar `{"cmd":"submit","target":"#user","timeout_ms":8000}` e `{"cmd":"scrape","url":"https://example.com","format":"text"}`
+- DEVE serializar `{"cmd":"pick","target":"@e1","option":"Anomalia"}` e `{"cmd":"select-option","target":"@e2","option":"Alta"}`
+- DEVE serializar `{"cmd":"dialog","action":"accept","if_present":true}`
+- DEVE serializar `{"cmd":"grab","path":"/tmp/p.png","format":"png"}` e `{"cmd":"print-pdf","path":"/tmp/p.pdf","url":"https://example.com"}`
+- DEVE conferir cada chave contra `schema <cmd> --json` antes de adaptar qualquer passo
 
 ## Leis Agent-First
 ### REQUIRED
@@ -298,7 +347,7 @@ description: Esta skill DEVE ser usada quando a tarefa exigir operar a CLI brows
 - DEVE executar `monitor check --url https://example.com --baseline /tmp/b.baseline --write-baseline --engine http`; `qr encode --text "https://example.com" --format png --path /tmp/qr.png`; `qr decode --path /tmp/qr.png`
 - DEVE executar `find-paths --glob '**/*.rs' .`; `sg-scan . --limit 100`; `sg-rewrite .`; `sg-rewrite . --apply`; `sheet-write /tmp/rows.csv -o /tmp/out.xlsx --sheet Data`
 - DEVE executar `workflow run --manifest /tmp/wf.json --journal /tmp/wf.journal`; `workflow resume --manifest /tmp/wf.json`; `workflow status --name demo`
-- DEVE executar `config init`; `config path`; `config show`; `config get timeout`; `config set dialog_settle_ms 2000`; `config list-keys`
+- DEVE executar `config init`; `config path`; `config show`; `config get timeout`; `config set dialog_settle_ms 2000`; `config unset dialog_settle_ms`; `config list-keys`
 - DEVE contornar robots somente com `--ignore-robots --i-accept-robots-risk --json scrape https://example.com --format text --engine http`
 ### FORBIDDEN
 - NUNCA adapte fórmula sem `schema <cmd> --json`

@@ -25,6 +25,7 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
          encryption_key = \"{enc}\"\n\
          color = {color}\n\
          log_level = \"{log_level}\"\n\
+         input_profile = \"{input_profile}\"\n\
          log_to_file = {log_to_file}\n\
          max_log_files = {max_log_files}\n\
          log_rotation = \"{log_rotation}\"\n\
@@ -65,6 +66,7 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
          scrape_feed_max_entries = {scrape_feed_max}\n\
          scrape_follow_rel_next = {scrape_rel_next}\n\
          scrape_dedup_similar = {scrape_dedup_similar}\n\
+         scrape_no_cache = {scrape_no_cache}\n\
          scrape_dedup_similar_distance = {scrape_dedup_dist}\n\
          scrape_sitemap_max_bytes = {scrape_sitemap_max}\n\
          scrape_charset_peek_bytes = {scrape_charset_peek}\n\
@@ -95,6 +97,7 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
         enc = cfg.encryption_key.as_deref().unwrap_or(""),
         color = cfg.color.unwrap_or(false),
         log_level = cfg.log_level.as_deref().unwrap_or(""),
+        input_profile = cfg.input_profile.as_deref().unwrap_or(""),
         log_to_file = cfg.log_to_file.unwrap_or(false),
         max_log_files = cfg
             .max_log_files
@@ -157,6 +160,9 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
         scrape_dedup_similar = cfg
             .scrape_dedup_similar
             .unwrap_or(crate::constants::DEFAULT_SCRAPE_DEDUP_SIMILAR),
+        scrape_no_cache = cfg
+            .scrape_no_cache
+            .unwrap_or(crate::constants::DEFAULT_SCRAPE_NO_CACHE),
         scrape_dedup_dist = cfg.scrape_dedup_similar_distance.unwrap_or(u64::from(
             crate::constants::DEFAULT_SCRAPE_DEDUP_SIMILAR_DISTANCE
         )),
@@ -210,6 +216,10 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
     if let Some(roots) = cfg.allowed_roots.as_ref().filter(|r| !r.is_empty()) {
         body.push_str(&format!("allowed_roots = \"{}\"\n", join_path_list(roots)));
     }
+    // Keys the template cannot express, because they must be emitted only when
+    // set. Their own module: see `config_write_optional` for why the boundary is
+    // there and not somewhere convenient.
+    super::config_write_optional::append_optional_keys(&mut body, cfg);
     // Promoted policy overrides (GAP-048); unset keys stay on the constant default.
     for (key, value) in super::policy::policy_pairs(&cfg.policy) {
         body.push_str(&format!("{key} = {value}\n"));

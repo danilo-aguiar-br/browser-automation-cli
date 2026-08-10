@@ -72,9 +72,82 @@ pub async fn run_scrape_wait(
     capture: CaptureOpts,
     wait_ms: u64,
 ) -> Result<Value, CliError> {
+    run_scrape_actions(life, url, robots, capture, wait_ms, &[]).await
+}
+
+/// Browser scrape that first acts on the page.
+///
+/// # Why the steps run in THIS session
+///
+/// A step in one process and a scrape in another share nothing: the CLI is
+/// one-shot, so the second invocation gets a fresh browser with no cookies,
+/// no scroll position and no expanded accordion. Anything the actions
+/// accomplished would be gone before the extraction started. Running them
+/// here, between navigation and extraction, is the only ordering that makes
+/// them mean anything.
+///
+/// # Why the steps are `run --script` steps
+///
+/// Reusing `commands::run::execute::execute_step` rather than writing
+/// a second interpreter keeps ONE grammar for acting on a page. A second
+/// dialect would drift from the first, and `record` output — which is
+/// `run --script` lines — would stop being replayable here.
+///
+/// A failing step fails the scrape. These are preconditions the caller stated
+/// for the extraction; scraping anyway would return a page that is not the one
+/// that was asked for, labelled as success.
+pub async fn run_scrape_actions(
+    life: &Lifecycle,
+    url: &str,
+    robots: crate::robots::RobotsPolicy,
+    capture: CaptureOpts,
+    wait_ms: u64,
+    actions: &[Value],
+) -> Result<Value, CliError> {
     let mut session = launch_marked(life, capture).await?;
-    let work = session.scrape_with_wait(url, robots, &[], wait_ms).await;
+    let work = scrape_after_actions(&mut session, url, robots, wait_ms, actions).await;
     finish(life, session, work).await
+}
+
+/// Navigate, run each action in order, then extract.
+async fn scrape_after_actions(
+    session: &mut crate::browser::OneShotSession,
+    url: &str,
+    robots: crate::robots::RobotsPolicy,
+    wait_ms: u64,
+    actions: &[Value],
+) -> Result<Value, CliError> {
+    if actions.is_empty() {
+        return session.scrape_with_wait(url, robots, &[], wait_ms).await;
+    }
+    // Navigate first: an action naming a selector needs a document to find it
+    // in, and `scrape_with_wait` would navigate again afterwards anyway.
+    session.goto(url, robots).await?;
+    let flags = crate::commands::run::RunFlags::default();
+    for (index, step) in actions.iter().enumerate() {
+        let cmd = step
+            .get("cmd")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                CliError::with_suggestion(
+                    crate::error::ErrorKind::Usage,
+                    format!("--action[{index}] has no `cmd` field"),
+                    crate::i18n::suggestion_key("use_listed_value", None),
+                )
+            })?
+            .to_string();
+        crate::commands::run::execute::execute_step(session, &cmd, step, robots, flags, None)
+            .await
+            .map_err(|e| {
+                // The index is what makes the message actionable: with five
+                // actions, "press failed" does not say which one.
+                CliError::new(
+                    e.kind(),
+                    format!("--action[{index}] ({cmd}): {}", e.message()),
+                )
+            })?;
+    }
+    session.scrape_with_wait(url, robots, &[], wait_ms).await
 }
 
 pub async fn run_goto_capture(
@@ -254,5 +327,10 @@ where
     // Shared detect → signal → await path (cancel-first `biased` select).
     // See [`crate::runtime_util::block_on_with_shutdown`].
     let rt = crate::runtime_util::build_browser_runtime()?;
-    crate::runtime_util::block_on_with_shutdown(&rt, fut, timeout_secs)
+    let out = crate::runtime_util::block_on_with_shutdown(&rt, fut, timeout_secs);
+    // Bounded teardown: dropping the runtime waits without limit for started
+    // `spawn_blocking` tasks, which cannot be aborted. See
+    // [`crate::runtime_util::shutdown_runtime`].
+    crate::runtime_util::shutdown_runtime(rt);
+    out
 }

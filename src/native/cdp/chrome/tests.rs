@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Chrome discovery/args unit tests.
-use super::args::{build_chrome_args, materialize_temp_user_data_dir_sync, should_disable_sandbox};
+use super::args::{
+    build_chrome_args, materialize_temp_user_data_dir_sync, merge_proxy_bypass,
+    should_disable_sandbox,
+};
 use super::tooling::{expand_tilde, find_playwright_chromium};
 use super::*;
 
@@ -40,6 +43,72 @@ fn test_find_playwright_chromium_nonexistent() {
 }
 
 #[test]
+fn a_proxy_never_swallows_the_cdp_control_channel() {
+    // The regression this guards: `--proxy http://127.0.0.1:1 goto` failed
+    // with "Timed out after 20000ms waiting for Chrome CDP endpoint", because
+    // the proxy also captured the loopback WebSocket the CLI drives Chrome
+    // with. The message blamed Chrome for the proxy's doing.
+    let opts = LaunchOptions {
+        proxy: Some("http://127.0.0.1:1".to_string()),
+        ..Default::default()
+    };
+    let result = build_chrome_args(&opts).unwrap();
+    materialize_temp_user_data_dir_sync(&result).unwrap();
+    let bypass = result
+        .args
+        .iter()
+        .find(|a| a.starts_with("--proxy-bypass-list="))
+        .expect("a proxy launch must carry a bypass list");
+    assert!(bypass.contains("127.0.0.1"), "{bypass}");
+    assert!(bypass.contains("localhost"), "{bypass}");
+}
+
+#[test]
+fn a_launch_without_a_proxy_has_nothing_to_bypass() {
+    let opts = LaunchOptions::default();
+    let result = build_chrome_args(&opts).unwrap();
+    materialize_temp_user_data_dir_sync(&result).unwrap();
+    assert!(!result
+        .args
+        .iter()
+        .any(|a| a.starts_with("--proxy-bypass-list=")));
+}
+
+#[test]
+fn merging_keeps_the_operator_list_and_adds_loopback_once() {
+    // Operator entries keep their order so the argv still reads as what was
+    // asked for; loopback is appended, and only what is missing.
+    let merged = merge_proxy_bypass(Some("example.com,127.0.0.1"), true).unwrap();
+    assert!(merged.starts_with("example.com,127.0.0.1"), "{merged}");
+    assert_eq!(merged.matches("127.0.0.1").count(), 1, "{merged}");
+    assert!(merged.contains("localhost"), "{merged}");
+}
+
+#[test]
+fn merging_is_case_insensitive_about_duplicates() {
+    let merged = merge_proxy_bypass(Some("LOCALHOST"), true).unwrap();
+    assert_eq!(merged.to_ascii_lowercase().matches("localhost").count(), 1);
+}
+
+#[test]
+fn merging_drops_blank_entries_from_a_sloppy_list() {
+    let merged = merge_proxy_bypass(Some("a.test, ,b.test,"), false).unwrap();
+    assert_eq!(merged, "a.test,b.test");
+}
+
+#[test]
+fn merging_with_nothing_to_say_emits_nothing() {
+    assert!(merge_proxy_bypass(None, false).is_none());
+    assert!(merge_proxy_bypass(Some("  "), false).is_none());
+}
+
+#[test]
+fn the_loopback_guard_can_be_switched_off() {
+    let merged = merge_proxy_bypass(Some("example.com"), false).unwrap();
+    assert_eq!(merged, "example.com");
+}
+
+#[test]
 fn test_build_args_headless_includes_headless_flag() {
     let opts = LaunchOptions {
         headless: true,
@@ -49,10 +118,22 @@ fn test_build_args_headless_includes_headless_flag() {
     materialize_temp_user_data_dir_sync(&result).unwrap();
     assert!(result.args.iter().any(|a| a == "--headless=new"));
     assert!(result.args.iter().any(|a| a == "--hide-scrollbars"));
-    assert!(result
-        .args
-        .iter()
-        .any(|a| a == "--enable-unsafe-swiftshader"));
+    // SwiftShader is the software rasteriser, and it names itself through
+    // `WEBGL_debug_renderer_info`. Forcing it on hands a bot check the exact
+    // string that says "no GPU here", so stealth omits it and the non-stealth
+    // path keeps it for deterministic screenshots.
+    //
+    // Asserted as an INVARIANT against the live policy rather than pinned to
+    // one value: `stealth_enabled()` is a process-global, and a test that
+    // flipped it would race every other test in the binary.
+    assert_eq!(
+        result
+            .args
+            .iter()
+            .any(|a| a == "--enable-unsafe-swiftshader"),
+        !crate::browser_policy::stealth_enabled(),
+        "swiftshader must be present exactly when stealth is off"
+    );
     assert!(result.args.iter().any(|a| {
         a == &format!(
             "--window-size={},{}",

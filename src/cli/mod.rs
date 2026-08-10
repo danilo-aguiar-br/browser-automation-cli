@@ -23,6 +23,11 @@ mod actions_local_media;
 mod actions_media;
 mod actions_tools;
 pub mod agent_ops_args;
+mod args_interact;
+mod args_page;
+mod args_scrape;
+mod args_small;
+mod args_tools;
 mod commands;
 mod global;
 

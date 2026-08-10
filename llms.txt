@@ -11,7 +11,7 @@ browser-automation-cli is a single-process Rust CLI that launches system Chrome 
 - [HOW_TO_USE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/HOW_TO_USE.md): first command in 60 seconds
 - [AGENTS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/AGENTS.md): agent integration contract
 - [COOKBOOK](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/COOKBOOK.md): practical recipes
-- [CONFIGURATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CONFIGURATION.md): all 176 XDG keys with defaults
+- [CONFIGURATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CONFIGURATION.md): all 204 XDG keys with defaults
 - [INTEGRATIONS](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/INTEGRATIONS.md): orchestrator coverage
 - [CROSS_PLATFORM](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CROSS_PLATFORM.md): platform matrix
 - [MIGRATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/MIGRATION.md): version migration
@@ -25,11 +25,16 @@ browser-automation-cli is a single-process Rust CLI that launches system Chrome 
 - [llms-full](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.txt): expanded discovery map
 - [llms-full pt-BR](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/llms-full.pt-BR.txt): mapa expandido em português
 
-## Command Surface (v0.1.7)
+## Command Surface (v0.1.8)
 - Full inventory (**69** names via `commands --json`, sorted): assert, attr, audio, back, batch-scrape, click-at, commands, completions, config, console, cookie, crawl, devtools3p, dialog, doctor, drag, emulate, eval, exec, extension, extract, fill-form, find-paths, forward, goto, grab, heap, hover, image, keys, lighthouse, locale, man, map, mitm, monitor, net, page, parse, perf, pick, press, print-pdf, qr, record, reload, resize, run, schema, scrape, screencast, scroll, search, select-option, sg-rewrite, sg-scan, sheet-write, storage, submit, text, type, upload, version, video, view, wait, webmcp, workflow, write
 - Discovery: doctor (browsers_dir, lighthouse source, cache_redis, residual_disk + residual JSON), commands, schema (`schema <cmd>` or `schema --cmd`), version, locale, man, completions
-- Global flags: **43** long flags in the global help, being **41** product flags plus `--help` and `--version`; source of truth is `browser-automation-cli --help`
-- Config XDG: config init|path|show|get|set|list-keys (discover full keys via `config list-keys --json`)
+- Global flags: **56** long flags in the global help, being **54** product flags plus `--help` and `--version`; source of truth is `browser-automation-cli --help`
+- Config XDG: config init|path|show|get|set|unset|list-keys (`config unset <KEY>` restores a key to its built-in default; discover full keys via `config list-keys --json`)
+- Stealth: ON by default; `--no-stealth` disables the anti-detection patches for this run; `--stealth-profile auto|chrome-linux|chrome-win|chrome-mac` picks the impersonated identity; `--stealth-seed <SEED>` pins the identity across processes, so an N-URL crawl in N one-shot processes does not present as N machines
+- Proxy: `--proxy <URL>` (`http`, `https`, `socks5`) routes both Chrome and the HTTP engine; `--proxy-bypass <HOSTS>` lists the hosts that skip the proxy, in Chrome bypass-list syntax
+- Human input: `--input-profile human|direct` (default `human`) interpolates pointer trajectories, applies dwell between press and release, and paces typing; `--input-seed <SEED>` seeds the input jitter for reproducibility
+- Session shaping: `--warmup` and `--warmup-url <URL>` warm the session before the target URL; `--no-xvfb` skips the private virtual display on Linux
+- Payload assertions: `--expect <EXPR>` asserts `key=value`, `key!=value`, or `key~substring`, repeatable and AND-conjoined; `--expect-exit-code` exits 65 when any `--expect` fails
 - Navigate: goto (init-script, handle-before-unload accept|dismiss), back, forward, reload (CDP Page.reload + ignoreCache)
 - Scrape: scrape (multi-format --format/--formats; --engine http|browser; format/formats in run), batch-scrape, crawl, map, search (uddg clean), parse (PDF/DOCX/xlsx/ods, --redact-pii)
 - Interact: view, press, write, type, keys, wait (multi --text OR; run url/url_contains/navigation/wait_timeout_ms), hover, drag, fill-form, select-option, pick (native select + HIG), submit, upload, click-at
@@ -49,8 +54,10 @@ browser-automation-cli is a single-process Rust CLI that launches system Chrome 
 
 ## Settings Contract
 - Product settings: CLI flags + XDG via `config path|init|show|set|get|list-keys` only
-- Important keys: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_*, cache_backend, cache_redis_url, lang, log_level
-- Complete reference: all **176** keys with default and purpose in [CONFIGURATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CONFIGURATION.md); machine-readable via `config list-keys --json`
+- Important keys: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_*, cache_backend, cache_redis_url, lang, log_level, stealth, stealth_profile, stealth_seed, browser_mode, input_profile, proxy_url, proxy_bypass, proxy_username, proxy_password, http2_enabled, robots_user_agent, scrape_no_cache
+- Complete reference: all **204** keys with default and purpose in [CONFIGURATION](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/docs/CONFIGURATION.md); machine-readable via `config list-keys --json`
+- Restore a default: `config unset <KEY>` is the inverse of `set`; `config set <key> ""` is NOT the inverse, because for a string key it stores an empty value the normal path never produces and for a numeric key it is a parse error
+- Proxy credentials: `proxy_username` and `proxy_password` go in XDG ONLY, never in argv, because the process table exposes argv
 - PRIVACY: [PRIVACY](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/PRIVACY.md) states that no product environment variable is ever read
 - Logging: `--verbose`/`--debug`/`-q` or `config set log_level` / `log_to_file`
 - Color: `config set color true|false`

@@ -30,15 +30,28 @@ pub fn export_har(out: &Path, capture_path: Option<&str>) -> Result<Value, CliEr
                 .iter()
                 .map(|(n, v)| json!({"name": n, "value": v}))
                 .collect();
+            // Elapsed is measured, not stamped as zero. A HAR whose every entry
+            // reads `time: 0` is rejected by the analysers the format exists to
+            // feed, so the export was present and useless.
+            //
+            // `wait` carries the whole interval because the proxy observes one
+            // request in and one response out; it has no visibility into the DNS,
+            // connect and TLS phases of the upstream socket. Those stay `-1`,
+            // which HAR 1.2 defines as "not applicable", rather than `0`, which
+            // would claim they took no time.
+            let elapsed = e
+                .finished_ms
+                .and_then(|f| f.checked_sub(e.started_ms))
+                .unwrap_or(0);
             json!({
                 "startedDateTime": chrono_like(e.started_ms),
-                "time": 0,
+                "time": elapsed,
                 "request": {
                     "method": e.method,
                     "url": e.url,
                     "httpVersion": "HTTP/1.1",
                     "headers": req_headers,
-                    "queryString": [],
+                    "queryString": query_pairs(&e.url),
                     "cookies": [],
                     "headersSize": -1,
                     "bodySize": e.request_body.as_ref().map(|b| b.len() as i64).unwrap_or(0),
@@ -63,7 +76,15 @@ pub fn export_har(out: &Path, capture_path: Option<&str>) -> Result<Value, CliEr
                     "bodySize": e.response_body.as_ref().map(|b| b.len() as i64).unwrap_or(-1),
                 },
                 "cache": {},
-                "timings": { "send": 0, "wait": 0, "receive": 0 },
+                "timings": {
+                    "blocked": -1,
+                    "dns": -1,
+                    "connect": -1,
+                    "ssl": -1,
+                    "send": 0,
+                    "wait": elapsed,
+                    "receive": 0
+                },
             })
         })
         .collect();
@@ -91,4 +112,21 @@ pub fn export_har(out: &Path, capture_path: Option<&str>) -> Result<Value, CliEr
         "entries": entries.len(),
         "format": "HAR 1.2",
     }))
+}
+
+/// Split a URL's query string into HAR `queryString` pairs.
+///
+/// Emitted because the field is required by HAR 1.2 and an empty array claims
+/// the URL had no query, which is a different statement from "not parsed".
+fn query_pairs(url: &str) -> Vec<Value> {
+    let Some(q) = url.split_once('?').map(|(_, q)| q) else {
+        return Vec::new();
+    };
+    q.split('&')
+        .filter(|p| !p.is_empty())
+        .map(|pair| match pair.split_once('=') {
+            Some((name, value)) => json!({"name": name, "value": value}),
+            None => json!({"name": pair, "value": ""}),
+        })
+        .collect()
 }

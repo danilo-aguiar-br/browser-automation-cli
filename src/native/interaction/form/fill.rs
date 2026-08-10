@@ -107,7 +107,7 @@ pub async fn fill_smart(
             .await
         }
         "checkbox" => {
-            let want = parse_boolish(value);
+            let want = parse_checkbox_intent(value);
             if want {
                 check(
                     client,
@@ -129,7 +129,7 @@ pub async fn fill_smart(
             }
         }
         "radio" => {
-            let want = parse_boolish(value);
+            let want = parse_checkbox_intent(value);
             if want {
                 // Radio true: force select via click path used by check()
                 check(
@@ -158,7 +158,22 @@ pub async fn fill_smart(
     }
 }
 
-fn parse_boolish(value: &str) -> bool {
+/// Read a caller's intent for a checkbox or radio from a form-field value.
+///
+/// # Why this is not the config boolean parser
+///
+/// It was called `parse_boolish` and shared that name with
+/// `xdg::config_ops::validate::parse_boolish`, while accepting a different
+/// vocabulary. Two functions with one name and two grammars in the same crate
+/// is a trap for the next reader, so the form one took the specific name.
+///
+/// The grammars stay apart on purpose. `checked` belongs here, because it is
+/// what an HTML attribute says, and belongs nowhere near a config file. And a
+/// form value is caller data rather than operator configuration: an
+/// unrecognised token here means "do not tick the box", which is a defensible
+/// reading, whereas the same token in `config.toml` is an operator mistake that
+/// must be reported.
+fn parse_checkbox_intent(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
         "true" | "1" | "on" | "yes" | "checked"

@@ -5,6 +5,32 @@ use serde_json::json;
 
 use super::BrowserManager;
 
+/// Delete an ephemeral profile, and the `/tmp` directory Chrome tied to it.
+///
+/// # Why the profile alone is not the whole footprint
+///
+/// A unix socket path is capped near 108 bytes and this product's profile path
+/// — an XDG cache dir plus a UUID — exceeds it. Chrome reacts by putting the
+/// real `SingletonSocket` in a short `/tmp/org.chromium.Chromium.*` directory
+/// and leaving a symlink to it in the profile. `remove_dir_all` on the profile
+/// takes the symlink and leaves the directory, so every launch leaked one.
+///
+/// Measured before this helper existed: three launches, three directories, and
+/// `doctor` reporting `chromium_tmp_singleton_orphans` climbing with each one.
+/// A cross-run collector eventually swept them, but only after an age floor
+/// and only if another launch happened to follow — so the last launch of any
+/// session always left one behind.
+///
+/// The symlink must be read BEFORE the profile is deleted: the wipe destroys
+/// the only proof of which directory belongs to this launch.
+fn wipe_profile_and_its_tmp_singleton(dir: &std::path::Path) {
+    let tmp_singleton = crate::residual::owned_chromium_tmp_dir_via_profile(dir);
+    let _ = std::fs::remove_dir_all(dir);
+    if let Some(tmp) = tmp_singleton {
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
 impl BrowserManager {
     /// FINALIZE: close the browser, then reap whatever this manager owns.
     pub async fn close(&mut self) -> Result<(), String> {
@@ -13,7 +39,7 @@ impl BrowserManager {
             self.owns_oxide_browser = false;
             let res = crate::native::cdp::oxide::finalize_browser(self.client.browser()).await;
             if let Some(dir) = self.temp_user_data_dir.take() {
-                let _ = std::fs::remove_dir_all(&dir);
+                wipe_profile_and_its_tmp_singleton(&dir);
             }
             return res;
         }
@@ -44,7 +70,7 @@ impl BrowserManager {
         }
 
         if let Some(dir) = self.temp_user_data_dir.take() {
-            let _ = std::fs::remove_dir_all(&dir);
+            wipe_profile_and_its_tmp_singleton(&dir);
         }
 
         Ok(())

@@ -114,7 +114,7 @@ impl OneShotSession {
                 CliError::with_suggestion(
                     ErrorKind::Browser,
                     format!("click-at failed: {e}"),
-                    "Coordinates are page CSS pixels; enable --experimental-vision",
+                    crate::i18n::suggestion_key("vision_coordinates", None),
                 )
             })?;
         self.drain_events();

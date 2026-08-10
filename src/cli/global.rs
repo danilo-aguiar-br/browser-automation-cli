@@ -95,7 +95,15 @@ pub struct GlobalOpts {
     )]
     pub step_timeout: u64,
 
-    /// Launch Chrome with a visible window (debug; default headless=new)
+    /// Show the browser window on your own display (debugging)
+    ///
+    /// The default `browser_mode = auto` currently launches headless. Stealth
+    /// does not depend on that: the anti-detection patches, the launch switches
+    /// and the identity all apply either way, and `navigator.webdriver` is
+    /// `undefined` in both. What headless still costs is the window itself —
+    /// `window.outerHeight` and `outerWidth` read 0 on a raw headless Chrome,
+    /// which this product patches, and WebGL falls back to a software
+    /// rasteriser. Persist a choice with `config set browser_mode headed`.
     #[arg(
         long,
         global = true,
@@ -103,6 +111,106 @@ pub struct GlobalOpts {
         help_heading = "Browser"
     )]
     pub headed: bool,
+
+    /// Skip the private virtual display on Linux (use the current display)
+    ///
+    /// Only meaningful with a headed mode on Linux. Without a virtual display a
+    /// headed launch puts a real window on your desktop, because GNOME/Mutter
+    /// clamps off-screen window positions back into view.
+    #[arg(
+        long = "no-xvfb",
+        global = true,
+        action = ArgAction::SetTrue,
+        help_heading = "Browser"
+    )]
+    pub no_xvfb: bool,
+
+    /// Turn off anti-detection patches for this run
+    ///
+    /// Stealth is ON by default. It masks the automation markers a real Chrome
+    /// never exposes: `navigator.webdriver`, an empty plugin array, a missing
+    /// `chrome.runtime`, and a Canvas hash that changes on every read. Turn it
+    /// off when you are testing your OWN front end and want the browser
+    /// untouched. Persist the choice with `config set stealth false`.
+    #[arg(
+        long = "no-stealth",
+        global = true,
+        action = ArgAction::SetTrue,
+        help_heading = "Browser"
+    )]
+    pub no_stealth: bool,
+
+    /// Impersonated identity: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`
+    ///
+    /// `auto` follows the host and is almost always right. Claiming a foreign
+    /// platform contradicts the Canvas hash, the WebGL renderer and the TLS
+    /// fingerprint, which this product does not impersonate — the mismatch is a
+    /// stronger signal than the honest platform.
+    #[arg(
+        long = "stealth-profile",
+        global = true,
+        value_name = "PROFILE",
+        value_parser = ["auto", "chrome-linux", "chrome-win", "chrome-mac"],
+        help_heading = "Browser"
+    )]
+    pub stealth_profile: Option<String>,
+
+    /// Pin the stealth identity across processes with a seed
+    ///
+    /// Without it every run draws a fresh identity, so a 50-URL crawl — 50
+    /// one-shot processes — presents 50 different machines from one address.
+    /// No real user does that, and it is a stronger signal than any single
+    /// marker this product masks. With a seed the generated patch script is
+    /// cached under XDG state and reused, so the N runs look like one browser.
+    /// Persist it with `config set stealth_seed <value>`.
+    #[arg(
+        long = "stealth-seed",
+        global = true,
+        value_name = "SEED",
+        help_heading = "Browser"
+    )]
+    pub stealth_seed: Option<String>,
+
+    /// Visit the origin root before the target URL so the session carries cookies
+    ///
+    /// Some challenge systems expect a session that already has cookies and a
+    /// referrer chain. A cold hit straight at a deep URL has neither.
+    #[arg(
+        long,
+        global = true,
+        action = ArgAction::SetTrue,
+        help_heading = "Browser"
+    )]
+    pub warmup: bool,
+
+    /// Warm this URL instead of the target's origin root
+    ///
+    /// The default warm-up lands on the root because that is where a browser
+    /// lands. When the edge hands out the session somewhere else — a login
+    /// page, a locale splash, a region redirector — warming the root buys a
+    /// cookie the target will not accept. Naming the real entry point is
+    /// cheaper than giving up on the warm-up.
+    ///
+    /// Implies `--warmup`; passing it alone is enough.
+    #[arg(long, global = true, value_name = "URL", help_heading = "Browser")]
+    pub warmup_url: Option<String>,
+
+    /// Egress proxy for Chrome and the HTTP engine (`http`, `https`, `socks5`)
+    ///
+    /// Applies to both engines, so a blocked address changes for the whole run
+    /// rather than for one of them. Credentials belong in the XDG file via
+    /// `config set proxy_url`, never in argv where the process table shows them.
+    #[arg(long, global = true, value_name = "URL", help_heading = "Network")]
+    pub proxy: Option<String>,
+
+    /// Hosts that bypass the proxy, in Chrome's bypass-list syntax
+    #[arg(
+        long = "proxy-bypass",
+        global = true,
+        value_name = "HOSTS",
+        help_heading = "Network"
+    )]
+    pub proxy_bypass: Option<String>,
 
     /// Directory for screenshots, PDFs, and other one-shot artifacts
     #[arg(
@@ -131,6 +239,29 @@ pub struct GlobalOpts {
         help_heading = "Output"
     )]
     pub correlation_id: Option<String>,
+
+    /// Input shaping: `human` (default) or `direct`
+    ///
+    /// `human` interpolates pointer trajectories, dwells between press and release,
+    /// paces typing, and scrolls with real `mouseWheel` ticks, so a page that listens
+    /// for `wheel` or `keydown` reacts. `direct` emits one event per action, exactly
+    /// as before 0.1.8: faster and exactly deterministic, but a scroll produces no
+    /// `wheel` event and printable typing produces no `keydown`.
+    #[arg(
+        long,
+        global = true,
+        value_name = "PROFILE",
+        value_parser = ["human", "direct"],
+        help_heading = "Browser"
+    )]
+    pub input_profile: Option<String>,
+
+    /// Seed the input jitter so a `human` run reproduces exactly
+    ///
+    /// Without it the jitter is drawn from the OS and two runs differ. Set it in CI
+    /// and in tests that assert on the event trace.
+    #[arg(long, global = true, value_name = "SEED", help_heading = "Browser")]
+    pub input_seed: Option<u64>,
 
     /// Capture console messages during browser commands
     #[arg(
@@ -295,7 +426,10 @@ pub struct GlobalOpts {
     )]
     pub mitm_no_media_bodies: bool,
 
-    /// Redact Authorization/Cookie secrets in MITM exports (default on when set)
+    /// Redact Authorization/Cookie secrets in MITM captures (already the default)
+    ///
+    /// Kept because it reads as an intent, and passing it changes nothing:
+    /// redaction is on unless `--mitm-no-redact-secrets` turns it off.
     #[arg(
         long,
         global = true,
@@ -303,6 +437,20 @@ pub struct GlobalOpts {
         help_heading = "MITM"
     )]
     pub mitm_redact_secrets: bool,
+
+    /// Keep Authorization/Cookie values readable in the MITM capture
+    ///
+    /// The capture is written to disk and read back by an agent, so masking is
+    /// the default: forgetting the flag costs a missing header, while the
+    /// opposite default would make forgetting it cost a leaked session cookie.
+    /// Turn it off only when the secret itself is what you are debugging.
+    #[arg(
+        long,
+        global = true,
+        action = ArgAction::SetTrue,
+        help_heading = "MITM"
+    )]
+    pub mitm_no_redact_secrets: bool,
 
     /// Universal data operations applied to `data` before it reaches stdout.
     ///

@@ -16,8 +16,25 @@
 - DEVE executar `browser-automation-cli --json -q --plain --max-concurrency 4 --artifacts-dir /tmp/arts --correlation-id req-42 goto https://example.com`
 - DEVE passar `--verbose|--debug` ou `config set log_level`; `--headed` só debug; `--lang en|pt-BR`
 - DEVE passar `--category-memory` (heap), `--category-extensions` (extension), `--category-third-party` (devtools3p), `--category-webmcp` (webmcp), `--experimental-vision` (click-at), `--experimental-screencast` (screencast)
-- DEVE passar `--mitm` + `--mitm-har|--mitm-hosts|--mitm-ca-dir|--mitm-ws|--mitm-max-body-bytes|--mitm-no-media-bodies|--mitm-redact-secrets` só quando intercepção exigir
+- DEVE passar `--mitm` + `--mitm-har|--mitm-hosts|--mitm-ca-dir|--mitm-ws|--mitm-max-body-bytes|--mitm-no-media-bodies|--mitm-redact-secrets|--mitm-no-redact-secrets` só quando intercepção exigir
+- DEVE saber que a redação de segredos na captura MITM é LIGADA por padrão, então `--mitm-redact-secrets` apenas a reafirma e não muda nada
+- DEVE executar `browser-automation-cli --json --mitm --mitm-no-redact-secrets mitm capture-url https://example.com` como a ÚNICA maneira de manter legíveis os valores de Authorization e Cookie
+- DEVE saber que passar `--mitm-redact-secrets` e `--mitm-no-redact-secrets` juntas resolve MASCARANDO, porque a leitura segura de uma contradição sobre segredos é mascarar
+- DEVE saber que o padrão é LIGADO porque a captura vai para disco e é lida depois por um agente, então esquecer a flag custa um cabeçalho ausente enquanto o padrão oposto custaria um cookie de sessão vazado
+- NUNCA passe `--mitm-no-redact-secrets` salvo quando o próprio segredo for o objeto da depuração
 - DEVE contornar robots só com ambas `--ignore-robots --i-accept-robots-risk`
+- DEVE executar `browser-automation-cli --json --no-stealth goto https://example.com` só quando os patches anti-detecção precisarem ficar desligados; stealth é LIGADO por padrão
+- DEVE executar `browser-automation-cli --json --stealth-profile auto goto https://example.com` (`chrome-linux|chrome-win|chrome-mac` só com plataforma estrangeira intencional)
+- DEVE executar `browser-automation-cli --json --stealth-seed my-fleet-42 goto https://example.com` para fixar uma identidade entre processos one-shot
+- DEVE executar `browser-automation-cli --json --proxy socks5://127.0.0.1:1080 scrape https://example.com --format text --engine http`
+- DEVE executar `browser-automation-cli --json --proxy http://127.0.0.1:8080 --proxy-bypass 'localhost,127.0.0.1,*.internal' goto https://example.com`
+- DEVE guardar credenciais de proxy com `config set proxy_username` e `config set proxy_password`; NUNCA em argv, porque a tabela de processos expõe argv
+- DEVE executar `browser-automation-cli --json --input-profile human --input-seed 7 press @e1` (`--input-profile direct` para um evento por ação)
+- DEVE executar `browser-automation-cli --json --warmup goto https://example.com/deep/page`
+- DEVE executar `browser-automation-cli --json --warmup-url https://example.com/login goto https://example.com/deep/page`
+- DEVE executar `browser-automation-cli --json --headed --no-xvfb goto https://example.com` só no Linux com modo headed
+- DEVE executar `browser-automation-cli --json --expect 'ok=true' --expect 'data.title~Example' scrape https://example.com --format metadata --engine http`
+- DEVE executar `browser-automation-cli --json --expect 'ok=true' --expect-exit-code doctor --offline --quick` para transformar expectativa não atendida em exit 65
 
 ## Meta
 - DEVE executar `browser-automation-cli --json doctor --offline --quick` e `doctor --fix` só se reparo for necessário
@@ -26,8 +43,12 @@
 
 ## Config XDG
 - DEVE executar `browser-automation-cli --json config init|path|show|list-keys`; `config get`; `config get timeout`; `config set <k> <v>`
+- DEVE executar `browser-automation-cli --json config unset <CHAVE>` para restaurar uma chave ao default embutido
+- DEVE saber que `config unset` é o inverso de `set`, enquanto `config set <chave> ""` NÃO é inverso
+- DEVE saber que `config set <chave> ""` grava em chave string um valor vazio que o caminho normal nunca produz, e em chave numérica é erro de parse
+- DEVE saber que desfazer chave já ausente tem sucesso, então um script nunca precisa saber o estado anterior
 - DEVE descobrir a superfície viva de chaves com `config list-keys --json` antes de qualquer `config set`
-- DEVE consultar `references/xdg-keys.md` para as 176 chaves com padrão e descrição
+- DEVE consultar `references/xdg-keys.md` para o inventário completo das chaves com padrão e descrição
 - DEVE setar binários com `chrome_path`, `lighthouse_path`, `ffmpeg_path`
 - DEVE setar segredos com `encryption_key` e `openrouter_api_key`
 - DEVE setar cache com `cache_backend sqlite|memory|redis` e Redis plain em `cache_redis_url`

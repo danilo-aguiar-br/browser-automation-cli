@@ -32,6 +32,54 @@ pub const HTTP_REDIRECT_MAX: usize = 10;
 /// reqwest pool max idle connections per host (one-shot process).
 pub const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 4;
 
+/// Negotiate HTTP/2 on the shared HTTP client by default.
+///
+/// On, and the reason is detection rather than throughput. ALPN is offered in
+/// the clear during the TLS handshake; Chrome always lists `h2` there. A client
+/// built without the protocol offers `http/1.1` alone, which distinguishes it
+/// from every real browser before a byte of HTTP is exchanged.
+///
+/// Override: XDG `http2_enabled`.
+pub const DEFAULT_HTTP2_ENABLED: bool = true;
+
+/// Chrome's `SETTINGS_INITIAL_WINDOW_SIZE` (stream-level HTTP/2 flow control).
+///
+/// # Why a browser value rather than a library default
+///
+/// The HTTP/2 `SETTINGS` frame is sent in the clear at connection open, and a
+/// bot check reads it before a single header arrives. Chrome advertises
+/// 6291456 here; `h2`'s own default is 65535, three orders of magnitude away.
+/// A client that keeps the library default has already answered "not a
+/// browser" by the time the request line exists.
+///
+/// Override: XDG `http2_initial_stream_window_size`.
+pub const HTTP2_INITIAL_STREAM_WINDOW_SIZE: u32 = 6_291_456;
+
+/// Chrome's connection-level HTTP/2 flow-control window.
+///
+/// Chrome follows its `SETTINGS` frame with a `WINDOW_UPDATE` that lifts the
+/// connection window to this value. Override: XDG
+/// `http2_initial_connection_window_size`.
+pub const HTTP2_INITIAL_CONNECTION_WINDOW_SIZE: u32 = 15_663_105;
+
+/// Chrome's `SETTINGS_MAX_HEADER_LIST_SIZE`.
+///
+/// Override: XDG `http2_max_header_list_size`.
+pub const HTTP2_MAX_HEADER_LIST_SIZE: u32 = 262_144;
+
+/// Chrome's `SETTINGS_MAX_FRAME_SIZE` (the protocol default; Chrome keeps it).
+///
+/// Override: XDG `http2_max_frame_size`.
+pub const HTTP2_MAX_FRAME_SIZE: u32 = 16_384;
+
+/// Whether the HTTP/2 flow-control window may resize itself at runtime.
+///
+/// Off, and not for performance. An adaptive window rewrites the connection
+/// window mid-stream, so the value a server observes stops matching the value
+/// Chrome would have held. The fingerprint has to be a constant to be a
+/// fingerprint. Override: XDG `http2_adaptive_window`.
+pub const HTTP2_ADAPTIVE_WINDOW: bool = false;
+
 /// Default LLM/webhook blocking HTTP client timeout (seconds).
 ///
 /// Override: XDG `llm_http_timeout_secs`.
@@ -62,6 +110,14 @@ pub const DEFAULT_SCRAPE_LINK_TEXT_CHARS: usize = 200;
 /// Default max chars for `summary` format. Override: XDG `scrape_summary_chars`.
 pub const DEFAULT_SCRAPE_SUMMARY_CHARS: usize = 400;
 
+/// Byte ceiling for the `monitor check --diff-mode` payload.
+///
+/// A diff of a page that was rewritten wholesale is the whole page twice, and
+/// the caller asked "what changed", not "send me everything". The ceiling
+/// keeps the answer readable; `diff_truncated` says when it applied, and the
+/// `*_count` fields keep reporting the real size of the change.
+pub const MONITOR_DIFF_MAX_BYTES: u64 = 65536;
+
 /// HTML5 charset sniffing window (bytes). Override: XDG `scrape_charset_peek_bytes`.
 pub const DEFAULT_SCRAPE_CHARSET_PEEK_BYTES: usize = 4096;
 
@@ -91,6 +147,28 @@ pub const DEFAULT_SCRAPE_FOLLOW_REL_NEXT: bool = false;
 /// Override: XDG `scrape_dedup_similar`. Off by default because collapsing
 /// changes how many pages the envelope emits, which an agent must opt into.
 pub const DEFAULT_SCRAPE_DEDUP_SIMILAR: bool = false;
+
+/// Whether an HTTP scrape ignores the response cache and always goes to origin.
+///
+/// Override: XDG `scrape_no_cache`, or `--no-cache` on the commands that read a
+/// page. Off by default: the cache exists because refetching an unchanged page
+/// is waste, and that reasoning holds for every command whose question is
+/// "what does this page say".
+///
+/// It stops holding for a command whose question is "did this page CHANGE".
+/// `monitor check` hashes the body it receives, so a cache hit made it compare
+/// a stored page against itself and report `changed: false` for a page that had
+/// changed — a false negative delivered with `ok: true` and exit 0. That command
+/// therefore turns this on for itself rather than trusting the default.
+///
+/// Note this is a READ bypass, not a cache disable: the fresh response is still
+/// written, so a bypassing command leaves the cache correct for everyone else
+/// instead of leaving it stale.
+///
+/// There is deliberately no way to express this as a TTL of zero.
+/// `CacheEntry::is_fresh` already reads `expires_unix == 0` as "never expires",
+/// so a zero TTL would mean the exact opposite of no cache.
+pub const DEFAULT_SCRAPE_NO_CACHE: bool = false;
 
 /// SimHash Hamming distance under which two pages count as near-duplicates.
 ///

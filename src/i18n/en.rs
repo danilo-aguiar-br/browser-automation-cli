@@ -43,6 +43,26 @@ pub fn text(msg: UiMessage) -> &'static str {
         UiMessage::BinaryUnsafeWindows => {
             "Use a native binary path (not .bat/.cmd/.ps1): config set lighthouse_path|ffmpeg_path <exe>"
         }
+        UiMessage::PerfTracePath => "Pass a trace file written by `perf stop --path`",
+        UiMessage::VisionCoordinates => "Coordinates are page CSS pixels; pass --experimental-vision on the same invocation",
+        UiMessage::EvalArgsUids => "Pass a JSON array of refs to --args, for example [\"@e1\",\"@e2\"]",
+        UiMessage::ExtractLlmUsage => "Example: extract --llm --question 'sum' https://example.com",
+        UiMessage::MitmBlockTarget => "Name a target, for example: mitm block --host example.com",
+        UiMessage::Devtools3pListFirst => "Run devtools3p list --url <page> with --category-third-party to see the tool names",
+        UiMessage::WebmcpInputJson => "Pass a JSON object to --input, with the tool input as key/value pairs",
+        UiMessage::Devtools3pParamsJson => "Pass a JSON object to --params, with the tool parameters as key/value pairs",
+        UiMessage::RunScriptFile => "Pass an existing NDJSON/JSONL or JSON-array file to --script",
+        UiMessage::InitScriptJavascript => "Pass valid JavaScript to --init-script",
+        UiMessage::RaiseStepTimeout => "Raise --step-timeout or --timeout, or split the script into fewer steps",
+        UiMessage::WorkflowRunFirst => "Run workflow run first, or point at an existing journal with --journal",
+        UiMessage::CookieJsonExample => "Pass the cookie array to --cookies-json; the global --json only selects the envelope format",
+        UiMessage::GotoRunScript => "Use run --script steps.jsonl so goto and reload --init-script share one process",
+        UiMessage::ConsoleCaptureRun => "Pass --capture-console on the same invocation, for example: --capture-console run --script audit.jsonl",
+        UiMessage::PageSelectTarget => "Pass an index or --page-id, for example: page select 0",
+        UiMessage::BlockedByWaf => {
+            "A bot check answered instead of the page; see data.block_detection. \
+             Retrying escalates toward a ban: use --engine browser, change egress with --proxy, or wait"
+        }
         UiMessage::SsrfBlocked => {
             "Use a public http(s) URL, or: config set http_ssrf_mode allow_loopback|off"
         }
@@ -54,6 +74,9 @@ pub fn text(msg: UiMessage) -> &'static str {
         }
         UiMessage::RedisHostBlocked => {
             "Use redis://127.0.0.1:6379 or: config set redis_allow_remote true"
+        }
+        UiMessage::ProxyUrlInvalid => {
+            "Use http://, https://, socks5:// or socks5h:// with host and port"
         }
         UiMessage::LocaleResolved => "Resolved UI locale",
         UiMessage::LocaleSource => "Resolution source",
@@ -83,6 +106,7 @@ pub fn text(msg: UiMessage) -> &'static str {
         UiMessage::LlmConfigRequired => "Set the LLM knobs: config set openrouter_api_key|llm_base_url|llm_model",
         UiMessage::RedisConfigRequired => "Start redis-server and set cache_redis_url, or: config set cache_backend sqlite",
         UiMessage::ConfigListKeys => "Run: browser-automation-cli config list-keys",
+        UiMessage::ConfigBoolValue => "Use true|false|1|0|yes|no|on|off (case-insensitive); config unset <key> restores the default",
         UiMessage::UseListedValue => "Use one of the supported values reported in the message",
         UiMessage::FilePathInvalid => "Pass an existing regular file path (not a directory)",
         UiMessage::HeapSnapshotInput => "Pass a path produced by heap take (.heapsnapshot JSON) with a valid node or class id",
@@ -103,6 +127,7 @@ pub fn text(msg: UiMessage) -> &'static str {
         UiMessage::CommandsDiscovery => "Run: browser-automation-cli commands --json to list the live surface",
         UiMessage::SchemaCommandRequired => "Use: browser-automation-cli schema <cmd> or schema --cmd <cmd>",
         UiMessage::ScrapeEngineChoice => "Use --engine http for one-shot baselines, or --engine browser / parse for local files",
+        UiMessage::ScrapeOpaqueContent => "Download the file first, then read it with parse; or use image / video / audio for that media type",
         UiMessage::ChromeLaunchFailed => "Check the Chrome install and Xvfb availability on Linux headed launches",
         UiMessage::StepFieldUnknown => "Check the allowed fields for this step cmd in schema run",
         UiMessage::XdgHomeRequired => "Ensure the home directory is available for this user",

@@ -129,7 +129,7 @@ pub(crate) fn handle_page(
                     CliError::with_suggestion(
                         ErrorKind::Usage,
                         "page select requires INDEX or --page-id",
-                        "browser-automation-cli page select 0 --json",
+                        crate::i18n::suggestion_key("page_select_target", None),
                     )
                 })?;
                 session.page_select(idx, bring_to_front).await?

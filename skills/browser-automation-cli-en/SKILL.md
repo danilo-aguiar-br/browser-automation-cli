@@ -1,6 +1,6 @@
 ---
 name: browser-automation-cli
-description: This skill MUST be used when operating browser-automation-cli for Chrome CDP automation, local scraping, local media and page diagnostics. MUST activate for navigate, click, type, form submit, fill-form, storage export and import, accessibility snapshots with @eN refs, screenshots, PDF, LLM extract, multi-format scrape with rawHtml, batch-scrape, crawl, map, search, parse PDF DOCX XLSX ODS, monitor, QR, sheet-write, sg-scan, sg-rewrite, find-paths, console, network, loopback MITM, traffic capture with HAR, REST and GraphQL endpoint discovery, emulate, perf, lighthouse, screencast, heap, extensions, webmcp, workflow, multi-step run, record of replayable interactions, image info convert resize exif download, video info convert trim thumbnail manifest, audio info convert trim download. Delivers argv formulas, eight payload-reduction flags, JSON envelope, exit codes, 176 XDG keys with no environment variables, robots and residual-zero on disk.
+description: This skill MUST be used when operating browser-automation-cli for Chrome CDP automation, local scraping, local media and page diagnostics. MUST activate for navigate, click, type, form submit, fill-form, storage export and import, accessibility snapshots with @eN refs, screenshots, PDF, LLM extract, multi-format scrape with rawHtml, batch-scrape, crawl, map, search, parse PDF DOCX XLSX ODS, monitor, QR, sheet-write, sg-scan, sg-rewrite, find-paths, console, network, loopback MITM, traffic capture with HAR, REST and GraphQL endpoint discovery, emulate, perf, lighthouse, screencast, heap, extensions, webmcp, workflow, multi-step run, record of replayable interactions, image info convert resize exif download, video info convert trim thumbnail manifest, audio info convert trim download. Delivers argv formulas, eight payload-reduction flags, JSON envelope, exit codes, 204 XDG keys with no environment variables, robots and residual-zero on disk.
 ---
 
 # browser-automation-cli
@@ -81,25 +81,63 @@ description: This skill MUST be used when operating browser-automation-cli for C
 - MUST pass `--lang en` or `--lang pt-BR`; `--verbose` or `--debug` for tracing (or `config set log_level`)
 - MUST pass category gates only when required - `--category-memory` (heap), `--category-extensions` (extension), `--category-third-party` (devtools3p), `--category-webmcp` (webmcp)
 - MUST pass `--experimental-vision` for `click-at`; `--experimental-screencast` for `screencast`
-- MUST pass `--mitm` for interception; combine with `--mitm-har|--mitm-hosts|--mitm-ca-dir|--mitm-ws|--mitm-max-body-bytes|--mitm-no-media-bodies|--mitm-redact-secrets` only when required
+- MUST pass `--mitm` for interception; combine with `--mitm-har|--mitm-hosts|--mitm-ca-dir|--mitm-ws|--mitm-max-body-bytes|--mitm-no-media-bodies|--mitm-redact-secrets|--mitm-no-redact-secrets` only when required
+- MUST know secret redaction in the MITM capture is ON by default
+- MUST treat `--mitm-redact-secrets` as an explicit restatement of that default, which changes nothing
+- MUST pass `--mitm-no-redact-secrets` as the ONLY way to turn the masking off
+- MUST know that asking to mask and asking to unmask in the same run resolves to MASKING, because the safe reading of a contradiction about secrets is to mask
+- MUST know the default is ON because a capture is written to disk and read back by an agent, so forgetting the flag costs a missing header while the opposite default would cost a leaked session cookie
 - MUST pass `--dump-on-failure` to write captured console and network evidence to the artifacts dir
 - MUST combine `--dump-on-failure` with `--artifacts-dir` and with `--capture-console` or `--capture-network`
 - MUST keep those capture flags in the SAME process, because capture dies with the process
 - MUST pass `--allow-outside-roots` only with declared intent; it is explicit risk acceptance
 - MUST know `--allow-outside-roots` permits local reads and artifact writes OUTSIDE the allowed roots
 - MUST treat the XDG key `allowed_roots` as the normal surface for widening those roots
+- MUST know stealth is ON by default and masks the automation markers a real Chrome never exposes
+- MUST pass `--no-stealth` to turn the anti-detection patches off for this run
+- MUST pass `--stealth-profile auto|chrome-linux|chrome-win|chrome-mac` to choose the impersonated identity
+- MUST prefer `--stealth-profile auto` because it follows the host and is almost always right
+- MUST pass `--stealth-seed <SEED>` to pin one identity across processes
+- MUST know that without a seed every run draws a fresh identity, so a 50-URL crawl over 50 one-shot processes presents 50 distinct machines
+- MUST pass `--proxy <URL>` (`http`, `https`, `socks5`) as the egress proxy for BOTH Chrome and the HTTP engine
+- MUST pass `--proxy-bypass <HOSTS>` for hosts that skip the proxy, in Chrome bypass-list syntax
+- MUST store proxy credentials with `config set proxy_username` and `config set proxy_password` in XDG, NEVER in argv, because the process table shows argv
+- MUST know part of the anti-detection surface has NO flag at all and is reachable ONLY through XDG
+- MUST execute `config set browser_mode auto` as the ONLY route to the browser mode; no flag exposes it
+- MUST know the `http2_*` family drives the HTTP/2 fingerprint of the `--engine http` transport and is XDG-only
+- MUST tune that fingerprint with `config set http2_enabled`, `config set http2_adaptive_window`, `config set http2_initial_stream_window_size`, `config set http2_initial_connection_window_size`, `config set http2_max_header_list_size` and `config set http2_max_frame_size`
+- MUST know a mismatched HTTP/2 fingerprint identifies the client as automated even when the headers look real
+- MUST execute `config set stealth false` as the persistent equivalent of `--no-stealth`
+- MUST execute `config set stealth_profile <PROFILE>` and `config set stealth_seed <SEED>` to persist what those flags do per process
+- MUST discover the live surface with `config list-keys --json` instead of trusting any static list
+- MUST pass `--input-profile human|direct`; `human` is the default
+- MUST know `human` interpolates pointer trajectories, dwells between press and release and paces typing
+- MUST pass `--input-seed <SEED>` to seed the input jitter so a `human` run reproduces exactly
+- MUST know that without `--input-seed` the jitter comes from the OS and two runs differ
+- MUST pass `--warmup` to visit the origin root before the target URL so the session already carries cookies and a referrer chain
+- MUST pass `--warmup-url <URL>` to warm that URL instead of the target origin root
+- MUST pass `--no-xvfb` only in headed mode on Linux, to skip the private virtual display and use the current one
+- MUST pass `--expect <EXPR>` with `key=value`, `key!=value` or `key~substring` to assert the emitted payload (repeatable, ANDed)
+- MUST pass `--expect-exit-code` to exit 65 when any `--expect` is unmet, instead of only reporting it
+- MUST know `--expect-exit-code` is off by default because changing an exit code on data content would silently break callers
 ### FORBIDDEN
 - NEVER expect capture to survive process end; NEVER enable category/experimental gates by default; NEVER omit `--json` in agent pipelines
+- NEVER pass proxy credentials in argv; NEVER claim a foreign platform in `--stealth-profile` when the host says otherwise
+- NEVER pass `--mitm-no-redact-secrets` unless the secret itself is what you are debugging
 
 ## XDG Config
 ### REQUIRED
-- MUST configure ONLY via CLI flags and `config init|path|show|get|set|list-keys`
+- MUST configure ONLY via CLI flags and `config init|path|show|get|set|unset|list-keys`
 - MUST discover keys with `config list-keys --json` before set; resolve paths with `config path --json`
 - MUST treat CLI flags as overrides of stored values
+- MUST execute `browser-automation-cli --json config unset <KEY>` to restore one key to its built-in default
+- MUST know `config unset` is the inverse of `set`, while `config set <key> ""` is NOT
+- MUST know `config set <key> ""` stores on a string key an empty value the normal path never produces, and on a numeric key it is a parse error
+- MUST know unsetting an already absent key succeeds, so a script never has to know the prior state
 - MUST set secrets `encryption_key`, `openrouter_api_key`; binaries `chrome_path`, `lighthouse_path`, `ffmpeg_path`
 - MUST set `cache_backend` sqlite|memory|redis; Redis only plain `cache_redis_url redis://...`
 - MUST set `dialog_settle_ms` for dialog settle budget; logging via `config set log_level` or `--verbose`/`--debug`
-- MUST read `references/xdg-keys.md` for the full set of 176 XDG keys with defaults and descriptions
+- MUST read `references/xdg-keys.md` for the full set of 204 XDG keys with defaults and descriptions
 - MUST consult `references/xdg-keys.md` before setting any key not named in this section
 ### FORBIDDEN
 - NEVER invent product env for any key; NEVER log secrets/cookies; NEVER use `rediss://`; NEVER set redis backend without URL
@@ -295,7 +333,7 @@ description: This skill MUST be used when operating browser-automation-cli for C
 - NEVER adapt by assumption without `schema <cmd> --json`
 
 #### A. Diagnostics
-- `browser-automation-cli --json doctor --offline --quick` · `version` · `locale` · `commands` · `schema run` · `config list-keys` · `man --out /tmp/browser-automation-cli.1` · `completions bash`
+- `browser-automation-cli --json doctor --offline --quick` · `version` · `locale` · `commands` · `schema run` · `config list-keys` · `config unset <key>` · `man --out /tmp/browser-automation-cli.1` · `completions bash`
 
 #### B. Navigate and inspect
 - `browser-automation-cli --timeout 60 --json goto https://example.com --init-script 'window.__ready=true' --handle-before-unload accept --navigation-timeout-ms 15000`

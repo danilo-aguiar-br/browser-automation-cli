@@ -44,7 +44,7 @@ pub(crate) fn handle_extract_llm(
         return Err(CliError::with_suggestion(
             ErrorKind::Usage,
             "extract --llm target must be http(s) URL or local file path",
-            "Example: browser-automation-cli --json extract --llm --question 'sum' https://example.com",
+            crate::i18n::suggestion_key("extract_llm_usage", None),
         ));
     };
     if source_text.trim().is_empty() {

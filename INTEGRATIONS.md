@@ -24,7 +24,8 @@
 - `0.1.3` hard-closes residual-zero and agent contracts: NDJSON|JSON-array `run`, CDP reload/beforeunload/init_script, Redis/Lighthouse honesty, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 clap top-level; 53 e2e DevTools tools)
 - `0.1.4` hard-closes GAP-001…025: `--json-steps`, wait multi/url, `select-option`/`pick` run cmds, assert console kinds, `schema <cmd>` positional, MITM `capture-url` + global `--mitm*`, multi-format scrape, batch/crawl `--engine browser`, clap JSON usage errors
 - `0.1.5` hard-closes residual-zero disk (RES-01…12): BORN auto-GC of stale Singleton-only Chromium `/tmp` dirs (age floor 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + top-level `residual` (`ResidualDiskReport`), never kills host Flatpak Chrome; inventory honesty with `locale`/`man`
-- `0.1.6` hard-closes agent dialog/select/scrape/wait confidence: `dialog_settled` bool + XDG `dialog_settle_ms`, multi-tab dialog `session_id` isolation with e2e gate, native select `input`+`change`, `wait_timeout_ms` in `run`, scrape `format`/`formats` in `run`, grab `png|jpeg|webp` only (AVIF encode removed); inventory tip 0.1.7 **69** via `commands --json` (0.1.6: `submit`/`storage` → 65; 0.1.7: `image`+`video`+`audio` → 68 then `record` → 69; also `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (lighthouse mock honest SKIP)
+- `0.1.6` hard-closes agent dialog/select/scrape/wait confidence: `dialog_settled` bool + XDG `dialog_settle_ms`, multi-tab dialog `session_id` isolation with e2e gate, native select `input`+`change`, `wait_timeout_ms` in `run`, scrape `format`/`formats` in `run`, grab `png|jpeg|webp` only (AVIF encode removed); inventory tip 0.1.8 **69** via `commands --json` (0.1.6: `submit`/`storage` → 65; 0.1.7: `image`+`video`+`audio` → 68 then `record` → 69; also `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (lighthouse mock honest SKIP)
+- `0.1.8` hard-closes anti-detection and egress control: stealth family (`--no-stealth`, `--stealth-profile`, `--stealth-seed`), window mode via XDG `browser_mode` plus `--no-xvfb`, egress proxy (`--proxy`, `--proxy-bypass`) covering Chrome and the HTTP engine, constant HTTP/2 fingerprint keys, human input kinematics (`--input-profile`, `--input-seed`), session warmup (`--warmup`, `--warmup-url`), payload expectations (`--expect`, `--expect-exit-code`), and `config unset <KEY>`; config surface grows 176 → **204** keys while the inventory tip stays **69** via `commands --json`
 - Experimental tools require `--experimental-vision` or `--experimental-screencast`
 
 ## Summary Table
@@ -135,6 +136,18 @@ echo "$out" | jaq -e '.ok == true'
   - Run: public `wait_timeout_ms` on wait steps; scrape step `format`/`formats` (compact text without HTML dump when text-only)
   - Grab: `--format png|jpeg|webp` only — AVIF encode removed
   - Lighthouse: unit fixtures include chrome-captured LHR 13.4.1 shape; e2e mock remains SKIP (never claim parser PASS from mock)
-  - Inventory tip: **69** agent names via `commands --json` (includes `submit`, `storage`, 0.1.7 `image`+`video`+`audio`+`record`, `select-option`, `pick`, `locale`, `man`, …)
+  - Inventory tip (0.1.8): **69** agent names via `commands --json` (includes `submit`, `storage`, 0.1.7 `image`+`video`+`audio`+`record`, `select-option`, `pick`, `locale`, `man`, …)
   - Discover full config key set via `config list-keys --json` (not a fixed count of 16)
   - Intentional residual: GAP-022 ~53 dependency multi-versions; GAP-023/024 PRD wishlist flags/commands not full parity
+- `0.1.8`:
+  - Anti-detection: `--no-stealth`, `--stealth-profile auto|chrome-linux|chrome-win|chrome-mac`, `--stealth-seed <SEED>`; XDG `stealth` (default true), `stealth_profile`, `stealth_seed`
+  - Window mode: XDG `browser_mode` (`auto|headed|headless`; `auto` resolves to headless and `doctor` reports the effective mode); `--no-xvfb` skips the private virtual display on Linux
+  - Egress proxy: `--proxy <URL>` (`http`, `https`, `socks5`) and `--proxy-bypass <HOSTS>` apply to Chrome **and** to the HTTP engine; XDG `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `cdp_proxy_bypass_loopback` (default true)
+  - HTTP/2 fingerprint: XDG `http2_enabled` (default true), `http2_initial_stream_window_size` (6291456), `http2_initial_connection_window_size` (15663105), `http2_max_header_list_size` (262144), `http2_max_frame_size` (16384), `http2_adaptive_window` (default false, because leaving it off keeps the fingerprint constant)
+  - Human input kinematics: `--input-profile human|direct` (default `human`) and `--input-seed <SEED>`; XDG `input_profile`, `input_move_steps` (24), `input_move_gap_ms` (12), `input_click_dwell_ms` (65), `input_key_dwell_ms` (45), `input_type_delay_ms` (95), `input_scroll_tick_px` (100), `input_scroll_max_ticks` (40), `input_target_jitter_px` (3), `input_scroll_settle_rounds` (3)
+  - Session warmup: `--warmup` and `--warmup-url <URL>`
+  - Payload expectations: `--expect <EXPR>` with `key=value`, `key!=value` or `key~substring`, repeatable and AND-conjugated; `--expect-exit-code` exits 65 when any expectation is unmet, off by default because changing the exit code from data content would break callers silently
+  - `config unset <KEY>` restores one key to its built-in default
+  - New standalone keys: `robots_user_agent`, `scrape_no_cache`, `monitor_diff_max_bytes`
+  - Config surface grows from 176 to **204** keys (`config list-keys --json`)
+  - Inventory tip stays **69** agent names via `commands --json`

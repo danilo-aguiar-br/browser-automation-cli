@@ -36,7 +36,18 @@ DOCS_OUT="${DOCS_CHECK_OUT:-target/doc}"
 
 json_escape() {
   # Minimal JSON string escape for NDJSON progress lines.
-  python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"
+  #
+  # `jaq -R` reads the line as a raw string and `.` re-emits it as JSON, which is
+  # the same escape table the previous `json.dumps` applied. The swap is not
+  # cosmetic: this gate runs inside `ci-check`, so a python3 dependency here made
+  # the product's own closure criterion fail on a host without python3 — under
+  # `set -euo pipefail`, with no guard. The tool must be Rust end to end, and
+  # `jaq` already is.
+  #
+  # Newlines are folded to spaces first because `-R` is line-oriented and a
+  # multi-line argument would otherwise emit several JSON strings, corrupting the
+  # NDJSON line this function is embedded in.
+  printf '%s\n' "${1//$'\n'/ }" | jaq -R -c .
 }
 
 progress() {

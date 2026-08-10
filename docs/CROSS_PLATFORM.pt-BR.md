@@ -73,7 +73,7 @@ Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `exec
 - Em Alpine ou outros hosts musl, faça cross-compile ou build nativo para o target musl
 - Forneça um binário real de Chrome ou Chromium; a CLI não embute browser
 - Containers adicionam `--no-sandbox` e `--disable-dev-shm-usage` quando root ou marcadores docker/podman/k8s estão presentes
-- Higiene residual de disco (lei v0.1.5 ainda corrente na 0.1.7): BORN + FINALIZE scavenge Chromium tmp Singleton-only owned sob o temp do processo (comumente `/tmp/org.chromium.Chromium.*` e `/tmp/.org.chromium.Chromium.*`)
+- Higiene residual de disco (lei v0.1.5 ainda corrente na 0.1.8): BORN + FINALIZE scavenge Chromium tmp Singleton-only owned sob o temp do processo (comumente `/tmp/org.chromium.Chromium.*` e `/tmp/.org.chromium.Chromium.*`)
 - Age floor do GC Singleton stale é **60s**; só dirs same-uid Singleton-only (ou vazios) sem holder vivo em `/proc` são apagados
 - Markers CLI usam prefixo `browser-automation-cli-chrome-*` sob o temp do processo
 - Prefixos temp de Chrome Flatpak do host **nunca** são apagados pelo GC residual do produto
@@ -97,6 +97,44 @@ Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `exec
 - Helpers de processo Windows ficam atrás de `cfg(windows)` e não mudam o contrato JSON
 - Higiene residual de **processo** usa Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) para árvores Chrome morrerem com o processo da CLI
 - Campos de relatório residual de disco (`residual` / `residual_disk`) permanecem disponíveis via doctor para diagnósticos de marker e temp
+
+
+## Anti-Detecção Entre Plataformas
+- `stealth` vem ligado por padrão e se comporta igual nos três sistemas
+- `stealth_profile auto` resolve pelo host: Windows dá chrome-win, macOS dá chrome-mac
+- Todo outro host resolve para chrome-linux, incluindo container e WSL
+- Perfil estrangeiro é reportado, nunca bloqueado, em `profile_contradicts_host`
+- O override headless troca só o token de produto `HeadlessChrome` pelo token `Chrome`
+- Essa troca preserva a plataforma real do host e nunca inventa outra
+- `browser_mode auto` resolve para headless igualmente em Linux, macOS e Windows
+- O display virtual privado (Xvfb) é exclusivo do Linux e exige launch headed explícito
+- macOS sempre tem Quartz e Windows sempre tem DWM, então nenhum usa Xvfb
+- `doctor` reporta o check `xvfb` como info em todo host fora do Linux
+- Sem Xvfb no PATH o launch headed cai no display atual
+- A dica de install vem do `/etc/os-release` e a CLI nunca instala nada
+- `DISPLAY` e `WAYLAND_DISPLAY` são fatos do host lidos somente no Linux
+- Ler os dois não é configuração de produto, que segue flags mais XDG
+- O check `virtual_display` expõe `host_has_display` e `private_display_supported`
+- Flags Vulkan e ANGLE sob `--enable-unsafe-webgpu` são emitidas somente no Linux
+- O comportamento de proxy não varia por plataforma em nenhum ponto do caminho
+- `proxy_url` alimenta o `--proxy-server` do Chrome e o cliente HTTP compartilhado
+- `HTTP_PROXY`, `HTTPS_PROXY` e `ALL_PROXY` nunca são herdados em host nenhum
+- Sem `proxy_url` o cliente chama `no_proxy` e desliga a descoberta de proxy do sistema
+- `cdp_proxy_bypass_loopback` acrescenta loopback à lista de bypass dos dois lados
+- Credenciais vêm somente de `proxy_username` e `proxy_password` sob XDG
+- Com stealth ligado, o Chrome recebe `--disable-quic` em toda plataforma
+- Os valores de janela e frame do HTTP/2 são idênticos em toda plataforma
+- `http2_enabled false` derruba o cliente para HTTP/1.1 e reporta `http2_profile: disabled`
+- `input_profile human` sintetiza eventos somente por chamadas do domínio CDP `Input`
+- Nenhuma API de input do sistema é usada, então a cinemática é idêntica em toda parte
+- macOS não pede permissão de acessibilidade porque nenhuma API nativa de input é tocada
+- Keycodes viajam em `windows_virtual_key_code` e `native_virtual_key_code` em todo host
+- O modificador Cmd do macOS é escolha de bitmask do chamador, não padrão do produto
+- `stealth_seed` fixa a identidade entre processos e seu cache é 0600 no Unix
+- Windows não recebe esse aperto de permissão de arquivo no cache de seed
+- O Chrome recebe `--password-store=basic` e `--use-mock-keychain` por padrão em todo host
+- Ambas são suprimidas juntas quando o launch opta pelo keychain real, o que nenhum caminho de produto faz hoje
+- Nomes de chave e defaults dessa família vivem em [CONFIGURATION.pt-BR.md](CONFIGURATION.pt-BR.md)
 
 
 ## Containers
@@ -146,8 +184,15 @@ browser-automation-cli completions powershell
 - Logging de produto: `--verbose` / `--debug` / `-q` ou XDG `log_level`
 - Cor: `config set color`; path do Chrome: `config set chrome_path`
 
-## Superfície de agente v0.1.7 (compacta)
+## Superfície de agente v0.1.8 (compacta)
 
+- Família anti-detecção está viva: `stealth`, `stealth_profile`, `stealth_seed`, `browser_mode`, `input_profile`
+- A mesma família soma chaves de proxy, de `SETTINGS` HTTP/2 e as dez chaves `input_*`
+- Flags globais anti-detecção: `--no-stealth`, `--stealth-profile`, `--stealth-seed`, `--input-profile`, `--input-seed`
+- Mais da mesma família: `--proxy`, `--proxy-bypass`, `--headed`, `--no-xvfb`, `--warmup`, `--warmup-url`
+- Cada uma dessas flags é parseada de forma idêntica em Linux, macOS e Windows
+- Envelopes de scrape revelam `stealth`, `profile_contradicts_host`, `http2_profile` e `tls_impersonation`
+- O comportamento por plataforma da família vive em [Anti-Detecção Entre Plataformas](#anti-detecção-entre-plataformas)
 - Booleano **`dialog_settled`** após accept/dismiss real de diálogo (GAP-054); isolamento multi-aba via `Page::session_id` / `dialog_map_key`
 - **`dialog_settle_ms`** só via XDG `config set` (flags + XDG; nunca env de produto)
 - Chave pública **`wait_timeout_ms`** nos passos wait de run (GAP-053)
@@ -157,7 +202,7 @@ browser-automation-cli completions powershell
 - **`agent_ops`** aparece no envelope de sucesso somente quando uma dessas flags roda; `unresolved_paths` nomeia caminho que nenhuma linha carregava
 - **`agent_ops` é omitido quando não há o que reportar:** flag que rodou e resolveu limpo deixa a forma do envelope intacta, em toda plataforma
 - **`--select`/`--filter`/`--limit`/`--sort` NÃO são globais:** são flags por comando em scrape, crawl, map, search, batch-scrape e verbos `info` de mídia
-- **Chaves XDG:** 176 documentadas em [CONFIGURATION.pt-BR.md](CONFIGURATION.pt-BR.md); descubra ao vivo com `config list-keys --json`
+- **Chaves XDG:** 204 documentadas em [CONFIGURATION.pt-BR.md](CONFIGURATION.pt-BR.md); descubra ao vivo com `config list-keys --json`
 - **Encode do `grab`:** só png|jpeg|webp; AVIF removido (breaking)
 - Inventário **69** inclui `submit` + `storage` + `image`+`video`+`audio`+`record`; lei residual-zero de disco da 0.1.5 ainda corrente
 - GAP-021 parcial (fixtures unit LHR; e2e lighthouse mock SKIP); GAP-022 residual ~53 dups aceitos; GAP-023/024 intencionais em `parity_intentional_divergences.json`
@@ -170,7 +215,7 @@ Descubra ao vivo: `browser-automation-cli commands --json`
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
-net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
 scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
 upload version view wait webmcp workflow write
 ```

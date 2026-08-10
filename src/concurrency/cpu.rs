@@ -1,7 +1,60 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! CPU-bound helpers (Rayon gated by threshold).
 
-use super::pool::{install_rayon_pool_once, CPU_MAP_THRESHOLD};
+use std::sync::{Arc, OnceLock};
+
+use tokio::sync::Semaphore;
+
+use super::pool::{install_rayon_pool_once, rayon_threads, CPU_MAP_THRESHOLD};
+
+/// Process-wide admission gate for CPU-heavy [`tokio::task::spawn_blocking`].
+static CPU_BLOCKING_GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+
+fn cpu_blocking_gate() -> Arc<Semaphore> {
+    CPU_BLOCKING_GATE
+        .get_or_init(|| Arc::new(Semaphore::new(rayon_threads())))
+        .clone()
+}
+
+/// Run a CPU-bound closure on the blocking pool, gated to the CPU budget.
+///
+/// # Why a gate and not a bare `spawn_blocking`
+///
+/// The blocking pool is sized by
+/// [`browser_max_blocking_threads`](crate::concurrency::browser_max_blocking_threads),
+/// which returns up to **16**. That number is right for its usual tenants —
+/// `std::fs` calls that spend their time in the kernel — and wrong for parsing.
+/// A `batch-scrape` of sixteen PDFs admits sixteen parsers at once, and on a
+/// four-core host twelve of them only add scheduler pressure and resident
+/// memory. Tokio's own guidance is explicit: when the work is CPU-bound, cap it
+/// with a semaphore rather than relying on the pool size.
+///
+/// # What this is NOT protecting against
+///
+/// It is not preventing "sixteen Rayon pools":
+/// [`install_rayon_pool_once`] builds the **global** pool exactly once, so the
+/// Rayon worker count is already bounded no matter how many callers arrive. The
+/// contention this removes is the blocking work that does its own CPU inline —
+/// PDF and HTML parsing — which Rayon never sees.
+///
+/// # Cancellation
+///
+/// Unchanged, and still cooperative: a started `spawn_blocking` task cannot be
+/// aborted. The permit only decides **when work is admitted**; teardown is
+/// bounded separately by [`crate::runtime_util::shutdown_runtime`].
+pub async fn spawn_cpu_blocking<F, R>(f: F) -> Result<R, tokio::task::JoinError>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    let gate = cpu_blocking_gate();
+    // The semaphore is owned by a `OnceLock` for the life of the process and is
+    // never closed, so `acquire_owned` cannot legitimately fail. If it somehow
+    // does, running ungated is strictly better than failing the user's command
+    // over an admission detail.
+    let _permit = gate.acquire_owned().await.ok();
+    tokio::task::spawn_blocking(f).await
+}
 
 /// CPU map over a slice: sequential when `items.len() < CPU_MAP_THRESHOLD`, else
 /// Rayon under [`install_rayon_pool_once`] (pool sized to budget).

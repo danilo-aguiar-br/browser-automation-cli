@@ -3,9 +3,7 @@
 use super::dispatch::dispatch_click;
 use super::types::ClickResult;
 use crate::native::cdp::client::CdpClient;
-use crate::native::cdp::types::*;
 use crate::native::element::{resolve_element_center, RefMap};
-use serde_json::Value;
 
 /// Real mouse click at the element's centre, scrolling it into view first.
 pub async fn click(
@@ -61,6 +59,10 @@ pub async fn dblclick(
 }
 
 /// Move the pointer over an element without pressing anything.
+///
+/// Under `human` the pointer travels there; a single jump to the centre reports
+/// the same final position but produces one `mousemove` where a hand produces a
+/// stream, and never crosses whatever lies between origin and target.
 pub async fn hover(
     client: &CdpClient,
     session_id: &str,
@@ -76,23 +78,15 @@ pub async fn hover(
         iframe_sessions,
     )
     .await?;
-    client
-        .send_command_typed::<_, Value>(
-            "Input.dispatchMouseEvent",
-            &DispatchMouseEventParams {
-                event_type: "mouseMoved".to_string(),
-                x,
-                y,
-                button: None,
-                buttons: None,
-                click_count: None,
-                delta_x: None,
-                delta_y: None,
-                modifiers: None,
-            },
-            Some(&effective_session_id),
-        )
-        .await?;
+    let (x, y) = super::kinematics::active().jitter_target(x, y);
+    super::dispatch::travel_to(
+        client,
+        &effective_session_id,
+        &[effective_session_id.as_str(), session_id],
+        x,
+        y,
+    )
+    .await?;
     Ok(())
 }
 
@@ -113,51 +107,23 @@ pub async fn drag(
         return Err("drag endpoints must share the same frame/session".to_string());
     }
     let sid = sid1;
-    for (event_type, x, y, button, buttons, click_count) in [
-        ("mouseMoved", x1, y1, None, None, None),
-        (
-            "mousePressed",
-            x1,
-            y1,
-            Some("left".to_string()),
-            Some(1),
-            Some(1),
-        ),
-        (
-            "mouseMoved",
-            x2,
-            y2,
-            Some("left".to_string()),
-            Some(1),
-            None,
-        ),
-        (
-            "mouseReleased",
-            x2,
-            y2,
-            Some("left".to_string()),
-            Some(0),
-            Some(1),
-        ),
-    ] {
-        client
-            .send_command_typed::<_, Value>(
-                "Input.dispatchMouseEvent",
-                &DispatchMouseEventParams {
-                    event_type: event_type.to_string(),
-                    x,
-                    y,
-                    button,
-                    buttons,
-                    click_count,
-                    delta_x: None,
-                    delta_y: None,
-                    modifiers: None,
-                },
-                Some(&sid),
-            )
-            .await?;
+
+    // One interpolation for both drag routes (GAP: `drag_html5` had the only
+    // correct implementation and this one jumped A→B in a single move, so the
+    // same product gesture behaved differently depending on which path ran).
+    let mut k = super::kinematics::active();
+    let send = super::drag_html5::mouse;
+
+    send(client, &sid, "mouseMoved", x1, y1, 0, None).await?;
+    send(client, &sid, "mousePressed", x1, y1, 1, Some(1)).await?;
+    for (px, py) in k.path((x1, y1), (x2, y2)) {
+        send(client, &sid, "mouseMoved", px, py, 1, None).await?;
+        let gap = k.move_gap_ms();
+        if gap > 0 && k.profile().is_human() {
+            tokio::time::sleep(std::time::Duration::from_millis(gap)).await;
+        }
     }
+    send(client, &sid, "mouseReleased", x2, y2, 0, Some(1)).await?;
     Ok(())
 }
 

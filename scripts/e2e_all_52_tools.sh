@@ -22,6 +22,16 @@ trap cleanup_workdir EXIT
 REPORT="$WORKDIR/report.tsv"
 : >"$REPORT"
 
+# Diagnostics go here, NOT into the captured stdout.
+#
+# Every capture site used to end in `2>&1`, folding stderr into the string that
+# the envelope assertions then parsed as JSON. Any log line the CLI wrote made
+# the payload unparseable, and the `||` fallback patterns downgraded that into a
+# PASS — so the harness was proving the opposite of the agent-native contract it
+# exists to enforce. stdout is the payload; stderr is a file.
+E2E_STDERR_LOG="$WORKDIR/logs/stderr.log"
+: >"$E2E_STDERR_LOG"
+
 PAGE_HTML="$ROOT/scripts/fixtures/e2e_page/index.html"
 PAGE_URL="file://$PAGE_HTML"
 EXT_DIR="$ROOT/scripts/fixtures/e2e_ext"
@@ -89,15 +99,58 @@ contains() {
   rg -q -- "$1" "$E2E_RAW_FILE"
 }
 
-# Strict agent envelope: schema_version + ok
+# Strict agent envelope: schema_version + ok.
+#
+# WHY THIS TAKES THE PAYLOAD AND NOT JUST A LABEL
+#   The previous signature accepted `$1` and ignored everything else, while all
+#   three call sites passed the captured output as `$2`. It then delegated to
+#   `e2e_expect_envelope`, which reads `$E2E_RAW_FILE` — a file written only by
+#   `e2e_run`. None of these three sites calls `e2e_run`, so the assertion was
+#   validating whichever unrelated command last populated that file.
+#
+#   Measured 2026-08-06: three ENVELOPE_FAIL lines fired against outputs that
+#   were demonstrably correct, and the heap block below converted every one of
+#   them into PASS. A validator whose failure cannot move the scoreboard is
+#   decoration, and one that reads another command's buffer is worse: it reports
+#   with full confidence about something it never looked at.
+#
+#   Passing the payload explicitly removes the coupling. The `e2e_run` path
+#   keeps working through the file fallback.
 require_envelope() {
   local label="$1"
-  e2e_expect_envelope "$label"
+  if [[ $# -lt 2 ]]; then
+    e2e_expect_envelope "$label"
+    return
+  fi
+  local payload="$2"
+  if ! printf '%s' "$payload" | jaq -e '
+    type == "object"
+    and .schema_version == 1
+    and .ok == true
+    and (.data != null)
+  ' >/dev/null 2>&1; then
+    e2e_log "ENVELOPE_FAIL label=$label bytes=${#payload}"
+    return 1
+  fi
+  return 0
 }
 
-# Require every step in run multi-step output to be ok when steps[] present
+# Require every step in run multi-step output to be ok when steps[] present.
+# Same payload-versus-file correction as `require_envelope`.
 require_steps_ok() {
-  e2e_expect_steps_ok
+  if [[ $# -lt 1 ]]; then
+    e2e_expect_steps_ok
+    return
+  fi
+  local payload="$1"
+  if ! printf '%s' "$payload" | jaq -e '
+    ((.data.steps // .steps // null) == null)
+    or ((.data.steps // .steps) | type == "array" and all(.ok == true))
+  ' >/dev/null 2>&1; then
+    e2e_log "STEPS_FAIL bytes=${#payload}"
+    return 1
+  fi
+  return 0
 }
 
 # --- preflight ---
@@ -151,7 +204,7 @@ set +e
 OUT_A="$(timeout 300 "$BIN" run --script "$SCRIPT_A" --json \
   --capture-console --capture-network \
   --experimental-vision \
-  --ignore-robots --i-accept-robots-risk 2>&1)"
+  --ignore-robots --i-accept-robots-risk 2>>"${E2E_STDERR_LOG}")"
 RC_A=$?
 set -e
 printf '%s\n' "$OUT_A" >"$WORKDIR/logs/wave_a.json"
@@ -227,7 +280,7 @@ cat >"$SCRIPT_B" <<EOF
 {"cmd":"net","action":"get","id":0}
 EOF
 set +e
-OUT_B="$(timeout 180 "$BIN" run --script "$SCRIPT_B" --json --capture-network --ignore-robots --i-accept-robots-risk 2>&1)"
+OUT_B="$(timeout 180 "$BIN" run --script "$SCRIPT_B" --json --capture-network --ignore-robots --i-accept-robots-risk 2>>"${E2E_STDERR_LOG}")"
 RC_B=$?
 set -e
 printf '%s\n' "$OUT_B" >"$WORKDIR/logs/wave_b.json"
@@ -262,7 +315,7 @@ cat >"$SCRIPT_C" <<EOF
 {"cmd":"dialog","action":"accept"}
 EOF
 set +e
-OUT_C="$(timeout 120 "$BIN" run --script "$SCRIPT_C" --json --ignore-robots --i-accept-robots-risk 2>&1)"
+OUT_C="$(timeout 120 "$BIN" run --script "$SCRIPT_C" --json --ignore-robots --i-accept-robots-risk 2>>"${E2E_STDERR_LOG}")"
 RC_C=$?
 set -e
 printf '%s\n' "$OUT_C" >"$WORKDIR/logs/wave_c.json"
@@ -287,7 +340,7 @@ cat >"$SCRIPT_D" <<EOF
 {"cmd":"screencast","action":"stop"}
 EOF
 set +e
-OUT_D="$(timeout 240 "$BIN" run --script "$SCRIPT_D" --json --experimental-screencast --ignore-robots --i-accept-robots-risk 2>&1)"
+OUT_D="$(timeout 240 "$BIN" run --script "$SCRIPT_D" --json --experimental-screencast --ignore-robots --i-accept-robots-risk 2>>"${E2E_STDERR_LOG}")"
 RC_D=$?
 set -e
 printf '%s\n' "$OUT_D" >"$WORKDIR/logs/wave_d.json"
@@ -330,7 +383,7 @@ cat >"$SCRIPT_E" <<EOF
 {"cmd":"heap","action":"close","path":"$SNAP_A"}
 EOF
 set +e
-OUT_E="$(timeout 300 "$BIN" run --script "$SCRIPT_E" --json --category-memory --ignore-robots --i-accept-robots-risk 2>&1)"
+OUT_E="$(timeout 300 "$BIN" run --script "$SCRIPT_E" --json --category-memory --ignore-robots --i-accept-robots-risk 2>>"${E2E_STDERR_LOG}")"
 RC_E=$?
 set -e
 printf '%s\n' "$OUT_E" >"$WORKDIR/logs/wave_e.json"
@@ -378,7 +431,7 @@ fi
 NODE_ID=""
 if [[ -f "$SNAP_A" && "$SNAP_BYTES" -gt 1000 ]]; then
   set +e
-  OUT_CN="$(timeout 60 "$BIN" --category-memory --json heap class-nodes --path "$SNAP_A" --id 1 2>&1)"
+  OUT_CN="$(timeout 60 "$BIN" --category-memory --json heap class-nodes --path "$SNAP_A" --id 1 2>>"${E2E_STDERR_LOG}")"
   RC_CN=$?
   set -e
   printf '%s\n' "$OUT_CN" >"$WORKDIR/logs/class_nodes.json"
@@ -410,14 +463,20 @@ if [[ -f "$SNAP_A" && "$SNAP_BYTES" -gt 1000 ]]; then
     tool="${pair%%:*}"
     action="${pair##*:}"
     set +e
-    OUT_H="$(timeout 90 "$BIN" --category-memory --json heap "$action" --path "$SNAP_A" --node "$NODE_ID" 2>&1)"
+    OUT_H="$(timeout 90 "$BIN" --category-memory --json heap "$action" --path "$SNAP_A" --node "$NODE_ID" 2>>"${E2E_STDERR_LOG}")"
     RC_H=$?
     set -e
     printf '%s\n' "$OUT_H" >"$WORKDIR/logs/heap_${action}.json"
+    # One criterion, not two. The removed fallback read
+    #   `elif [[ $RC_H -eq 0 ]] || printf '%s' "$OUT_H" | rg -q 'ok|node|...'`
+    # whose first operand is the SAME condition already required above, so a
+    # failed envelope assertion fell straight through to PASS. The second
+    # operand was no stricter: `rg -q 'ok'` matches the substring `ok` anywhere,
+    # including inside the word `broken` in an error message.
+    #
+    # Exit 0 plus a valid envelope is the contract. Nothing else is a pass.
     if [[ $RC_H -eq 0 ]] && require_envelope "heap_$action" "$OUT_H"; then
       record "$tool" PASS "node=$NODE_ID envelope"
-    elif [[ $RC_H -eq 0 ]] || printf '%s' "$OUT_H" | rg -q 'ok|node|edge|retainer|path|retained|distance|detached'; then
-      record "$tool" PASS "node=$NODE_ID"
     else
       record "$tool" FAIL "exit=$RC_H node=$NODE_ID"
     fi
@@ -444,7 +503,7 @@ fi
 if [[ -n "$LH_PATH" ]]; then
   set +e
   OUT_LH="$(timeout 180 "$BIN" lighthouse "https://example.com" --json \
-    --out-dir "$WORKDIR/lh" --lighthouse-path "$LH_PATH" --ignore-robots --i-accept-robots-risk 2>&1)"
+    --out-dir "$WORKDIR/lh" --lighthouse-path "$LH_PATH" --ignore-robots --i-accept-robots-risk 2>>"${E2E_STDERR_LOG}")"
   RC_LH=$?
   set -e
   printf '%s\n' "$OUT_LH" >"$WORKDIR/logs/lighthouse.json"
@@ -476,7 +535,7 @@ fi
 # Wave G — extensions (real unpacked dir)
 # ============================================================
 set +e
-OUT_INST="$(timeout 120 "$BIN" --category-extensions --json extension install "$EXT_DIR" 2>&1)"
+OUT_INST="$(timeout 120 "$BIN" --category-extensions --json extension install "$EXT_DIR" 2>>"${E2E_STDERR_LOG}")"
 RC_INST=$?
 set -e
 printf '%s\n' "$OUT_INST" >"$WORKDIR/logs/ext_install.json"
@@ -494,7 +553,7 @@ fi
 log "EXT_ID=${EXT_ID:-none}"
 
 set +e
-OUT_LIST="$(timeout 90 "$BIN" --category-extensions --json extension list 2>&1)"
+OUT_LIST="$(timeout 90 "$BIN" --category-extensions --json extension list 2>>"${E2E_STDERR_LOG}")"
 RC_LIST=$?
 set -e
 printf '%s\n' "$OUT_LIST" >"$WORKDIR/logs/ext_list.json"
@@ -506,7 +565,7 @@ fi
 
 if [[ -n "${EXT_ID:-}" ]]; then
   set +e
-  OUT_REL="$(timeout 120 "$BIN" --category-extensions --json extension reload "$EXT_ID" --path "$EXT_DIR" 2>&1)"
+  OUT_REL="$(timeout 120 "$BIN" --category-extensions --json extension reload "$EXT_ID" --path "$EXT_DIR" 2>>"${E2E_STDERR_LOG}")"
   RC_REL=$?
   set -e
   printf '%s\n' "$OUT_REL" >"$WORKDIR/logs/ext_reload.json"
@@ -517,7 +576,7 @@ if [[ -n "${EXT_ID:-}" ]]; then
   fi
 
   set +e
-  OUT_TRG="$(timeout 120 "$BIN" --category-extensions --json extension trigger "$EXT_ID" --path "$EXT_DIR" 2>&1)"
+  OUT_TRG="$(timeout 120 "$BIN" --category-extensions --json extension trigger "$EXT_ID" --path "$EXT_DIR" 2>>"${E2E_STDERR_LOG}")"
   RC_TRG=$?
   set -e
   printf '%s\n' "$OUT_TRG" >"$WORKDIR/logs/ext_trigger.json"
@@ -528,7 +587,7 @@ if [[ -n "${EXT_ID:-}" ]]; then
   fi
 
   set +e
-  OUT_UNI="$(timeout 30 "$BIN" --category-extensions --json extension uninstall "$EXT_ID" 2>&1)"
+  OUT_UNI="$(timeout 30 "$BIN" --category-extensions --json extension uninstall "$EXT_ID" 2>>"${E2E_STDERR_LOG}")"
   RC_UNI=$?
   set -e
   printf '%s\n' "$OUT_UNI" >"$WORKDIR/logs/ext_uninstall.json"
@@ -547,7 +606,7 @@ fi
 # Wave H — webmcp + devtools3p on real fixture page
 # ============================================================
 set +e
-OUT_WL="$(timeout 90 "$BIN" --category-webmcp --json webmcp list --url "$PAGE_URL" 2>&1)"
+OUT_WL="$(timeout 90 "$BIN" --category-webmcp --json webmcp list --url "$PAGE_URL" 2>>"${E2E_STDERR_LOG}")"
 RC_WL=$?
 set -e
 printf '%s\n' "$OUT_WL" >"$WORKDIR/logs/webmcp_list.json"
@@ -559,7 +618,7 @@ fi
 
 set +e
 OUT_WE="$(timeout 90 "$BIN" --category-webmcp --json webmcp exec sum_tool \
-  --url "$PAGE_URL" --input '{"a":2,"b":3}' 2>&1)"
+  --url "$PAGE_URL" --input '{"a":2,"b":3}' 2>>"${E2E_STDERR_LOG}")"
 RC_WE=$?
 set -e
 printf '%s\n' "$OUT_WE" >"$WORKDIR/logs/webmcp_exec.json"
@@ -570,7 +629,7 @@ else
 fi
 
 set +e
-OUT_DL="$(timeout 90 "$BIN" --category-third-party --json devtools3p list --url "$PAGE_URL" 2>&1)"
+OUT_DL="$(timeout 90 "$BIN" --category-third-party --json devtools3p list --url "$PAGE_URL" 2>>"${E2E_STDERR_LOG}")"
 RC_DL=$?
 set -e
 printf '%s\n' "$OUT_DL" >"$WORKDIR/logs/devtools3p_list.json"
@@ -582,7 +641,7 @@ fi
 
 set +e
 OUT_DE="$(timeout 90 "$BIN" --category-third-party --json devtools3p exec ping_3p \
-  --url "$PAGE_URL" --params '{"msg":"e2e"}' 2>&1)"
+  --url "$PAGE_URL" --params '{"msg":"e2e"}' 2>>"${E2E_STDERR_LOG}")"
 RC_DE=$?
 set -e
 printf '%s\n' "$OUT_DE" >"$WORKDIR/logs/devtools3p_exec.json"

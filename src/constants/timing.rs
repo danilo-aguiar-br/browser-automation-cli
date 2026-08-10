@@ -56,6 +56,77 @@ pub const DRAG_MOVE_STEPS: u64 = 6;
 /// which is why it is a knob and not a literal.
 pub const DRAG_MOVE_GAP_MS: u64 = 16;
 
+/// Intermediate pointer positions synthesized for one move under `human`.
+///
+/// Generalizes [`DRAG_MOVE_STEPS`], which tuned the same behaviour for `drag`
+/// alone. Higher than the drag default because a click travels farther than a
+/// drag hand-off and the renderer coalesces back-to-back moves into one hop.
+pub const INPUT_MOVE_STEPS: u64 = 24;
+
+/// Delay between synthesized pointer positions (milliseconds).
+///
+/// Generalizes [`DRAG_MOVE_GAP_MS`]. Below one animation frame the renderer
+/// coalesces the moves and the interpolation is discarded before the page sees
+/// it, which defeats the whole point of interpolating.
+pub const INPUT_MOVE_GAP_MS: u64 = 12;
+
+/// Hold time between `mousePressed` and `mouseReleased` (milliseconds).
+///
+/// Zero dwell puts press and release in the same millisecond at the same pixel,
+/// which no hand produces.
+pub const INPUT_CLICK_DWELL_MS: u64 = 65;
+
+/// Hold time between `keyDown` and `keyUp` (milliseconds).
+///
+/// Also fixes keys that need a real hold: repeat, game shortcuts, and handlers
+/// that measure press duration.
+pub const INPUT_KEY_DWELL_MS: u64 = 45;
+
+/// Delay between characters while typing (milliseconds).
+///
+/// The `delay_ms` parameter of `type_text` has always existed and defaulted to
+/// zero with no flag able to reach it; this is the value that finally feeds it.
+pub const INPUT_TYPE_DELAY_MS: u64 = 95;
+
+/// Scroll distance carried by one synthesized wheel tick (CSS pixels).
+///
+/// A wheel notch, not the whole delta: one giant tick is as unlike a human as no
+/// wheel event at all.
+pub const INPUT_SCROLL_TICK_PX: u64 = 100;
+
+/// Ceiling on the number of wheel ticks one scroll gesture may synthesize.
+///
+/// Without a ceiling the tick count is `delta / INPUT_SCROLL_TICK_PX`, and each
+/// tick costs one CDP round trip, so the cost of a scroll grows linearly with
+/// the distance asked for. A `--delta-y 100000` became 1000 round trips and
+/// exhausted the command timeout — the caller reads a timeout and concludes the
+/// page is slow, when the cost was self-inflicted.
+///
+/// Past the ceiling the ticks simply carry more pixels each. The split already
+/// distributes the delta proportionally, so capping the count changes the
+/// texture of the gesture and never its total travel.
+///
+/// Override: XDG `input_scroll_max_ticks`. Raise it when a page needs finer
+/// granularity than one long gesture provides.
+pub const INPUT_SCROLL_MAX_TICKS: u64 = 40;
+
+/// Radius of the random offset applied to a click target (CSS pixels).
+///
+/// Without it every click on the same element lands on the exact geometric
+/// centre, so N clicks produce N pixel-identical coordinates.
+pub const INPUT_TARGET_JITTER_PX: u64 = 3;
+
+/// Extra rounds allowed to deliver a wheel delta the renderer dropped.
+///
+/// A `mouseWheel` dispatched before the renderer's hit-test tree is ready is
+/// acknowledged and then discarded, so the ack proves nothing (crbug 444929150).
+/// Measured 2026-08-06 on a freshly navigated page: `--delta-y 400` landed the
+/// full 400 px in 3 of 5 runs and 300 px in the other 2, with the loss always
+/// one whole tick. Re-reading the offset and re-sending only the shortfall is
+/// what turns that into a deterministic result; a fixed sleep would trade the
+/// same race for a slower one.
+pub const INPUT_SCROLL_SETTLE_ROUNDS: u64 = 3;
+
 /// Default per-operation timeout for the Chrome engine (milliseconds).
 ///
 /// The Lightpanda engine has always exposed `lightpanda_session_timeout_secs`

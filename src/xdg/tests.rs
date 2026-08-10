@@ -32,9 +32,9 @@ fn log_dir_under_state() {
 #[test]
 fn apply_toml_kv_parses_log_knobs() {
     let mut cfg = ProductConfig::default();
-    config_io::apply_toml_kv(&mut cfg, "max_log_files", "21");
-    config_io::apply_toml_kv(&mut cfg, "log_rotation", "hourly");
-    config_io::apply_toml_kv(&mut cfg, "log_to_file", "true");
+    config_io::apply_toml_kv(&mut cfg, "max_log_files", "21").expect("valid kv");
+    config_io::apply_toml_kv(&mut cfg, "log_rotation", "hourly").expect("valid kv");
+    config_io::apply_toml_kv(&mut cfg, "log_to_file", "true").expect("valid kv");
     assert_eq!(cfg.max_log_files, Some(21));
     assert_eq!(cfg.log_rotation.as_deref(), Some("hourly"));
     assert_eq!(cfg.log_to_file, Some(true));
@@ -43,10 +43,10 @@ fn apply_toml_kv_parses_log_knobs() {
 #[test]
 fn apply_toml_kv_parses_audio_keys() {
     let mut cfg = ProductConfig::default();
-    config_io::apply_toml_kv(&mut cfg, "audio_max_input_bytes", "1000");
-    config_io::apply_toml_kv(&mut cfg, "audio_download_max_bytes", "2000");
-    config_io::apply_toml_kv(&mut cfg, "audio_default_format", "flac");
-    config_io::apply_toml_kv(&mut cfg, "audio_default_bitrate", "128k");
+    config_io::apply_toml_kv(&mut cfg, "audio_max_input_bytes", "1000").expect("valid kv");
+    config_io::apply_toml_kv(&mut cfg, "audio_download_max_bytes", "2000").expect("valid kv");
+    config_io::apply_toml_kv(&mut cfg, "audio_default_format", "flac").expect("valid kv");
+    config_io::apply_toml_kv(&mut cfg, "audio_default_bitrate", "128k").expect("valid kv");
     assert_eq!(cfg.audio_max_input_bytes, Some(1000));
     assert_eq!(cfg.audio_download_max_bytes, Some(2000));
     assert_eq!(cfg.audio_default_format.as_deref(), Some("flac"));
@@ -89,10 +89,10 @@ fn list_keys_catalog_includes_audio_family() {
 #[test]
 fn apply_toml_kv_media_max_zero_is_none() {
     let mut cfg = ProductConfig::default();
-    config_io::apply_toml_kv(&mut cfg, "audio_max_input_bytes", "0");
-    config_io::apply_toml_kv(&mut cfg, "audio_download_max_bytes", "0");
-    config_io::apply_toml_kv(&mut cfg, "image_max_input_bytes", "0");
-    config_io::apply_toml_kv(&mut cfg, "video_max_input_bytes", "0");
+    config_io::apply_toml_kv(&mut cfg, "audio_max_input_bytes", "0").expect("valid kv");
+    config_io::apply_toml_kv(&mut cfg, "audio_download_max_bytes", "0").expect("valid kv");
+    config_io::apply_toml_kv(&mut cfg, "image_max_input_bytes", "0").expect("valid kv");
+    config_io::apply_toml_kv(&mut cfg, "video_max_input_bytes", "0").expect("valid kv");
     assert_eq!(cfg.audio_max_input_bytes, None);
     assert_eq!(cfg.audio_download_max_bytes, None);
     assert_eq!(cfg.image_max_input_bytes, None);

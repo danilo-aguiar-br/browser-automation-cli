@@ -67,7 +67,7 @@ pub async fn discover_sitemap_urls(
         }
         // Honor robots for sitemap URL itself when policy is honor.
         if matches!(robots, RobotsPolicy::Honor)
-            && crate::robots::enforce_robots(&sm_url, robots, crate::constants::HTTP_USER_AGENT)
+            && crate::robots::enforce_robots(&sm_url, robots, &crate::robots::robots_user_agent())
                 .await
                 .is_err()
         {

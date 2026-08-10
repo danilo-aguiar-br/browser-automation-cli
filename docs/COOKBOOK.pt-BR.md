@@ -48,7 +48,20 @@ browser-automation-cli --json config get dialog_settle_ms
 - `config init` cria dirs XDG e o `config.toml` default
 - Descubra chaves e defaults com `config list-keys --json` (não fixe contagem; inclui `dialog_settle_ms` e mais)
 - Flags sempre sobrescrevem o arquivo de config naquela invocação
-- Settings de produto usam só flags e `config path|init|show|set|get|list-keys`
+- Settings de produto usam só flags e `config path|init|show|set|get|unset|list-keys`
+
+
+## Como Desfazer uma Chave de Config
+```bash
+browser-automation-cli --json config set stealth_seed fleet-01
+browser-automation-cli --json config get stealth_seed
+browser-automation-cli --json config unset stealth_seed
+browser-automation-cli --json config get stealth_seed
+```
+- `config unset <CHAVE>` restaura uma chave ao default embutido e é o inverso real de `set`
+- `config set <chave> ""` não é inverso: em chave string grava um valor vazio que o caminho normal nunca produz
+- Em chave numérica esse mesmo valor vazio é erro de parse, não reset
+- Desfazer chave já ausente tem sucesso, então um script nunca precisa saber o estado anterior
 
 
 ## Como Configurar Chaves LLM no XDG
@@ -168,6 +181,110 @@ browser-automation-cli --json --fields checks --max-output-bytes 400 doctor --of
 - Combine com `--fields` quando uma projeção ainda ficar grande demais
 
 
+## Como Fixar Uma Identidade Stealth Entre Processos
+```bash
+# Sem semente, cada um destes é uma máquina diferente para a outra ponta
+browser-automation-cli --timeout 60 --json goto https://example.com
+
+# Com semente, a frota inteira de processos one-shot parece um browser só
+browser-automation-cli --timeout 60 --json --stealth-seed fleet-01 goto https://example.com
+browser-automation-cli --timeout 60 --json --stealth-seed fleet-01 scrape https://example.com --format text
+
+# Torne durável em vez de repetir a flag
+browser-automation-cli --json config set stealth_seed fleet-01
+browser-automation-cli --json config set stealth_profile chrome-linux
+```
+- Stealth é LIGADO por padrão e mascara os marcadores de automação que um Chrome real nunca expõe
+- `--stealth-profile` aceita `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`, e `auto` segue o host
+- Sem `--stealth-seed` cada execução sorteia identidade nova, então um crawl de 50 URLs se apresenta como 50 máquinas
+- As chaves XDG são `stealth` (`true`), `stealth_profile` (`auto`), `stealth_seed` (sem padrão)
+- `browser_mode` (`auto`) é `auto|headed|headless`; `auto` resolve para headless e o `doctor` reporta o modo efetivo
+- Desligue os patches nesta execução com `--no-stealth` quando estiver testando seu próprio front end
+
+
+## Como Sair por um Proxy de Saída
+```bash
+browser-automation-cli --json --proxy socks5://127.0.0.1:1080 \
+  scrape https://example.com --format text --engine http
+
+browser-automation-cli --timeout 60 --json --proxy http://127.0.0.1:8888 \
+  --proxy-bypass '127.0.0.1,localhost' goto https://example.com
+
+# Credenciais pertencem ao XDG, nunca ao argv
+browser-automation-cli --json config set proxy_url http://127.0.0.1:8888
+browser-automation-cli --json config set proxy_username agent
+browser-automation-cli --json config set proxy_password secret
+```
+- `--proxy` aceita `http`, `https` e `socks5`, e vale igualmente para o Chrome e para o motor HTTP
+- `--proxy-bypass` usa a sintaxe de bypass-list do Chrome
+- As chaves XDG são `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`
+- Guarde as credenciais somente no XDG, porque argv aparece na tabela de processos
+- `cdp_proxy_bypass_loopback` (`true`) sempre ignora loopback para o canal de controle CDP sobreviver ao proxy
+- `robots_user_agent` define o token de user-agent contra o qual as regras do robots.txt são casadas
+
+
+## Como Modelar o Input Como Humano
+```bash
+# Cinemática humana reprodutível
+browser-automation-cli --timeout 60 --json --input-profile human --input-seed 42 \
+  goto https://example.com
+
+# Um evento por ação, exatamente determinístico
+browser-automation-cli --timeout 60 --json --input-profile direct goto https://example.com
+
+browser-automation-cli --json config set input_profile human
+```
+- `human` é o padrão e interpola trajetórias do ponteiro, aplica dwell entre press e release e ritma a digitação
+- `--input-seed` semeia o jitter para que uma execução `human` reproduza exatamente
+- Chaves de cinemática: `input_move_steps` (`24`), `input_move_gap_ms` (`12`), `input_click_dwell_ms` (`65`)
+- Chaves de cinemática: `input_key_dwell_ms` (`45`), `input_type_delay_ms` (`95`), `input_target_jitter_px` (`3`)
+- Chaves de scroll: `input_scroll_tick_px` (`100`), `input_scroll_max_ticks` (`40`), `input_scroll_settle_rounds` (`3`)
+
+
+## Como Aquecer a Sessão Antes da URL Alvo
+```bash
+# Cai primeiro na raiz da origem, depois na URL profunda
+browser-automation-cli --timeout 60 --json --warmup goto https://example.com/deep/page
+
+# Aqueça o ponto de entrada real quando a borda entrega a sessão em outro lugar
+browser-automation-cli --timeout 60 --json --warmup-url https://example.com/login \
+  goto https://example.com/app
+
+# Headed no Linux sem o display virtual privado
+browser-automation-cli --timeout 60 --json --headed --no-xvfb goto https://example.com
+```
+- `--warmup` dá à sessão cookies e cadeia de referrer antes da requisição alvo
+- `--warmup-url` implica `--warmup`, então passá-la sozinha basta
+- `--no-xvfb` só faz sentido em modo headed no Linux
+
+
+## Como Manter o Fingerprint HTTP/2 Constante
+```bash
+browser-automation-cli --json config set http2_enabled true
+browser-automation-cli --json config set http2_initial_stream_window_size 6291456
+browser-automation-cli --json config set http2_initial_connection_window_size 15663105
+browser-automation-cli --json config set http2_max_header_list_size 262144
+browser-automation-cli --json config set http2_max_frame_size 16384
+browser-automation-cli --json config set http2_adaptive_window false
+```
+- `http2_enabled` (`true`) negocia HTTP/2 no cliente HTTP compartilhado
+- As quatro chaves de janela e tamanho carregam os defaults mostrados acima
+- `http2_adaptive_window` (`false`) fica desligado para manter o fingerprint constante
+
+
+## Como Afirmar Sobre o Payload Emitido
+```bash
+# Só reporta: o exit continua 0 e agent_ops.expectation_unmet lista as falhas
+browser-automation-cli --json --expect 'ok=true' doctor --offline --quick
+
+# Opte por reprovar a execução
+browser-automation-cli --json --expect 'ok=true' --expect-exit-code doctor --offline --quick
+```
+- `--expect` aceita `key=value`, `key!=value` e `key~substring`, é repetível e conjuga tudo por AND
+- `--expect-exit-code` sai com `65` quando alguma expectativa falha
+- Ela fica desligada por padrão porque mudar exit code por conteúdo de dado quebraria em silêncio os chamadores que já ramificam nele
+
+
 ## Como Abrir uma Página e Fazer Snapshot
 ```bash
 browser-automation-cli --timeout 60 --json goto https://example.com
@@ -197,18 +314,6 @@ browser-automation-cli --timeout 90 --json run --script /tmp/form.browser-automa
 - Launches separados não compartilham refs de acessibilidade
 
 
-## Como Usar fill-form
-```bash
-cat > /tmp/fill-form.browser-automation.jsonl <<'JSONL'
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"fill-form","fields":[{"target":"input[name=q]","value":"hello"},{"target":"input[name=email]","value":"a@b.c"}]}
-JSONL
-browser-automation-cli --timeout 90 --json run --script /tmp/fill-form.browser-automation.jsonl
-```
-- `fill-form` preenche vários campos no mesmo processo
-- Prefira refs `@eN` do `view` quando o DOM for dinâmico
-
-
 ## Como Scrollar e Assertar em um Script Run
 ```bash
 cat > /tmp/scroll-assert.browser-automation.jsonl <<'JSONL'
@@ -232,7 +337,7 @@ cat > /tmp/grab.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/grab.browser-automation.jsonl
 
-# Same flags on the grab subcommand after a prior step in the same process:
+# As mesmas flags no subcomando grab após um passo anterior no mesmo processo:
 # browser-automation-cli --timeout 60 --json grab --path /tmp/page.png --full-page
 ```
 - Path é a flag `--path`, não argumento posicional
@@ -274,7 +379,7 @@ cat > /tmp/wait-or.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/wait-or.browser-automation.jsonl
 
-# CLI form with repeatable --text (OR semantics):
+# Forma CLI com --text repetível (semântica OR):
 # browser-automation-cli --timeout 60 --json wait --text "Example Domain" --text "Example" --ms 5000
 ```
 - `--text` repetível resolve quando qualquer valor listado aparece
@@ -294,11 +399,12 @@ cat > /tmp/wait-multi.browser-automation.json <<'JSON'
 JSON
 browser-automation-cli --timeout 60 --json run --script /tmp/wait-multi.browser-automation.json
 
-# CLI multi-selector CSS OR:
+# Multi-seletor CSS OR na forma CLI:
 browser-automation-cli --timeout 60 --json wait --selector 'h1, body' --ms 5000
 ```
 - Multi-seletor CSS OR: `#a, #b` ou arrays `selectors` no run
-- Campos run: `url` (exato), `url_contains`, `navigation` (**boolean** `true` para ciclo de load — não string `"load"`)
+- Campos run: `url` (exato), `url_contains`, `navigation: true` (ciclo de load booleano — não string `"load"`)
+- Espera multi-seletor bem-sucedida pode incluir `matched_selector` nos dados de resultado
 - Ainda combina com multi-texto OR e `ms`
 
 
@@ -318,7 +424,7 @@ browser-automation-cli --timeout 60 --json --json-steps run --script /tmp/steps.
 - Útil para feedback progressivo de agente sem re-spawnar Chrome
 
 
-## Como Selecionar Opção HIG com select-option / pick (0.1.4)
+## Como Fazer Pick e Select-option no Run
 ```bash
 cat > /tmp/pick.run.json <<'JSON'
 [
@@ -449,7 +555,7 @@ JSON
 - Descubra argv com `schema storage --json`
 
 
-## Como Assertar Console Limpo (0.1.4)
+## Como Assertar Console Vazio ou Sem Match
 ```bash
 cat > /tmp/assert-console.run.json <<'JSON'
 [
@@ -460,7 +566,7 @@ cat > /tmp/assert-console.run.json <<'JSON'
 JSON
 browser-automation-cli --capture-console --timeout 60 --json run --script /tmp/assert-console.run.json
 
-# CLI forms (GAP-025):
+# Formas CLI (GAP-025):
 # browser-automation-cli --capture-console --json assert console-empty
 # browser-automation-cli --capture-console --json assert console-no-match --pattern TypeError
 ```
@@ -493,37 +599,73 @@ browser-automation-cli --timeout 30 --json run --script /tmp/view-empty.run.json
 - Prefira navegar com `goto` antes de `view` em fluxos normais
 
 
-## Como Handle Beforeunload
+## Como Handle Beforeunload (GAP-003)
 ```bash
+# Aceite ou descarte beforeunload durante a navegação
 browser-automation-cli --timeout 60 --json goto https://example.com --handle-before-unload accept
-browser-automation-cli --timeout 60 --json reload --handle-before-unload dismiss
+browser-automation-cli --timeout 60 --json goto https://example.com --handle-before-unload dismiss
+browser-automation-cli --timeout 60 --json reload --handle-before-unload accept
+browser-automation-cli --timeout 60 --json reload --ignore-cache --handle-before-unload dismiss
 
+# Campo handle_before_unload no passo de run
 cat > /tmp/beforeunload.run.json <<'JSON'
 [
   {"cmd":"goto","url":"https://example.com","handle_before_unload":"accept"},
-  {"cmd":"reload","handle_before_unload":"dismiss"}
+  {"cmd":"reload","ignore_cache":true,"handle_before_unload":"dismiss"}
 ]
 JSON
 browser-automation-cli --timeout 60 --json run --script /tmp/beforeunload.run.json
 ```
-- `BeforeUnloadAction` accept|dismiss em `goto` / `reload` (GAP-003)
-- Flag: `--handle-before-unload accept|dismiss`
+- Valores: `accept` ou `dismiss` (CLI `--handle-before-unload`; campo de run `handle_before_unload`)
+- Arma o auto-accept ou auto-dismiss de diálogo do CDP só naquela navegação
+- As opções de goto também incluem `--init-script` e `--navigation-timeout-ms`
 
 
-## Como page new --isolated-context
+## Como Abrir Contexto Isolado (GAP-004)
 ```bash
-browser-automation-cli --json page new --isolated-context
+# Flag sozinha vira default-isolated; nome opcional depois da flag
+browser-automation-cli --timeout 60 --json page new --isolated-context
+browser-automation-cli --timeout 60 --json page new --isolated-context my-ctx --url https://example.com
 
-cat > /tmp/isolated.run.json <<'JSON'
+# Run: isolated_context como string ou true
+cat > /tmp/page-iso.run.json <<'JSON'
 [
-  {"cmd":"page","action":"new","url":"about:blank","isolated_context":true},
-  {"cmd":"goto","url":"https://example.com"}
+  {"cmd":"page","action":"new","isolated_context":true},
+  {"cmd":"page","action":"new","isolated_context":"agent-ctx","url":"https://example.com"}
 ]
 JSON
-browser-automation-cli --timeout 60 --json run --script /tmp/isolated.run.json
+browser-automation-cli --timeout 60 --json run --script /tmp/page-iso.run.json
 ```
-- `page new --isolated-context` cria contexto isolado (GAP-004)
-- No run, use `isolated_context:true` (ou nome quando suportado)
+- `page new --isolated-context` sem valor usa `default-isolated`
+- O run aceita `isolated_context: true` (vira `default-isolated`) ou uma string nomeada
+- Contexto compartilhado quando o campo ou a flag é omitido
+
+
+## Como Usar fill-form no Run
+```bash
+cat > /tmp/fill-form.run.json <<'JSON'
+[
+  {"cmd":"goto","url":"https://example.com"},
+  {"cmd":"fill-form","fields":[{"target":"input","value":"hello"},{"target":"textarea","value":"world"}]}
+]
+JSON
+# browser-automation-cli --timeout 90 --json run --script /tmp/fill-form.run.json
+
+# Forma CLI (fields JSON via fill-form --fields-json; o --json global é só envelope):
+# browser-automation-cli --json fill-form --fields-json '[{"target":"input","value":"hello"}]'
+```
+- O run aceita array `fields` (ou string/array `json`) de `{target|uid|selector|ref, value|text}`
+- Prefira um processo só com `goto` para os seletores seguirem válidos
+
+
+## Como Fazer console dump com Array Vazio (GAP-021)
+```bash
+browser-automation-cli --capture-console --json console dump --path /tmp/console.json
+# Sempre um array JSON válido — [] quando vazio
+jaq -e 'type == "array"' /tmp/console.json
+```
+- `console dump` sempre grava um array JSON válido (`[]` quando vazio)
+- Habilite `--capture-console` no mesmo processo que produz mensagens para obter dumps não vazios
 
 
 ## Como Listar Requests de Network
@@ -548,7 +690,7 @@ cat > /tmp/eval.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 60 --json run --script /tmp/eval.browser-automation.jsonl
 
-# Standalone eval runs against about:blank unless you already navigated in the same process
+# eval isolado roda contra about:blank salvo se você já navegou no mesmo processo
 # browser-automation-cli --json eval 'document.title'
 ```
 - Prefira `run` quando a expressão depende do conteúdo da página
@@ -565,7 +707,7 @@ cat > /tmp/emulate.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 90 --json run --script /tmp/emulate.browser-automation.jsonl
 
-# Standalone compose (no --device preset flag):
+# Composição isolada (não existe flag de preset --device):
 # browser-automation-cli --json emulate \
 #   --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)" \
 #   --viewport "390x844x3,mobile,touch" \
@@ -605,8 +747,10 @@ browser-automation-cli --json crawl https://example.com --limit 10 --format mark
 ```bash
 browser-automation-cli --json scrape https://example.com --format markdown,html,links --engine http
 browser-automation-cli --timeout 60 --json scrape https://example.com --format markdown --format links --engine browser
+browser-automation-cli --json scrape https://example.com --formats markdown,links --engine http
 ```
 - CSV ou `--format` repetível devolve vários campos de format em uma invocação (GAP-009)
+- O alias `--formats` é aceito onde há suporte (GAP-018)
 - Envelope inclui saída por format quando mais de um format é pedido
 
 
@@ -665,7 +809,7 @@ browser-automation-cli --json scrape https://example.com --format markdown --eng
 ## Como Fazer Batch-scrape a Partir de Arquivo de URLs
 ```bash
 cat > /tmp/urls.txt <<'URLS'
-# one URL per line
+# uma URL por linha
 https://example.com
 https://example.org
 URLS
@@ -743,15 +887,20 @@ browser-automation-cli --json qr decode --path /tmp/qr.png
 
 ## Como Processar Imagens Localmente (agent-native)
 ```bash
+# Download com SSRF + teto de corpo + magic (sem Chrome)
 browser-automation-cli --json image download 'https://example.com/a.png' -o /tmp/a.png
+# Projeção compacta do envelope (anti-token)
 browser-automation-cli --json image info --path /tmp/a.png --select format,width,height,sha256
+# Convert (o re-encode remove EXIF; webp local é lossless — quality vale para jpeg)
 browser-automation-cli --json image convert --path /tmp/a.png --format webp -o /tmp/a.webp
+# Screenshot sem base64 de pixels; opt-in: grab --include-base64
 browser-automation-cli --json grab --format webp --path /tmp/g.webp
+# Envie o arquivo convertido para um file input (Chrome one-shot / run)
 # --script recebe um caminho de arquivo ou `-` para NDJSON via stdin; JSON inline não é uma forma
 printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"upload","target":"input[type=file]","path":"/tmp/a.webp"}' | browser-automation-cli --json run --script -
 ```
-- Nunca despeja base64 de pixels por padrão
-- Limites via XDG: `image_max_*`, `image_download_max_bytes`
+- Nunca despeja base64 de pixels por padrão (stdout agent-native)
+- Limites via XDG: `image_max_input_bytes`, `image_max_pixels`, `image_download_max_bytes`
 - Magic bytes definem o formato (extensão não é confiável); AVIF/HEIC rejeitados; GIF `frame_count` = 1 (sem reassemble multi-frame)
 - `image download` = URL de imagem única (SSRF + body cap) — não é download árvore de site inteiro
 - Só EXIF (`kamadak-exif`); sem IPTC/XMP; `--select tags` alias de `exif`
@@ -761,39 +910,50 @@ printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"upload","tar
 
 ## Como Processar Vídeos Localmente (agent-native)
 ```bash
+# Sonda magic + streams (ffprobe opcional; só JSON de path e meta — nunca mídia crua no stdout)
 browser-automation-cli --json video info --path /tmp/in.mp4 --select container,duration_secs,streams,sha256
 # aliases de agente também: --select format,bytes,path → container,size_bytes,path
+# Convert e remux: smart copy quando muxável; auto re-encode para WebM a partir de H.264 (sem ffmpeg manual)
 browser-automation-cli --json video convert --path /tmp/in.mp4 --format webm -o /tmp/out.webm --select path_out,auto_reencoded,video_codec,bytes_out
+# Extrai o áudio
 browser-automation-cli --json video to-mp3 --path /tmp/in.mp4 -o /tmp/a.mp3
+# Trim e frame de thumbnail (path→path)
 browser-automation-cli --json video trim --path /tmp/in.mp4 --start 0 --duration 2 -o /tmp/clip.mp4
 browser-automation-cli --json video thumbnail --path /tmp/in.mp4 --at 1 -o /tmp/thumb.png
 # Resume manifesto HLS .m3u8 ou DASH .mpd sem baixar nenhuma mídia
 browser-automation-cli --json video manifest --path /tmp/master.m3u8
+# Download direto de URL de mídia (SSRF + teto de corpo + magic) — não é player de site nem yt-dlp
 # browser-automation-cli --json video download 'https://example.com/clip.mp4' -o /tmp/in.bin
+# Envie para um formulário (reusa o upload CDP existente)
 # --script recebe um caminho de arquivo ou `-` para NDJSON via stdin; JSON inline não é uma forma
 printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"upload","target":"input[type=file]","path":"/tmp/out.webm"}' | browser-automation-cli --json run --script -
 ```
 - Requer `ffmpeg`/`ffprobe` opcional do SO (XDG `ffmpeg_path` / PATH); nunca linka libav no crate de produto
-- Limites XDG: `video_max_input_bytes`, `video_download_max_bytes`, `video_default_*`, `ffmpeg_timeout_secs`
-- Magic bytes definem container; path→path; sem dump de mídia no stdout
-- Honesty: `stream_copy`, `auto_reencoded`, `reencode_reason`, `faststart_applied`
+- Limites via XDG: `video_max_input_bytes`, `video_download_max_bytes`, `video_default_container`, `video_default_crf`, `video_default_audio_bitrate`, `ffmpeg_timeout_secs`
+- Magic bytes definem o container; extensão não é confiável; só path→path (sem carregar o arquivo inteiro no processo da CLI)
+- Campos de honestidade do agente: `stream_copy`, `auto_reencoded`, `reencode_reason`, `faststart_applied`
 - `video manifest` lê só a estrutura de HLS `.m3u8` e DASH `.mpd`; nunca busca segmentos
 - Fora do core: playback adaptativo HLS/DASH, yt-dlp, encode H.264 pure-Rust
 
-## Como processar áudio local (path→path)
-
+## Como Processar Áudio Local (path→path)
 ```bash
+# Sonda (magic + ffprobe opcional) — sem dump de mídia
 browser-automation-cli --json audio info --path /tmp/in.wav --select format,codec,duration,bytes,sha256
+# Converte para MP3 (ffmpeg opcional; smart copy quando muxável)
 browser-automation-cli --json audio convert --path /tmp/in.wav --format mp3 -o /tmp/a.mp3
+# Extrai o áudio de um container de vídeo (-vn)
 browser-automation-cli --json audio convert --path /tmp/clip.mp4 --format m4a -o /tmp/a.m4a
+# Trim
 browser-automation-cli --json audio trim --path /tmp/a.mp3 --start 1 --duration 5 -o /tmp/cut.mp3
+# Download direto de URL de mídia (SSRF + teto de corpo + magic)
 # browser-automation-cli --json audio download 'https://example.com/a.mp3' -o /tmp/a.mp3
+# Envie para um formulário (upload CDP existente)
 browser-automation-cli --json upload @e1 /tmp/a.mp3
 ```
-- Requer `ffmpeg`/`ffprobe` opcional (XDG `ffmpeg_path` / PATH); nunca linka libav
-- Limites XDG: `audio_max_input_bytes`, `audio_download_max_bytes`, `audio_default_format`, `audio_default_bitrate`, `ffmpeg_timeout_secs`
-- Magic bytes definem container; envelope pode marcar `lossy_transcode` em recompressão lossy→lossy
-- Fora do core: cpal, BPM/fingerprint, encode pure-Rust, yt-dlp/HLS
+- Requer `ffmpeg`/`ffprobe` opcional do SO (XDG `ffmpeg_path` / PATH); nunca linka libav
+- Limites via XDG: `audio_max_input_bytes`, `audio_download_max_bytes`, `audio_default_format`, `audio_default_bitrate`, `ffmpeg_timeout_secs`
+- Magic bytes definem o container; extensão não é confiável; envelope pode marcar `lossy_transcode` em recompressão lossy→lossy
+- Fora do core: I/O de dispositivo cpal, BPM e fingerprint, stack de encode pure-Rust, yt-dlp/HLS
 
 
 ## Como Encontrar Paths no Disco
@@ -873,10 +1033,10 @@ browser-automation-cli --json workflow status --name demo
 
 ## Como Rodar Auditoria Lighthouse
 ```bash
-# Requires a real lighthouse binary on PATH
+# Exige um binário lighthouse real no PATH
 browser-automation-cli --timeout 180 --json lighthouse https://example.com
 
-# Mock binary for local smoke without a real lighthouse install
+# Binário mock para smoke local sem instalar o lighthouse real
 browser-automation-cli --timeout 60 --json lighthouse https://example.com \
   --lighthouse-path ./scripts/mock-lighthouse.sh
 ```
@@ -989,7 +1149,7 @@ browser-automation-cli doctor --offline --quick --json
 
 ## Como Cobrir Demais Comandos de Interação e Página
 ```bash
-# keys / type / hover / drag / upload (same process as navigation)
+# keys / type / hover / drag / upload (mesmo processo da navegação)
 cat > /tmp/interact.browser-automation.jsonl <<'JSONL'
 {"cmd":"goto","url":"https://example.com"}
 {"cmd":"keys","keys":"Tab"}
@@ -1001,13 +1161,13 @@ cat > /tmp/interact.browser-automation.jsonl <<'JSONL'
 JSONL
 browser-automation-cli --timeout 90 --json run --script /tmp/interact.browser-automation.jsonl
 
-# dialog accept/dismiss subcommands (not --action); soft path when optional
+# subcomandos dialog accept/dismiss (não --action); caminho suave quando opcional
 browser-automation-cli --timeout 60 --json reload --ignore-cache
 browser-automation-cli --json dialog accept --if-present
 browser-automation-cli --json dialog dismiss --if-present
 browser-automation-cli --json exec --help >/dev/null
 
-# dialog inside run (NDJSON shape uses action + optional if_present)
+# dialog dentro do run (a forma NDJSON usa action + if_present opcional)
 cat > /tmp/dialog.run.json <<'JSON'
 [
   {"cmd":"goto","url":"https://example.com"},
@@ -1016,7 +1176,7 @@ cat > /tmp/dialog.run.json <<'JSON'
 JSON
 browser-automation-cli --timeout 60 --json run --script /tmp/dialog.run.json
 
-# category-gated surfaces (explicit flags)
+# superfícies com gate de categoria (flags explícitas)
 browser-automation-cli --category-extensions --json extension list
 browser-automation-cli --category-third-party --json devtools3p list
 browser-automation-cli --category-webmcp --json webmcp list
@@ -1073,10 +1233,10 @@ browser-automation-cli commands --json | jaq '.data.commands // .commands // .'
 
 ## Como Contornar robots.txt com Dual Flags
 ```bash
-# Honor robots by default (no bypass flags)
+# Honra robots por padrão (sem flags de contorno)
 browser-automation-cli --json scrape https://example.com --format text --engine http
 
-# Bypass only when both flags are present together
+# Contorne apenas quando as duas flags estiverem juntas
 browser-automation-cli --ignore-robots --i-accept-robots-risk --json \
   scrape https://example.com --format text --engine http
 ```
@@ -1108,15 +1268,7 @@ browser-automation-cli --capture-console --timeout 60 --json run --script /tmp/c
 ```
 - Habilite `--capture-console` no mesmo processo que produz as mensagens
 - Filtre tipos com `--types log,warning,error,info,debug` na forma CLI
-
-
-## Como Console Dump []
-```bash
-browser-automation-cli --capture-console --json console dump
-# sempre array JSON válido; [] quando vazio (GAP-021)
-```
 - `console dump` sempre grava um array JSON válido (`[]` quando vazio)
-- Capture precisa estar habilitada no mesmo processo para mensagens reais
 
 
 ## Como Fazer Assert de URL ou Texto
@@ -1136,7 +1288,7 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
 
 ## Inventário Completo de Comandos (69)
 - Fonte viva: `browser-automation-cli commands --json` (**69** nomes voltados a agentes)
-Superfície clap de produto é **66** nomes (exclui `select-option` / `pick` de inventário de agente)
+- Superfície clap de produto é **66** nomes (exclui `select-option` / `pick` de inventário de agente)
 - O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53; lighthouse mock SKIP)
 - Lista completa de comandos de agente (todos os **69**):
   - Meta / descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`

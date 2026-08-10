@@ -54,6 +54,14 @@ pub struct AgentOps {
     pub truncate_content: Option<usize>,
     /// Byte ceiling for the emitted payload.
     pub max_output_bytes: Option<usize>,
+    /// Assertions over the emitted payload, as `(original text, predicate)`.
+    ///
+    /// The original text is kept so the report can echo the caller's own
+    /// argument back. Reconstructing it from the parsed predicate would
+    /// normalise spacing and leave the agent matching a string it never wrote.
+    pub expect: Vec<(String, FilterExpr)>,
+    /// Turn an unmet expectation into a non-zero exit.
+    pub expect_exit_code: bool,
 }
 
 impl AgentOps {
@@ -68,6 +76,7 @@ impl AgentOps {
             && !self.count_only
             && self.truncate_content.is_none()
             && self.max_output_bytes.is_none()
+            && self.expect.is_empty()
     }
 
     /// True when any operation needs a list to work on.
@@ -109,6 +118,14 @@ pub struct AgentOpsReport {
     /// agent that something failed, not which of its keys was misspelled.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unresolved_paths: Vec<UnresolvedPath>,
+    /// `--expect` expressions the emitted payload did not satisfy.
+    ///
+    /// Echoed verbatim so the agent matches the argument it passed. Absent
+    /// when every expectation held, which keeps "asserted and passed"
+    /// distinguishable from "asserted nothing" only through the exit code and
+    /// the caller's own argv — the agent already knows what it asked for.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub expectation_unmet: Vec<String>,
 }
 
 /// One requested dotted path that no row (or the payload) actually carried.
@@ -127,6 +144,7 @@ impl AgentOpsReport {
             && !self.truncated
             && self.omitted_rows.is_none()
             && self.unresolved_paths.is_empty()
+            && self.expectation_unmet.is_empty()
     }
 }
 
@@ -141,6 +159,25 @@ pub fn set_agent_ops(ops: Option<AgentOps>) {
 #[must_use]
 pub fn agent_ops() -> Option<AgentOps> {
     lock_recover(&AGENT_OPS).clone()
+}
+
+/// Set when `--expect-exit-code` is on and an expectation did not hold.
+static EXPECTATION_UNMET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Record that an opted-in expectation failed.
+///
+/// A flag rather than an error return, because the caller must still receive
+/// the payload: the whole value of `--expect` is seeing WHY the assertion
+/// failed, and swallowing the envelope to raise an exit code would take that
+/// away. The exit code is applied after the envelope is written.
+fn set_expectation_unmet() {
+    EXPECTATION_UNMET.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether this process must exit non-zero because of `--expect-exit-code`.
+#[must_use]
+pub fn expectation_unmet() -> bool {
+    EXPECTATION_UNMET.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Where the list to operate on lives inside `data`.
@@ -350,7 +387,14 @@ pub fn apply_process_ops(data: Value) -> Result<(Value, Option<AgentOpsReport>),
     let Some(ops) = agent_ops() else {
         return Ok((data, None));
     };
-    let (data, report) = apply(data, &ops)?;
+    let (data, mut report) = apply(data, &ops)?;
+    // Evaluated here rather than inside `apply` because `apply` returns early
+    // on `--count-only`. An assertion that skips a branch is worse than no
+    // assertion: it reports "held" for a payload it never looked at.
+    report.expectation_unmet = unmet_expectations(&data, &ops);
+    if !report.expectation_unmet.is_empty() && ops.expect_exit_code {
+        set_expectation_unmet();
+    }
     Ok((
         data,
         if report.is_empty() {
@@ -359,6 +403,43 @@ pub fn apply_process_ops(data: Value) -> Result<(Value, Option<AgentOpsReport>),
             Some(report)
         },
     ))
+}
+
+/// Which `--expect` expressions the emitted payload fails.
+///
+/// # Where an expectation is evaluated
+///
+/// Against every row when the payload has a row list, and against the payload
+/// object itself when it does not. An expectation holds when at least one row
+/// satisfies it — `--expect status=200` asks "is there a 200 in here?", which
+/// is the question an agent actually has. Requiring every row to match would
+/// make the flag useless on any multi-row command without a `--filter-rows`
+/// first, and the caller can already get the stricter reading by filtering.
+fn unmet_expectations(data: &Value, ops: &AgentOps) -> Vec<String> {
+    if ops.expect.is_empty() {
+        return Vec::new();
+    }
+    let rows: Vec<&Value> = match resolve_rows(data) {
+        Ok(target) => match rows_ref(data, &target) {
+            Some(list) => list.iter().collect(),
+            None => vec![data],
+        },
+        // No list: the payload is the one thing there is to assert about.
+        Err(_) => vec![data],
+    };
+    ops.expect
+        .iter()
+        .filter(|(_, pred)| !rows.iter().any(|row| pred.matches(row)))
+        .map(|(raw, _)| raw.clone())
+        .collect()
+}
+
+/// Borrow the row list without detaching it.
+fn rows_ref<'a>(data: &'a Value, target: &RowTarget) -> Option<&'a Vec<Value>> {
+    match target {
+        RowTarget::Root => data.as_array(),
+        RowTarget::Field(key) => data.get(key).and_then(Value::as_array),
+    }
 }
 
 #[cfg(test)]

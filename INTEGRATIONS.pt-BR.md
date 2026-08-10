@@ -24,7 +24,8 @@
 - `0.1.3` fecha residual-zero e contratos de agente: `run` NDJSON|array JSON, reload/beforeunload/init_script CDP, honestidade Redis/Lighthouse, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 comandos de topo; 53 tools DevTools e2e)
 - `0.1.4` fecha gaps agent-first: `--json-steps`, `wait` url/navigation/multi-seletor, `select-option`/`pick` (run/schema), assert `console_*`, `schema <cmd>` posicional, MITM `capture-url` + `--mitm*`, scrape multi-formato, batch/crawl `--engine browser`, `print-pdf` no `run`
 - `0.1.5` fecha residual-zero de disco (RES-01…12): BORN auto-GC de dirs Chromium Singleton-only em `/tmp` (piso de idade 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + campo de topo `residual` (`ResidualDiskReport`), nunca mata Chrome Flatpak do host; honestidade de inventário com `locale`/`man`
-- `0.1.6` fecha confiança agent-first de diálogo/select/scrape/wait: booleano `dialog_settled` + XDG `dialog_settle_ms`, isolamento multi-aba de diálogo por `session_id` com gate e2e, select nativo `input`+`change`, `wait_timeout_ms` em `run`, scrape `format`/`formats` em `run`, grab só `png|jpeg|webp` (encode AVIF removido); inventário tip 0.1.7 **69** via `commands --json` (0.1.6: `submit`/`storage` → 65; 0.1.7: `image`+`video`+`audio` → 68 depois `record` → 69; também `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (mock lighthouse SKIP honesto)
+- `0.1.6` fecha confiança agent-first de diálogo/select/scrape/wait: booleano `dialog_settled` + XDG `dialog_settle_ms`, isolamento multi-aba de diálogo por `session_id` com gate e2e, select nativo `input`+`change`, `wait_timeout_ms` em `run`, scrape `format`/`formats` em `run`, grab só `png|jpeg|webp` (encode AVIF removido); inventário tip 0.1.8 **69** via `commands --json` (0.1.6: `submit`/`storage` → 65; 0.1.7: `image`+`video`+`audio` → 68 depois `record` → 69; também `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (mock lighthouse SKIP honesto)
+- `0.1.8` fecha anti-detecção e controle de saída: família stealth (`--no-stealth`, `--stealth-profile`, `--stealth-seed`), modo de janela pela chave XDG `browser_mode` mais `--no-xvfb`, proxy de saída (`--proxy`, `--proxy-bypass`) valendo para o Chrome e para o motor HTTP, chaves de fingerprint HTTP/2 constante, cinemática humana de input (`--input-profile`, `--input-seed`), warmup de sessão (`--warmup`, `--warmup-url`), asserções sobre o payload (`--expect`, `--expect-exit-code`) e `config unset <KEY>`; a superfície de configuração cresce de 176 para **204** chaves enquanto o inventário tip permanece **69** via `commands --json`
 - Ferramentas experimentais exigem `--experimental-vision` ou `--experimental-screencast`
 
 ## Tabela Resumo
@@ -132,6 +133,18 @@ echo "$out" | jaq -e '.ok == true'
   - Run: `wait_timeout_ms` público nos passos wait; scrape com `format`/`formats` (texto compacto sem monstro HTML quando só text)
   - Grab: `--format png|jpeg|webp` apenas — encode AVIF removido
   - Lighthouse: fixtures unitárias com LHR capturado (forma 13.4.1); e2e mock permanece SKIP (nunca alegar PASS de parser a partir do mock)
-  - Inventário tip: **69** nomes de agente via `commands --json` (inclui `submit`, `storage`, 0.1.7 `image`+`video`+`audio`+`record`, `select-option`, `pick`, `locale`, `man`, …)
+  - Inventário tip (0.1.8): **69** nomes de agente via `commands --json` (inclui `submit`, `storage`, 0.1.7 `image`+`video`+`audio`+`record`, `select-option`, `pick`, `locale`, `man`, …)
   - Descubra o conjunto completo de chaves com `config list-keys --json` (não é contagem fixa de 16)
   - Residual intencional: GAP-022 ~53 multi-versões de dependência; GAP-023/024 wishlist PRD sem paridade completa
+- `0.1.8`:
+  - Anti-detecção: `--no-stealth`, `--stealth-profile auto|chrome-linux|chrome-win|chrome-mac`, `--stealth-seed <SEED>`; XDG `stealth` (padrão true), `stealth_profile`, `stealth_seed`
+  - Modo de janela: XDG `browser_mode` (`auto|headed|headless`; `auto` resolve para headless e o `doctor` reporta o modo efetivo); `--no-xvfb` pula o display virtual privado no Linux
+  - Proxy de saída: `--proxy <URL>` (`http`, `https`, `socks5`) e `--proxy-bypass <HOSTS>` valem para o Chrome **e** para o motor HTTP; XDG `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `cdp_proxy_bypass_loopback` (padrão true)
+  - Fingerprint HTTP/2: XDG `http2_enabled` (padrão true), `http2_initial_stream_window_size` (6291456), `http2_initial_connection_window_size` (15663105), `http2_max_header_list_size` (262144), `http2_max_frame_size` (16384), `http2_adaptive_window` (padrão false, porque desligado mantém o fingerprint constante)
+  - Cinemática humana de input: `--input-profile human|direct` (padrão `human`) e `--input-seed <SEED>`; XDG `input_profile`, `input_move_steps` (24), `input_move_gap_ms` (12), `input_click_dwell_ms` (65), `input_key_dwell_ms` (45), `input_type_delay_ms` (95), `input_scroll_tick_px` (100), `input_scroll_max_ticks` (40), `input_target_jitter_px` (3), `input_scroll_settle_rounds` (3)
+  - Warmup de sessão: `--warmup` e `--warmup-url <URL>`
+  - Asserções sobre o payload: `--expect <EXPR>` com `key=value`, `key!=value` ou `key~substring`, repetível e conjugado por AND; `--expect-exit-code` sai com 65 quando alguma asserção falha, desligado por padrão porque mudar o exit code por conteúdo de dado quebraria chamadores em silêncio
+  - `config unset <KEY>` restaura uma chave ao default embutido
+  - Chaves avulsas novas: `robots_user_agent`, `scrape_no_cache`, `monitor_diff_max_bytes`
+  - A superfície de configuração cresce de 176 para **204** chaves (`config list-keys --json`)
+  - O inventário tip permanece **69** nomes de agente via `commands --json`

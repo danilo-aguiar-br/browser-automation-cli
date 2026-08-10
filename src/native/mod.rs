@@ -13,3 +13,4 @@ pub mod perf_insight;
 pub mod screenshot;
 pub mod snapshot;
 pub mod state;
+pub mod stealth;

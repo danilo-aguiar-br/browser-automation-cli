@@ -29,7 +29,13 @@ impl BrowserManager {
             .await?;
 
         if let Some(ref error_text) = nav_result.error_text {
-            return Err(format!("Navigation failed: {error_text}"));
+            // The CDP `errorText` is returned bare, without a "Navigation
+            // failed" prefix. The sole caller — `session::nav` — already wraps
+            // every error path from this function in that exact phrase, so
+            // adding it here produced "Navigation failed: Navigation failed:
+            // net::ERR_PROXY_CONNECTION_FAILED" on the wire. One layer owns
+            // the context; this layer owns the cause.
+            return Err(error_text.clone());
         }
 
         // Only wait for lifecycle events if Chrome created a new loader (full navigation).

@@ -24,7 +24,7 @@
 - Cobertura e2e opcional de eventos CDP quando Chrome está disponível (`tests/e2e_cdp_events.rs`)
 - Script e2e completo das **53 tools** DevTools (nome legado do arquivo): `scripts/e2e_all_52_tools.sh`
 - Inventário vivo da CLI é **69 nomes de agente** (`commands --json`) — mais amplo que o conjunto e2e de 53 tool-ref; inclui inventário de agente `select-option` e `pick` (run/exec/schema, não clap), meta `locale` e `man`, mais clap `submit` e `storage`
-- Gates de produto v0.1.7 (locais; Chrome serial quando necessário):
+- Gates de produto introduzidos na v0.1.7 e ainda vigentes na 0.1.8 (locais; Chrome serial quando necessário):
   - `tests/dialog_multitab_gate.rs` — isolamento multi-aba de diálogo + `dialog_settled` (GAP-054)
   - `tests/option_pick_gate.rs` — select nativo `input`+`change` (GAP-055)
   - `tests/wait_conditions_gate.rs` — honesty de prazo `wait_timeout_ms` (GAP-053)
@@ -72,7 +72,7 @@ bash scripts/e2e_all_52_tools.sh
 - A suite de 52-tools não substitui smokes residuais de comandos fora do conjunto tool-ref
 
 
-## Gates Residual-Zero de Disco (v0.1.5 — ainda corrente na 0.1.7)
+## Gates Residual-Zero de Disco (lei da v0.1.5 — ainda corrente na 0.1.8)
 ```bash
 cargo build --release --locked
 cargo test --lib residual:: --locked
@@ -91,7 +91,7 @@ bash scripts/residual-check.sh
 - Age floor do GC stale de produção é 60s; testes podem usar helpers de library com age zero para fixtures
 
 
-## Gates de Produto v0.1.7 (dialog / select / wait / scrape / units lighthouse)
+## Gates de Produto Introduzidos na v0.1.7 (dialog / select / wait / scrape / units lighthouse)
 ```bash
 cargo test --test dialog_multitab_gate --locked
 cargo test --test option_pick_gate --locked
@@ -110,6 +110,107 @@ bash scripts/residual-check.sh
 - **Encode do `grab`:** só png|jpeg|webp; AVIF removido (breaking) — smokes residuais não devem passar `--format avif`
 - **Residual intencional GAP-024:** divergências wishlist de PRD ficam em `parity_intentional_divergences.json` (não alegue paridade PRD completa)
 - **Não** trate dashboards remotos de orquestração como superfície de produto; use só cargo local e `scripts/*-check.sh`
+
+
+## Famílias de Gate Sob tests/
+- `tests/` tem 68 arquivos de gate de integração, cada um rodado com `cargo test --test <name> --locked`
+- Cada família abaixo fecha uma classe de defeito, nunca um comando
+- Todo gate é local e não precisa de runner além do cargo
+- Um gate sem sua pré-condição faz SKIP em voz alta em vez de aprovar em silêncio
+
+### Fidelidade de Anti-Detecção e Stealth
+- `tests/block_detection_gate.rs` — um muro de CAPTCHA precisa chegar ao envelope em vez de passar como conteúdo
+- Ele exige exit `6`, um `error.kind` igual a `blocked` e `data.block_detection` juntos
+- Uma página comum é o controle negativo e precisa voltar sem marcação
+- O engine browser precisa reportar o mesmo bloqueio que o engine HTTP reporta
+- `tests/input_trace_gate.rs` — asserta o que a página RECEBEU, não o efeito resultante
+- O perfil `human` precisa entregar eventos `wheel` e de tecla reais com espaçamento não uniforme
+- O perfil `direct` é o controle negativo e não emite wheel nem tecla sintéticos
+- `tests/xvfb_gate.rs` — a alegação do doctor sobre Xvfb precisa casar com o que o host consegue
+- Uma execução headed no Linux não pode deixar lock de display para trás
+- Um host sem Xvfb é skip impresso, nunca execução vermelha
+- `tests/compression_gate.rs` — todo content-coding anunciado precisa chegar decodificado
+- Nenhum `content-encoding` pode sobreviver no envelope, o que prova que o corpo foi descomprimido
+
+### Superfície de CLI e Higiene do Clap
+- `tests/clap_arg_coverage.rs` — todo subcomando de topo renderiza help e argumento faltante vira erro
+- Ele fixa os payload flags renomeados `fields-json`, `cookies-json` e `detailed` nos seus campos
+- Ele também fixa que `image` não expõe ação de reconhecimento de texto
+- `tests/clap_global_flag_collision.rs` — nenhum flag local de subcomando pode sombrear global long ou short
+- `tests/help_description_gate.rs` — todo subcomando em toda profundidade carrega descrição não vazia
+- Seu detector é função compartilhada também dirigida contra árvore sintética, provando a própria sensibilidade
+- `tests/manpage_cli.rs` — `man` emite roff, grava atomicamente e rejeita path traversal
+
+### Forma de Envelope e Taxonomia de Erro
+- `tests/envelope_shape_gate.rs` — nenhum passo de `run` pode carregar `data` e `result` com conteúdo igual
+- Um script fixo de dez passos precisa ficar dentro de um orçamento declarado de bytes
+- `tests/view_precondition_gate.rs` — página em branco responde kind de pré-condição, nunca `usage`
+- `--allow-empty` precisa ter sucesso e argv malformado precisa continuar respondendo `usage`
+- `tests/config_key_diagnosis_gate.rs` — `config set` diagnostica a CHAVE independentemente do VALOR
+- Uma chave desconhecida lê igual seja qual for a cara do valor
+- `tests/devtools_envelope_behavior.rs` — campos de envelope dos comandos de paridade DevTools, offline e com Chrome
+- `tests/grab_envelope_gate.rs` — `grab` reporta a largura e a altura que acabou de gravar
+- O tamanho reportado precisa casar com o arquivo em viewport, full-page e elemento
+- `tests/preflight_no_browser.rs` — um script inválido falha antes de o Chrome ser lançado
+- A prova é residual: nenhum perfil marker aparece e a falha é muito mais rápida
+
+### Gestos de Interação com Chrome Vivo
+- `tests/drag_route_gate.rs` — o drag precisa alcançar o handler da página e reportar `route` como `intercepted`
+- Uma página sem handler `dragstart` precisa reportar a rota sintética degradada e avisar
+- `tests/submit_form_gate.rs` — `submit` dispara o evento do form e espera a navegação
+- Pressionar o botão sósia tem sucesso sem submeter nada, que é o defeito sendo separado
+- `tests/upload_cdp_e2e_gate.rs` — o arquivo realmente chega a um input de um Chrome real
+- Ele fixa `--script -` lendo stdin e `--script` recebendo caminho, nunca JSON inline
+- `tests/extract_step_gate.rs` — dois seletores em um run precisam resolver para dois nós diferentes
+- `tests/cookie_jar_gate.rs` — um cookie gravado é achado por um `list` posterior, e `clear` esvazia mesmo
+- `tests/dialog_if_present_gate.rs` — a ausência é tolerada com a flag e fatal sem ela
+- `tests/eval_typed_gate.rs` — retorno de objeto chega como estrutura, e `typed` reporta `value_type`
+- `tests/ref_invalidation_gate.rs` — o marcador de staleness `@eN` aparece só quando a árvore realmente mudou
+- `tests/assert_step_gate.rs` — todo kind de `assert` pode REPROVAR o run e alcançar o exit code
+- `tests/record_gate.rs` — o NDJSON que `record` grava replaya por `run --script` sem tradução
+
+### Contenção de Filesystem e Evidência de Falha
+- `tests/allowed_roots_gate.rs` — caminho local fora das raízes permitidas é recusado como política
+- A recusa não pode ser classificada como `usage`, e `--allow-outside-roots` restaura o acesso
+- `tests/failure_dump_gate.rs` — um run que falha grava em disco os anéis de console e rede capturados
+- Um run bem-sucedido, ou um run que falha sem a flag, não pode deixar artefato
+
+### Ciclo de Vida de Processo e Contabilidade Residual
+- `tests/lifecycle_group_kill.rs` — um sinal ceifa o grupo de processos inteiro, com fallback por árvore de pid
+- Ele recusa o nosso próprio grupo, o `init` e o grupo zero
+- `tests/lifecycle_hard_kill_gate.rs` — `SIGKILL` na CLI não deixa processo de browser do seu grupo
+- `tests/signal_shutdown.rs` — SIGTERM e SIGINT contra um filho vivo da CLI não podem travar
+- `tests/residual_report_contract.rs` — pids são contados uma vez e processos impostores não são contados
+- O relatório emite as raízes que varreu e reporta órfãos de raiz estrangeira em separado
+- Um pid de dono vivo protege uma invocação concorrente da coleta
+
+### Comportamento de Scrape, Crawl e Feed
+- `tests/scrape_agent_native_gate.rs` — projeção offline, flag de truncagem, filtros de path e promoção de formato
+- `tests/scrape_wave6_gate.rs` — `--format feed`, seguimento de `rel=next` e colapso de quase duplicatas
+- Cada comportamento vem com seu controle DESLIGADO, então implementação incondicional reprova
+- `tests/scrape_wave7_e2e_gate.rs` — `rel=next` em âncora, JSON Feed e `batch-scrape --dedup-similar`
+- A descoberta de paginação nunca pode passar por cima de um `Disallow` do robots
+- `tests/crawl_plan_llms_txt_gate.rs` — `crawl --dry-run` resolve o plano e não busca nada
+- Ele é apontado para host inalcançável, então um envelope de sucesso É a evidência
+
+### Pipelines Locais de Mídia
+- `tests/audio_local_gate.rs` — inventário, ações de schema, bloqueio SSRF e conversão quando há ffmpeg
+- `tests/image_wave6_codecs.rs` — encode AVIF, HEIC fail-closed, raster SVG, quadros GIF, backend de resize
+- `tests/image_metadata_iptc_xmp.rs` — leitores IPTC IIM e XMP mais o gate de ameaça do sanitizador SVG
+- `tests/image_media_cli_e2e.rs` — as mesmas superfícies wave-6 dirigidas pelo binário real
+- Uma feature implementada porém inalcançável a partir do `main` é o que ele pega
+- `tests/video_manifest_parse.rs` — o parser HLS e DASH em nível de library, sem buscar nada
+- `tests/video_manifest_hls_dash.rs` — escadas de variante, resolução de URI relativa e o teto de bytes
+- `tests/video_manifest_cli_gate.rs` — `video manifest` é ação anunciada e alcançável pelo argv
+- `tests/video_site_extraction_rejected.rs` — página de player e manifesto recebem erros distintos e acionáveis
+
+### Paridade, Propriedades e Logging Local
+- `tests/parity_semantics.rs` — a terceira camada de paridade: pré-condição e efeito, não só nome
+- Ele faz SKIP em voz alta quando a árvore de referência e `docs_prd/` faltam no checkout
+- `tests/proptest_parsers.rs` — testes de propriedade para parsers offline, corpo de robots e round trip de envelope
+- `tests/tracing_local_log_schema.rs` — nomes de campo das linhas JSON rotacionadas sob `config set log_to_file`
+- As linhas são só arquivos locais; este produto não tem telemetria remota
+
 
 ## Inventário completo de agente (69)
 
@@ -149,8 +250,11 @@ browser-automation-cli --json image download 'https://www.w3.org/People/mimasa/t
 browser-automation-cli --json image info --path /tmp/w3c.png --select format,width,height,sha256
 browser-automation-cli --json image convert --path /tmp/w3c.png --format webp -o /tmp/w3c.webp
 browser-automation-cli --json image exif --path /tmp/w3c.webp --select tags,path  # alias tags→exif; só EXIF
-# AVIF/HEIC: magic reject. SVG: --allow-non-image. image download ≠ árvore de site inteiro.
-browser-automation-cli schema upload >/dev/null  # dry upload
+# AVIF/HEIC: magic reject (sem encode pure-Rust). SVG: use --allow-non-image para bytes crus (sem resvg).
+# image download = URL de uma imagem (SSRF+magic) — NÃO é download de árvore de site inteiro.
+# Upload precisa de Chrome + input de arquivo já navegado (dry: schema upload):
+browser-automation-cli schema upload >/dev/null
+# browser-automation-cli --json run --script '[{"cmd":"goto","url":"…"},{"cmd":"upload","target":"input[type=file]","path":"/tmp/w3c.webp"}]'
 # O fuzzing dos parsers de magic é um gate normal — sem nightly, sem libFuzzer, sem binário à parte:
 cargo test --test fuzz_magic_parsers_gate
 #   Corpus xorshift determinístico: prefixos reais de container (PNG/JPEG APP1+APP13/GIF/RIFF/
@@ -245,20 +349,34 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 # clap JSON usage error (GAP-002)
 browser-automation-cli --json not-a-real-command 2>/dev/null | jaq -e '.ok == false' || true
 
+# caminho suave de dialog
+browser-automation-cli --json dialog accept --if-present
+# console dump sempre []
+browser-automation-cli --capture-console --json console dump --path /tmp/console.json
+# superfície de help da flag beforeunload
+browser-automation-cli goto --help | rg handle-before-unload
+# contexto isolado de página
+browser-automation-cli page new --help | rg isolated-context
+# print-pdf dentro de run
+# cat > /tmp/pdf.run.json <<'JSON'
+# [{"cmd":"goto","url":"https://example.com"},{"cmd":"print-pdf","path":"/tmp/page-from-run.pdf"}]
+# JSON
+# browser-automation-cli --timeout 60 --json run --script /tmp/pdf.run.json
+# schema já coberto
+
 # locale / man meta + submit/storage/image/video/audio/record (inventário 69)
 browser-automation-cli --json locale
 browser-automation-cli --json man >/tmp/browser-automation-cli.1
-
-# campos residual do doctor (v0.1.5)
-browser-automation-cli doctor --offline --quick --json | jaq '.residual'
 browser-automation-cli --json schema submit
 browser-automation-cli --json schema storage
 browser-automation-cli --json config list-keys
 browser-automation-cli --json config set dialog_settle_ms 2000
+
+# campos residual do doctor (lei da v0.1.5 ainda corrente)
+browser-automation-cli doctor --offline --quick --json | jaq '.residual'
 ```
 - Também úteis: scrape browser com format, `config path`, `mitm start`, doctor XDG, i18n `--lang pt-BR`
 - Testes de contrato a citar em evidência: `parity_run_inventory`, `clap_command_debug_assert`, `residual_one_shot`, testes lib residual, `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate`, `scrape_step_gate`
-- Também: `dialog --if-present`, `console dump` (array `[]` quando vazio), `print-pdf` dentro de `run`
 
 
 ## Mock de Lighthouse (honesty SKIP em e2e)
@@ -337,6 +455,77 @@ bash scripts/doc-coverage-check.sh
 - `scripts/ci-check.sh` descobre este gate pelo glob `scripts/*-check.sh`
 - `verifier-controls-check.sh` carrega 3 controles positivos deste gate
 - O script resolve o binário com o mesmo fallback de PATH pelo mesmo motivo
+
+
+## Escala da Suíte Completa de Verificadores
+- `scripts/` tem **42** arquivos `.sh` de topo; `tests/` tem **68** arquivos `.rs` de gate
+- `bash scripts/ci-check.sh` é o runner local do bundle
+- Ele descobre sozinho todo `scripts/*-check.sh` executável por esse glob
+- Um script cujo nome não termina em `-check.sh` nunca entra no bundle e precisa ser invocado pelo nome
+- Ferramentas de medição e geradores têm nome assim de propósito: eles reportam ou escrevem, não assertam
+- Prefira rodar o bundle inteiro antes de release, e um verificador isolado durante a iteração
+
+
+## Verificadores de Conformidade Rust
+- `scripts/interior-mutability-check.sh` — rejeita `static mut` e formas `Arc<RefCell>` / `Rc<RefCell>` sob `src/`
+- `scripts/memory-check.sh` — higiene de RAII, ownership e alocação; rejeita `std::process::exit` sob `src/`
+- `scripts/ownership-check.sh` — regras de ownership, borrowing e lifetime, ancoradas nos módulos de session interact e de launch e tabs nativos
+- `scripts/macros-check.sh` — higiene de macros declarativas e embutidas; rejeita `todo!(`, `unimplemented!(` e `dbg!(` deixados em produção
+- `scripts/json-ndjson-check.sh` — regras de JSON e NDJSON; asserta `serde_json` como único parser de produção e rejeita `simd-json` / `sonic-rs`
+- `scripts/network-check.sh` — regras de rede para CLI de agente one-shot: só CLI mais XDG, `no_proxy`, política SSRF e tetos de corpo, ancorado nos módulos de robots e de descoberta CDP
+- `scripts/process-check.sh` — regras de execução de processo externo: helper de captura com timeout, defesa BatBadBut, nenhum spawn de shell em produção
+- `scripts/parallelism-check.sh` — paralelismo limitado; exige `src/concurrency/` e rejeita `Box::leak` / `mem::forget` dentro dele
+- `scripts/shutdown-check.sh` — encerramento gracioso em torno de `run_from_args`, incluindo o handler de SIGPIPE e o flush duplo
+- `scripts/tracing-check.sh` — regras de logging e rotação; `--inventory-only` roda só a metade estática
+- `scripts/multiplatform-check.sh` — rejeita shell-out para `which` / `where`, que deve passar por `platform::which_bin`
+- `scripts/natives-check.sh` — allowlist de crates nativas; proíbe CLIs humanas sob `src/` fora dos binários de domínio (chrome, lightpanda, lighthouse, ffmpeg, redis-server em testes), e proíbe `openssl` (TLS permanece só rustls) e `nasm-rs` no `Cargo.lock`
+- `scripts/filesize-check.sh` — teto de 300 linhas de **código** por arquivo de produção; prosa de rustdoc não é código, então contar linhas físicas premiaria apagar documentação; exceções declaradas carregam versão de expiração e reprovam como qualquer outro arquivo depois dela
+- `scripts/orphan-module-check.sh` — todo `src/**/*.rs` deve ser alcançável a partir de uma raiz de crate; um arquivo que nenhum pai declara com `mod` fica ausente do binário enquanto build, clippy e a suíte inteira seguem verdes
+- `scripts/reachability-check.sh` — itens `pub use` sem call site sob `src/`; o lint `dead_code` para na fronteira do crate, então um item reexportado que ninguém chama permanece silencioso
+
+
+## Verificadores de Superfície e Paridade de Esquema
+- `scripts/clap-schema-parity-check.sh` — compara o **parser** clap contra o esquema publicado, o eixo que o `schema-drift-check.sh` estruturalmente não enxerga porque os dois lados dele derivam do mesmo módulo de esquema; medidos 29 flags aceitos pelo clap e ausentes do `schema`, incluindo o obrigatório `storage export --path`
+- `scripts/schema-drift-check.sh` — adaptador fino sobre o `--check` do gerador; o runtime é a fonte da verdade e `docs/schemas/*.json` é artefato derivado; a capacidade existia muito antes da ligação, e sete de 68 esquemas tinham derivado enquanto toda auditoria reportava verde
+- `scripts/config-roundtrip-check.sh` — toda chave de `CONFIG_KEYS` precisa existir no gravador e no leitor (veja v0.1.8 abaixo)
+- `scripts/phantom-flag-gate.sh` — adaptador bash sobre `tests/phantom_flag_gate.rs` (veja v0.1.8 abaixo)
+- `scripts/parity-check.sh` — paridade DevTools em três camadas (nome, parâmetro, semântica); a árvore de referência e `docs_prd/` não são vendorizadas, e o gate faz **SKIP em voz alta** quando elas faltam em vez de aprovar em silêncio
+- `scripts/inventory_diff_base.sh` — nomes de tool da base de conhecimento ⊆ mapa da CLI ∪ `tests/fixtures/tool-reference.md`, com tabela explícita de aliases; faz SKIP quando o diretório da base está ausente
+
+
+## Verificadores de Documentação e Localização
+- `scripts/docs-check.sh` — pipeline local de validação docs.rs: `cargo check`, `cargo doc --no-deps --features docs-mermaid`, fases opcionais de doc nightly e de rustdoc JSON, depois auditoria de cobertura da feature e dos metadados; progresso NDJSON no stdout e logs humanos no stderr; exit `0` todas as fases passaram, `65` auditoria de documentação ou metadados falhou, `70` falha de build
+- `scripts/i18n-check.sh` — paridade de ids de mensagem entre `locales/en.ftl` e `locales/pt-BR.ftl`, mais a superfície unit de i18n
+- `scripts/doc-coverage-check.sh` — prosa contra a superfície viva do binário; veja a seção Gate de Cobertura de Documentação acima
+
+
+## Verificadores de Recursos e Desempenho
+- `scripts/perf-check.sh` — higiene de performance: inventário de perfil mais smoke de build release; `--inventory-only` pula o rebuild, `--rss` encadeia a baseline de RSS, `--bench` roda o bench lento `cli_parse`
+- `scripts/latency-check.sh` — gates de higiene de latência; `--baseline` acrescenta números de relógio, `--inventory-only` mantém tudo estático
+- `scripts/latency-baseline.sh` — ferramenta de medição, não gate; reporta P50, P99, P999, P9999 e máximo sobre caminhos meta de agente, para que o boot do Chrome nunca mascare uma regressão de Rust; preserva outliers e sempre sai com `0` depois de imprimir
+- `scripts/rss-baseline.sh` — ferramenta de medição; lê `Maximum resident set size` de `/usr/bin/time -v` para o binário release
+- `scripts/profile-cdp.sh` — profiling local de um `goto about:blank` one-shot; tempo de relógio por padrão, com flamegraph ou samply opcionais; nenhum profile commitado
+
+
+## Geradores (não são verificadores)
+- `scripts/gen-completions.sh` — congela completions de shell em `target/completions/` para empacotamento de distro; em runtime as completions continuam vindo de `browser-automation-cli completions <shell>`
+- `scripts/gen-llms-txt.sh` — regenera o bloco de inventário legível por máquina do `llms.txt` a partir de `commands --json` ao vivo, substituindo o bloco gerado anterior e deixando a prosa intacta
+- Nenhum dos dois asserta nada, então nenhum pertence ao glob `scripts/*-check.sh`
+
+
+## Verificadores da v0.1.8 e os Defeitos que Fecham
+- `scripts/config-roundtrip-check.sh` — asserta que toda chave literal de `CONFIG_KEYS` está presente no gravador `src/xdg/config_write.rs` e no leitor `src/xdg/config_io.rs`; chaves de política promovidas ficam isentas porque uma tabela de macro as gera
+- A classe que ele fecha: `config set` reconstrói o `config.toml` inteiro a partir de um template escrito à mão, então uma chave ausente dele é descartada em vez de preservada, e o `match` escrito à mão do leitor a joga fora na carga
+- A falha era silenciosa da pior forma: `config set` respondia `ok: true` com exit `0` e o processo seguinte lia `null` de volta
+- Medido em 2026-08-09: dezessete chaves ausentes das duas metades. Medido em 2026-08-10: **mais seis** ainda ausentes — `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `stealth_seed`, `robots_user_agent`
+- Duas dessas seis são credenciais de proxy que a documentação manda o operador guardar na configuração justamente porque o argv é visível na tabela de processos; o canal seguro descartava o valor e deixava o canal vazado como o único que funcionava
+- Por que não um teste Rust: um teste de round-trip precisa de um valor que passe validação por chave e degenera em amostra hardcoded, que é exatamente como `tests/v018_parity_gate.rs` deixou passar as seis; a invariante é comparação estática de conjuntos e pertence a uma checagem estática
+- `scripts/phantom-flag-gate.sh` — adaptador que expõe uma propriedade de `tests/phantom_flag_gate.rs` ao runner de controles, que dirige todo controle com `bash $script`; ele não carrega asserção própria e aceita um filtro do libtest
+- Ele deliberadamente **não** se chama `*-check.sh`: esse glob rodaria as mesmas propriedades uma segunda vez, e um segundo verde não acrescenta informação e custa o link inteiro de um binário de teste
+- O scan original era um script Python de 411 linhas; foi portado para Rust e deletado, porque o produto é Rust de ponta a ponta
+- `scripts/natives-check.sh` — fixa a allowlist de crates nativas e proíbe `openssl` e `nasm-rs`; o primeiro quebraria a lei de TLS só rustls, o segundo tornaria um NASM de sistema requisito de build
+- Uma nova dependência nativa precisa entrar em `SYS_ALLOWLIST` com justificativa ou ser removida
+- `scripts/doc-coverage-check.sh` — lê o binário vivo e reprova quando a prosa deriva da superfície viva de chaves ou de comandos; veja a seção própria acima para as sete asserções
 
 
 ## Logging e Paths Durante Testes

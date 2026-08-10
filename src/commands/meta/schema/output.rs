@@ -6,6 +6,8 @@
 //! [`crate::envelope`], so a single `schema <cmd>` call covers both directions.
 use serde_json::{json, Value};
 
+use crate::error::ErrorKind;
+
 /// Success envelope written to stdout (`ok: true`).
 // `needless_pass_by_value` false positive: the value IS consumed, moved into the
 // `json!` object below. Macro expansion hides the move from the lint.
@@ -28,6 +30,18 @@ pub(crate) fn success_envelope_schema(data: Value) -> Value {
     })
 }
 
+/// Every [`ErrorKind`] wire string, in declaration order.
+///
+/// Derived from [`ErrorKind::ALL`] rather than typed out: a hand-written list
+/// drifts silently the moment a variant lands, which is how `capability-disabled`
+/// and `precondition` stayed out of the published schema after GAP-011/GAP-020.
+fn error_kind_enum() -> Vec<Value> {
+    ErrorKind::ALL
+        .iter()
+        .map(|k| Value::String(k.as_str().to_string()))
+        .collect()
+}
+
 /// Error envelope written to stdout (`ok: false`).
 pub(crate) fn error_envelope_schema() -> Value {
     json!({
@@ -43,11 +57,7 @@ pub(crate) fn error_envelope_schema() -> Value {
                     "kind": {
                         "type": "string",
                         "description": "Machine-stable error kind",
-                        "enum": [
-                            "usage", "data", "no-input", "unavailable", "software",
-                            "browser", "protocol", "timeout", "cancelled",
-                            "broken-pipe", "config", "io"
-                        ]
+                        "enum": error_kind_enum(),
                     },
                     "message": { "type": "string", "description": "English technical message" },
                     "exit_code": { "type": "integer", "description": "Sysexits-style process exit code" },
@@ -174,9 +184,18 @@ mod tests {
         let kinds = s["properties"]["error"]["properties"]["kind"]["enum"]
             .as_array()
             .expect("enum");
-        // Must stay in sync with ErrorKind::as_str.
-        assert_eq!(kinds.len(), 12, "{kinds:?}");
-        assert!(kinds.iter().any(|v| v == "broken-pipe"));
+        // Set equality, never a frozen count: `assert_eq!(kinds.len(), 12)` let
+        // `capability-disabled` and `precondition` ship unpublished because a
+        // count cannot tell "12 correct" from "12 of 14".
+        let published: std::collections::BTreeSet<&str> =
+            kinds.iter().filter_map(|v| v.as_str()).collect();
+        let declared: std::collections::BTreeSet<&str> =
+            ErrorKind::ALL.iter().map(|k| k.as_str()).collect();
+        assert_eq!(
+            published, declared,
+            "schema enum drifted from ErrorKind::ALL"
+        );
+        assert!(published.contains("broken-pipe"));
     }
 
     #[test]

@@ -52,6 +52,9 @@ pub mod agent_ops;
 pub mod audio_local;
 /// Browser session lifecycle, CDP commands, and shutdown signal wiring.
 pub mod browser;
+
+/// Process-level browser policy: window mode, stealth, and egress.
+pub mod browser_policy;
 /// HTTP/parse cache under XDG (one-shot L1 + SQLite L2).
 pub mod cache;
 /// Declarative capability / precondition table for command gating.

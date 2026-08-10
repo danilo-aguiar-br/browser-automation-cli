@@ -19,6 +19,26 @@ pub const CDP_NETWORK_IDLE_SETTLE_MS: u64 = 500;
 /// CDP target event short wait (milliseconds).
 pub const CDP_TARGET_EVENT_WAIT_MS: u64 = 600;
 
+/// Hosts that must never be routed through `--proxy-server`.
+///
+/// # Why an egress proxy breaks the control channel
+///
+/// The CLI talks to Chrome over a WebSocket on loopback. `--proxy-server`
+/// applies to every request Chrome makes, and Chrome does not carve out its
+/// own debugging endpoint — so the proxy swallows the control channel and the
+/// browser never becomes reachable.
+///
+/// Measured before this constant existed: `--proxy http://127.0.0.1:1 goto`
+/// failed with "Timed out after 20000ms waiting for Chrome CDP endpoint". The
+/// message blamed Chrome for a failure the proxy caused, which sent the caller
+/// looking in the wrong place. With loopback bypassed the same run fails with
+/// `net::ERR_PROXY_CONNECTION_FAILED` — the true cause, on the first try.
+///
+/// The literal hosts are listed instead of Chrome's `<-loopback>` wildcard:
+/// the wildcard's exact membership is a Chrome implementation detail, and this
+/// list has to be predictable enough to assert in a test.
+pub const CDP_PROXY_LOOPBACK_BYPASS: &str = "127.0.0.1,localhost,[::1]";
+
 /// Default CDP HTTP discovery timeout (seconds) for `/json/version` probes.
 pub const DEFAULT_CDP_DISCOVERY_TIMEOUT_SECS: u64 = 2;
 

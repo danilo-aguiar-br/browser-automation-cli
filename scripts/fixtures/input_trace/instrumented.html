@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>input trace fixture</title>
+<style>
+  /* Taller than any viewport the gate runs in, so a wheel gesture has room to
+     travel and `scrollingElement` is genuinely scrollable. */
+  body { margin: 0; height: 5000px; font-family: monospace; }
+  #btn { position: fixed; top: 40px; left: 40px; width: 160px; height: 48px; }
+  #field { position: fixed; top: 110px; left: 40px; width: 240px; }
+</style>
+</head>
+<body>
+  <button id="btn" type="button">target</button>
+  <input id="field" type="text" autocomplete="off">
+
+<script>
+// This fixture exists so a gate can assert on the TRACE, not on the effect.
+// Effect assertions ("scrollTop moved", "the value is abcde") stay green when
+// the compositor scrolls without emitting `wheel`, or when `insertText` fills
+// the field without emitting `keydown` -- which is exactly the regression that
+// shipped once and was invisible to clippy, to the whole test suite and to ten
+// gates.
+window.__trace = [];
+
+// `performance.now()` is monotonic and sub-millisecond, so consecutive
+// intervals stay distinguishable. `Date.now()` is coarse and would make the
+// jitter assertion pass or fail by clock resolution rather than by input.
+function rec(e) {
+  window.__trace.push({
+    k: e.type,
+    t: performance.now(),
+    x: e.clientX === undefined ? null : Math.round(e.clientX),
+    y: e.clientY === undefined ? null : Math.round(e.clientY),
+    key: e.key === undefined ? null : e.key
+  });
+}
+
+// Capture phase on `window`: a listener on the button alone would miss the
+// approach trajectory, since interpolated moves land on whatever element is
+// under the cursor on the way in.
+for (const name of ['mousemove', 'mousedown', 'mouseup', 'keydown', 'keyup']) {
+  window.addEventListener(name, rec, true);
+}
+// `wheel` must be passive: a non-passive listener may cancel the gesture, which
+// would change the very behaviour under measurement.
+window.addEventListener('wheel', rec, { capture: true, passive: true });
+</script>
+</body>
+</html>

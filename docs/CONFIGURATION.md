@@ -109,6 +109,7 @@
 - `scrape_feed_max_entries` — Max entries kept by scrape format `feed` for RSS, Atom and JSON Feed. Default: `50`
 - `scrape_follow_rel_next` — Follow `rel=next` pagination links during crawl. Default: none
 - `scrape_dedup_similar` — Collapse near-duplicate pages by content similarity in `crawl` and `batch-scrape`. Default: none
+- `scrape_no_cache` — Ignore the response cache on READ and always fetch from origin. The fresh response is still written, so a bypassing call refreshes the entry for later callers instead of leaving a stale one. `--no-cache` on `scrape` overrides this per invocation. There is no way to express the same thing with `scrape_http_cache_ttl_secs`: a TTL of `0` already means "never expires", which is the opposite, and the key rejects it. `monitor check` bypasses unconditionally and ignores this key, because a cached body made it compare a stored page with itself and report `changed: false`. Default: `false`
 - `scrape_dedup_similar_distance` — SimHash Hamming distance in range `0..=64` under which pages are near-duplicates. Default: `3`
 - `scrape_sitemap_max_bytes` — Max sitemap body bytes. Default: `524288`
 - `scrape_charset_peek_bytes` — Charset sniffing peek window in bytes. Default: `4096`
@@ -194,6 +195,32 @@
 - `dom_stable_window_ms` — Quiet window for `wait --dom-stable-ms` in milliseconds. Default: `500`
 - `drag_move_steps` — Intermediate mouse positions synthesized for one HTML5 drag. Default: `6`
 - `drag_move_gap_ms` — Delay between synthesized drag positions in milliseconds. Default: `16`
+- `input_profile` — Default input shaping when `--input-profile` is absent: `human` synthesizes a trajectory, wheel ticks and key events; `direct` keeps the pre-0.1.8 dispatch. The flag still wins. Default: `human`
+- `browser_mode` — Window mode: `auto` resolves to `headless`; `headed` puts a real window on your display, and on Linux that window is rendered into a private virtual display when Xvfb is available; `headless` is cheapest and most detectable. `--headed` still wins. Inverting the `auto` default carries a latency bill and is a separate decision; `doctor` reports what `auto` resolves to on this host under the `virtual_display` check, so the answer never drifts from the binary. Default: `auto`
+- `stealth` — Anti-detection patches applied before the first navigation. `--no-stealth` turns them off for one run. Default: `true`
+- `stealth_profile` — Impersonated identity: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`. `auto` follows the host, which is the only value that cannot contradict the Canvas and WebGL hashes the real GPU produces. Default: `auto`
+- `proxy_url` — Egress proxy for both Chrome and the HTTP engine (`http`, `https`, `socks5`, `socks5h`). Put credentials here rather than in `--proxy`, where the process table exposes them. Default: none
+- `proxy_bypass` — Hosts bypassing the proxy, in Chrome's bypass-list syntax. Default: none
+- `proxy_username` — Proxy account name, sent as basic auth. Kept here rather than in argv, where the process table would expose it. Default: none
+- `proxy_password` — Proxy password, sent as basic auth. Never echoed by `config get` or `config show`. Default: none
+- `cdp_proxy_bypass_loopback` — Always bypass loopback when Chrome runs behind `--proxy`. The CDP control channel is loopback, so a proxy that captures it produces a browser that never answers — reported as a Chrome startup timeout, which blames the wrong component. Default: `true`
+- `stealth_seed` — Pins the stealth identity so the same fingerprint is reproduced across processes. Absent means a fresh identity each run, which is the default precisely because caching an identity writes it to disk. Default: none
+- `http2_enabled` — Offer `h2` in ALPN. ALPN is visible in the clear during the TLS handshake and Chrome always lists `h2`, so a client that offers only `http/1.1` has answered "not a browser" before sending a byte. Default: `true`
+- `http2_initial_stream_window_size` — `SETTINGS_INITIAL_WINDOW_SIZE` advertised to the peer. Library defaults are three orders of magnitude away from Chrome's. Default: Chrome's value
+- `http2_initial_connection_window_size` — Connection-level flow-control window advertised to the peer. Default: Chrome's value
+- `http2_max_header_list_size` — `SETTINGS_MAX_HEADER_LIST_SIZE` advertised to the peer. Default: Chrome's value
+- `http2_max_frame_size` — `SETTINGS_MAX_FRAME_SIZE` advertised to the peer. Default: Chrome's value
+- `http2_adaptive_window` — Let the HTTP/2 stack resize windows dynamically. Off keeps the advertised values fixed, which is what makes the fingerprint reproducible. Default: Chrome's value
+- `robots_user_agent` — User-agent token that `robots.txt` rules are matched against. Set it when stealth sends a browser User-Agent, so the rules evaluated are the ones that apply to the request actually sent. Default: none
+- `input_move_steps` — Intermediate pointer positions synthesized for one move (human profile). Default: `24`
+- `input_move_gap_ms` — Delay between synthesized pointer positions in milliseconds. Default: `12`
+- `input_click_dwell_ms` — Hold time between `mousePressed` and `mouseReleased` in milliseconds. Default: `65`
+- `input_key_dwell_ms` — Hold time between `keyDown` and `keyUp` in milliseconds. Default: `45`
+- `input_type_delay_ms` — Delay between characters while typing in milliseconds. Default: `95`
+- `input_scroll_tick_px` — Scroll distance carried by one synthesized wheel tick in CSS pixels. Default: `100`
+- `input_scroll_max_ticks` — Ceiling on the number of wheel ticks one scroll gesture synthesizes. Each tick is a CDP round trip, so without a ceiling the cost of a scroll grows linearly with the distance requested and a large `--delta-y` exhausts the command timeout. Past the ceiling the ticks carry more pixels each; total travel is unchanged and only the granularity degrades. Default: `40`
+- `input_target_jitter_px` — Radius of the random offset applied to a click target in CSS pixels. Default: `3`
+- `input_scroll_settle_rounds` — Extra rounds allowed to deliver a wheel delta the renderer dropped. Default: `3`
 - `support_settle_ms` — Support-thread settle for sync helpers in milliseconds. Default: `80`
 - `nav_micro_settle_ms` — Navigation micro-settle after page transitions in milliseconds. Default: `100`
 
@@ -224,6 +251,7 @@
 
 
 ## MITM
+- `monitor_diff_max_bytes` — Byte ceiling for the `monitor check --diff-mode` payload. A page rewritten wholesale diffs to the whole page twice, and the caller asked what changed, not for everything. `diff_truncated` says when the ceiling applied, and `added_count` / `removed_count` keep reporting the real size. Default: `65536`
 - `mitm_list_limit_max` — MITM list and query max items clamp. Default: `10000`
 - `mitm_proxy_seconds_max` — MITM proxy one-shot max window in seconds. Default: `600`
 - `mitm_chrome_settle_ms` — MITM Chrome launch settle before navigation in milliseconds. Default: `150`

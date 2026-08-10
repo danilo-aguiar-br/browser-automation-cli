@@ -41,19 +41,26 @@ impl OneShotSession {
             .active_session_id()
             .map_err(|e| CliError::new(ErrorKind::Browser, e))?
             .to_string();
-        let parsed: Value =
-            crate::json_util::parse_cli_json_value(cookies_json, "cookie set").map_err(|e| {
+        let parsed: Value = crate::json_util::parse_cli_json_value(cookies_json, "cookie set")
+            .map_err(|e| {
                 CliError::with_suggestion(
                     ErrorKind::Usage,
                     format!("cookie set JSON invalid: {}", e.message()),
-                    r#"Use --cookies-json '[{"name":"a","value":"b","url":"https://example.com"}]'"#,
+                    crate::i18n::suggestion_key("cookie_json_example", None),
                 )
             })?;
         let arr = parsed.as_array().ok_or_else(|| {
+            // The two arguments used to be swapped here: the catalog string sat
+            // in the MESSAGE slot, which agents match on and which stays
+            // English by contract, while the suggestion carried a literal that
+            // named `--json`. That flag exists, so a flag-existence check passes
+            // on it, but it is the global envelope switch and takes no payload —
+            // the cookie array belongs to `--cookies-json`, exactly as the
+            // sibling error above already said.
             CliError::with_suggestion(
                 ErrorKind::Usage,
-                crate::i18n::suggestion_key("json_array_objects", None),
-                r#"Use --json '[{"name":"a","value":"b","url":"https://example.com"}]'"#,
+                "cookie set expects a JSON array of cookie objects",
+                crate::i18n::suggestion_key("cookie_json_example", None),
             )
         })?;
         let current_url = self.manager.get_url().await.ok();

@@ -216,5 +216,20 @@ pub enum MonitorAction {
         /// Use browser engine instead of HTTP
         #[arg(long, default_value = "http")]
         engine: String,
+        /// Report WHAT changed, not just that it did: `none`, `git` or `json`
+        ///
+        /// A hash answers "did this move?". These answer "what moved?", which
+        /// is the question that decides whether the change matters.
+        ///
+        /// `git` emits a unified diff as text. `json` emits added and removed
+        /// lines as structured lists, so an agent reads them without parsing a
+        /// diff. `none` keeps the hash-only envelope.
+        ///
+        /// A diff needs the previous CONTENT, and the baseline file holds only
+        /// a hash. So the content is kept beside it in `<baseline>.content`,
+        /// written whenever this flag is on. The first run with the flag has
+        /// nothing to compare against and says so through `diff_available`.
+        #[arg(long = "diff-mode", default_value = "none")]
+        diff_mode: String,
     },
 }

@@ -62,7 +62,7 @@ pub use constants::{
 };
 pub use discover::{
     discover_owned_chromium_tmp_side_channels, list_cli_chrome_marker_dirs,
-    list_cli_chrome_marker_dirs_in_roots,
+    list_cli_chrome_marker_dirs_in_roots, owned_chromium_tmp_dir_via_profile,
 };
 pub use owner::{has_owner_pid, owner_pid_path, read_owner_pid, write_owner_pid, OWNER_PID_FILE};
 pub use proc::{index_live_processes, index_proc_cmdlines, LiveProcessIndex, ProcessEntry};

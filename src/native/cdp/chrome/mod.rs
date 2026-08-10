@@ -31,6 +31,7 @@ mod tooling;
 #[cfg(test)]
 mod tests;
 
+pub use args::merge_proxy_bypass;
 pub use discover::find_chrome;
 pub use options::LaunchOptions;
 pub use process::ChromeProcess;

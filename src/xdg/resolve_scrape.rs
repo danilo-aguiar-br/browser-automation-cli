@@ -117,6 +117,18 @@ pub fn resolve_scrape_dedup_similar() -> bool {
         .unwrap_or(crate::constants::DEFAULT_SCRAPE_DEDUP_SIMILAR)
 }
 
+/// Ignore the response cache on read and always fetch from origin (default false).
+///
+/// A READ bypass only: the fresh response is still written, so a caller that
+/// turns this on refreshes the cache for everyone else rather than leaving a
+/// stale entry behind.
+pub fn resolve_scrape_no_cache() -> bool {
+    load_config()
+        .ok()
+        .and_then(|c| c.scrape_no_cache)
+        .unwrap_or(crate::constants::DEFAULT_SCRAPE_NO_CACHE)
+}
+
 /// SimHash Hamming distance under which two pages count as near-duplicates.
 ///
 /// Clamped to the 64-bit fingerprint width; `0` is legal and means the

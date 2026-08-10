@@ -10,6 +10,7 @@ pub(crate) fn handle_config(action: ConfigAction, json: bool) -> Result<(), CliE
         ConfigAction::Init => crate::xdg::init_layout()?,
         ConfigAction::Show => crate::xdg::config_get(None)?,
         ConfigAction::Set { key, value } => crate::xdg::config_set(&key, &value)?,
+        ConfigAction::Unset { key } => crate::xdg::config_unset(&key)?,
         ConfigAction::Get { key } => crate::xdg::config_get(key.as_deref())?,
         ConfigAction::ListKeys => crate::xdg::config_list_keys()?,
     };

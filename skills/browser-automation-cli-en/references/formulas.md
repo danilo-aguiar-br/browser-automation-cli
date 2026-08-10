@@ -21,7 +21,24 @@
 - MUST pass `--verbose`|`--debug` or `config set log_level`; robots bypass ONLY both `--ignore-robots --i-accept-robots-risk`
 - MUST pass `--category-memory` (heap), `--category-extensions`, `--category-third-party` (devtools3p), `--category-webmcp`
 - MUST pass `--experimental-vision` (click-at), `--experimental-screencast`
-- MUST pass `--mitm` plus `--mitm-har|--mitm-hosts|--mitm-ca-dir|--mitm-ws|--mitm-max-body-bytes|--mitm-no-media-bodies|--mitm-redact-secrets` only when required
+- MUST pass `--mitm` plus `--mitm-har|--mitm-hosts|--mitm-ca-dir|--mitm-ws|--mitm-max-body-bytes|--mitm-no-media-bodies|--mitm-redact-secrets|--mitm-no-redact-secrets` only when required
+- MUST know secret redaction in the MITM capture is ON by default, so `--mitm-redact-secrets` restates it and changes nothing
+- MUST execute `browser-automation-cli --json --mitm --mitm-no-redact-secrets mitm capture-url https://example.com` as the ONLY way to keep Authorization and Cookie values readable
+- MUST know that passing `--mitm-redact-secrets` and `--mitm-no-redact-secrets` together resolves to MASKING, because the safe reading of a contradiction about secrets is to mask
+- MUST know the default is ON because the capture lands on disk and is read back by an agent, so forgetting the flag costs a missing header while the opposite default would cost a leaked session cookie
+- NEVER pass `--mitm-no-redact-secrets` unless the secret itself is what you are debugging
+- MUST execute `browser-automation-cli --json --no-stealth goto https://example.com` only when the anti-detection patches must be off; stealth is ON by default
+- MUST execute `browser-automation-cli --json --stealth-profile auto goto https://example.com` (`chrome-linux|chrome-win|chrome-mac` only when a foreign platform is intended)
+- MUST execute `browser-automation-cli --json --stealth-seed my-fleet-42 goto https://example.com` to pin one identity across one-shot processes
+- MUST execute `browser-automation-cli --json --proxy socks5://127.0.0.1:1080 scrape https://example.com --format text --engine http`
+- MUST execute `browser-automation-cli --json --proxy http://127.0.0.1:8080 --proxy-bypass 'localhost,127.0.0.1,*.internal' goto https://example.com`
+- MUST store proxy credentials with `config set proxy_username` and `config set proxy_password`; NEVER in argv, because the process table shows argv
+- MUST execute `browser-automation-cli --json --input-profile human --input-seed 7 press @e1` (`--input-profile direct` for one event per action)
+- MUST execute `browser-automation-cli --json --warmup goto https://example.com/deep/page`
+- MUST execute `browser-automation-cli --json --warmup-url https://example.com/login goto https://example.com/deep/page`
+- MUST execute `browser-automation-cli --json --headed --no-xvfb goto https://example.com` only on Linux with a headed mode
+- MUST execute `browser-automation-cli --json --expect 'ok=true' --expect 'data.title~Example' scrape https://example.com --format metadata --engine http`
+- MUST execute `browser-automation-cli --json --expect 'ok=true' --expect-exit-code doctor --offline --quick` to turn an unmet expectation into exit 65
 
 ## Meta
 - MUST execute `browser-automation-cli --json doctor --offline --quick` (`--fix` only when repair hints required)
@@ -30,8 +47,12 @@
 
 ## Config XDG
 - MUST execute `browser-automation-cli --json config init` · `config path` · `config show` · `config list-keys` · `config get timeout` · `config set <key> <value>` after list-keys
+- MUST execute `browser-automation-cli --json config unset <KEY>` to restore one key to its built-in default
+- MUST know `config unset` is the inverse of `set`, while `config set <key> ""` is NOT an inverse
+- MUST know `config set <key> ""` stores on a string key an empty value the normal path never produces, and on a numeric key it is a parse error
+- MUST know unsetting an already absent key succeeds, so a script never has to know the prior state
 - MUST discover the live key surface with `config list-keys --json` before any `config set`
-- MUST consult `references/xdg-keys.md` for all 176 keys with default and description
+- MUST consult `references/xdg-keys.md` for every key with its default and description
 - MUST set binaries with `chrome_path`, `lighthouse_path`, `ffmpeg_path`
 - MUST set secrets with `encryption_key` and `openrouter_api_key`
 - MUST set cache with `cache_backend sqlite|memory|redis` and plain Redis in `cache_redis_url`

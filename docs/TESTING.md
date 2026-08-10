@@ -24,7 +24,7 @@
 - Optional e2e CDP event coverage when Chrome is available (`tests/e2e_cdp_events.rs`)
 - Full **53-tool** DevTools e2e script (legacy filename): `scripts/e2e_all_52_tools.sh`
 - Live CLI inventory is **69 agent names** (`commands --json`) — broader than the 53 tool-ref e2e set; includes agent-inventory `select-option` and `pick` (run/exec/schema, not clap), meta `locale` and `man`, plus clap `submit` and `storage`
-- v0.1.7 product gates (local, Chrome serial when required):
+- Product gates introduced in v0.1.7 and still shipped in 0.1.8 (local, Chrome serial when required):
   - `tests/dialog_multitab_gate.rs` — multi-tab dialog isolation + `dialog_settled` (GAP-054)
   - `tests/option_pick_gate.rs` — native select `input`+`change` (GAP-055)
   - `tests/wait_conditions_gate.rs` — `wait_timeout_ms` deadline honesty (GAP-053)
@@ -72,7 +72,7 @@ bash scripts/e2e_all_52_tools.sh
 - The 52-tool suite does not replace residual smokes for commands outside the tool-ref set
 
 
-## Residual-Zero Disk Gates (v0.1.5 — still current in 0.1.7)
+## Residual-Zero Disk Gates (law of v0.1.5 — still current in 0.1.8)
 ```bash
 cargo build --release --locked
 cargo test --lib residual:: --locked
@@ -91,7 +91,7 @@ bash scripts/residual-check.sh
 - Age floor for production stale GC is 60s; tests may use zero-age library helpers for fixtures
 
 
-## v0.1.7 Product Gates (dialog / select / wait / scrape / lighthouse units)
+## Product Gates Introduced in v0.1.7 (dialog / select / wait / scrape / lighthouse units)
 ```bash
 cargo test --test dialog_multitab_gate --locked
 cargo test --test option_pick_gate --locked
@@ -110,6 +110,107 @@ bash scripts/residual-check.sh
 - **`grab` encode:** png|jpeg|webp only; AVIF removed (breaking) — residual smokes must not pass `--format avif`
 - **GAP-024 intentional residual:** PRD wishlist divergences stay in `parity_intentional_divergences.json` (do not claim full PRD parity)
 - Do **not** treat remote orchestration dashboards as product surface; use local cargo and `scripts/*-check.sh` only
+
+
+## Gate Families Under tests/
+- `tests/` holds 68 integration gate files, each run with `cargo test --test <name> --locked`
+- Each family below closes one class of defect, never one command
+- Every gate is local and needs no runner beyond cargo
+- A gate that cannot run its precondition SKIPs loudly instead of passing silently
+
+### Anti-Detection and Stealth Fidelity
+- `tests/block_detection_gate.rs` — a CAPTCHA wall must reach the envelope instead of passing as content
+- It requires exit `6`, an `error.kind` of `blocked` and `data.block_detection` together
+- An ordinary page is the negative control and must come back unflagged
+- The browser engine must report the same block the HTTP engine reports
+- `tests/input_trace_gate.rs` — asserts what the page RECEIVED, not the resulting effect
+- The `human` profile must deliver real `wheel` and key events with non-uniform spacing
+- The `direct` profile is the negative control and emits no synthetic wheel or key event
+- `tests/xvfb_gate.rs` — the doctor claim about Xvfb must match what the host can do
+- A headed Linux run must leave no display lock behind
+- A host without Xvfb is a printed skip, never a red run
+- `tests/compression_gate.rs` — every advertised content-coding must arrive decoded
+- No `content-encoding` may survive into the envelope, which is proof the body was decompressed
+
+### CLI Surface and Clap Hygiene
+- `tests/clap_arg_coverage.rs` — every top-level subcommand renders help and missing args error
+- It pins the renamed payload flags `fields-json`, `cookies-json` and `detailed` to their fields
+- It also pins that `image` exposes no text-recognition action
+- `tests/clap_global_flag_collision.rs` — no local subcommand flag may shadow a global long or short
+- `tests/help_description_gate.rs` — every subcommand at every depth carries a non-empty description
+- Its detector is a shared function also driven against a synthetic tree, proving its own sensitivity
+- `tests/manpage_cli.rs` — `man` emits roff, writes atomically and rejects path traversal
+
+### Envelope Shape and Error Taxonomy
+- `tests/envelope_shape_gate.rs` — no `run` step may carry `data` and `result` with equal content
+- A fixed ten-step script must stay inside a declared byte budget
+- `tests/view_precondition_gate.rs` — a blank page answers a precondition kind, never `usage`
+- `--allow-empty` must succeed and a malformed argv must still answer `usage`
+- `tests/config_key_diagnosis_gate.rs` — `config set` diagnoses the KEY independently of the VALUE
+- An unknown key reads the same whatever the value looks like
+- `tests/devtools_envelope_behavior.rs` — envelope fields of DevTools-parity commands, offline and with Chrome
+- `tests/grab_envelope_gate.rs` — `grab` reports the width and height it just wrote
+- The reported size must match the file for viewport, full-page and element captures
+- `tests/preflight_no_browser.rs` — an invalid script fails before Chrome is launched
+- The proof is residual: no marker profile appears and the failure is far faster
+
+### Live-Chrome Interaction Gestures
+- `tests/drag_route_gate.rs` — drag must reach the page handler and report `route` as `intercepted`
+- A page without a `dragstart` handler must report the degraded synthetic route and warn
+- `tests/submit_form_gate.rs` — `submit` fires the form event and waits for the navigation
+- Pressing the look-alike button succeeds while submitting nothing, which is the defect being separated
+- `tests/upload_cdp_e2e_gate.rs` — the file really reaches a real Chrome input element
+- It pins `--script -` reading stdin and `--script` taking a path, never inline JSON
+- `tests/extract_step_gate.rs` — two selectors in one run must resolve to two different nodes
+- `tests/cookie_jar_gate.rs` — a cookie set is found by a later `list`, and `clear` really empties
+- `tests/dialog_if_present_gate.rs` — absence is tolerated with the flag and fatal without it
+- `tests/eval_typed_gate.rs` — an object return arrives as structure, and `typed` reports `value_type`
+- `tests/ref_invalidation_gate.rs` — the `@eN` staleness marker appears only when the tree really moved
+- `tests/assert_step_gate.rs` — every `assert` kind can FAIL the run and reach the exit code
+- `tests/record_gate.rs` — the NDJSON that `record` writes replays through `run --script` unchanged
+
+### Filesystem Containment and Failure Evidence
+- `tests/allowed_roots_gate.rs` — a local path outside the allowed roots is refused as policy
+- The refusal must not be classified as `usage`, and `--allow-outside-roots` restores access
+- `tests/failure_dump_gate.rs` — a failing run writes the captured console and network rings to disk
+- A successful run, or a failing run without the flag, must leave no artifact
+
+### Process Lifecycle and Residual Accounting
+- `tests/lifecycle_group_kill.rs` — one signal reaps a whole process group, with a pid-tree fallback
+- It refuses our own group, `init` and the zero group
+- `tests/lifecycle_hard_kill_gate.rs` — `SIGKILL` on the CLI leaves no browser process from its group
+- `tests/signal_shutdown.rs` — SIGTERM and SIGINT against a live CLI child must not hang
+- `tests/residual_report_contract.rs` — pids are counted once and impostor processes are not counted
+- The report emits the roots it scanned and reports foreign-root orphans separately
+- A live owner pid protects a concurrent invocation from collection
+
+### Scrape, Crawl and Feed Behaviour
+- `tests/scrape_agent_native_gate.rs` — offline projection, truncation flag, path filters and format promotion
+- `tests/scrape_wave6_gate.rs` — `--format feed`, `rel=next` following and near-duplicate collapse
+- Each behaviour is paired with its OFF control, so an unconditional implementation fails
+- `tests/scrape_wave7_e2e_gate.rs` — anchor `rel=next`, JSON Feed and `batch-scrape --dedup-similar`
+- Pagination discovery must never outrank a robots `Disallow`
+- `tests/crawl_plan_llms_txt_gate.rs` — `crawl --dry-run` resolves the plan and fetches nothing
+- It is aimed at an unreachable host, so a success envelope IS the evidence
+
+### Local Media Pipelines
+- `tests/audio_local_gate.rs` — inventory, schema actions, SSRF block and conversion when ffmpeg exists
+- `tests/image_wave6_codecs.rs` — AVIF encode, HEIC fail-closed, SVG raster, GIF frames, resize backend
+- `tests/image_metadata_iptc_xmp.rs` — IPTC IIM and XMP readers plus the SVG sanitiser threat gate
+- `tests/image_media_cli_e2e.rs` — the same wave-6 surfaces driven through the real binary
+- A feature that is implemented but unreachable from `main` is what it catches
+- `tests/video_manifest_parse.rs` — the HLS and DASH parser at library level, fetching nothing
+- `tests/video_manifest_hls_dash.rs` — variant ladders, relative URI resolution and the byte ceiling
+- `tests/video_manifest_cli_gate.rs` — `video manifest` is an advertised action reachable from argv
+- `tests/video_site_extraction_rejected.rs` — a player page and a manifest get different actionable errors
+
+### Parity, Properties and Local Logging
+- `tests/parity_semantics.rs` — the third parity layer: precondition and effect, not only name
+- It SKIPs loudly when the reference tree and `docs_prd/` are absent from the checkout
+- `tests/proptest_parsers.rs` — property tests for offline parsers, robots body and envelope round trip
+- `tests/tracing_local_log_schema.rs` — field names of rotated JSON log lines under `config set log_to_file`
+- The lines are local files only; this product has no remote telemetry
+
 
 ## Full agent inventory (69)
 
@@ -354,6 +455,77 @@ bash scripts/doc-coverage-check.sh
 - `scripts/ci-check.sh` discovers this gate through the glob `scripts/*-check.sh`
 - `verifier-controls-check.sh` carries 3 positive controls for this gate
 - The script resolves the binary with the same PATH fallback for the same reason
+
+
+## Full Verifier Suite Scale
+- `scripts/` holds **42** top-level `.sh` files; `tests/` holds **68** `.rs` gate files
+- `bash scripts/ci-check.sh` is the local runner for the bundle
+- It auto-discovers every executable `scripts/*-check.sh` through that glob
+- A script whose name does not end in `-check.sh` never enters the bundle and must be invoked by name
+- Measurement tools and generators are named that way on purpose: they report or write, they do not assert
+- Prefer running the whole bundle before release, and a single verifier while iterating
+
+
+## Rust Conformance Verifiers
+- `scripts/interior-mutability-check.sh` — rejects `static mut` and `Arc<RefCell>` / `Rc<RefCell>` shapes under `src/`
+- `scripts/memory-check.sh` — RAII, ownership and allocation hygiene; rejects `std::process::exit` under `src/`
+- `scripts/ownership-check.sh` — ownership, borrowing and lifetime rules, anchored on session interact plus native launch and tabs modules
+- `scripts/macros-check.sh` — declarative and built-in macro hygiene; rejects `todo!(`, `unimplemented!(` and `dbg!(` left in production
+- `scripts/json-ndjson-check.sh` — JSON and NDJSON rules; asserts `serde_json` is the sole production parser and rejects `simd-json` / `sonic-rs`
+- `scripts/network-check.sh` — network rules for a one-shot agent CLI: CLI plus XDG only, `no_proxy`, SSRF policy and body caps, anchored on the robots and CDP discovery modules
+- `scripts/process-check.sh` — external process execution rules: timeout capture helper, BatBadBut defense, no shell spawn in production
+- `scripts/parallelism-check.sh` — bounded parallelism; requires `src/concurrency/` and rejects `Box::leak` / `mem::forget` inside it
+- `scripts/shutdown-check.sh` — graceful shutdown around `run_from_args`, including the SIGPIPE handler and dual flush
+- `scripts/tracing-check.sh` — logging and rotation rules; `--inventory-only` runs the static half alone
+- `scripts/multiplatform-check.sh` — rejects shelling out to `which` / `where`, which must go through `platform::which_bin`
+- `scripts/natives-check.sh` — native crate allowlist; forbids human CLIs under `src/` outside domain binaries (chrome, lightpanda, lighthouse, ffmpeg, redis-server in tests), and forbids `openssl` (TLS stays rustls-only) and `nasm-rs` in `Cargo.lock`
+- `scripts/filesize-check.sh` — 300 **code**-line ceiling per production file; rustdoc prose is not code, so counting physical lines would reward deleting documentation; declared exceptions carry an expiry version and fail like any other file past it
+- `scripts/orphan-module-check.sh` — every `src/**/*.rs` must be reachable from a crate root; a file no parent declares with `mod` is absent from the binary while build, clippy and the whole suite stay green
+- `scripts/reachability-check.sh` — `pub use` items with no call site under `src/`; the `dead_code` lint stops at the crate boundary, so a re-exported item nobody calls stays silent
+
+
+## Surface and Schema Parity Verifiers
+- `scripts/clap-schema-parity-check.sh` — compares the clap **parser** against the published schema, the axis `schema-drift-check.sh` structurally cannot see because both of its sides derive from the same schema module; measured 29 flags accepted by clap and absent from `schema`, including the required `storage export --path`
+- `scripts/schema-drift-check.sh` — thin adapter over the generator's `--check`; the runtime is the source of truth and `docs/schemas/*.json` is a derived artifact; the capability existed long before the wiring, and seven of 68 schemas had drifted while every audit reported green
+- `scripts/config-roundtrip-check.sh` — every `CONFIG_KEYS` literal must exist in the writer and in the reader (see v0.1.8 below)
+- `scripts/phantom-flag-gate.sh` — bash adapter over `tests/phantom_flag_gate.rs` (see v0.1.8 below)
+- `scripts/parity-check.sh` — three-layer DevTools parity (name, parameter, semantics); the reference tree and `docs_prd/` are not vendored, and the gate **SKIPs loudly** when they are absent instead of passing silently
+- `scripts/inventory_diff_base.sh` — base knowledge tool names ⊆ CLI map ∪ `tests/fixtures/tool-reference.md`, with an explicit alias table; SKIPs when the base knowledge directory is absent
+
+
+## Documentation and Localization Verifiers
+- `scripts/docs-check.sh` — local docs.rs validation pipeline: `cargo check`, `cargo doc --no-deps --features docs-mermaid`, optional nightly doc and rustdoc JSON phases, then a coverage audit of the feature and metadata; NDJSON progress on stdout and human logs on stderr; exit `0` all phases passed, `65` documentation or metadata audit failed, `70` build failure
+- `scripts/i18n-check.sh` — `locales/en.ftl` and `locales/pt-BR.ftl` message-id parity plus the i18n unit surface
+- `scripts/doc-coverage-check.sh` — prose against the live binary surface; see the Documentation Coverage Gate section above
+
+
+## Resource and Performance Verifiers
+- `scripts/perf-check.sh` — performance hygiene: profile inventory plus a release build smoke; `--inventory-only` skips the rebuild, `--rss` chains the RSS baseline, `--bench` runs the slow `cli_parse` bench
+- `scripts/latency-check.sh` — latency hygiene gates; `--baseline` adds wall-clock numbers, `--inventory-only` keeps it static
+- `scripts/latency-baseline.sh` — measurement tool, not a gate; reports P50, P99, P999, P9999 and max over agent meta paths so Chrome boot never masks a Rust regression; keeps outliers and always exits `0` after printing
+- `scripts/rss-baseline.sh` — measurement tool; reads `Maximum resident set size` from `/usr/bin/time -v` for the release binary
+- `scripts/profile-cdp.sh` — local profiling of a one-shot `goto about:blank`; wall time by default, with optional flamegraph or samply; no committed profiles
+
+
+## Generators (not verifiers)
+- `scripts/gen-completions.sh` — freezes shell completions into `target/completions/` for distro packaging; at runtime completions still come from `browser-automation-cli completions <shell>`
+- `scripts/gen-llms-txt.sh` — regenerates the machine inventory block of `llms.txt` from live `commands --json`, replacing the previous generated block and leaving the prose alone
+- Neither script asserts anything, so neither belongs in the `scripts/*-check.sh` glob
+
+
+## v0.1.8 Verifiers and the Defects They Close
+- `scripts/config-roundtrip-check.sh` — asserts every key literal in `CONFIG_KEYS` is present in the writer `src/xdg/config_write.rs` and in the reader `src/xdg/config_io.rs`; promoted policy keys are exempt because one macro table generates them
+- The class it closes: `config set` rebuilds the whole `config.toml` from a hand-written template, so a key missing from it is dropped rather than left alone, and the reader's hand-written `match` discards it on load
+- The failure was silent in the worst way: `config set` answered `ok: true` with exit `0` and the next process read back `null`
+- Measured 2026-08-09: seventeen keys missing from both halves. Measured 2026-08-10: **six more** still missing — `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `stealth_seed`, `robots_user_agent`
+- Two of those six are proxy credentials the documentation tells the operator to keep in configuration precisely because argv is visible in the process table; the safe channel discarded the value and left the leaky one as the only one that worked
+- Why not a Rust test: a round-trip test needs a validation-passing value per key and degenerates into a hardcoded sample, which is exactly how `tests/v018_parity_gate.rs` missed the six; the invariant is a static set comparison and belongs in a static check
+- `scripts/phantom-flag-gate.sh` — adapter that exposes one property of `tests/phantom_flag_gate.rs` to the controls runner, which drives every control with `bash $script`; it holds no assertion of its own and takes a libtest filter argument
+- It is deliberately **not** named `*-check.sh`: that glob would run the same properties a second time, and a second green adds no information while costing a full test-binary link
+- The original scan was a 411-line Python script; it was ported to Rust and deleted, because the product is Rust end to end
+- `scripts/natives-check.sh` — pins the native crate allowlist and forbids `openssl` and `nasm-rs`; the first would break the rustls-only TLS law, the second would make a system NASM a build requirement
+- A new native dependency must be added to `SYS_ALLOWLIST` with a justification or removed
+- `scripts/doc-coverage-check.sh` — reads the live binary and fails when prose drifts from the live key surface or the live command surface; see its own section above for the seven assertions
 
 
 ## Logging and Paths During Tests

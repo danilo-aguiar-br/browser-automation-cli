@@ -13,7 +13,8 @@
 - Superfície local de scrape / crawl / map / search / parse embarca como subcomandos de primeira classe
 - Helpers de artefato (`print-pdf`, `monitor`, `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) e chaves LLM XDG estendem fluxos de agente sem daemons
 - Defaults duráveis vivem em flags e XDG `config path|init|show|set|get`
-- v0.1.7 agent-first: booleano `dialog_settled` após resposta real de diálogo; XDG `dialog_settle_ms`; inventário **69** vivo (0.1.6 adicionou `submit`/`storage`; 0.1.7 adiciona `image`+`video`+`audio`+`record`); grab só **png|jpeg|webp** (AVIF removido); run `wait_timeout_ms` + scrape `format`/`formats`
+- v0.1.8 agent-first: família anti-detecção entregue; envelope de scrape unificado; inventário **69** vivo; **204** chaves XDG
+- Herdado das versões anteriores: booleano `dialog_settled` após resposta real de diálogo; XDG `dialog_settle_ms`; grab só **png|jpeg|webp** (AVIF removido); run `wait_timeout_ms` + scrape `format`/`formats` (0.1.6 adicionou `submit`/`storage`; 0.1.7 adicionou `image`+`video`+`audio`+`record`)
 - Isolamento multi-aba de diálogo via `Page::session_id` / `dialog_map_key`; select nativo `via: native_select` (input e depois change)
 - Lei residual-zero de disco da v0.1.5 permanece corrente: GC Singleton em BORN + FINALIZE, doctor `residual_disk` / JSON `residual`, cmds meta `locale` e `man`
 - Config de produto: só flags + XDG (nunca env de produto); descubra chaves via `config list-keys --json`
@@ -103,6 +104,11 @@
 - Twitter card chega como `twitter_card`, `twitter_title`, `twitter_description`, `twitter_image`, `twitter_site`
 - Nunca indexe uma chave de metadata às cegas; leia a chave só após checar presença
 - Passos scrape em run honram `format` / `formats` sem despejar HTML quando só texto foi pedido
+- A forma do envelope de scrape é unificada desde a v0.1.8: um formato e vários produzem as mesmas chaves
+- `formats` existe sempre e mapeia cada formato pedido ao seu conteúdo
+- Cada formato é espelhado na própria chave de topo, então leitores de formato único seguem funcionando
+- Campos de diagnóstico como `status_code` e `source_url` sobrevivem a pedido multi-formato
+- Antes da v0.1.8 o pedido multi-formato descartava esses campos; nunca dependa daquela forma
 - Batch/crawl: opcional `--engine browser` (default http)
 - Webhook opcional de operador no scrape: `--webhook-url` (POST one-shot, não telemetria de produto)
 - Capture screenshots com `grab --path <file>` (não path posicional)
@@ -149,7 +155,7 @@ fn main() {
 - Paths de config: `browser-automation-cli config path --json`
 - Chaves de config: descubra com `config list-keys --json` (inclui `dialog_settle_ms`; nunca invente env de produto)
 - MITM: `mitm status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
-- Globais MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
+- Globais MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`, `--mitm-no-redact-secrets`
 - Workflow: `workflow run|resume|status`
 - Superfície local de scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
 - Artefatos e IO local: `print-pdf`, `monitor check`, `qr encode|decode`, `image info|convert|resize|download|exif`, `video info|download|convert|to-mp3|trim|thumbnail|manifest`, `audio info|download|convert|trim`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
@@ -193,7 +199,7 @@ fn main() {
 - Verifique com `doctor --offline --quick --json` → `residual` / check `residual_disk`
 
 
-## Contrato Técnico (v0.1.7)
+## Contrato Técnico (v0.1.8)
 ### REQUIRED
 - Passe `--json` para consumo programático
 - Trate um processo como um ciclo de vida de Chrome (BORN EXECUTE FINALIZE DIE)
@@ -205,6 +211,9 @@ fn main() {
 - Configure settle de diálogo só via XDG `config set dialog_settle_ms` (flags + XDG; sem env de produto)
 - Honre `wait_timeout_ms` nos passos wait de run como chave pública de prazo
 - Honre scrape `format` / `formats` nos passos de run (só texto não deve emitir monstro HTML)
+- Leia `formats` nos envelopes de scrape; a forma não muda mais com a contagem de formatos
+- Trate stealth, fingerprint HTTP/2 e ritmo humano de input como LIGADOS por padrão
+- Mantenha a mascaração de segredos do MITM ligada salvo pedido explícito de `--mitm-no-redact-secrets`
 - Cheque exit code do processo antes de confiar no stdout
 - Ramifique no campo `ok` do envelope
 - Mantenha gates de categoria e experimental explícitos quando necessários
@@ -229,6 +238,9 @@ fn main() {
 - Não assuma sucesso silencioso de `view` vazio em about:blank sem `--allow-empty`
 - Não assuma sucesso de `print-pdf` sem página navegada ou `url` explícito (GAP-013); smokes residual podem usar `print-pdf --url about:blank` como one-shot leve quando `url` está presente
 - Não alegue PASS completo do parser lighthouse em e2e quando a suite faz SKIP do caminho mock
+- Não desligue a mascaração de segredos do MITM só para ler a captura com mais conforto
+- Não ajuste chaves de HTTP/2 ou de ritmo de input sem decisão explícita do operador
+- Não assuma que scrape multi-formato descarta diagnóstico; a forma do envelope é unificada
 
 ### Correct Pattern
 ```bash
@@ -298,11 +310,117 @@ browser-automation-cli -q --json doctor --offline --quick
 - Campo ausente nunca casa, nem sob `!=`: ausência não é diferença
 - Operações de linha exigem uma lista; quando `data` tem várias, o erro as nomeia e `--fields` estreita antes
 - NÃO DEVE canalizar stdout por `jaq` para encolher payload — esse trabalho é do binário
+- `--select`, `--filter`, `--limit` e `--sort` são flags LOCAIS de certos comandos, nunca estas globais
+- Passar uma flag local como global falha no argv com erro de argumento inesperado
+
+
+## Asserções sobre o Payload
+- `--expect EXPR` declara o que o payload emitido precisa conter, na gramática de `--filter-rows`
+- Repetível e conjugada com AND, então várias asserções valem ao mesmo tempo
+- Avaliada por ÚLTIMO, sobre o payload que você recebe, então projeção e truncagem não escondem falha
+- Uma expectativa vale quando ao menos UMA linha a satisfaz: `--expect status=200` pergunta "existe um 200 aqui?"
+- Filtre antes quando toda linha precisa casar — `--filter-rows` estreita e `--expect` então afirma
+- Expectativas não atendidas chegam em `agent_ops.expectation_unmet`, ecoadas como você as escreveu
+- O exit code segue `0` por padrão, porque mudá-lo por conteúdo quebraria pipelines que ramificam nele
+- `--expect-exit-code` faz o opt-in para sair com `65` quando alguma expectativa falha
+- O envelope ainda é escrito primeiro: o payload é o que explica a falha
+- Expressão malformada falha no argv com exit `2`, nunca como casamento vazio silencioso
+
+
+## Acréscimos ao Scrape
+### Ler atributos exatos
+- `--format attributes` com `--attribute-selector CSS` e `--attribute-name NAME` pareadas, ambas repetíveis
+- Responde "o que está exatamente nestes lugares?", pergunta que nenhum outro formato faz
+- Sem ela, ler um atributo de uma lista exigia puxar `rawHtml` e parsear fora do binário
+- O pareamento é posicional; contagens diferentes falham no argv em vez de descartar uma pergunta em silêncio
+- Cada linha traz `selector`, `attribute`, `values` e `count`; seletor inválido acrescenta `error` e as demais linhas sobrevivem
+- Lido do documento completo, então `--only-main-content` não remove os elementos que você nomeou
+### Agir antes de raspar
+- `--action JSON`, repetível, executa um passo de `run --script` antes da extração
+- Exemplo: `--action '{"cmd":"press","target":"#load-more"}'`
+- Mesma gramática de `run --script` de propósito, para uma gravação de `record` continuar reproduzível aqui
+- Roda nesta sessão, entre a navegação e a extração — outra invocação perderia o efeito
+- Somente no motor browser; com `--engine http` é rejeitada com exit `2` em vez de ignorada em silêncio
+- Ação que falha reprova o scrape: ela era uma pré-condição que você declarou para a extração
+### Ver o que mudou
+- `monitor check --diff-mode git|json` reporta O QUE mudou, não apenas que mudou
+- `git` emite um diff unificado como texto; `json` emite `added` e `removed` como listas que o agente lê direto
+- Um diff precisa do conteúdo anterior, e o arquivo de baseline guarda só um hash
+- Por isso o conteúdo fica em `<baseline>.content`, gravado sempre que a flag está ligada
+- A primeira execução com a flag não tem com o que comparar e declara isso em `diff_available: false`
+- `added_count` e `removed_count` reportam o tamanho real mesmo quando `diff_truncated` está marcado
+- `config set monitor_diff_max_bytes` move o teto
+
+
+## Demais Flags Globais
+- Toda flag abaixo vale para os 69 comandos e é aceita antes ou depois do subcomando
+### Saída e diagnóstico
+- `--json` emite o envelope de máquina; `--json-steps` acrescenta um envelope por passo dentro de `run`
+- `-q` / `--quiet` silencia a prosa no stderr; `--plain` remove ANSI da saída humana
+- `--verbose` e `--debug` elevam o tracing no stderr, nunca no stdout
+- `--correlation-id ID` carimba o envelope para rastrear uma execução entre ferramentas
+- `--artifacts-dir DIR` escolhe onde os arquivos caem; `--dump-on-failure` grava evidência de console e rede ali
+- Combine `--dump-on-failure` com `--capture-console` ou `--capture-network`, porque a captura morre com o processo
+### Tempo e concorrência
+- `--timeout SEGS` limita a execução inteira; `--step-timeout SEGS` limita um passo de `run`
+- `--max-concurrency N` limita o fan-out dos comandos que têm algum
+### Modo do browser e anti-detecção
+- `--headed` renderiza uma janela real; no Linux ela vai para um display virtual privado quando há `Xvfb`
+- `--no-xvfb` mantém o lançamento headed no display do próprio operador
+- O `doctor` reporta `xvfb` com o comando de instalação da distribuição detectada; a CLI nunca instala nada
+- `--no-stealth` desliga o disfarce; `--stealth-profile` escolhe `auto`, `chrome-linux`, `chrome-win` ou `chrome-mac`
+- `auto` segue a plataforma do host, e um lançamento headless ainda recebe override de User-Agent para não anunciar `HeadlessChrome`
+- `--stealth-seed SEED` fixa a identidade para que ela seja estável entre processos
+- `--input-profile human|direct` e `--input-seed SEED` governam o ritmo de ponteiro e teclado
+- `--warmup` visita a raiz da origem antes; `--warmup-url URL` nomeia outra porta de entrada e implica `--warmup`
+- O cookie jar vive por um processo só; o envelope de scrape declara isso como `cookie_jar_persistent: false`
+- O `doctor` repete esse escopo no check `cookie_jar_scope`, então o limite é descoberto sem rodar scrape
+- Use `storage export` e `storage import` para levar uma sessão entre invocações
+- O envelope reporta `profile_contradicts_host: true` quando o profile de stealth alega outra plataforma
+- Leia esse campo antes de culpar um bloqueio: TLS e HTTP/2 carregam a pilha real, diga o User-Agent o que disser
+- Defaults da família anti-detecção, todos definidos por `config set` e nunca por variável de ambiente
+- `stealth` é `true`, `stealth_profile` é `auto` e `browser_mode` é `auto`
+- `stealth_seed` não tem default; defina só quando precisar de identidade estável
+- `http2_enabled` é `true`, então o fingerprint HTTP/2 já está ligado antes de você pedir
+- `http2_initial_stream_window_size` é 6291456 e `http2_initial_connection_window_size` é 15663105
+- `http2_max_header_list_size` é 262144 e `http2_max_frame_size` é 16384
+- `http2_adaptive_window` governa o crescimento da janela durante a conexão viva
+- Toda mudança de HTTP/2 move o fingerprint observável, então exige decisão explícita do operador
+- `input_profile` é `human`, `input_move_steps` é 24 e `input_move_gap_ms` é 12
+- `input_click_dwell_ms` é 65, `input_key_dwell_ms` é 45 e `input_type_delay_ms` é 95
+- `input_scroll_tick_px` é 100, `input_scroll_max_ticks` é 40 e `input_scroll_settle_rounds` é 3
+- `input_target_jitter_px` é 3 e espalha o ponto de pouso do ponteiro
+- `input_profile direct` remove esse ritmo e é observável pela origem
+- `robots_user_agent` nomeia a identidade usada ao buscar o robots
+- `scrape_no_cache` faz o opt-out do cache de resposta do scrape
+- `monitor_diff_max_bytes` é 65536 e limita o conteúdo de diff armazenado
+### Rede
+- `--proxy URL` roteia os dois motores; credenciais ficam no XDG por `config set proxy_url`, nunca no argv
+- `--proxy-bypass HOSTS` acrescenta hosts que pulam o proxy
+- O loopback é ignorado automaticamente sob `--proxy`, porque o canal de controle CDP é loopback
+- Sem isso, uma falha de proxy aparece como timeout de inicialização do Chrome e culpa o componente errado
+- `config set cdp_proxy_bypass_loopback false` faz o opt-out
+- `proxy_url`, `proxy_bypass`, `proxy_username` e `proxy_password` são chaves XDG, nunca segredos no argv
+- `cdp_proxy_bypass_loopback` é `true`, então o canal de controle CDP fica fora do proxy
+- `--mitm` e suas companheiras `--mitm-*` interceptam tráfego; `--allow-outside-roots` permite ler e gravar fora das raízes permitidas
+- A mascaração de segredos do MITM vem LIGADA por padrão, então nenhuma captura carrega segredo cru por acidente
+- `--mitm-redact-secrets` apenas reafirma esse padrão de forma explícita e não muda nada
+- `--mitm-no-redact-secrets` é a única forma de desligar a mascaração
+- Pedir as duas ao mesmo tempo resolve para MASCARAR, porque a leitura segura de uma contradição sobre segredos é mascarar
+- `--mitm-max-body-bytes` limita o corpo capturado; o teto padrão é 65536 bytes
+- `--mitm-no-media-bodies` descarta corpo de imagem, vídeo e áudio da captura
+- `--ignore-robots` exige também `--i-accept-robots-risk`; uma flag sozinha não contorna o robots
+### Gates de recurso
+- `--category-memory` para `heap`, `--category-extensions` para `extension`
+- `--category-third-party` para `devtools3p`, `--category-webmcp` para `webmcp`
+- `--experimental-vision` para `click-at`, `--experimental-screencast` para `screencast`
+- `--lang en|pt-BR` seleciona o idioma das mensagens
 
 
 ## Códigos de Saída
 - `0` sucesso
 - `2` usage
+- `6` blocked — a origem devolveu uma verificação antibot no lugar do conteúdo. O transporte teve sucesso (HTTP 200, HTML válido), então `status_code` e `http_error` relatam sucesso enquanto o corpo carrega o desafio. Leia `error.suggestion`; repetir a mesma requisição escala em direção a um banimento
 - `65` data
 - `66` no input
 - `69` unavailable

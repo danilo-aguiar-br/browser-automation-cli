@@ -45,7 +45,7 @@ use helpers::{step_action, step_capability_enabled};
 /// 2. capability gates (GAP-010 / GAP-011 / GAP-029)
 /// 3. dialog precondition (GAP-041)
 /// 4. `@eN` invalidation marker on the result (GAP-042)
-pub(super) async fn execute_step(
+pub(crate) async fn execute_step(
     session: &mut OneShotSession,
     cmd: &str,
     step: &Value,

@@ -40,7 +40,7 @@ impl OneShotSession {
         // `scrape_local::sitemap`). A literal here meant the two engines matched
         // robots rules under different identities, so the same site could be
         // allowed on one path and denied on the other.
-        crate::robots::enforce_robots(url, robots, crate::constants::HTTP_USER_AGENT).await?;
+        crate::robots::enforce_robots(url, robots, &crate::robots::robots_user_agent()).await?;
         self.ref_map.clear();
 
         // Snapshot console/net before navigation so include_preserved can keep history.
@@ -52,7 +52,7 @@ impl OneShotSession {
                 CliError::with_suggestion(
                     ErrorKind::Browser,
                     format!("init_script registration failed: {e}"),
-                    "Pass valid JavaScript for --init-script",
+                    crate::i18n::suggestion_key("init_script_javascript", None),
                 )
             })?;
             if !id.is_empty() {
@@ -185,7 +185,7 @@ impl OneShotSession {
                 CliError::with_suggestion(
                     ErrorKind::Browser,
                     format!("init_script registration failed: {e}"),
-                    "Pass valid JavaScript for --init-script",
+                    crate::i18n::suggestion_key("init_script_javascript", None),
                 )
             })
     }

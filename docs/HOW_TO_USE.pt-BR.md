@@ -150,7 +150,7 @@ printf '%s\n' \
 - MITM compose navega+captura: `mitm capture-url https://example.com --seconds 30 --har /tmp/cap.har`
 - MITM export HAR: `mitm har --out /tmp/capture.har` (`--out` **obrigatório**)
 - Superfície completa MITM: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
-- Flags globais MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
+- Flags globais MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`, `--mitm-no-redact-secrets`
 - Journal de workflow em DAG: `workflow run|resume|status` (SQLite sob XDG state)
 - Ferramentas profundas de heap exigem `--category-memory`
 - Ferramentas de extension exigem `--category-extensions`
@@ -171,6 +171,83 @@ printf '%s\n' \
 - Diálogos multi-aba isolam por `session_id` CDP (forwarders de página carimbam `Page::session_id`; browser-level `None` cai no active tab)
 - Beforeunload: `goto` / `reload` com `--handle-before-unload accept|dismiss`
 - Página isolada: `page new --isolated-context` (contexto isolado)
+
+
+## Anti-detecção, Proxy e Modelagem de Input
+- Stealth é LIGADO por padrão e mascara os marcadores de automação que um Chrome real nunca expõe
+- `--no-stealth` desliga os patches anti-detecção nesta execução
+- `--stealth-profile <PROFILE>` escolhe a identidade personificada: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`
+- `auto` segue o host e quase sempre está certo
+- `--stealth-seed <SEED>` fixa essa identidade entre processos
+- Sem a semente cada execução sorteia identidade nova, então um crawl de 50 URLs em 50 processos one-shot se apresenta como 50 máquinas distintas
+- `--proxy <URL>` define o proxy de saída para o Chrome e para o motor HTTP, aceitando `http`, `https` e `socks5`
+- `--proxy-bypass <HOSTS>` lista os hosts que ignoram o proxy, na sintaxe de bypass-list do Chrome
+- `--input-profile <PROFILE>` é `human` (padrão) ou `direct`
+- `human` interpola trajetórias do ponteiro, aplica dwell entre press e release e ritma a digitação
+- `--input-seed <SEED>` semeia o jitter de input para que uma execução `human` reproduza exatamente
+- `--warmup` visita a raiz da origem antes da URL alvo, então a sessão já carrega cookies e cadeia de referrer
+- `--warmup-url <URL>` aquece essa URL em vez da raiz da origem alvo
+- `--no-xvfb` pula o display virtual privado no Linux e usa o display atual; só faz sentido em modo headed no Linux
+- `--expect <EXPR>` afirma que o payload emitido casa com `key=value`, `key!=value` ou `key~substring`; ela é repetível e cada expressão é conjugada por AND
+- `--expect-exit-code` sai com `65` quando alguma expectativa falha, em vez de apenas reportar
+- Ela fica desligada por padrão porque mudar exit code por conteúdo de dado quebraria em silêncio os chamadores que já ramificam nele
+
+```bash
+# Uma identidade só para uma frota de processos one-shot
+browser-automation-cli --timeout 60 --json --stealth-seed fleet-01 goto https://example.com
+
+# Proxy de saída igual para o Chrome e para o motor HTTP
+browser-automation-cli --json --proxy socks5://127.0.0.1:1080 --proxy-bypass '127.0.0.1,localhost' \
+  scrape https://example.com --format text --engine http
+
+# Cinemática de input humana e reprodutível
+browser-automation-cli --timeout 60 --json --input-profile human --input-seed 42 goto https://example.com
+
+# Aquece a sessão antes da URL profunda
+browser-automation-cli --timeout 60 --json --warmup goto https://example.com/deep/page
+browser-automation-cli --timeout 60 --json --warmup-url https://example.com/login goto https://example.com/app
+
+# Seu próprio front end, com o browser intocado
+browser-automation-cli --timeout 60 --json --no-stealth goto http://127.0.0.1:8080
+
+# Afirma sobre o payload que o chamador realmente recebe
+browser-automation-cli --json --expect 'ok=true' --expect-exit-code doctor --offline --quick
+```
+
+- Torne a escolha durável com chaves XDG em vez de repetir flags
+- `stealth` (`true`) aplica os patches anti-detecção antes da primeira navegação
+- `stealth_profile` (`auto`) é a identidade personificada
+- `stealth_seed` (sem padrão) fixa a identidade entre processos
+- `browser_mode` (`auto`) é o modo de janela `auto|headed|headless`; `auto` resolve para headless e o `doctor` reporta o modo efetivo
+- `input_profile` (`human`) é a modelagem de input `human|direct`
+- `proxy_url` (sem padrão) é o proxy de saída para o Chrome e para o motor HTTP
+- `proxy_bypass` (sem padrão) lista os hosts que ignoram o proxy
+- `proxy_username` e `proxy_password` (sem padrão) guardam as credenciais do proxy
+- Guarde essas duas somente no XDG, porque argv aparece na tabela de processos
+- `cdp_proxy_bypass_loopback` (`true`) sempre ignora loopback para o canal de controle CDP sobreviver ao proxy
+- `robots_user_agent` (sem padrão) é o token de user-agent contra o qual as regras do robots.txt são casadas
+- `http2_enabled` (`true`) negocia HTTP/2 no cliente HTTP compartilhado
+- `http2_initial_stream_window_size` (`6291456`) dimensiona a janela por stream
+- `http2_initial_connection_window_size` (`15663105`) dimensiona a janela de conexão
+- `http2_max_header_list_size` (`262144`) limita a lista de headers
+- `http2_max_frame_size` (`16384`) limita o tamanho do frame
+- `http2_adaptive_window` (`false`) fica desligado para manter o fingerprint constante
+- Cinemática de input: `input_move_steps` (`24`), `input_move_gap_ms` (`12`), `input_click_dwell_ms` (`65`), `input_key_dwell_ms` (`45`), `input_type_delay_ms` (`95`)
+- Cinemática de input, continuação: `input_scroll_tick_px` (`100`), `input_scroll_max_ticks` (`40`), `input_target_jitter_px` (`3`), `input_scroll_settle_rounds` (`3`)
+- `scrape_no_cache` (`false`) faz todo scrape buscar na origem em vez do cache de resposta
+- `monitor_diff_max_bytes` (`65536`) limita o payload de diff que o `monitor check` compara com a baseline
+
+```bash
+browser-automation-cli --json config set stealth_profile chrome-linux
+browser-automation-cli --json config set stealth_seed fleet-01
+browser-automation-cli --json config set browser_mode headless
+browser-automation-cli --json config set input_profile human
+browser-automation-cli --json config set proxy_url http://127.0.0.1:8888
+browser-automation-cli --json config set proxy_username agent
+browser-automation-cli --json config set proxy_password secret
+browser-automation-cli --json config set http2_enabled true
+browser-automation-cli --json config unset stealth_seed
+```
 
 
 ## Higiene Residual (disco + processo)
@@ -317,11 +394,11 @@ browser-automation-cli --json --count-only map https://example.com --limit 5
 ## Configuração (XDG)
 - Prefira flags para chamadas pontuais de agente
 - Prefira config XDG via comando `config` para defaults duráveis
-- Settings de produto são só flags e CLI XDG: `config init`, `config path`, `config show`, `config set`, `config get`, `config list-keys` — **nunca** variáveis de ambiente de produto
+- Settings de produto são só flags e CLI XDG: `config init`, `config path`, `config show`, `config set`, `config get`, `config unset`, `config list-keys` — **nunca** variáveis de ambiente de produto
 - Resolva paths vivos de config/data/state com `config path --json`
 - Logging de produto é controlado por `--verbose` / `--debug` / `-q` e XDG `log_level`
 - Idioma das sugestões humanas: só `--lang` ou XDG `lang` (sem catálogos de env de produto)
-- Leia a referência completa de chaves XDG em `docs/CONFIGURATION.pt-BR.md`, que documenta as 176 chaves
+- Leia a referência completa de chaves XDG em `docs/CONFIGURATION.pt-BR.md`, que documenta as 204 chaves
 - Confirme o conjunto vivo com `config list-keys --json` antes de gravar chave desconhecida
 - Nunca fixe uma contagem de chaves, porque o conjunto cresce a cada release
 - Chaves comuns incluem: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`, `dialog_settle_ms`
@@ -351,7 +428,11 @@ browser-automation-cli --json config set cache_redis_url redis://127.0.0.1:6379
 browser-automation-cli --json config set dialog_settle_ms 2000
 browser-automation-cli --json config get lang
 browser-automation-cli --json config get dialog_settle_ms
+browser-automation-cli --json config unset stealth_seed
 ```
+- `config unset <CHAVE>` restaura uma chave ao default embutido e é o inverso real de `set`
+- `config set <chave> ""` não é inverso: em chave string grava um valor vazio que o caminho normal nunca produz, e em chave numérica é erro de parse
+- Desfazer chave já ausente tem sucesso, então um script nunca precisa saber o estado anterior
 - Use apenas `redis://` para cache Redis; `rediss://` é rejeitado fail-closed
 - Descubra chaves e defaults com `config list-keys --json` antes de gravar chaves desconhecidas
 - Mantenha a política dual-flag de robots explícita ao contornar: `--ignore-robots` mais `--i-accept-robots-risk`
@@ -553,7 +634,7 @@ browser-automation-cli --json workflow status --name demo
 - Correção: use `{"cmd":"wait","navigation":true}`
 
 
-## Padrões v0.1.7 (dialog, wait, scrape, grab, submit, storage)
+## Padrões v0.1.8 (dialog, wait, scrape, grab, submit, storage)
 ```bash
 # Dialog accept e próximo passo de página — leia dialog_settled; sem wait artificial quando true
 cat > /tmp/dialog-settled.run.json <<'JSON'

@@ -147,7 +147,7 @@ printf '%s\n' \
 - MITM compose navigate+capture: `mitm capture-url https://example.com --seconds 30 --har /tmp/cap.har`
 - MITM HAR export: `mitm har --out /tmp/capture.har` (required `--out`)
 - MITM full surface: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
-- Global MITM flags: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
+- Global MITM flags: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`, `--mitm-no-redact-secrets`
 - Workflow DAG journal: `workflow run|resume|status` (SQLite under XDG state)
 - Deep heap tools require `--category-memory`
 - Extension tools require `--category-extensions`
@@ -177,6 +177,83 @@ printf '%s\n' \
 - Extension `install` / `uninstall` intentionally outside `run` (GAP-007); discover via `schema` / `commands`
 - Assert dual surface (GAP-014): CLI `assert url|text|console|console-empty|console-no-match` vs run kinds (`url` / `text` / `console` / `console_empty` / `console_no_match`)
 - Scrape multi-format (GAP-018): `--format` multi/CSV and alias `--formats` where supported
+
+
+## Anti-Detection, Proxy and Input Shaping
+- Stealth is ON by default and masks the automation markers a real Chrome never exposes
+- `--no-stealth` turns the anti-detection patches off for one run
+- `--stealth-profile <PROFILE>` picks the impersonated identity: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`
+- `auto` follows the host and is almost always right
+- `--stealth-seed <SEED>` pins that identity across processes
+- Without a seed every run draws a fresh identity, so a 50-URL crawl of 50 one-shot processes presents 50 different machines
+- `--proxy <URL>` sets the egress proxy for Chrome and for the HTTP engine, accepting `http`, `https`, and `socks5`
+- `--proxy-bypass <HOSTS>` lists the hosts that skip the proxy, in Chrome's bypass-list syntax
+- `--input-profile <PROFILE>` is `human` (default) or `direct`
+- `human` interpolates pointer trajectories, dwells between press and release, and paces typing
+- `--input-seed <SEED>` seeds the input jitter so a `human` run reproduces exactly
+- `--warmup` visits the origin root before the target URL, so the session already carries cookies and a referrer chain
+- `--warmup-url <URL>` warms that URL instead of the target's origin root
+- `--no-xvfb` skips the private virtual display on Linux and uses the current one; it is only meaningful headed on Linux
+- `--expect <EXPR>` asserts the emitted payload matches `key=value`, `key!=value`, or `key~substring`; it repeats and every expression is ANDed
+- `--expect-exit-code` exits `65` when an expectation is unmet, instead of only reporting it
+- It stays off by default because changing an exit code on data content would silently break callers that already branch on it
+
+```bash
+# One identity across a fleet of one-shot processes
+browser-automation-cli --timeout 60 --json --stealth-seed fleet-01 goto https://example.com
+
+# Egress proxy for Chrome and the HTTP engine alike
+browser-automation-cli --json --proxy socks5://127.0.0.1:1080 --proxy-bypass '127.0.0.1,localhost' \
+  scrape https://example.com --format text --engine http
+
+# Reproducible human input kinematics
+browser-automation-cli --timeout 60 --json --input-profile human --input-seed 42 goto https://example.com
+
+# Warm the session before the deep URL
+browser-automation-cli --timeout 60 --json --warmup goto https://example.com/deep/page
+browser-automation-cli --timeout 60 --json --warmup-url https://example.com/login goto https://example.com/app
+
+# Your own front end, browser untouched
+browser-automation-cli --timeout 60 --json --no-stealth goto http://127.0.0.1:8080
+
+# Assert on the payload the caller actually receives
+browser-automation-cli --json --expect 'ok=true' --expect-exit-code doctor --offline --quick
+```
+
+- Make the choice durable with XDG keys instead of repeating flags
+- `stealth` (`true`) applies the anti-detection patches before the first navigation
+- `stealth_profile` (`auto`) is the impersonated identity
+- `stealth_seed` (no default) pins the identity across processes
+- `browser_mode` (`auto`) is the window mode `auto|headed|headless`; `auto` resolves to headless and `doctor` reports the effective mode
+- `input_profile` (`human`) is the input shaping model `human|direct`
+- `proxy_url` (no default) is the egress proxy for Chrome and the HTTP engine
+- `proxy_bypass` (no default) lists the hosts that skip the proxy
+- `proxy_username` and `proxy_password` (no default) hold the proxy credentials
+- Keep those two in XDG only, because argv shows up in the process table
+- `cdp_proxy_bypass_loopback` (`true`) always bypasses loopback so the CDP control channel survives a proxy
+- `robots_user_agent` (no default) is the user-agent token robots.txt rules are matched against
+- `http2_enabled` (`true`) negotiates HTTP/2 on the shared HTTP client
+- `http2_initial_stream_window_size` (`6291456`) sizes the per-stream window
+- `http2_initial_connection_window_size` (`15663105`) sizes the connection window
+- `http2_max_header_list_size` (`262144`) caps the header list
+- `http2_max_frame_size` (`16384`) caps the frame size
+- `http2_adaptive_window` (`false`) stays off so the fingerprint stays constant
+- Input kinematics: `input_move_steps` (`24`), `input_move_gap_ms` (`12`), `input_click_dwell_ms` (`65`), `input_key_dwell_ms` (`45`), `input_type_delay_ms` (`95`)
+- Input kinematics, continued: `input_scroll_tick_px` (`100`), `input_scroll_max_ticks` (`40`), `input_target_jitter_px` (`3`), `input_scroll_settle_rounds` (`3`)
+- `scrape_no_cache` (`false`) makes every scrape fetch from origin instead of the response cache
+- `monitor_diff_max_bytes` (`65536`) caps the diff payload `monitor check` compares against the baseline
+
+```bash
+browser-automation-cli --json config set stealth_profile chrome-linux
+browser-automation-cli --json config set stealth_seed fleet-01
+browser-automation-cli --json config set browser_mode headless
+browser-automation-cli --json config set input_profile human
+browser-automation-cli --json config set proxy_url http://127.0.0.1:8888
+browser-automation-cli --json config set proxy_username agent
+browser-automation-cli --json config set proxy_password secret
+browser-automation-cli --json config set http2_enabled true
+browser-automation-cli --json config unset stealth_seed
+```
 
 
 ## Residual Hygiene (disk + process)
@@ -323,11 +400,11 @@ browser-automation-cli --json --count-only map https://example.com --limit 5
 ## Configuration (XDG)
 - Prefer flags for one-off agent calls
 - Prefer XDG config via the `config` command for durable defaults
-- Product settings are flags and XDG CLI only: `config init`, `config path`, `config show`, `config set`, `config get`, `config list-keys`
+- Product settings are flags and XDG CLI only: `config init`, `config path`, `config show`, `config set`, `config get`, `config unset`, `config list-keys`
 - Resolve live config/data/state paths with `config path --json`
 - Product logging is controlled by `--verbose` / `--debug` / `-q` and XDG `log_level`
 - Language for human suggestions: `--lang` or XDG `lang` only (no product env catalogs)
-- Read the full XDG key reference in `docs/CONFIGURATION.md`, which documents all 176 keys
+- Read the full XDG key reference in `docs/CONFIGURATION.md`, which documents all 204 keys
 - Confirm the live key set with `config list-keys --json` before writing an unknown key
 - Never hard-code a fixed key count, because the set grows across releases
 - Common keys include: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`, `dialog_settle_ms`
@@ -357,7 +434,11 @@ browser-automation-cli --json config set cache_redis_url redis://127.0.0.1:6379
 browser-automation-cli --json config set dialog_settle_ms 2000
 browser-automation-cli --json config get lang
 browser-automation-cli --json config get dialog_settle_ms
+browser-automation-cli --json config unset stealth_seed
 ```
+- `config unset <KEY>` restores one key to its built-in default and is the real inverse of `set`
+- `config set <key> ""` is not an inverse: on a string key it writes an empty value the normal path never produces, and on a numeric key it is a parse error
+- Unsetting a key that is already absent succeeds, so a script never needs to know the previous state
 - Use `redis://` only for Redis cache; `rediss://` is rejected fail-closed
 - Discover keys and defaults with `config list-keys --json` before writing unknown keys
 - Keep robots dual-flag policy explicit when bypassing: `--ignore-robots` plus `--i-accept-robots-risk`
@@ -558,7 +639,7 @@ browser-automation-cli --json workflow status --name demo
 - Fix: use `{"cmd":"wait","navigation":true}`
 
 
-## v0.1.7 Patterns (dialog, wait, scrape, grab, submit, storage)
+## v0.1.8 Patterns (dialog, wait, scrape, grab, submit, storage)
 ```bash
 # Dialog accept then next page step — read dialog_settled; no artificial wait when true
 cat > /tmp/dialog-settled.run.json <<'JSON'

@@ -43,6 +43,25 @@ impl EnvGuard<'_> {
         Self { _lock: lock, vars }
     }
 
+    /// Take the global env lock without changing anything.
+    ///
+    /// # Why a reader needs the lock too
+    ///
+    /// [`EnvGuard::new`] protects tests that WRITE the environment from each
+    /// other. It does nothing for a test that only READS it, and process env is
+    /// shared by every test in the binary — so a reader running beside a writer
+    /// observes the fixture of an unrelated test.
+    ///
+    /// Measured on 2026-08-10: `seed_cache::tests` resolved an XDG path twice
+    /// and compared the two. A concurrent `state::tests` fixture redirected
+    /// `XDG_STATE_HOME` between the two calls, so the assertion compared the
+    /// real state directory against a temporary one. The suite failed roughly
+    /// one run in three, and passed every time under `--test-threads=1`, which
+    /// is how `ci-check` runs it — so the race stayed invisible to the gate.
+    pub fn for_reading() -> Self {
+        Self::new(&[])
+    }
+
     /// Set a registered variable for the lifetime of this guard.
     ///
     /// # Panics

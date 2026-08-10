@@ -37,6 +37,8 @@ impl OneShotSession {
             .await;
         let _ = self.manager.client.attach_page_session_forwarders().await;
 
+        self.install_stealth().await;
+
         if self.capture.console {
             self.manager
                 .client

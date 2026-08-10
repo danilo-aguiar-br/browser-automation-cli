@@ -61,7 +61,7 @@ impl OneShotSession {
                 CliError::with_suggestion(
                     ErrorKind::Usage,
                     format!("invalid input JSON: {}", e.message()),
-                    r#"Pass --input '{"key":"value"}'"#,
+                    crate::i18n::suggestion_key("webmcp_input_json", None),
                 )
             })?;
         let name_js = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".into());

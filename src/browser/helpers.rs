@@ -66,7 +66,7 @@ pub(crate) fn normalize_eval_expression(
             CliError::with_suggestion(
                 ErrorKind::Usage,
                 format!("eval --args must be a JSON array of uids: {e}"),
-                r#"Example: --args '["@e1","@e2"]'"#,
+                crate::i18n::suggestion_key("eval_args_uids", None),
             )
         })?;
         let args_js: Vec<String> = uids

@@ -111,16 +111,51 @@ else
   bad "missing generic CDP event forwarder"
 fi
 
-# 9) panic! only allowed in tests / human_panic setup / intentional test helpers
-# Flag non-test panic! outside cfg(test) blocks is soft: list for review
-panic_prod=$(rg -n 'panic!\(' src/ --glob '*.rs' | rg -v 'tests?\.rs|/tests\.rs|cfg\(test\)|human_panic|// ' || true)
-# Allow main human_panic + known test helpers after Pass F/G dir splits.
-unexpected=$(echo "$panic_prod" | rg -v 'src/main\.rs|src/cache/|src/lifecycle/|src/concurrency/|src/sync_util\.rs' || true)
-if [ -z "$unexpected" ]; then
-  pass "panic! surface limited (main human_panic / test helpers)"
+# 9) panic! only allowed in tests / human_panic setup
+#
+# WHY THIS TRACKS BLOCKS AND NOT LINES
+#   The previous shape excluded any line matching `cfg(test)`, and the only line
+#   that ever matches is the ATTRIBUTE itself. A `panic!` three lines into an
+#   inline `#[cfg(test)] mod tests` was therefore reported as production code.
+#   The answer at the time was to tolerate whole paths -- src/cache/,
+#   src/lifecycle/, src/concurrency/, src/sync_util.rs -- and a path tolerance
+#   hides a real production panic exactly as well as it hides a false one.
+#
+#   Tracking the block removes the class instead of the instance. Measured while
+#   making this change: every panic! in those tolerated paths was a test panic,
+#   so the tolerance list is DELETED rather than extended. The gate is strictly
+#   stronger than the version it replaces, not merely quieter.
+panic_prod=$(
+  rg -l 'panic!\(' src/ --glob '*.rs' 2>/dev/null | rg -v 'tests?\.rs$' |
+    while IFS= read -r f; do
+      awk -v F="$f" '
+        BEGIN { intest = 0; pending = 0; depth = 0 }
+        {
+          if (intest) {
+            o = gsub(/\{/, "{"); c = gsub(/\}/, "}")
+            depth += o - c
+            if (depth <= 0) intest = 0
+            next
+          }
+          if ($0 ~ /#\[cfg\(test\)\]/) { pending = 1; next }
+          if (pending) {
+            o = gsub(/\{/, "{"); c = gsub(/\}/, "}")
+            if (o > 0) { depth = o - c; pending = 0; if (depth > 0) intest = 1; next }
+            if ($0 ~ /;[[:space:]]*$/) pending = 0
+            next
+          }
+          if ($0 ~ /panic!\(/ && $0 !~ /^[[:space:]]*\/\// && $0 !~ /human_panic/) {
+            print F ":" FNR ":" $0
+          }
+        }
+      ' "$f"
+    done
+)
+if [ -z "$panic_prod" ]; then
+  pass "panic! confined to tests and human_panic (block-aware)"
 else
-  bad "unexpected panic! in production modules"
-  echo "$unexpected"
+  bad "unexpected panic! in production code"
+  echo "$panic_prod"
 fi
 
 # 10) Pass J: single-source HTTP_USER_AGENT via compile-time CARGO_PKG_* (not product env)

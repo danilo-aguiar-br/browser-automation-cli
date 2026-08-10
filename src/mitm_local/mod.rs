@@ -36,6 +36,7 @@ mod analyze;
 mod ca;
 mod handler;
 mod har;
+pub mod policy;
 mod proxy;
 mod store;
 mod types;

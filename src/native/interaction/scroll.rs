@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use super::kinematics;
 use crate::native::cdp::client::CdpClient;
 use crate::native::cdp::types::*;
 use crate::native::element::{resolve_element_object_id, RefMap};
@@ -24,11 +25,33 @@ pub struct ScrollRequest<'a> {
     pub to_y: Option<f64>,
 }
 
+/// Read the scroll position and container metrics without moving anything.
+///
+/// Split out from [`SCROLL_FN`] so the `human` path can measure before and after
+/// a real wheel gesture instead of scrolling from JavaScript. Measuring and
+/// acting used to be the same function, which is precisely why `scrollBy` became
+/// the mechanism: once the JS was there to read `scrollHeight`, making it also
+/// scroll was one more line, and no test could tell the difference because none
+/// looked at which events the page received.
+pub(super) const MEASURE_FN: &str = r#"function() {
+    return {
+        x: this.scrollLeft,
+        y: this.scrollTop,
+        scrollHeight: this.scrollHeight,
+        clientHeight: this.clientHeight,
+        scrollWidth: this.scrollWidth,
+        clientWidth: this.clientWidth,
+    };
+}"#;
+
 /// JS body shared by the container and viewport paths.
 ///
 /// `this` is the scrolling element in both cases, so the same source reports
 /// `scrollHeight` / `clientHeight` for an overflow container and for the
 /// document scrolling element. No stylesheet or attribute is injected.
+///
+/// Used by `--input-profile direct` and by absolute (`to_x` / `to_y`) requests,
+/// which have no wheel equivalent: a wheel carries a delta, never a destination.
 const SCROLL_FN: &str = r#"function(dx, dy, tx, ty) {
     const before = { x: this.scrollLeft, y: this.scrollTop };
     if (tx !== null || ty !== null) {
@@ -67,10 +90,65 @@ pub(super) fn scroll_arguments(req: &ScrollRequest<'_>) -> Vec<CallArgument> {
     .collect()
 }
 
+/// Call a zero-argument JS helper on an already-resolved object.
+pub(super) async fn call_on(
+    client: &CdpClient,
+    session_id: &str,
+    object_id: &str,
+    body: &str,
+) -> Result<Value, String> {
+    let result: Value = client
+        .send_command_typed(
+            "Runtime.callFunctionOn",
+            &CallFunctionOnParams {
+                function_declaration: body.to_string(),
+                object_id: Some(object_id.to_string()),
+                arguments: None,
+                return_by_value: Some(true),
+                await_promise: Some(false),
+            },
+            Some(session_id),
+        )
+        .await?;
+    if let Some(text) = result
+        .pointer("/exceptionDetails/text")
+        .and_then(|v| v.as_str())
+    {
+        return Err(format!("scroll failed in page: {text}"));
+    }
+    result
+        .pointer("/result/value")
+        .cloned()
+        .ok_or_else(|| "scroll helper returned no value".to_string())
+}
+
+/// Shape the envelope the way [`SCROLL_FN`] does, from two measurements.
+fn metrics_envelope(before: &Value, after: &Value) -> Value {
+    let pos = |v: &Value, k: &str| v.get(k).and_then(Value::as_f64).unwrap_or_default();
+    let scroll_height = pos(after, "scrollHeight");
+    let client_height = pos(after, "clientHeight");
+    let scroll_width = pos(after, "scrollWidth");
+    let client_width = pos(after, "clientWidth");
+    serde_json::json!({
+        "before": { "x": pos(before, "x"), "y": pos(before, "y") },
+        "after": { "x": pos(after, "x"), "y": pos(after, "y") },
+        "scrollHeight": scroll_height,
+        "clientHeight": client_height,
+        "scrollWidth": scroll_width,
+        "clientWidth": client_width,
+        "scrollable": scroll_height > client_height || scroll_width > client_width,
+    })
+}
+
 /// Scroll the viewport or a container that owns its own scrollbar (GAP-031).
 ///
 /// Returns the position before and after plus the container metrics, so a caller
 /// can tell "scrolled to the end" apart from "container is not scrollable".
+///
+/// Under `--input-profile human` a relative scroll is delivered as a sequence of
+/// real `mouseWheel` events, so a page that listens for `wheel` -- lazy-load,
+/// infinite scroll, carousels -- actually reacts. Absolute requests and the
+/// `direct` profile keep the JavaScript path, which emits no `wheel` at all.
 pub async fn scroll(
     client: &CdpClient,
     session_id: &str,
@@ -109,6 +187,22 @@ pub async fn scroll(
         }
     };
 
+    // A wheel carries a delta, so an absolute request has no wheel equivalent and
+    // keeps the scripted path. `direct` keeps it too, byte for byte.
+    let absolute = req.to_x.is_some() || req.to_y.is_some();
+    if !absolute && kinematics::active_profile().is_human() {
+        let before = call_on(client, &effective_session_id, &object_id, MEASURE_FN).await?;
+        let after = super::wheel::wheel_scroll(
+            client,
+            &effective_session_id,
+            &object_id,
+            req.delta_x,
+            req.delta_y,
+        )
+        .await?;
+        return Ok(metrics_envelope(&before, &after));
+    }
+
     let result: Value = client
         .send_command_typed(
             "Runtime.callFunctionOn",
@@ -133,129 +227,4 @@ pub async fn scroll(
         .pointer("/result/value")
         .cloned()
         .ok_or_else(|| "scroll returned no metrics".to_string())
-}
-
-/// Select every element matching a selector, for a bulk read.
-pub async fn select_all(
-    client: &CdpClient,
-    session_id: &str,
-    ref_map: &RefMap,
-    selector_or_ref: &str,
-    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
-) -> Result<(), String> {
-    let (object_id, effective_session_id) = resolve_element_object_id(
-        client,
-        session_id,
-        ref_map,
-        selector_or_ref,
-        iframe_sessions,
-    )
-    .await?;
-
-    client
-        .send_command_typed::<_, Value>(
-            "Runtime.callFunctionOn",
-            &CallFunctionOnParams {
-                function_declaration: r#"function() {
-                    this.focus();
-                    if (typeof this.select === 'function') {
-                        this.select();
-                    } else {
-                        const range = document.createRange();
-                        range.selectNodeContents(this);
-                        const sel = window.getSelection();
-                        sel.removeAllRanges();
-                        sel.addRange(range);
-                    }
-                }"#
-                .to_string(),
-                object_id: Some(object_id),
-                arguments: None,
-                return_by_value: Some(true),
-                await_promise: Some(false),
-            },
-            Some(&effective_session_id),
-        )
-        .await?;
-
-    Ok(())
-}
-
-/// Scroll an element into the viewport before interacting with it.
-pub async fn scroll_into_view(
-    client: &CdpClient,
-    session_id: &str,
-    ref_map: &RefMap,
-    selector_or_ref: &str,
-    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
-) -> Result<(), String> {
-    let (object_id, effective_session_id) = resolve_element_object_id(
-        client,
-        session_id,
-        ref_map,
-        selector_or_ref,
-        iframe_sessions,
-    )
-    .await?;
-
-    client
-        .send_command_typed::<_, Value>(
-            "Runtime.callFunctionOn",
-            &CallFunctionOnParams {
-                function_declaration:
-                    "function() { this.scrollIntoView({ block: 'center', inline: 'center' }); }"
-                        .to_string(),
-                object_id: Some(object_id),
-                arguments: None,
-                return_by_value: Some(true),
-                await_promise: Some(false),
-            },
-            Some(&effective_session_id),
-        )
-        .await?;
-
-    Ok(())
-}
-
-/// Draw a temporary overlay on an element, for headed debugging.
-pub async fn highlight(
-    client: &CdpClient,
-    session_id: &str,
-    ref_map: &RefMap,
-    selector_or_ref: &str,
-    iframe_sessions: &rustc_hash::FxHashMap<String, String>,
-) -> Result<(), String> {
-    let (object_id, effective_session_id) = resolve_element_object_id(
-        client,
-        session_id,
-        ref_map,
-        selector_or_ref,
-        iframe_sessions,
-    )
-    .await?;
-
-    client
-        .send_command_typed::<_, Value>(
-            "Runtime.callFunctionOn",
-            &CallFunctionOnParams {
-                function_declaration: r#"function() {
-                    this.style.outline = '2px solid red';
-                    this.style.outlineOffset = '2px';
-                    const el = this;
-                    setTimeout(() => {
-                        el.style.outline = '';
-                        el.style.outlineOffset = '';
-                    }, 3000);
-                }"#
-                .to_string(),
-                object_id: Some(object_id),
-                arguments: None,
-                return_by_value: Some(true),
-                await_promise: Some(false),
-            },
-            Some(&effective_session_id),
-        )
-        .await?;
-
-    Ok(())
 }

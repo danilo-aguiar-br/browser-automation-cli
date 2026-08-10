@@ -54,6 +54,9 @@
 - Never use `rediss://` for cache (plain TCP only; `rediss://` is fail-closed)
 - Store Redis URL only with `config set cache_redis_url` under XDG (never product env vars)
 - Store LLM keys only with `config set openrouter_api_key` under XDG
+- Store egress proxy credentials only with `config set proxy_username` and `config set proxy_password` under XDG, and never pass them on argv, because the process table exposes argv to any user on the machine
+- `proxy_password` is included in the zeroize sweeps of `src/xdg/secrets.rs`, so it is wiped on drop alongside `encryption_key`, `openrouter_api_key`, and `cache_redis_url`
+- Do not confuse the egress proxy (`--proxy`, XDG `proxy_url`) with the local MITM interception proxy below: the first routes your traffic out through a third party, the second decrypts your own traffic on `127.0.0.1`
 - Residual hygiene: doctor `residual_disk` reports local orphan temp dirs; BORN/FINALIZE scavenge only owned CLI markers and stale Singleton-only Chromium dirs (never kill host Flatpak Chrome)
 
 ## MITM Best Practices

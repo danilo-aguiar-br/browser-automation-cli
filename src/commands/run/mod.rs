@@ -21,7 +21,7 @@
 
 mod argv;
 mod engine;
-mod execute;
+pub(crate) mod execute;
 mod flags;
 mod inventory;
 mod parse;

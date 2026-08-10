@@ -10,6 +10,42 @@ pub(crate) struct ChromeArgs {
     pub temp_user_data_dir: Option<PathBuf>,
 }
 
+/// Combine the operator's proxy bypass list with the loopback entries.
+///
+/// The operator's own entries keep their position and their order: this list
+/// is something a human wrote, and reordering it makes the argv harder to
+/// compare against what was asked for. Loopback hosts are appended, and only
+/// the ones not already present, so passing `--proxy-bypass 127.0.0.1` does
+/// not produce a duplicate.
+///
+/// Returns `None` only when there is nothing at all to emit, which happens
+/// when the operator passed no list and the loopback guard is switched off.
+pub fn merge_proxy_bypass(operator: Option<&str>, add_loopback: bool) -> Option<String> {
+    let mut out: Vec<&str> = operator
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if add_loopback {
+        for host in crate::constants::CDP_PROXY_LOOPBACK_BYPASS.split(',') {
+            if !out
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(host))
+            {
+                out.push(host);
+            }
+        }
+    }
+
+    if out.is_empty() {
+        None
+    } else {
+        Some(out.join(","))
+    }
+}
+
 /// Create the temp profile dir on the **current** thread (unit tests / sync callers).
 ///
 /// Production async launch uses [`crate::concurrency::create_dir_all_blocking`] instead.
@@ -55,6 +91,18 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
     // and an unknown feature name is ignored rather than rejected.
     let mut disable_features: Vec<String> =
         vec!["Translate".to_string(), "TranslateUI".to_string()];
+
+    // `AutomationControlled` is the switch that removes `navigator.webdriver`
+    // at the source. This is deliberately NOT done with a JS getter override:
+    // that leaves a patched `Function.prototype.toString` behind, which is
+    // itself a marker, whereas killing the property leaves nothing to find.
+    //
+    // Paired with `--disable-blink-features=AutomationControlled` below because
+    // the two switches gate different layers and Chrome versions have moved the
+    // behaviour between them.
+    if crate::browser_policy::stealth_enabled() {
+        disable_features.push("AutomationControlled".to_string());
+    }
     let has_extensions = options
         .extensions
         .as_ref()
@@ -125,6 +173,18 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
         "--disable-component-extensions-with-background-pages".to_string(),
     ];
 
+    if crate::browser_policy::stealth_enabled() {
+        args.push("--disable-blink-features=AutomationControlled".to_string());
+        // The automation infobar is visible proof of a driven browser on any
+        // headed launch, and a page can measure the viewport it steals.
+        args.push("--disable-infobars".to_string());
+        // QUIC runs over UDP and bypasses an HTTP proxy entirely, so a run with
+        // `--proxy` would leak part of its traffic around the egress the caller
+        // chose. Disabling it also removes a transport fingerprint this product
+        // cannot shape.
+        args.push("--disable-quic".to_string());
+    }
+
     if options.webgpu {
         args.push("--enable-unsafe-webgpu".to_string());
         if cfg!(target_os = "linux") {
@@ -145,14 +205,35 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
         if options.hide_scrollbars {
             args.push("--hide-scrollbars".to_string());
         }
-        args.push("--enable-unsafe-swiftshader".to_string());
+        // SwiftShader is the software rasteriser headless falls back to, and it
+        // reports itself through `WebGL_debug_renderer_info`. Forcing it on is
+        // handing a bot check the exact string that says "no GPU here".
+        //
+        // Left in place when stealth is off, because that path exists for
+        // deterministic screenshots where a stable software renderer is the
+        // point. With stealth on, the GPU the host actually has is the more
+        // defensible answer, and `Fingerprint::NativeGPU` reports it honestly.
+        if !crate::browser_policy::stealth_enabled() {
+            args.push("--enable-unsafe-swiftshader".to_string());
+        }
     }
 
     if let Some(ref proxy) = options.proxy {
         args.push(format!("--proxy-server={proxy}"));
-    }
-
-    if let Some(ref bypass) = options.proxy_bypass {
+        // Loopback is bypassed whether or not the operator asked, because the
+        // CDP control channel is loopback and a proxied control channel is a
+        // browser that never answers. See `CDP_PROXY_LOOPBACK_BYPASS`.
+        let merged = merge_proxy_bypass(
+            options.proxy_bypass.as_deref(),
+            crate::xdg::resolve_cdp_proxy_bypass_loopback(),
+        );
+        if let Some(list) = merged {
+            args.push(format!("--proxy-bypass-list={list}"));
+        }
+    } else if let Some(ref bypass) = options.proxy_bypass {
+        // No proxy to bypass. Emitted anyway so the flag is never silently
+        // dropped: Chrome ignores it, and the argv stays a faithful record of
+        // what the operator asked for.
         args.push(format!("--proxy-bypass-list={bypass}"));
     }
 

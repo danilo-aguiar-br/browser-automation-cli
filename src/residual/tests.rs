@@ -425,3 +425,130 @@ fn marker_fixture(tag: &str) -> std::path::PathBuf {
     fs::create_dir_all(&dir).expect("create marker fixture");
     dir
 }
+
+/// A supervised teardown is not residue; a disowned browser is.
+///
+/// FINALIZE removes the profile dir and then waits for Chrome to exit, so every
+/// healthy shutdown spends a window looking exactly like a ghost. Measured
+/// 2026-08-06: that window read `ghost_marker_processes=22` on a host that was
+/// clean minutes later with no cleanup performed, and it turned
+/// `concurrent_invocation_keeps_doctor_exit_zero` red.
+///
+/// The three cases below are the whole rule. Without the second one the counter
+/// is blind and the leak it exists to catch walks straight through; without the
+/// first it fails healthy concurrency; without the third it re-inflates on
+/// Chrome subprocesses.
+#[test]
+fn disowned_ghosts_are_counted_and_supervised_ones_are_not() {
+    // Path under a marker name that does not exist: "profile already deleted".
+    let missing = std::env::temp_dir()
+        .join("browser-automation-cli-chrome-ghost-fixture-never-created")
+        .display()
+        .to_string();
+    let browser = format!("/usr/bin/chromium --user-data-dir={missing}");
+
+    // Identity comes from the kernel-reported executable, never from argv, so a
+    // fixture without `with_exe` is not a browser at all and every assertion
+    // below would pass while measuring nothing. Caught exactly that way on the
+    // first run of this test: case 1 was green because the entry was invisible.
+    let cli_exe = format!("/usr/bin/{}", crate::constants::PRODUCT_BIN_NAME);
+    let chrome = |pid: u32, ppid: u32, cmd: &str| {
+        ProcessEntry::new(pid, Some(ppid), cmd).with_exe("/usr/bin/chromium")
+    };
+
+    // 1. SUPERVISED: the launcher is alive, so it still owns the teardown.
+    let cli = ProcessEntry::new(100, Some(1), "browser-automation-cli goto").with_exe(&cli_exe);
+    let index = super::proc::LiveProcessIndex::from_entries(vec![cli, chrome(200, 100, &browser)]);
+    assert_eq!(
+        super::report::count_disowned_ghosts(&index),
+        0,
+        "a browser whose launcher is still alive is mid-teardown, not residue"
+    );
+
+    // 2. DISOWNED: same browser, launcher gone. Nobody is left to collect it.
+    let index = super::proc::LiveProcessIndex::from_entries(vec![chrome(200, 1, &browser)]);
+    assert_eq!(
+        super::report::count_disowned_ghosts(&index),
+        1,
+        "a browser with no live launcher is exactly the leak this field catches"
+    );
+
+    // 3. SUBPROCESS: renderer parented by the ghost root counts once, not twice.
+    let renderer_cmd = format!("{browser} --type=renderer");
+    let index = super::proc::LiveProcessIndex::from_entries(vec![
+        chrome(200, 1, &browser),
+        chrome(201, 200, &renderer_cmd),
+    ]);
+    assert_eq!(
+        super::report::count_disowned_ghosts(&index),
+        1,
+        "only tree roots are judged; Chrome children must not inflate the count"
+    );
+}
+
+/// The `/tmp` singleton directory is claimed from the profile's own symlink.
+///
+/// The regression this guards is a measured leak: every browser launch left
+/// one `/tmp/org.chromium.Chromium.*` behind, because the scan-and-match path
+/// found nothing to match on. Chrome names neither the pid nor the profile in
+/// that directory, and it creates the directory during startup — before the
+/// timestamp the scan compares against. The symlink is the only deterministic
+/// link between our profile and Chrome's temp directory.
+#[cfg(unix)]
+#[test]
+fn the_tmp_singleton_dir_is_claimed_through_the_profile_symlink() {
+    let profile = std::env::temp_dir().join(format!("bac-sym-prof-{}", uuid::Uuid::new_v4()));
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "org.chromium.Chromium.{}",
+        &uuid::Uuid::new_v4().to_string()[..8]
+    ));
+    fs::create_dir_all(&profile).expect("mkdir profile");
+    fs::create_dir_all(&tmp_dir).expect("mkdir chromium tmp");
+    let target = tmp_dir.join("SingletonSocket");
+    let _ = fs::write(&target, b"");
+    std::os::unix::fs::symlink(&target, profile.join("SingletonSocket")).expect("symlink");
+
+    let claimed = owned_chromium_tmp_dir_via_profile(&profile);
+    assert_eq!(
+        claimed.as_ref(),
+        Some(&tmp_dir),
+        "the profile symlink must resolve to the directory Chrome created"
+    );
+
+    let _ = fs::remove_dir_all(&profile);
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// A symlink pointing somewhere that is not a Chromium temp dir is refused.
+///
+/// The return value feeds a recursive delete, so a target that does not carry
+/// the Chromium name is left alone. Leaking a directory is a smaller harm than
+/// deleting one this product does not own.
+#[cfg(unix)]
+#[test]
+fn a_symlink_outside_the_chromium_shape_is_never_claimed() {
+    let profile = std::env::temp_dir().join(format!("bac-sym-bad-{}", uuid::Uuid::new_v4()));
+    let decoy = std::env::temp_dir().join(format!("bac-not-chromium-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&profile).expect("mkdir profile");
+    fs::create_dir_all(&decoy).expect("mkdir decoy");
+    let target = decoy.join("SingletonSocket");
+    let _ = fs::write(&target, b"");
+    std::os::unix::fs::symlink(&target, profile.join("SingletonSocket")).expect("symlink");
+
+    assert!(
+        owned_chromium_tmp_dir_via_profile(&profile).is_none(),
+        "a target without the Chromium temp name must never be handed to a delete"
+    );
+
+    let _ = fs::remove_dir_all(&profile);
+    let _ = fs::remove_dir_all(&decoy);
+}
+
+/// A profile with no symlink yields nothing, rather than a parent directory.
+#[test]
+fn a_profile_without_the_symlink_claims_nothing() {
+    let profile = std::env::temp_dir().join(format!("bac-sym-none-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&profile).expect("mkdir profile");
+    assert!(owned_chromium_tmp_dir_via_profile(&profile).is_none());
+    let _ = fs::remove_dir_all(&profile);
+}

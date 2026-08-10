@@ -196,7 +196,10 @@ fn free_port() -> Result<u16, String> {
 #[test]
 fn memory_hit_miss() {
     let c = MemoryCache::default();
-    let k = CacheKey::http_get("https://example.com/");
+    let k = CacheKey::http_get(
+        "https://example.com/",
+        &CacheContext::direct("chrome-linux"),
+    );
     assert!(c.get(&k).unwrap().is_none());
     c.put(
         &k,
@@ -214,13 +217,105 @@ fn memory_hit_miss() {
 #[test]
 fn key_stable() {
     assert_eq!(
-        CacheKey::http_get("https://a").as_str(),
-        CacheKey::http_get("https://a").as_str()
+        CacheKey::http_get("https://a", &CacheContext::direct("chrome-linux")).as_str(),
+        CacheKey::http_get("https://a", &CacheContext::direct("chrome-linux")).as_str()
     );
     assert_ne!(
-        CacheKey::http_get("https://a").as_str(),
-        CacheKey::http_get("https://b").as_str()
+        CacheKey::http_get("https://a", &CacheContext::direct("chrome-linux")).as_str(),
+        CacheKey::http_get("https://b", &CacheContext::direct("chrome-linux")).as_str()
     );
+}
+
+#[test]
+fn a_different_egress_route_is_a_different_question() {
+    // The regression this guards: with the URL already cached, a dead
+    // `--proxy` returned `ok: true` and `cache_hit: true`. Reusing an entry
+    // across egress routes cancels the isolation the proxy exists to give.
+    let direct = CacheKey::http_get("https://a/", &CacheContext::direct("chrome-linux"));
+    let proxied = CacheKey::http_get(
+        "https://a/",
+        &CacheContext {
+            proxy: Some("http://127.0.0.1:1"),
+            stealth_profile: "chrome-linux",
+            extra_headers: &[],
+        },
+    );
+    assert_ne!(direct.as_str(), proxied.as_str());
+}
+
+#[test]
+fn a_different_identity_is_a_different_question() {
+    let linux = CacheKey::http_get("https://a/", &CacheContext::direct("chrome-linux"));
+    let windows = CacheKey::http_get("https://a/", &CacheContext::direct("chrome-win"));
+    assert_ne!(linux.as_str(), windows.as_str());
+}
+
+#[test]
+fn a_different_authorization_is_a_different_question() {
+    let anon = CacheKey::http_get("https://a/", &CacheContext::direct("chrome-linux"));
+    let authed = CacheKey::http_get(
+        "https://a/",
+        &CacheContext {
+            proxy: None,
+            stealth_profile: "chrome-linux",
+            extra_headers: &[("authorization".into(), "Bearer one".into())],
+        },
+    );
+    let other = CacheKey::http_get(
+        "https://a/",
+        &CacheContext {
+            proxy: None,
+            stealth_profile: "chrome-linux",
+            extra_headers: &[("authorization".into(), "Bearer two".into())],
+        },
+    );
+    assert_ne!(anon.as_str(), authed.as_str());
+    assert_ne!(authed.as_str(), other.as_str());
+}
+
+#[test]
+fn header_order_does_not_change_the_key() {
+    // A `HeaderMap` has no insertion order, so a key that depended on it would
+    // be unstable — which defeats the cache rather than partitioning it.
+    let forward = CacheKey::http_get(
+        "https://a/",
+        &CacheContext {
+            proxy: None,
+            stealth_profile: "chrome-linux",
+            extra_headers: &[("a".into(), "1".into()), ("b".into(), "2".into())],
+        },
+    );
+    let reversed = CacheKey::http_get(
+        "https://a/",
+        &CacheContext {
+            proxy: None,
+            stealth_profile: "chrome-linux",
+            extra_headers: &[("b".into(), "2".into()), ("a".into(), "1".into())],
+        },
+    );
+    assert_eq!(forward.as_str(), reversed.as_str());
+}
+
+#[test]
+fn header_boundaries_cannot_be_shifted_to_collide() {
+    // Length-prefixing exists so ("ab", "c") and ("a", "bc") stay distinct.
+    let left = CacheKey::http_get(
+        "https://a/",
+        &CacheContext {
+            proxy: None,
+            stealth_profile: "chrome-linux",
+            extra_headers: &[("ab".into(), "c".into())],
+        },
+    );
+    let right = CacheKey::http_get(
+        "https://a/",
+        &CacheContext {
+            proxy: None,
+            stealth_profile: "chrome-linux",
+            extra_headers: &[("a".into(), "bc".into())],
+        },
+    );
+    assert_ne!(left.as_str(), right.as_str());
 }
 
 #[test]
@@ -254,7 +349,10 @@ fn redis_roundtrip_via_resp_mock() {
     let mock = RespMockServer::spawn().expect("mock listen");
     let url = format!("redis://127.0.0.1:{}/0", mock.port);
     let c = RedisCache::connect(&url).expect("connect mock redis");
-    let k = CacheKey::http_get("https://redis-mock.example/");
+    let k = CacheKey::http_get(
+        "https://redis-mock.example/",
+        &CacheContext::direct("chrome-linux"),
+    );
     c.put(
         &k,
         CacheEntry {
@@ -312,7 +410,10 @@ fn redis_real_server_if_present() {
         panic!("redis-server did not accept connections on {url}");
     }
     let c = RedisCache::connect(&url).expect("connect real redis");
-    let k = CacheKey::http_get("https://redis-real.example/");
+    let k = CacheKey::http_get(
+        "https://redis-real.example/",
+        &CacheContext::direct("chrome-linux"),
+    );
     c.put(
         &k,
         CacheEntry {
@@ -331,7 +432,10 @@ fn redis_real_server_if_present() {
 #[test]
 fn default_cache_sqlite_works() {
     let c = default_cache().expect("sqlite layered");
-    let k = CacheKey::http_get("https://cache-audit.example/");
+    let k = CacheKey::http_get(
+        "https://cache-audit.example/",
+        &CacheContext::direct("chrome-linux"),
+    );
     c.put(
         &k,
         CacheEntry {

@@ -161,6 +161,7 @@ pub fn import_cdp_network(events: &[Value]) -> Result<Value, CliError> {
             response_body: None,
             host,
             started_ms: now_ms(),
+            finished_ms: None,
         });
         n += 1;
     }
@@ -212,7 +213,7 @@ pub fn block_rule(host: Option<&str>, path: Option<&str>) -> Result<Value, CliEr
         return Err(CliError::with_suggestion(
             ErrorKind::Usage,
             "mitm block requires --host and/or --path",
-            "Example: mitm block --host example.com",
+            crate::i18n::suggestion_key("mitm_block_target", None),
         ));
     }
     let dir = xdg::mitm_capture_dir()?;

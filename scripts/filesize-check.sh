@@ -35,33 +35,62 @@ cd "$ROOT"
 LIMIT="${FILESIZE_LIMIT:-300}"
 TARGET_DIR="${1:-src}"
 
-# ── Declared exceptions ────────────────────────────────────────────────
-# Every entry needs a justification here. An undocumented entry is how an
-# exception list becomes a place to hide debt.
+# ── Declared exceptions, each with an EXPIRY ───────────────────────────
+# Format: "path|expires_before_version". The entry stops being an exception the
+# moment the crate reaches that version: from then on the file FAILS like any
+# other. Justification below is still mandatory.
 #
-#   src/cli/commands.rs
-#     Single clap `Commands` enum. It is a public type, so flattening it into
-#     modules is a semver break, and splitting the enum would fan out into 61
-#     match arms across the dispatcher. Indivisible by construction, not by
-#     convenience.
-#   src/commands/dispatch/mod.rs
-#     A single EXHAUSTIVE `match` over every `Commands` variant, and nothing
-#     else: the context type and exit mapping already moved to `ctx.rs`.
-#     Splitting the match means each family returns the command back when it is
-#     not its own, which DELETES the compiler guarantee that a new variant fails
-#     to build until it is routed. That guarantee has caught unrouted commands;
-#     the line count has not. Indivisible without trading a real check for a
-#     cosmetic one.
-EXCEPTIONS=(
-  "src/cli/commands.rs"
-  "src/commands/dispatch/mod.rs"
-)
+# WHY AN EXPIRY AND NOT A PLAIN LIST
+#   A permanent exception is not a measurement, it is a place to put debt so the
+#   scoreboard stays green. Both entries below carried a justification arguing
+#   the files were "indivisible by construction" -- and both arguments assumed
+#   ONE way of splitting. Measured 2026-08-06: commands.rs 585 code lines and
+#   dispatch/mod.rs 493, with the exception list unchanged across three
+#   versions. Nobody re-examined the premise because nothing ever asked.
+#
+#   The expiry is what asks. It converts "we decided not to" into a dated claim
+#   that the gate re-litigates on its own.
+#
+#   THE LIST IS EMPTY, AND THAT IS THE POINT
+#     It held `src/cli/commands.rs` and `src/commands/dispatch/mod.rs`, both
+#     expiring before 0.1.8. Both were split for 0.1.8 and now measure under the
+#     limit, so the entries stopped being consulted at all -- an expired entry is
+#     only reached when a file exceeds the limit, and neither does. Leaving them
+#     would have been worse than useless: the day either file grew again, the
+#     gate would have reported "expired exception" instead of the plain
+#     over-limit failure the operator needs to read.
+EXCEPTIONS=()
 
+# Crate version drives expiry. Read from the manifest, never hardcoded here:
+# a second copy of the version is a second thing to forget to bump.
+CRATE_VERSION="$(rg -m1 '^version\s*=\s*"([^"]+)"' -or '$1' Cargo.toml)"
+if [[ -z "$CRATE_VERSION" ]]; then
+  echo "FAIL  cannot read version from Cargo.toml — expiry is unverifiable" >&2
+  exit 1
+fi
+
+# True when $1 >= $2 under semver-ish ordering. `sort -V` is enough here: these
+# are plain x.y.z tags with no pre-release suffixes.
+version_at_least() {
+  [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" == "$2" ]]
+}
+
+EXPIRED=()
+
+# Returns 0 when the file is a LIVE exception. An expired entry returns 1 (so
+# the caller reports FAIL) and is recorded for the summary.
 is_exception() {
   local candidate="$1"
-  local allowed
-  for allowed in "${EXCEPTIONS[@]}"; do
-    [[ "$candidate" == "$allowed" ]] && return 0
+  local entry allowed expires
+  for entry in "${EXCEPTIONS[@]}"; do
+    allowed="${entry%%|*}"
+    expires="${entry##*|}"
+    [[ "$candidate" != "$allowed" ]] && continue
+    if version_at_least "$CRATE_VERSION" "$expires"; then
+      EXPIRED+=("$candidate (expired at $expires, crate is $CRATE_VERSION)")
+      return 1
+    fi
+    return 0
   done
   return 1
 }
@@ -161,7 +190,16 @@ while IFS= read -r file; do
 done < <(fd -e rs . "$TARGET_DIR" | sort)
 
 echo "----"
-printf 'checked=%d  exceptions=%d  over_limit=%d\n' "$checked" "$exempted" "$offenders"
+printf 'checked=%d  exceptions=%d  expired=%d  over_limit=%d\n' \
+  "$checked" "$exempted" "${#EXPIRED[@]}" "$offenders"
+
+if [[ "${#EXPIRED[@]}" -ne 0 ]]; then
+  echo "-- EXPIRED exceptions (counted above as failures) --"
+  printf '  %s\n' "${EXPIRED[@]}"
+  echo "An expired exception is a dated claim the gate re-litigates. Split the"
+  echo "file, or renew the entry in this script with a NEW justification and a"
+  echo "NEW expiry -- renewing without re-arguing is how debt becomes permanent."
+fi
 
 if [[ "$offenders" -ne 0 ]]; then
   echo "== filesize-check FAILED: ${offenders} file(s) over ${LIMIT} lines =="

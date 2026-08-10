@@ -7,7 +7,58 @@
 
 ## Curto prazo (qualidade local)
 
-- **DoD residual da v0.1.6 alcançado** (medido 2026-07-31): GAP-054 settle de diálogo + multi-aba (booleano `dialog_settled`; XDG `dialog_settle_ms`), GAP-055 select nativo, GAP-057 format de scrape em run, GAP-053 `wait_timeout_ms`, lei residual-zero de disco da 0.1.5 ainda corrente
+- A v0.1.8 é o release CORRENTE e as linhas abaixo descrevem o estado vivo
+- A v0.1.8 entregou a família anti-detecção e fechou os gaps G2, G4, G8, G9, G11 e G13
+- Superfície XDG viva: 204 chaves documentadas em `docs/CONFIGURATION.md`
+- Inventário vivo de agentes: 69 nomes via `commands --json`
+- O inventário inclui `submit`, `storage`, `image`, `video`, `audio`, `record`, `locale` e `man`
+- Settings de produto são só flags mais XDG `config`, nunca variáveis de ambiente de produto
+- Descubra chaves com `config list-keys --json` em vez de confiar em lista estática
+- Entregue desde a v0.1.7: `scrape --format attributes` com `--attribute-selector` e `--attribute-name`
+- Manter gates `scripts/*-check.sh` verdes em cada passe de auditoria
+- Os gates de residual-zero em disco são `scripts/residual-check.sh` e `scripts/residual-stress.sh`
+- Suite opcional de confiança: reexecutar `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate` e `scrape_step_gate`
+- Reexecutar também as fixtures unit LHR de lighthouse após refactors grandes
+- O encode do `grab` é só png, jpeg e webp, porque o AVIF foi removido
+- Crescer cobertura unit de helpers puros como `dialog_map_key` e `scores_from_lhr`
+- Opcional: extrair famílias grandes de handlers de `commands` quando um domínio novo aterrissar
+
+### Família anti-detecção (v0.1.8)
+
+- A v0.1.8 aplica patches no browser antes da primeira navegação sob XDG `stealth`, padrão true
+- A v0.1.8 acrescentou `stealth_profile`, padrão `auto`, e `stealth_seed`, que não tem padrão
+- `stealth_seed` fixa a identidade personificada entre processos quando você o define
+- As flags globais `--no-stealth`, `--stealth-profile` e `--stealth-seed` sobrescrevem esses valores XDG
+- A v0.1.8 acrescentou controle de fingerprint HTTP/2 sob `http2_enabled`, padrão true
+- `http2_initial_stream_window_size` tem padrão 6291456
+- `http2_initial_connection_window_size` tem padrão 15663105
+- `http2_max_header_list_size` tem padrão 262144 e `http2_max_frame_size` tem 16384
+- `http2_adaptive_window` completa essa família de fingerprint HTTP/2
+- A v0.1.8 acrescentou as chaves de proxy `proxy_url`, `proxy_bypass`, `proxy_username` e `proxy_password`
+- Credenciais de proxy pertencem ao XDG, porque o argv é visível na tabela de processos
+- `cdp_proxy_bypass_loopback` tem padrão true para o canal de controle CDP sobreviver ao proxy
+- As flags globais `--proxy` e `--proxy-bypass` cobrem o lado argv da mesma família
+- A v0.1.8 acrescentou cinemática humana de input sob `input_profile`, padrão `human`
+- `input_move_steps` é 24, `input_move_gap_ms` é 12 e `input_click_dwell_ms` é 65
+- `input_key_dwell_ms` é 45, `input_type_delay_ms` é 95 e `input_scroll_tick_px` é 100
+- `input_scroll_max_ticks` é 40, `input_target_jitter_px` é 3 e `input_scroll_settle_rounds` é 3
+- As flags globais `--input-profile` e `--input-seed` sobrescrevem a cinemática por processo
+- A v0.1.8 acrescentou `browser_mode`, padrão `auto`, alcançável por XDG e NÃO por flag
+- A v0.1.8 acrescentou também `robots_user_agent`, `scrape_no_cache` e `monitor_diff_max_bytes`, padrão 65536
+- A v0.1.8 deu consumidores reais a `--mitm-max-body-bytes`, `--mitm-no-media-bodies` e `--mitm-redact-secrets`
+- A v0.1.8 acrescentou `--mitm-no-redact-secrets`, a única forma de desligar a mascaração de segredos
+- Pedir mascarar e desmascarar ao mesmo tempo resolve para mascarar, que é a leitura segura
+- A v0.1.8 unificou o envelope de `scrape`, então a aridade de `--format` não muda mais o conjunto de chaves
+- `formats` e `format_list` estão sempre presentes, e `--fields` agora projeta nos dois casos
+- O envelope de `scrape` com um formato agora reporta `stealth`, `http2_profile` e `tls_impersonation`
+- Ele reporta também `header_order_controlled`, `fingerprint_stable_across_processes` e `profile_contradicts_host`
+- `cookie_jar_persistent` fecha esse bloco de telemetria, medido em 2026-08-10
+
+### Histórico (NÃO ler como estado corrente)
+
+- A v0.1.6 fechou o GAP-054 de settle e multi-aba, com `dialog_settled` e XDG `dialog_settle_ms`
+- A v0.1.6 fechou o GAP-055 select nativo, o GAP-057 format em run e o GAP-053 `wait_timeout_ms`
+- A v0.1.6 manteve a lei residual-zero de disco herdada da v0.1.5
 - A v0.1.7 fechou o erro de teto que o `doctor` engolia
 - A v0.1.7 fechou o caminho não resolvido silencioso em agent-ops, agora em `unresolved_paths`
 - A v0.1.7 fechou a sugestão i18n que citava uma flag inexistente
@@ -16,14 +67,6 @@
 - A v0.1.7 fechou o `--urls-file` que aceitava entrada sem teto
 - A v0.1.7 promoveu nove chaves XDG e documentou toda a superfície XDG
 - A v0.1.7 acrescentou dois gates novos ao passe de auditoria
-- Superfície XDG viva: 176 chaves documentadas em `docs/CONFIGURATION.md`
-- Manter gates `scripts/*-check.sh` verdes em cada passe de auditoria (incl. `scripts/residual-check.sh` / `scripts/residual-stress.sh` para residual-zero em disco)
-- Suite opcional de confiança: reexecutar `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate`, `scrape_step_gate`, fixtures unit LHR de lighthouse após refactors grandes
-- Inventário vivo de agentes: **69** nomes via `commands --json` (inclui `submit`, `storage`, `image`+`video`+`audio`+`record`, `locale`, `man`)
-- Settings de produto: só flags + XDG `config` (sem variáveis de ambiente de produto); descubra chaves via `config list-keys --json`
-- **Encode do `grab`:** só png|jpeg|webp; AVIF removido (breaking, manter residual anotado)
-- Crescer cobertura unit de helpers puros (filter, JSON, residual ledger, `dialog_map_key`, `scores_from_lhr`)
-- Opcional: extrair famílias grandes de handlers de `commands` quando um domínio novo aterrissar
 
 ## Residuais intencionais (não alegar fechamento como paridade completa)
 
@@ -35,14 +78,15 @@
 - Encode de HEIC segue fechado pelo mesmo limite físico
 - Extração de mídia que exige execução de JavaScript ofuscado segue fechada
 - Todo recurso que depende de serviço remoto segue fechado por design
+- Anti-detecção é melhor esforço, e NENHUM perfil stealth garante evasão de um detector dado
 
 ## Aberto, sem prazo assumido
-- `scrape` não tem o formato `attributes`
 - `scrape` não tem o formato `changeTracking`
-- `search` não tem filtro temporal; dez dimensões continuam faltando
+- `search` não tem filtro temporal, e dez dimensões continuam faltando
 - `crawl` não aceita regex em include e exclude, e não há `regexOnFullURL`
 - `parse` não aplica formatos de scrape ao arquivo processado
 - `crawl` e `batch-scrape` não têm `--webhook-url`, que o `scrape` já tem
+- `browser_mode` só é alcançável por XDG, porque nenhuma flag CLI o expõe
 - Estes itens não têm data e NÃO DEVEM ser lidos como promessa
 
 ## Inventário completo de agente (69)
@@ -53,7 +97,7 @@ Descubra ao vivo: `browser-automation-cli commands --json`
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
-net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
 scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
 upload version view wait webmcp workflow write
 ```

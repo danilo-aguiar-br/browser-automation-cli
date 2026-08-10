@@ -38,6 +38,29 @@ pub struct SpawnRequest {
     pub program: PathBuf,
     /// Full argument vector, excluding argv\[0\].
     pub args: Vec<String>,
+    /// Environment entries to set on the child, on top of the inherited set.
+    ///
+    /// Exists for one reason: `DISPLAY`. A Chrome launched into a private
+    /// virtual display is told about it through the environment and nowhere
+    /// else, and this is the only fork site in the product — routing around it
+    /// would mean forking from a thread that can retire, which is exactly the
+    /// parent-death bug this module documents.
+    ///
+    /// Not a product configuration channel. Values reaching here are computed
+    /// by the CLI, never read from the operator's environment.
+    pub envs: Vec<(String, String)>,
+}
+
+impl SpawnRequest {
+    /// A request with no extra environment.
+    #[must_use]
+    pub fn new(program: PathBuf, args: Vec<String>) -> Self {
+        Self {
+            program,
+            args,
+            envs: Vec::new(),
+        }
+    }
 }
 
 /// A child forked by the guard thread, with its group already resolved.
@@ -105,6 +128,9 @@ fn fork_child(request: &SpawnRequest) -> Result<GuardedChild, String> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    for (key, value) in &request.envs {
+        command.env(key, value);
+    }
     os::host().bind_child(&mut command);
 
     let child = command.spawn().map_err(|e| {
@@ -129,11 +155,8 @@ mod tests {
             eprintln!("skip: /bin/true not found on this host");
             return;
         };
-        let mut guarded = spawn_guarded(SpawnRequest {
-            program,
-            args: Vec::new(),
-        })
-        .expect("guard thread must fork /bin/true");
+        let mut guarded = spawn_guarded(SpawnRequest::new(program, Vec::new()))
+            .expect("guard thread must fork /bin/true");
 
         // On Linux and macOS the child is put in its own group, so the group id
         // equals its pid and must differ from ours.
@@ -154,13 +177,34 @@ mod tests {
             return;
         };
         for _ in 0..3 {
-            let mut guarded = spawn_guarded(SpawnRequest {
-                program: program.clone(),
-                args: Vec::new(),
-            })
-            .expect("guard thread must stay alive across spawns");
+            let mut guarded = spawn_guarded(SpawnRequest::new(program.clone(), Vec::new()))
+                .expect("guard thread must stay alive across spawns");
             let _ = guarded.child.wait();
         }
         assert!(GUARD.get().is_some(), "guard channel must be initialized");
+    }
+
+    /// Extra environment must reach the child, or `DISPLAY` never arrives.
+    #[test]
+    #[cfg(unix)]
+    fn extra_environment_reaches_the_child() {
+        let Some(program) = crate::platform::which_bin("sh") else {
+            eprintln!("skip: /bin/sh not found on this host");
+            return;
+        };
+        let guarded = spawn_guarded(SpawnRequest {
+            program,
+            args: vec!["-c".to_string(), "test \"$BAC_PROBE\" = ok".to_string()],
+            envs: vec![("BAC_PROBE".to_string(), "ok".to_string())],
+        })
+        .expect("guard thread must fork /bin/sh");
+        let status = guarded
+            .child
+            .wait_with_output()
+            .expect("child must be reapable");
+        assert!(
+            status.status.success(),
+            "the child did not observe the env entry it was given"
+        );
     }
 }

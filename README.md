@@ -41,7 +41,7 @@
 - Observation: `view` (refuses empty about:blank unless `--allow-empty`), `grab` (formats `png|jpeg|webp` only; AVIF removed), `extract`, `text`, `attr`, `scroll`, `assert`
 - Wait: multi `--text` OR; CSS multi-selector OR (`#a, #b`); run fields `url` / `url_contains` / `navigation` / `wait_timeout_ms`
 - Assert: `url` / `text` / `console` plus `console_empty` / `console_no_match` (CLI `console-empty` / `console-no-match`)
-- Scrape: multi-format `--format` / `--formats` (CSV or repeatable) with `--engine http|browser`; 14 live formats `text|markdown|html|rawHtml|links|metadata|screenshot|summary|product|branding|images|jsonld|json|feed` (`raw-html` stays an accepted alias of `rawHtml`); browser applies formats via outerHTML; `format`/`formats` also accepted in `run` scrape steps
+- Scrape: multi-format `--format` / `--formats` (CSV or repeatable) with `--engine http|browser`; 15 live formats `text|markdown|html|rawHtml|links|metadata|screenshot|summary|product|branding|images|jsonld|json|feed|attributes` (`raw-html` stays an accepted alias of `rawHtml`); browser applies formats via outerHTML; `format`/`formats` also accepted in `run` scrape steps
 - Local scrape/crawl/map/search/parse: `batch-scrape` and `crawl` accept `--engine http|browser`, `map`, `search` (cleans `uddg=`), `parse` (PDF/DOCX/xlsx/ods + `--redact-pii`)
 - Extract LLM: `extract --llm --question --schema-json` (XDG `openrouter_api_key`, `llm_base_url`, `llm_model`)
 - Capture: `console` (dump always writes `[]` when empty) and `net` with optional global capture flags
@@ -55,9 +55,10 @@
 - Scroll aliases in `run`: `dy`/`dx` for `delta_y`/`delta_x`
 - Optional categories: memory, extensions, third-party, webmcp
 - Experimental: vision `click-at`, screencast with ffmpeg export
+- Anti-detection: stealth is ON by default, with `--no-stealth`, `--stealth-profile`, `--stealth-seed`, `--proxy`, `--proxy-bypass`, `--input-profile human|direct`, `--warmup`, `--no-xvfb`
 - MITM one-shot: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact` (binds `127.0.0.1`; global `--mitm*`)
 - Workflow DAG: `workflow run|resume|status` with SQLite journal (resume skips ok)
-- XDG config: `config path|init|show|set|get|list-keys` for config.toml (discover full keys via `config list-keys --json`)
+- XDG config: `config path|init|show|set|get|unset|list-keys` for config.toml (discover full keys via `config list-keys --json`)
 - Discovery: `doctor` (incl. `residual_disk`), `commands` (**69** agent names), `schema <cmd>` or `schema --cmd`, `version`, `locale`, `man`, `completions`
 - Global flags: the global help declares **43** long flags, **41** of them product flags plus `--help` and `--version`; `browser-automation-cli --help` is the source of truth
 - Multi-step observability: `run --json` final envelope includes `ok` + full `steps[].data`; global `--json-steps` streams one NDJSON line per step
@@ -168,15 +169,55 @@ Grouped for humans:
 - Tabs/Dialogs: `page`, `dialog`, `cookie`, `storage`
 - Utils: `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
 - Advanced: `eval`, `emulate`, `resize`, `perf`, `lighthouse`, `heap`, `extension`, `devtools3p`, `webmcp`, `mitm`, `workflow`
-- Config: `config path|init|show|set|get|list-keys`
+- Config: `config path|init|show|set|get|unset|list-keys`
 - Multi-step: `run`, `exec`, `record`
 - Record teaching: `browser-automation-cli --json record --url https://example.com --path /tmp/steps.jsonl --seconds 30 --max-events 200` writes page interactions as replayable NDJSON, then `browser-automation-cli --json run --script /tmp/steps.jsonl` replays them in one process
 - Audio teaching: `browser-automation-cli --json audio info|download|convert|trim` runs the local audio pipeline without Chrome
 - Inventory note: **69** agent-facing names via `commands --json` (includes `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`); DevTools e2e covers 53 tools (lighthouse mock SKIP)
 
+## Anti-Detection, Proxy and Input Shaping
+- Stealth is ON by default and masks the automation markers a real Chrome never exposes
+- `--no-stealth` turns the anti-detection patches off for one run
+- `--stealth-profile <PROFILE>` picks the impersonated identity: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`
+- `auto` follows the host and is almost always right
+- `--stealth-seed <SEED>` pins that identity across processes
+- Without a seed every run draws a fresh identity, so a 50-URL crawl of 50 one-shot processes presents 50 different machines
+- `--proxy <URL>` sets the egress proxy for Chrome **and** for the HTTP engine, accepting `http`, `https`, and `socks5`
+- `--proxy-bypass <HOSTS>` lists the hosts that skip the proxy, in Chrome's bypass-list syntax
+- `--input-profile <PROFILE>` is `human` (default) or `direct`
+- `human` interpolates pointer trajectories, dwells between press and release, and paces typing
+- `--input-seed <SEED>` seeds the input jitter so a `human` run reproduces exactly
+- `--warmup` visits the origin root before the target URL, so the session already carries cookies and a referrer chain
+- `--warmup-url <URL>` warms that URL instead of the target's origin root
+- `--no-xvfb` skips the private virtual display on Linux and uses the current one (only meaningful headed on Linux)
+- `--expect <EXPR>` asserts the emitted payload matches `key=value`, `key!=value`, or `key~substring`; it repeats and every expression is ANDed
+- `--expect-exit-code` exits `65` when an expectation is unmet, instead of only reporting it
+- It stays off by default because changing an exit code on data content would silently break callers that already branch on it
+- Durable XDG keys: `stealth` (`true`), `stealth_profile` (`auto`), `stealth_seed`, `browser_mode` (`auto`), `input_profile` (`human`)
+- `browser_mode` is `auto|headed|headless`; `auto` resolves to headless and `doctor` reports the effective mode
+- Proxy XDG keys: `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `cdp_proxy_bypass_loopback` (`true`)
+- Keep proxy credentials in XDG only, because argv shows up in the process table
+- `cdp_proxy_bypass_loopback` always bypasses loopback so the CDP control channel survives a proxy
+- `robots_user_agent` sets the user-agent token robots.txt rules are matched against
+- HTTP/2 fingerprint keys: `http2_enabled` (`true`), `http2_initial_stream_window_size` (`6291456`), `http2_initial_connection_window_size` (`15663105`), `http2_max_header_list_size` (`262144`), `http2_max_frame_size` (`16384`), `http2_adaptive_window` (`false`)
+- `http2_adaptive_window` stays off so the fingerprint stays constant
+- Input kinematics keys: `input_move_steps` (`24`), `input_move_gap_ms` (`12`), `input_click_dwell_ms` (`65`), `input_key_dwell_ms` (`45`), `input_type_delay_ms` (`95`), `input_scroll_tick_px` (`100`), `input_scroll_max_ticks` (`40`), `input_target_jitter_px` (`3`), `input_scroll_settle_rounds` (`3`)
+
+```bash
+browser-automation-cli --json --stealth-seed fleet-01 goto https://example.com
+browser-automation-cli --json --proxy socks5://127.0.0.1:1080 scrape https://example.com --format text --engine http
+browser-automation-cli --json --input-profile human --input-seed 42 goto https://example.com
+browser-automation-cli --json --warmup goto https://example.com/deep/page
+browser-automation-cli --json --warmup-url https://example.com/login goto https://example.com/app
+browser-automation-cli --json --no-stealth goto http://127.0.0.1:8080
+browser-automation-cli --json config set stealth_profile chrome-linux
+browser-automation-cli --json config set proxy_url http://user:pass@127.0.0.1:8888
+browser-automation-cli --json config unset stealth_seed
+```
+
 ## Configuration
 - Prefer CLI flags for one-off agent calls
-- Product settings only via flags and XDG `config path|init|show|set|get|list-keys`
+- Product settings only via flags and XDG `config path|init|show|set|get|unset|list-keys`
 - Discover the full key list (count is not fixed at 16) with `config list-keys --json`
 - Important keys: `dialog_settle_ms`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`, `lang`, `log_level`
 - Logging: `--verbose` / `--debug` / `-q`, or XDG `config set log_level` / `log_to_file`
@@ -186,6 +227,9 @@ Grouped for humans:
 - Dialog settle budget: XDG `config set dialog_settle_ms <ms>` (agent-visible `dialog_settled` on dialog accept|dismiss)
 - Cache: `config set cache_backend sqlite|memory|redis` and optional `cache_redis_url` (`redis://` only; `rediss://` fail-closed)
 - `config init` creates XDG layout and default config.toml
+- `config unset <KEY>` restores one key to its built-in default and is the real inverse of `set`
+- `config set <key> ""` is not an inverse: on a string key it writes an empty value the normal path never produces, and on a numeric key it is a parse error
+- Unsetting a key that is already absent succeeds, so a script never needs to know the previous state
 - `config path` prints resolved config, data, cache, state, and browsers_dir paths
 - CLI flags override values stored in config.toml
 - Doctor reports browsers_dir, lighthouse source, `cache_redis`, and `residual_disk` among readiness checks
@@ -253,7 +297,7 @@ Grouped for humans:
 - MITM HAR: `mitm har --out <path>` (required); or global `--mitm-har` on FINALIZE; or `capture-url --har`
 - MITM redact: `mitm redact --secrets` and global `--mitm-redact-secrets`; CA under XDG data
 - Workflow resume: `workflow resume` skips steps already `ok` in the journal
-- Scrape multi-format: `--format markdown,html,links` (CSV or repeatable) returns per-format fields; 14 live formats are `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed` (`raw-html` remains an accepted alias of `rawHtml`)
+- Scrape multi-format: `--format markdown,html,links` (CSV or repeatable) returns per-format fields; 15 live formats are `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed`, `attributes` (`raw-html` remains an accepted alias of `rawHtml`)
 - Scrape browser formats: `--engine browser` applies `--format` via outerHTML
 - Batch/crawl browser engine: `batch-scrape --engine browser` and `crawl --engine browser` (GAP-010)
 - Scroll aliases: in `run` scripts use `dy`/`dx` as aliases for `delta_y`/`delta_x`

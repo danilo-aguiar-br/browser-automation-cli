@@ -60,6 +60,40 @@ pub enum UiMessage {
     FfmpegTimeout,
     /// Rejected Windows script host binary (.bat/.cmd/.ps1).
     BinaryUnsafeWindows,
+    /// Coordinates are page CSS pixels; pass --experimental-vision on the same invocation
+    VisionCoordinates,
+    /// The `--args` payload must be a JSON array of element refs.
+    EvalArgsUids,
+    /// Usage example for `extract --llm`.
+    ExtractLlmUsage,
+    /// Name a target, for example: mitm block --host example.com
+    MitmBlockTarget,
+    /// Discover third-party tool names with `devtools3p list` first.
+    Devtools3pListFirst,
+    /// Pass a JSON object to --input, for example {\"key\":\"value\"}
+    WebmcpInputJson,
+    /// Pass a JSON object to --params, for example {\"key\":\"value\"}
+    Devtools3pParamsJson,
+    /// Pass an existing NDJSON/JSONL or JSON-array file to --script
+    RunScriptFile,
+    /// Pass valid JavaScript to --init-script
+    InitScriptJavascript,
+    /// Raise --step-timeout or --timeout, or split the script into fewer steps
+    RaiseStepTimeout,
+    /// Run workflow run first, or point at an existing journal with --journal
+    WorkflowRunFirst,
+    /// Pass the cookie array to --cookies-json; the global --json only selects the envelope format
+    CookieJsonExample,
+    /// Use run --script steps.jsonl so goto and reload --init-script share one process
+    GotoRunScript,
+    /// Pass --capture-console on the same invocation, for example: --capture-console run --script audit.jsonl
+    ConsoleCaptureRun,
+    /// Pass an index or --page-id, for example: page select 0
+    PageSelectTarget,
+    /// A WAF or bot-check served a challenge instead of the requested content.
+    BlockedByWaf,
+    /// Offline perf insight needs a trace file this product wrote.
+    PerfTracePath,
     /// SSRF policy blocked a URL host.
     SsrfBlocked,
     /// HTTP response body exceeded configured max.
@@ -68,6 +102,8 @@ pub enum UiMessage {
     HttpConnectTimeout,
     /// Redis host rejected (non-loopback without override).
     RedisHostBlocked,
+    /// Egress proxy URL could not be parsed.
+    ProxyUrlInvalid,
     /// `locale` subcommand: resolved label.
     LocaleResolved,
     /// `locale` subcommand: source label.
@@ -104,6 +140,8 @@ pub enum UiMessage {
     RedisConfigRequired,
     /// Run: browser-automation-cli config list-keys
     ConfigListKeys,
+    /// Use true|false|1|0|yes|no|on|off (case-insensitive); config unset `<key>` restores the default
+    ConfigBoolValue,
     /// Use one of the supported values reported in the message
     UseListedValue,
     /// Pass an existing regular file path (not a directory)
@@ -144,6 +182,8 @@ pub enum UiMessage {
     SchemaCommandRequired,
     /// Use --engine http for one-shot baselines, or --engine browser / parse for local files
     ScrapeEngineChoice,
+    /// Download the file and read it with parse, or pick a command for this media type
+    ScrapeOpaqueContent,
     /// Check the Chrome install and Xvfb availability on Linux headed launches
     ChromeLaunchFailed,
     /// Check the allowed fields for this step cmd in schema run
@@ -246,9 +286,27 @@ impl UiMessage {
         UiMessage::LighthouseTimeout,
         UiMessage::FfmpegTimeout,
         UiMessage::BinaryUnsafeWindows,
+        UiMessage::VisionCoordinates,
+        UiMessage::EvalArgsUids,
+        UiMessage::ExtractLlmUsage,
+        UiMessage::MitmBlockTarget,
+        UiMessage::Devtools3pListFirst,
+        UiMessage::WebmcpInputJson,
+        UiMessage::Devtools3pParamsJson,
+        UiMessage::RunScriptFile,
+        UiMessage::InitScriptJavascript,
+        UiMessage::RaiseStepTimeout,
+        UiMessage::WorkflowRunFirst,
+        UiMessage::CookieJsonExample,
+        UiMessage::GotoRunScript,
+        UiMessage::ConsoleCaptureRun,
+        UiMessage::PageSelectTarget,
+        UiMessage::BlockedByWaf,
+        UiMessage::PerfTracePath,
         UiMessage::SsrfBlocked,
         UiMessage::HttpBodyTooLarge,
         UiMessage::HttpConnectTimeout,
+        UiMessage::ProxyUrlInvalid,
         UiMessage::RedisHostBlocked,
         UiMessage::LocaleResolved,
         UiMessage::LocaleSource,
@@ -268,6 +326,7 @@ impl UiMessage {
         UiMessage::LlmConfigRequired,
         UiMessage::RedisConfigRequired,
         UiMessage::ConfigListKeys,
+        UiMessage::ConfigBoolValue,
         UiMessage::UseListedValue,
         UiMessage::FilePathInvalid,
         UiMessage::HeapSnapshotInput,
@@ -288,6 +347,7 @@ impl UiMessage {
         UiMessage::CommandsDiscovery,
         UiMessage::SchemaCommandRequired,
         UiMessage::ScrapeEngineChoice,
+        UiMessage::ScrapeOpaqueContent,
         UiMessage::ChromeLaunchFailed,
         UiMessage::StepFieldUnknown,
         UiMessage::XdgHomeRequired,

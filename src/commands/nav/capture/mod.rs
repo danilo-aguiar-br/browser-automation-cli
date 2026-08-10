@@ -18,6 +18,7 @@ mod eval;
 mod extract;
 mod extract_llm;
 mod monitor;
+mod monitor_diff;
 mod pdf;
 mod screenshot;
 

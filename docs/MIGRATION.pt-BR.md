@@ -108,7 +108,7 @@ Correções de GAP e crescimento de superfície em alto nível no `0.1.2`:
 - Mais: `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
 
 ### Inventário
-- Inventário vivo é **59 comandos** (`commands --json`)
+- O inventário em 0.1.2 era de **59 comandos** (`commands --json`)
 - Suite e2e de tool-ref DevTools permanece **53 tools** (`scripts/e2e_all_52_tools.sh`)
 - Schemas estáticos regeneram via `bash scripts/generate_command_schemas.sh`
 
@@ -152,8 +152,8 @@ A lei canônica residual-zero de disco (GC Singleton em BORN com age ≥ 60s, du
 ### Outra superfície 0.1.3
 - `page tab-id` (tool-ref `get_tab_id`) expande e2e para **53** tools
 - `config list-keys` lista chaves e defaults
-- Inventário vivo é **59 comandos** (`commands --json`)
-- E2e DevTools tool-ref é **53 tools** (`scripts/e2e_all_52_tools.sh` nome legado)
+- O inventário em 0.1.3 era de **59 comandos** (`commands --json`)
+- O e2e DevTools tool-ref em 0.1.3 era de **53 tools** (`scripts/e2e_all_52_tools.sh` nome legado)
 
 ### Chaves de config (lista completa em 0.1.3)
 - `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
@@ -176,27 +176,34 @@ Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/
 ### Select / pick multi-passo (GAP-023)
 - Novos nomes de inventário: `select-option`, `pick` (HIG badge/popover / `role=option`)
 - Disponíveis em `run` / `exec` / descoberta schema com `target` + `option`
-- Não são subcomandos clap standalone (help clap de topo lista **59** sem eles)
+- Não são subcomandos clap standalone (o help clap de topo em 0.1.4 listava **59** sem eles)
 
-### Assert console kinds (GAP-025) e dual assert (GAP-014)
+### Assert console kinds (GAP-025)
 - Kinds no run: `console_empty`, `console_no_match` (exige `--capture-console`)
 - CLI: `assert console-empty`, `assert console-no-match --pattern <re>`
-- Dual assert: aliases `url_contains` / `text_contains` e kinds tipados no mesmo fluxo
 
 ### Schema posicional (GAP-022)
 - `schema <cmd>` posicional além de `schema --cmd <cmd>`
 - Prefira `schema <cmd>` posicional na UX de agente
 
-### Navegação / diálogo / view / PDF honesty (GAP-003, GAP-004, GAP-006, GAP-012, GAP-013, GAP-001, GAP-017)
+### Navegação / diálogo / view / PDF honesty (GAP-003, GAP-006, GAP-012, GAP-013, GAP-001, GAP-017)
 - `BeforeUnloadAction` accept|dismiss em `goto` / `reload` (`--handle-before-unload accept|dismiss`)
 - Soft path de diálogo: `dialog accept --if-present` / run `if_present:true`
-- `view` recusa about:blank vazio salvo `--allow-empty` / `allow_empty:true`
-- `print-pdf` no multi-passo `run`; recusa PDF em branco sem conteúdo navegado
-- `page new --isolated-context` (GAP-004 `isolated_context`)
+- `view` recusa about:blank vazio salvo `--allow-empty` / `allow_empty:true` (só GAP-012, não print-pdf)
+- `print-pdf` no multi-passo `run`; recusa PDF em branco sem conteúdo navegado ou `url` de step/CLI (GAP-013)
 - `parity_run_inventory` enforce `print-pdf` em `RUN_DISPATCHED_CMDS`
 
-### Extension exclude (GAP-007)
-- Superfície de extension honra exclude intencional no inventário run / gates de categoria
+### Contexto isolado (GAP-004)
+- `page new --isolated-context` (flag sozinha resolve para `default-isolated`) ou `--isolated-context <nome>`
+- Run: `{"cmd":"page","action":"new","isolated_context":true}` ou string nomeada
+
+### Extension install/uninstall fora do run (GAP-007)
+- `extension install` / `extension uninstall` ficam intencionalmente fora do dispatch de `run`
+- Use os comandos `extension` de topo; descubra via `schema extension` / `commands --json`
+
+### Superfície dual de assert (GAP-014)
+- Subcomandos CLI: `assert url|text|console|console-empty|console-no-match`
+- Kinds no run: `url` / `text` / `console` / `console_empty` / `console_no_match` (mais aliases)
 
 ### MITM capture-url e globais (GAP-011)
 - Superfície completa MITM: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
@@ -218,9 +225,9 @@ Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/
 - Flags de privacy no launch do Chrome; sem `metrics-recording-only`
 
 ### Inventário e gates de contrato
-- Inventário vivo é **61** nomes de agente via `commands --json` (inclui `select-option`, `pick`)
+- O inventário em 0.1.4 era de **61** nomes de agente via `commands --json` (inclui `select-option`, `pick`)
 - Honesty carregada (fechada antes, ainda obrigatória em 0.1.4): lighthouse `binary_source` real|mock (GAP-008); `extract --llm` fail-closed só com chaves XDG (GAP-015)
-Superfície clap de produto é **66** nomes (exclui `select-option` / `pick` de inventário de agente)
+O help clap de topo em 0.1.4 listava **59** nomes (exclui `select-option` / `pick` de inventário de agente)
 - E2e DevTools tool-ref permanece **53 tools**
 - Gates: `tests/parity_run_inventory.rs`, `tests/clap_command_debug_assert.rs`
 - Auditoria clap: `GlobalOpts` usa `Args` + flatten; `ArgAction::SetTrue` explícito; `value_hint`; help headings; `after_help` examples; alias `-v`
@@ -245,13 +252,13 @@ Hard-close de higiene residual-zero em **disco** (RES-01…12, Pass 27) e superf
 - Campos em 0.1.5: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
 - Status em 0.1.5: `fail` se processos marker vivos; `warn` se restam dirs marker ou orphans Singleton; senão `pass`
 - As duas linhas acima descrevem a **0.1.5** e ficam como registro histórico; o tip é diferente
-- Tip 0.1.7 acrescenta seis campos: `scanned_roots`, `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
-- Status no tip 0.1.7: `fail` em `orphan_marker_dirs` ou `ghost_marker_processes`; irmã viva é saudável e nunca reprova
-- Contrato de agente no tip 0.1.7: **não** exija zero `live_cli_marker_processes` — veja `docs/AGENTS.pt-BR.md`
+- O tip 0.1.8 carrega os seis campos acrescentados na 0.1.7: `scanned_roots`, `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
+- Status no tip 0.1.8: `fail` em `orphan_marker_dirs` ou `ghost_marker_processes`; irmã viva é saudável e nunca reprova
+- Contrato de agente no tip 0.1.8: **não** exija zero `live_cli_marker_processes` — veja `docs/AGENTS.pt-BR.md`
 
 ### Inventário e comandos meta
-- Inventário vivo **em 0.1.5** era **63** nomes de agente; tip 0.1.7 é **69** (inclui `image`+`video`+`audio`+`record`) via `commands --json`
-Superfície clap de produto tip é **66** nomes (exclui `select-option` / `pick` de inventário de agente)
+- O inventário em 0.1.5 era de **63** nomes de agente; o tip 0.1.8 é **69** (inclui `image`+`video`+`audio`+`record`) via `commands --json`
+A superfície clap de produto no tip é de **67** nomes (exclui `select-option` / `pick` de inventário de agente)
 - Meta já no binário e no inventário: `locale` (diagnósticos de locale de UI), `man` (roff via clap_mangen; sem Chrome)
 - E2e DevTools tool-ref permanece **53 tools**
 
@@ -286,7 +293,7 @@ Settle de diálogo agent-first, eventos nativos de select, format de scrape em r
 - **GAP-023/024 intencionais:** flags/comandos wishlist do PRD permanecem divergências em `parity_intentional_divergences.json` — não paridade PRD completa
 - **Residual-zero de disco:** lei de produto da 0.1.5 (RES-01…12) **ainda corrente**
 
-### Inventário completo de agente (69) — tip 0.1.7 (base 0.1.6 + `image` + `video` + `audio` + `record`)
+### Inventário completo de agente (69) — tip 0.1.8 (inalterado desde 0.1.7: base 0.1.6 + `image` + `video` + `audio` + `record`)
 
 Descubra ao vivo: `browser-automation-cli commands --json`
 
@@ -294,7 +301,7 @@ Descubra ao vivo: `browser-automation-cli commands --json`
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
-net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
 scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
 upload version view wait webmcp workflow write
 ```
@@ -395,8 +402,70 @@ browser-automation-cli --json config get dialog_settle_ms
 - `drag_move_steps` define os passos intermediários de `drag`, default `6`
 - `drag_move_gap_ms` define o intervalo entre movimentos de drag, default `16`
 - `robots_fetch_timeout_secs` limita o fetch de robots, default `30`
-- O total vivo de chaves é `176`, documentado em `docs/CONFIGURATION.md`
+- O total de chaves em 0.1.7 era `176`, documentado em `docs/CONFIGURATION.md`
 - Descubra a lista viva com `config list-keys --json`
+
+
+## 0.1.7 → 0.1.8
+### Breaking nos defaults: anti-detecção e input humano ligados
+- `stealth` tem default `true`, então a `0.1.8` aplica patches anti-detecção antes da primeira navegação
+- Passe `--no-stealth` numa execução, ou `config set stealth false`, quando quiser o navegador intocado
+- `input_profile` tem default `human`, então clique e digitação interpolam a trajetória do ponteiro
+- Um gesto `human` também aplica dwell entre press e release e ritma cada tecla
+- Isso custa tempo de parede por gesto contra o input instantâneo anterior
+- Passe `--input-profile direct`, ou `config set input_profile direct`, para restaurar o comportamento anterior
+- `http2_enabled` tem default `true`
+- `cdp_proxy_bypass_loopback` tem default `true` para o canal de controle CDP sobreviver a um proxy configurado
+
+### Doze flags globais novas
+- `--no-stealth` desliga os patches anti-detecção numa execução
+- `--stealth-profile <PROFILE>` escolhe a identidade personificada: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`
+- `--stealth-seed <SEED>` fixa essa identidade entre processos
+- `--proxy <URL>` roteia a saída por `http`, `https` ou `socks5`
+- `--proxy-bypass <HOSTS>` lista os hosts que ignoram o proxy
+- `--input-profile <PROFILE>` seleciona `human` (default) ou `direct`
+- `--input-seed <SEED>` torna uma execução `human` reproduzível
+- `--warmup` visita a raiz da origem antes da URL alvo
+- `--warmup-url <URL>` aquece essa URL em vez da raiz da origem
+- `--no-xvfb` pula o display virtual privado no Linux
+- `--expect <EXPR>` asserta o payload emitido contra uma expressão
+- `--expect-exit-code` transforma um `--expect` não atendido em exit `65`
+
+### Subcomando novo `config unset`
+- `config unset <KEY>` restaura uma chave ao default embutido
+- É o inverso de `config set`, o que `config set <key> ""` nunca foi
+- Em chave string a grafia vazia grava um valor que o caminho normal nunca produz
+- Em chave numérica a grafia vazia é erro de parse
+- Desfazer chave já ausente tem sucesso, então um script não precisa saber o estado anterior
+- Migre para `config unset` toda edição manual do arquivo XDG que removia chave
+
+### Uma forma única de envelope no `scrape`
+- Antes, o envelope mudava de forma conforme a aridade de `--format`
+- Com um formato devolvia o conteúdo mais todo o diagnóstico no topo
+- Com dois formatos devolvia quatro chaves, movia o conteúdo para `formats` e o diagnóstico sumia
+- Nessa segunda forma `--fields markdown` devolvia `data` vazio com `ok: true` e exit `0`
+- Na `0.1.8` `formats` e `format_list` estão sempre presentes, qualquer que seja a aridade
+- Cada formato também é espelhado no topo, então a grafia de formato único continua funcionando
+- O campo vindo do transporte vence o derivado de mesmo nome, então o topo continua significando o que voltou no fio
+- Pare de ramificar na contagem de chaves do envelope
+
+### Chaves XDG novas por família
+- A superfície cresceu de `176` chaves na `0.1.7` para `204` na `0.1.8`
+- Nenhuma chave foi removida, então a migração é aditiva e nenhuma configuração existente quebra
+- Anti-detecção: `stealth`, `stealth_profile`, `stealth_seed`
+- Janela: `browser_mode` aceita `auto|headed|headless`, `auto` resolve para headless, e o `doctor` reporta o modo efetivo
+- Proxy de saída: `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `cdp_proxy_bypass_loopback`
+- Fingerprint HTTP/2: `http2_enabled`, `http2_initial_stream_window_size`, `http2_initial_connection_window_size`, `http2_max_header_list_size`, `http2_max_frame_size`, `http2_adaptive_window`
+- Input: `input_profile`, `input_move_steps`, `input_move_gap_ms`, `input_click_dwell_ms`, `input_key_dwell_ms`, `input_type_delay_ms`, `input_scroll_tick_px`, `input_scroll_max_ticks`, `input_target_jitter_px`, `input_scroll_settle_rounds`
+- Avulsas: `robots_user_agent`, `scrape_no_cache`, `monitor_diff_max_bytes`
+- Descubra a lista viva com `config list-keys --json`
+
+### Credenciais de proxy pertencem ao arquivo XDG
+- Defina `proxy_username` e `proxy_password` somente com `config set`
+- NUNCA passe credencial de proxy em argv: a tabela de processos expõe argv a qualquer usuário da máquina
+
+### Inventário
+- A contagem de comandos permanece **69**, sem comando novo e sem comando removido
 
 
 ## Migração Passo a Passo
@@ -503,7 +572,18 @@ bash scripts/residual-check.sh
 - Pare de tratar estouro de budget do `doctor` como exit `0` com stdout vazio
 - Espere `scrape --format metadata` mais rico e trate cada campo como condicional
 - Dimensione a entrada de `batch-scrape --urls-file` contra `max_urls_file_bytes`
-- Redescubra chaves de config com `config list-keys --json` (total vivo `176`)
+- Redescubra chaves de config com `config list-keys --json`
+
+### De 0.1.7 para 0.1.8
+- Rebuild/instale o `0.1.8`
+- Decida a postura de anti-detecção: mantenha o default de `stealth` ou passe `--no-stealth` / `config set stealth false`
+- Recalcule qualquer budget de latência, porque `input_profile` tem default `human` e ritma cada gesto
+- Passe `--input-profile direct` onde o input instantâneo anterior for obrigatório
+- Substitua por `config unset <KEY>` toda edição manual do arquivo XDG que removia chave
+- Leia `formats` / `format_list` em todo envelope de `scrape` e pare de ramificar na contagem de chaves
+- Mova `proxy_username` e `proxy_password` para `config set`, nunca para argv
+- Redescubra chaves de config com `config list-keys --json` (total vivo `204`)
+- Confirme que o inventário continua **69** com `commands --json`
 
 ## Mudanças de JSON Schema
 - Antes: prosa livre ou JSON ad-hoc sem `schema_version`

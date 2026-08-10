@@ -40,7 +40,7 @@ impl OneShotSession {
                 // clear override with empty UA not portable; skip
             } else {
                 self.manager
-                    .set_user_agent(ua)
+                    .set_user_agent_without_client_hints(ua)
                     .await
                     .map_err(|e| CliError::new(ErrorKind::Browser, format!("emulate ua: {e}")))?;
             }

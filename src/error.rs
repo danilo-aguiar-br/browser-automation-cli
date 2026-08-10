@@ -52,6 +52,15 @@ use thiserror::Error;
 pub enum ErrorKind {
     /// Invalid usage or clap parse failure (`2`).
     Usage,
+    /// The origin served a bot check instead of content (`6`).
+    ///
+    /// A challenge is an **HTTP 200 with valid HTML**, so every transport-level
+    /// field (`status_code`, `http_error`, `http_attempts`) reports success while
+    /// the body carries a CAPTCHA. Without this kind the agent quotes the block
+    /// page as content and retries against a WAF, which escalates toward a ban.
+    /// Remediation is a different engine, a proxy, or waiting -- never a retry of
+    /// the same request.
+    Blocked,
     /// Capability disabled by policy: argv is correct, a gate flag is missing (`64`).
     ///
     /// Distinct from [`ErrorKind::Usage`] on purpose (GAP-011). The remediation is
@@ -100,6 +109,7 @@ impl ErrorKind {
     pub fn exit_code(self) -> u8 {
         match self {
             ErrorKind::Usage => 2,
+            ErrorKind::Blocked => 6,
             ErrorKind::CapabilityDisabled => 64,
             ErrorKind::Data => 65,
             ErrorKind::NoInput => 66,
@@ -118,6 +128,7 @@ impl ErrorKind {
     pub fn as_str(self) -> &'static str {
         match self {
             ErrorKind::Usage => "usage",
+            ErrorKind::Blocked => "blocked",
             ErrorKind::CapabilityDisabled => "capability-disabled",
             ErrorKind::Precondition => "precondition",
             ErrorKind::Data => "data",
@@ -137,6 +148,7 @@ impl ErrorKind {
     /// Every variant, for exhaustiveness tests and round-trip parsing.
     pub const ALL: &'static [ErrorKind] = &[
         ErrorKind::Usage,
+        ErrorKind::Blocked,
         ErrorKind::CapabilityDisabled,
         ErrorKind::Precondition,
         ErrorKind::Data,
@@ -269,6 +281,7 @@ mod kind_roundtrip_tests {
         for kind in ErrorKind::ALL {
             match kind {
                 ErrorKind::Usage
+                | ErrorKind::Blocked
                 | ErrorKind::CapabilityDisabled
                 | ErrorKind::Precondition
                 | ErrorKind::Data
@@ -284,7 +297,34 @@ mod kind_roundtrip_tests {
                 | ErrorKind::Io => {}
             }
         }
-        assert_eq!(ErrorKind::ALL.len(), 14);
+        // Completeness in the other direction, which the loop above cannot prove:
+        // every variant that exists must APPEAR in `ALL`. A frozen `ALL.len()`
+        // literal was checked here before and could not tell "all listed" from
+        // "one missing plus one duplicated"; `kind_strings_are_unique` covers the
+        // duplicate half, and this covers the missing half.
+        for kind in [
+            ErrorKind::Usage,
+            ErrorKind::Blocked,
+            ErrorKind::CapabilityDisabled,
+            ErrorKind::Precondition,
+            ErrorKind::Data,
+            ErrorKind::NoInput,
+            ErrorKind::Unavailable,
+            ErrorKind::Software,
+            ErrorKind::Browser,
+            ErrorKind::Protocol,
+            ErrorKind::Timeout,
+            ErrorKind::Cancelled,
+            ErrorKind::BrokenPipe,
+            ErrorKind::Config,
+            ErrorKind::Io,
+        ] {
+            assert!(
+                ErrorKind::ALL.contains(&kind),
+                "{} is missing from ErrorKind::ALL",
+                kind.as_str()
+            );
+        }
     }
 
     /// Kind strings must be unique, or `from_str` would be ambiguous.

@@ -24,6 +24,19 @@
 | i18n | `src/i18n/`, `locales/*.ftl` | `--lang` + XDG `lang` → negotiate → OnceLock; human suggestions only |
 | Platform | `src/platform/` | PATH `which_bin`, console UTF-8/VT, HostEnvironment, browser sandbox |
 | Windows jobs | `src/win_job.rs` | Job Object residual process kill (stubs on non-Windows) |
+| Capability table | `src/capability/` | one declarative gate / capture / page-state table read by argv dispatch, `run` steps and preflight |
+| Concurrency | `src/concurrency/` | bounded parallelism budget: Tokio semaphores for I/O, Rayon for CPU, no unbounded fan-out |
+| Named constants | `src/constants/` | compile-time defaults (anti-hardcode): identity, viewport, HTTP/CDP budgets, Chrome layouts |
+| Cache | `src/cache/` | HTTP / parse cache: L1 in-process map + SQLite under XDG; Redis only via `config set cache_backend` |
+| Network policy | `src/net/` | SSRF modes, body caps, loopback addressing; reqwest system proxy env disabled via `no_proxy()` |
+| Robots | `src/robots/` | robots.txt honoured by default; override needs **both** `--ignore-robots` and `--i-accept-robots-risk` |
+| Root containment | `src/fs_roots/` | canonical allowed-root check for local reads and artifact writes; `--allow-outside-roots` escape |
+| Doctor | `src/doctor/` | I/O-light sequential local probes assembled in stable report order (never claims CPU fan-out) |
+| Local scrape | `src/scrape_local/` | HTTP / browser scrape engine, envelope shaping, metadata harvest, coverage disclosure |
+| Local media | `src/image_local/`, `src/video_local/`, `src/audio_local/` | path-to-path probe / convert / resize / trim; optional `ffprobe` / `ffmpeg` via XDG `ffmpeg_path` |
+| Local MITM | `src/mitm_local/` | local CA under XDG data, capture store under XDG state, HAR export, process-wide capture policy |
+| Local workflow | `src/workflow_local/` | one-shot DAG manifest + SQLite journal; sequential topo order with fail-fast |
+| Agent output ops | `src/agent_ops/` | eight universal operations applied over `data` before stdout |
 
 ## Residual product law (process + disk)
 
@@ -125,6 +138,63 @@ Product settings (including language) use **flags + XDG only**. Do not invent or
 - **GAP-023/024:** intentional PRD divergences in `parity_intentional_divergences.json`.
 - Residual-zero disk law from 0.1.5 still current.
 - Product config: flags + XDG only (never product env vars).
+
+## Anti-detection family (v0.1.8)
+
+### Process browser policy (`browser_policy`)
+- `src/browser_policy.rs` publishes window mode, stealth and egress once during CLI dispatch
+- It exists because three global flags parsed and were read by nobody
+- `--headed` was one of them: the session hard-coded `headless: true`, so the flag changed only the help text
+- Window mode resolves `auto | headed | headless` by flag, then XDG config, then the compiled default
+- Publishing once into a process-global works because a one-shot process owns exactly one browser lifetime
+- Every value is `Relaxed` and written once before any browser launch runs
+- No product environment variable is read for it; configuration belongs to `config set` and the XDG file
+
+### Stealth patches (`native/stealth`)
+- `src/native/stealth/` patches automation markers before the first navigation
+- A headless Chrome driven over CDP announces itself in about ten places at once
+- A bot check sums those markers into a score, so the module patches every marker it can rather than the loudest one
+- Patches run through `Page.addScriptToEvaluateOnNewDocument`, which executes before any page script on every document
+- Applying them after a navigation is worthless: the challenge script already read the values it came for
+- `src/native/stealth/identity.rs` resolves one identity that User-Agent, Client Hints and header order all derive from
+- A bot check cross-reads those surfaces, so there is deliberately no way to move the User-Agent without moving the Client Hints
+- Under the default `auto` profile the browser keeps Chrome's own User-Agent, which already matches the real engine and GPU
+- An explicit `chrome-win` / `chrome-mac` profile does override it, and the caller accepts a known transport mismatch
+- The HTTP engine has no browser to borrow an identity from, so it gets a synthesized one
+- `src/native/stealth/seed_cache.rs` pins one identity across one-shot processes, opt-in via `--stealth-seed` or XDG `stealth_seed`
+- Without it a 50-URL crawl presents 50 different machines from one address, which creates a signal instead of masking one
+- It stays off by default because it writes state to disk, and that is the caller's decision
+- `src/browser/session/launch/stealth.rs` installs the layer on a freshly attached session
+- It is split from `state.rs` by reason to change: domains needed vs. what the page sees before its own scripts run
+
+### Human input kinematics (`native/interaction`)
+- `src/native/interaction/kinematics.rs` is pure pointer and keyboard geometry and timing, with no CDP in it
+- Every function maps numbers to numbers, so trajectory maths is unit-tested without a browser
+- The interpolation loop used to live in `drag_html5` alone, so `press`, `hover`, `scroll` and `type` dispatched input no hand could produce
+- `InputProfile::Direct` reproduces the pre-0.1.8 dispatch byte for byte, for speed or exact determinism
+- `InputProfile::Human` is the default and costs real time: a click grows from three CDP calls to roughly `input_move_steps + 3`
+
+### MITM capture policy (`mitm_local/policy`)
+- `src/mitm_local/policy.rs` publishes the capture policy once from CLI dispatch
+- `--mitm-max-body-bytes`, `--mitm-no-media-bodies` and `--mitm-redact-secrets` parsed and applied nothing before
+- Redaction did happen, but by accident of call site: every caller passed `true` literally, so the flag could neither enable nor disable it
+- The values live in atomics because the hudsucker handler is cloned per request/response pair
+- Threading them through the proxy constructor would put the policy in a dozen signatures that have no interest in it
+
+### Scrape envelope shape (`scrape_local/shape`)
+- `src/scrape_local/shape.rs` gives `scrape` one envelope shape whatever `--format` carried
+- Single-format used to return twenty top-level keys and multi-format four, so asking for MORE data returned LESS
+- The lost fields included `status_code`, `robots_policy`, `cache_hit` and `stealth`, which callers branch on
+- `--fields markdown` worked in the first case and returned empty `data` with `ok: true` and exit 0 in the second
+- The shape is the union rather than the smaller of the two, because arity must never carry semantics
+- `formats` is always present, holding one entry when one format was asked for
+- Each format is ALSO promoted to the top level, so the single-format spelling existing callers parse keeps working
+
+### Coverage disclosure (`scrape_local/disclosure`)
+- `src/scrape_local/disclosure.rs` states in the envelope which anti-detection layers are actually live
+- An agent assuming full coverage reads a block as a transient failure and retries, which escalates the block
+- TLS and HTTP/2 are not impersonated: a JA4 fingerprint needs BoringSSL, which is C, and this product is pure Rust by policy
+- `tls_impersonation` in the scrape envelope says so, because silence would read as a guarantee the transport cannot keep
 
 ## Agent output operations (`agent_ops`)
 - `src/agent_ops/` applies eight universal operations over `data` before stdout

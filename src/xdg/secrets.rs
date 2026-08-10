@@ -18,6 +18,11 @@ pub fn encryption_key() -> Option<zeroize::Zeroizing<String>> {
     if let Some(ref mut k) = cfg.cache_redis_url {
         k.zeroize();
     }
+    // Persisted from 2026-08-10 onward, so it now reaches this struct and has to
+    // be wiped with the other secrets rather than left in the dropped config.
+    if let Some(ref mut k) = cfg.proxy_password {
+        k.zeroize();
+    }
     Some(zeroize::Zeroizing::new(key))
 }
 
@@ -31,6 +36,10 @@ pub fn openrouter_api_key() -> Option<zeroize::Zeroizing<String>> {
         k.zeroize();
     }
     if let Some(ref mut k) = cfg.cache_redis_url {
+        k.zeroize();
+    }
+    // Same reason as in [`encryption_key`]: persisted, therefore loaded, therefore wiped.
+    if let Some(ref mut k) = cfg.proxy_password {
         k.zeroize();
     }
     Some(zeroize::Zeroizing::new(key))

@@ -108,6 +108,36 @@ pub struct AgentOpsArgs {
         help_heading = "Agent output"
     )]
     pub max_output_bytes: Option<usize>,
+
+    /// Assert the emitted payload matches `key=value`, `key!=value` or `key~substring` (repeatable, ANDed)
+    ///
+    /// Same grammar as `--filter-rows`, on purpose: one syntax to select rows
+    /// and to state what those rows must contain. Evaluated LAST, over the
+    /// payload the caller actually receives, so an expectation cannot pass on
+    /// data that projection or truncation removed.
+    ///
+    /// Unmet expectations are listed in `agent_ops.expectation_unmet` and the
+    /// exit code stays 0. Use `--expect-exit-code` to make them fail the run.
+    #[arg(
+        long = "expect",
+        global = true,
+        value_name = "EXPR",
+        help_heading = "Agent output"
+    )]
+    pub expect: Vec<String>,
+
+    /// Exit 65 when any `--expect` is unmet, instead of only reporting it
+    ///
+    /// Off by default because changing an exit code on data content would
+    /// silently break pipelines that already branch on it. Opt in where the
+    /// assertion is the point of the run.
+    #[arg(
+        long = "expect-exit-code",
+        global = true,
+        action = ArgAction::SetTrue,
+        help_heading = "Agent output"
+    )]
+    pub expect_exit_code: bool,
 }
 
 impl AgentOpsArgs {
@@ -125,6 +155,13 @@ impl AgentOpsArgs {
         for raw in &self.filter_rows {
             filter.push(FilterExpr::parse(raw)?);
         }
+        // Parsed with the same parser as `--filter-rows`, so a typo in an
+        // assertion fails at argv time rather than becoming an assertion that
+        // quietly matches nothing and reports itself as unmet.
+        let mut expect = Vec::with_capacity(self.expect.len());
+        for raw in &self.expect {
+            expect.push((raw.clone(), FilterExpr::parse(raw)?));
+        }
         Ok(AgentOps {
             select: self.fields.as_deref().map(split_csv).unwrap_or_default(),
             filter,
@@ -134,6 +171,8 @@ impl AgentOpsArgs {
             count_only: self.count_only,
             truncate_content: self.truncate_content,
             max_output_bytes: self.max_output_bytes,
+            expect,
+            expect_exit_code: self.expect_exit_code,
         })
     }
 }
@@ -152,6 +191,8 @@ mod tests {
             count_only: false,
             truncate_content: None,
             max_output_bytes: None,
+            expect: Vec::new(),
+            expect_exit_code: false,
         }
     }
 
@@ -181,5 +222,34 @@ mod tests {
         let mut a = args();
         a.filter_rows = vec!["a=1".into(), "b~z".into()];
         assert_eq!(a.to_ops().expect("convert").filter.len(), 2);
+    }
+
+    /// A malformed assertion must fail at argv time.
+    ///
+    /// Otherwise the run completes, the expression matches nothing because it
+    /// is nonsense, and the report calls it unmet — which reads as a data
+    /// problem when it is a typo.
+    #[test]
+    fn a_malformed_expectation_fails_conversion() {
+        let mut a = args();
+        a.expect = vec!["nooperator".into()];
+        assert!(a.to_ops().is_err());
+    }
+
+    #[test]
+    fn expectations_keep_the_text_the_caller_typed() {
+        // The report echoes the original string, so the agent can match its
+        // own argument instead of reconstructing it from a parsed shape.
+        let mut a = args();
+        a.expect = vec!["ok=true".into()];
+        let ops = a.to_ops().expect("convert");
+        assert_eq!(ops.expect[0].0, "ok=true");
+    }
+
+    #[test]
+    fn expectations_alone_are_not_a_noop() {
+        let mut a = args();
+        a.expect = vec!["ok=true".into()];
+        assert!(!a.to_ops().expect("convert").is_noop());
     }
 }

@@ -16,6 +16,9 @@ fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliE
     if super::set_scrape::apply_scrape_set(cfg, key, value)? {
         return Ok(());
     }
+    if super::set_network::apply_network_set(cfg, key, value)? {
+        return Ok(());
+    }
     match key {
         "lang" => {
             crate::i18n::validate_lang_token(value)?;
@@ -27,10 +30,10 @@ fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliE
             })?);
         }
         "artifacts_dir" => cfg.artifacts_dir = Some(value.to_string()),
-        "ignore_robots" => cfg.ignore_robots = Some(parse_boolish(value)),
+        "ignore_robots" => cfg.ignore_robots = Some(parse_boolish(value, key)?),
         "namespace" => cfg.namespace = Some(value.to_string()),
         "encryption_key" => cfg.encryption_key = Some(value.to_string()),
-        "color" => cfg.color = Some(parse_boolish(value)),
+        "color" => cfg.color = Some(parse_boolish(value, key)?),
         "log_level" => {
             crate::tracing_local::validate_log_level_directive(value)?;
             cfg.log_level = Some(value.to_string());
@@ -67,7 +70,7 @@ fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliE
         "openrouter_api_key" => cfg.openrouter_api_key = Some(value.to_string()),
         "llm_base_url" => cfg.llm_base_url = Some(value.to_string()),
         "llm_model" => cfg.llm_model = Some(value.to_string()),
-        "log_to_file" => cfg.log_to_file = Some(parse_boolish(value)),
+        "log_to_file" => cfg.log_to_file = Some(parse_boolish(value, key)?),
         "max_log_files" => {
             let n: u32 = value
                 .parse()
@@ -89,6 +92,56 @@ fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliE
         "log_rotation" => {
             crate::tracing_local::validate_log_rotation(value)?;
             cfg.log_rotation = Some(value.trim().to_ascii_lowercase());
+        }
+        "input_profile" => {
+            // Validated here, not on read. An unparsable value would otherwise
+            // fall back to the default at interaction time and steer nothing,
+            // so the operator would set `directt`, see `ok: true`, and never
+            // learn that every run stayed on `human`.
+            let normalized = value.trim().to_ascii_lowercase();
+            if crate::native::interaction::InputProfile::parse(&normalized).is_none() {
+                return Err(CliError::new(
+                    ErrorKind::Usage,
+                    "input_profile must be `human` or `direct`",
+                ));
+            }
+            cfg.input_profile = Some(normalized);
+        }
+        "browser_mode" => {
+            // Same reason input_profile validates on write: a bad token would
+            // otherwise resolve to the default at launch, so the operator sets
+            // `headles`, reads `ok: true`, and never learns the mode is auto.
+            let normalized = value.trim().to_ascii_lowercase();
+            if crate::browser_policy::BrowserMode::parse(&normalized).is_none() {
+                return Err(CliError::new(
+                    ErrorKind::Usage,
+                    "browser_mode must be `auto`, `headed` or `headless`",
+                ));
+            }
+            cfg.browser_mode = Some(normalized);
+        }
+        "stealth" => {
+            cfg.stealth = Some(parse_boolish(value, key)?);
+        }
+        "stealth_profile" => {
+            let normalized = value.trim().to_ascii_lowercase();
+            if crate::browser_policy::StealthProfile::parse(&normalized).is_none() {
+                return Err(CliError::new(
+                    ErrorKind::Usage,
+                    "stealth_profile must be `auto`, `chrome-linux`, `chrome-win` or `chrome-mac`",
+                ));
+            }
+            cfg.stealth_profile = Some(normalized);
+        }
+        "robots_user_agent" => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Err(CliError::new(
+                    ErrorKind::Usage,
+                    "robots_user_agent must not be empty",
+                ));
+            }
+            cfg.robots_user_agent = Some(trimmed.to_string());
         }
         "cache_backend" => cfg.cache_backend = Some(value.to_string()),
         "cache_redis_url" => cfg.cache_redis_url = Some(value.to_string()),
@@ -171,11 +224,11 @@ fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliE
         "llm_http_timeout_secs" => {
             cfg.llm_http_timeout_secs = Some(parse_positive_u64(value, "llm_http_timeout_secs")?);
         }
-        "redis_allow_remote" => cfg.redis_allow_remote = Some(parse_boolish(value)),
+        "redis_allow_remote" => cfg.redis_allow_remote = Some(parse_boolish(value, key)?),
         "chrome_legacy_oxide_launch" => {
-            cfg.chrome_legacy_oxide_launch = Some(parse_boolish(value));
+            cfg.chrome_legacy_oxide_launch = Some(parse_boolish(value, key)?);
         }
-        "robots_loopback_exempt" => cfg.robots_loopback_exempt = Some(parse_boolish(value)),
+        "robots_loopback_exempt" => cfg.robots_loopback_exempt = Some(parse_boolish(value, key)?),
         "redis_connect_timeout_secs" => {
             cfg.redis_connect_timeout_secs =
                 Some(parse_positive_u64(value, "redis_connect_timeout_secs")?);

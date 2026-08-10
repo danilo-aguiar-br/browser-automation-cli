@@ -108,7 +108,7 @@ High-level GAP fixes and surface growth landed in `0.1.2`:
 - Plus: `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
 
 ### Inventory
-- Live inventory is **59 commands** (`commands --json`)
+- Inventory at 0.1.2 was **59 commands** (`commands --json`)
 - DevTools tool-ref e2e suite remains **53 tools** (`scripts/e2e_all_52_tools.sh`)
 - Static schemas regenerate via `bash scripts/generate_command_schemas.sh`
 
@@ -152,8 +152,8 @@ Canonical residual-zero disk product law (BORN Singleton GC age ≥ 60s, FINALIZ
 ### Other 0.1.3 surface
 - `page tab-id` (tool-ref `get_tab_id`) expands e2e to **53** tools
 - `config list-keys` lists supported keys and defaults
-- Live inventory is **59 commands** (`commands --json`)
-- DevTools tool-ref e2e is **53 tools** (`scripts/e2e_all_52_tools.sh` legacy filename)
+- Inventory at 0.1.3 was **59 commands** (`commands --json`)
+- DevTools tool-ref e2e at 0.1.3 was **53 tools** (`scripts/e2e_all_52_tools.sh` legacy filename)
 
 ### Config keys (full list in 0.1.3)
 - `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
@@ -176,7 +176,7 @@ Hard-close GAP-001…025 for agent-first observability, wait/assert depth, MITM 
 ### Select / pick multi-step (GAP-023)
 - New inventory names: `select-option`, `pick` (HIG badge/popover / `role=option`)
 - Available in `run` / `exec` / schema discovery with `target` + `option`
-- Not standalone clap subcommands (clap top-level help lists 59 without them)
+- Not standalone clap subcommands (clap top-level help at 0.1.4 listed 59 without them)
 
 ### Assert console kinds (GAP-025)
 - Run kinds: `console_empty`, `console_no_match` (requires `--capture-console`)
@@ -222,9 +222,9 @@ Hard-close GAP-001…025 for agent-first observability, wait/assert depth, MITM 
 - Chrome privacy launch flags; no `metrics-recording-only`
 
 ### Inventory and contract gates
-- Live inventory is **61** agent names via `commands --json` (includes `select-option`, `pick`)
+- Inventory at 0.1.4 was **61** agent names via `commands --json` (includes `select-option`, `pick`)
 - Carry-forward honesty (closed earlier, still required in 0.1.4): lighthouse `binary_source` real|mock (GAP-008); `extract --llm` fail-closed on XDG keys only (GAP-015)
-- Clap top-level help lists **59** without `select-option`/`pick` as standalone
+- Clap top-level help at 0.1.4 listed **59** without `select-option`/`pick` as standalone
 - DevTools tool-ref e2e remains **53 tools**
 - Gates: `tests/parity_run_inventory.rs`, `tests/clap_command_debug_assert.rs`
 - Clap surface audit: `GlobalOpts` uses `Args` + flatten; explicit `ArgAction::SetTrue`; `value_hint`; help headings; `after_help` examples; `-v` alias
@@ -249,13 +249,13 @@ Hard-close residual-zero **disk** hygiene (RES-01…12, Pass 27) and meta discov
 - Fields as of 0.1.5: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
 - Status as of 0.1.5: `fail` if live marker processes; `warn` if marker dirs or singleton orphans remain; else `pass`
 - Both lines above describe **0.1.5** and are kept as the historical record; tip is different
-- Tip 0.1.7 adds six fields: `scanned_roots`, `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
-- Tip 0.1.7 status: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; a live sibling is healthy and never fails
-- Tip 0.1.7 agent contract: do **not** require zero `live_cli_marker_processes` — see `docs/AGENTS.md`
+- Tip 0.1.8 carries the six fields added at 0.1.7: `scanned_roots`, `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
+- Tip 0.1.8 status: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; a live sibling is healthy and never fails
+- Tip 0.1.8 agent contract: do **not** require zero `live_cli_marker_processes` — see `docs/AGENTS.md`
 
 ### Inventory and meta commands
-- Live inventory as of 0.1.5 was **63** agent names; tip 0.1.7 is **69** (includes `image`+`video`+`audio`+`record`) via `commands --json`
-Clap product surface is **66** names (excludes agent-only `select-option` / `pick`)
+- Inventory as of 0.1.5 was **63** agent names; tip 0.1.8 is **69** (includes `image`+`video`+`audio`+`record`) via `commands --json`
+Tip clap product surface is **67** names (excludes agent-only `select-option` / `pick`)
 - Meta already in binary and inventory: `locale` (UI locale diagnostics), `man` (roff via clap_mangen; no Chrome)
 - DevTools tool-ref e2e remains **53 tools**
 
@@ -290,7 +290,7 @@ Agent-first dialog settle, native select events, scrape format in run, wait dead
 - **GAP-023/024 intentional:** PRD wishlist flags/commands remain divergences in `parity_intentional_divergences.json` — not full PRD parity
 - **Residual-zero disk:** 0.1.5 product law (RES-01…12) is **still current**
 
-### Full agent inventory (69) — tip 0.1.7 (0.1.6 base + `image` + `video` + `audio` + `record`)
+### Full agent inventory (69) — tip 0.1.8 (unchanged since 0.1.7: 0.1.6 base + `image` + `video` + `audio` + `record`)
 
 Discover live: `browser-automation-cli commands --json`
 
@@ -298,7 +298,7 @@ Discover live: `browser-automation-cli commands --json`
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
-net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
 scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
 upload version view wait webmcp workflow write
 ```
@@ -399,8 +399,70 @@ browser-automation-cli --json config get dialog_settle_ms
 - `drag_move_steps` sets intermediate `drag` move steps, default `6`
 - `drag_move_gap_ms` sets the gap between drag moves, default `16`
 - `robots_fetch_timeout_secs` caps the robots fetch, default `30`
-- Live key total is `176`, documented in `docs/CONFIGURATION.md`
+- Key total at 0.1.7 was `176`, documented in `docs/CONFIGURATION.md`
 - Discover the live list with `config list-keys --json`
+
+
+## 0.1.7 → 0.1.8
+### Breaking defaults: anti-detection and human input are on
+- `stealth` defaults to `true`, so `0.1.8` applies anti-detection patches before the first navigation
+- Pass `--no-stealth` for one run, or `config set stealth false`, when you want the browser untouched
+- `input_profile` defaults to `human`, so clicks and typing interpolate the pointer path
+- A `human` gesture also dwells between press and release and paces each keystroke
+- That costs wall time per gesture against the previous instantaneous input
+- Pass `--input-profile direct`, or `config set input_profile direct`, to restore the older behaviour
+- `http2_enabled` defaults to `true`
+- `cdp_proxy_bypass_loopback` defaults to `true` so the CDP control channel survives a configured proxy
+
+### Twelve new global flags
+- `--no-stealth` turns the anti-detection patches off for one run
+- `--stealth-profile <PROFILE>` picks the impersonated identity: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`
+- `--stealth-seed <SEED>` pins that identity across processes
+- `--proxy <URL>` routes egress through `http`, `https` or `socks5`
+- `--proxy-bypass <HOSTS>` lists the hosts that skip the proxy
+- `--input-profile <PROFILE>` selects `human` (default) or `direct`
+- `--input-seed <SEED>` makes a `human` run reproducible
+- `--warmup` visits the origin root before the target URL
+- `--warmup-url <URL>` warms that URL instead of the origin root
+- `--no-xvfb` skips the private virtual display on Linux
+- `--expect <EXPR>` asserts the emitted payload against an expression
+- `--expect-exit-code` turns an unmet `--expect` into exit `65`
+
+### New subcommand `config unset`
+- `config unset <KEY>` restores one key to its built-in default
+- It is the inverse of `config set`, which `config set <key> ""` never was
+- On a string key the empty spelling stores a value the normal path never produces
+- On a numeric key the empty spelling is a parse error
+- Unsetting an absent key succeeds, so a script does not need to know the previous state
+- Migrate any hand edit of the XDG file that removed a key to `config unset`
+
+### One envelope shape for `scrape`
+- Before, the envelope changed shape with the arity of `--format`
+- One format returned the content plus the whole diagnosis at the top level
+- Two formats returned four keys, moved the content under `formats` and dropped the diagnosis
+- In that second shape `--fields markdown` returned an empty `data` with `ok: true` and exit `0`
+- In `0.1.8` `formats` and `format_list` are always present, whatever the arity
+- Every format is also mirrored at the top level, so the single-format spelling keeps working
+- A transport field wins over a derived field of the same name, so the top level still means what came back on the wire
+- Stop branching on how many keys the envelope carries
+
+### New XDG keys by family
+- The surface grew from `176` keys at `0.1.7` to `204` at `0.1.8`
+- No key was removed, so the migration is additive and no existing configuration breaks
+- Anti-detection: `stealth`, `stealth_profile`, `stealth_seed`
+- Window: `browser_mode` takes `auto|headed|headless`, `auto` resolves to headless, and `doctor` reports the effective mode
+- Egress proxy: `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `cdp_proxy_bypass_loopback`
+- HTTP/2 fingerprint: `http2_enabled`, `http2_initial_stream_window_size`, `http2_initial_connection_window_size`, `http2_max_header_list_size`, `http2_max_frame_size`, `http2_adaptive_window`
+- Input: `input_profile`, `input_move_steps`, `input_move_gap_ms`, `input_click_dwell_ms`, `input_key_dwell_ms`, `input_type_delay_ms`, `input_scroll_tick_px`, `input_scroll_max_ticks`, `input_target_jitter_px`, `input_scroll_settle_rounds`
+- Standalone: `robots_user_agent`, `scrape_no_cache`, `monitor_diff_max_bytes`
+- Discover the live list with `config list-keys --json`
+
+### Proxy credentials belong in the XDG file
+- Set `proxy_username` and `proxy_password` with `config set` only
+- Never pass a proxy credential on argv: the process table exposes argv to every user of the machine
+
+### Inventory
+- The command count stays **69**, with no command added and none removed
 
 
 ## Step-by-Step Migration
@@ -509,7 +571,18 @@ bash scripts/residual-check.sh
 - Stop treating a `doctor` budget overflow as exit `0` with empty stdout
 - Expect richer `scrape --format metadata` and treat every field as conditional
 - Size `batch-scrape --urls-file` inputs against `max_urls_file_bytes`
-- Re-discover config keys with `config list-keys --json` (live total `176`)
+- Re-discover config keys with `config list-keys --json`
+
+### From 0.1.7 to 0.1.8
+- Rebuild/install `0.1.8`
+- Decide the anti-detection posture: keep the `stealth` default or pass `--no-stealth` / `config set stealth false`
+- Re-time any latency budget, because `input_profile` defaults to `human` and paces every gesture
+- Pass `--input-profile direct` where the older instantaneous input is required
+- Replace hand edits of the XDG file that removed a key with `config unset <KEY>`
+- Read `formats` / `format_list` from every `scrape` envelope and stop branching on key count
+- Move `proxy_username` and `proxy_password` into `config set`, never onto argv
+- Re-discover config keys with `config list-keys --json` (live total `204`)
+- Confirm the inventory is still **69** with `commands --json`
 
 ## JSON Schema Changes
 - Before: free-form prose or ad-hoc JSON without `schema_version`

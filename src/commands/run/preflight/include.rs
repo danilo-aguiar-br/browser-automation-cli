@@ -53,7 +53,7 @@ pub(super) fn load_expanded(
                 CliError::with_suggestion(
                     ErrorKind::NoInput,
                     format!("cannot read script {}: {}", path.display(), e.message()),
-                    "Pass an existing NDJSON/JSONL or JSON-array file to --script",
+                    crate::i18n::suggestion_key("run_script_file", None),
                 )
             } else {
                 e

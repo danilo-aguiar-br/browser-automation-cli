@@ -45,6 +45,15 @@ pub enum ScrapeFormat {
     Json,
     /// RSS / Atom / JSON Feed entries parsed from the response body.
     Feed,
+    /// Named attributes pulled from caller-chosen CSS selectors.
+    ///
+    /// The other formats answer "what is on this page?" with a fixed shape.
+    /// This one answers "what is at these exact places?", which is the
+    /// question a caller already knows the answer's shape to. Without it, the
+    /// only way to read one attribute off a list of elements through the HTTP
+    /// engine was to pull `rawHtml` and parse it outside the binary — which is
+    /// exactly the work this product exists to keep out of the model.
+    Attributes,
 }
 
 impl ScrapeFormat {
@@ -67,6 +76,7 @@ impl ScrapeFormat {
             "jsonld" | "json-ld" | "json_ld" => Ok(Self::JsonLd),
             "json" => Ok(Self::Json),
             "feed" | "rss" | "atom" => Ok(Self::Feed),
+            "attributes" | "attribute" | "attr" => Ok(Self::Attributes),
             other => Err(CliError::with_suggestion(
                 ErrorKind::Usage,
                 format!("unknown scrape format: {other}"),
@@ -84,6 +94,10 @@ pub struct ScrapeOpts {
     /// Prefer only main content heuristics.
     pub only_main_content: bool,
     /// Engine: "http" or "browser".
+    ///
+    /// Read through [`ScrapeOpts::engine_kind`] rather than compared as a
+    /// string: the transport differs between the two, and code that gets the
+    /// comparison wrong reports the wrong transport in the envelope.
     pub engine: String,
     /// Max body bytes for HTTP.
     pub max_body_bytes: usize,
@@ -105,6 +119,19 @@ pub struct ScrapeOpts {
     pub with_content_hash: bool,
     /// Extra HTTP headers (`Name: value`) for legitimate auth/cookies (operator-supplied).
     pub extra_headers: Vec<(String, String)>,
+    /// Ignore the response cache on READ and always fetch from origin.
+    ///
+    /// The write still happens, so a bypassing caller refreshes the entry for
+    /// everyone else instead of leaving a stale one behind. A command whose
+    /// question is "did this page change" must set this: a cache hit makes it
+    /// compare a stored page against itself and answer "no" with `ok: true`.
+    pub no_cache: bool,
+    /// Selector/attribute pairs for [`ScrapeFormat::Attributes`].
+    ///
+    /// Paired at the CLI layer, so a caller cannot end up with three selectors
+    /// and two attribute names and no way to tell which pair the binary
+    /// dropped.
+    pub attribute_targets: Vec<(String, String)>,
 }
 
 impl Default for ScrapeOpts {
@@ -123,6 +150,63 @@ impl Default for ScrapeOpts {
             redact_pii: false,
             with_content_hash: false,
             extra_headers: Vec::new(),
+            no_cache: crate::xdg::resolve_scrape_no_cache(),
+            attribute_targets: Vec::new(),
         }
+    }
+}
+
+/// Which transport actually fetched the page.
+///
+/// # Why this is a type and not a string comparison
+///
+/// The two engines are different clients with different fingerprints. `Http`
+/// is this crate's `reqwest` build: no TLS impersonation, no control over
+/// header order. `Browser` is a real Chrome, which owns its own JA3 and emits
+/// headers in Chrome's own order because it *is* Chrome.
+///
+/// The scrape envelope reports those properties. While the engine was a bare
+/// `String`, the report was written once for `reqwest` and emitted for both,
+/// so a browser scrape claimed `tls_impersonation: false` about a transport
+/// that does impersonate — the product understated exactly the engine it calls
+/// its most valuable asset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrapeEngine {
+    /// This crate's `reqwest` client.
+    Http,
+    /// A real Chrome driven over CDP.
+    Browser,
+}
+
+impl ScrapeEngine {
+    /// Parse an engine name, defaulting to [`ScrapeEngine::Http`].
+    ///
+    /// Unknown input resolves to `Http` rather than failing, because the CLI
+    /// layer already rejects unknown `--engine` values; reaching here with one
+    /// means an internal caller, and the cheap transport is the safe guess.
+    #[must_use]
+    pub fn parse(name: &str) -> Self {
+        if name.eq_ignore_ascii_case("browser") {
+            Self::Browser
+        } else {
+            Self::Http
+        }
+    }
+
+    /// The wire spelling used in the envelope.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Browser => "browser",
+        }
+    }
+}
+
+impl ScrapeOpts {
+    /// The engine as a type, for code that must branch on the transport.
+    #[must_use]
+    pub fn engine_kind(&self) -> ScrapeEngine {
+        ScrapeEngine::parse(&self.engine)
     }
 }

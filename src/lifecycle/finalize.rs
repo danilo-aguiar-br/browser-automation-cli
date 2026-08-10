@@ -87,6 +87,16 @@ impl Lifecycle {
             }
         }
         if let Some(ref dir) = snap.profile {
+            // Claim the `/tmp` singleton directory BEFORE the profile is wiped.
+            // The proof of ownership is a symlink inside the profile, so the
+            // wipe below destroys the only evidence: read it first or lose it.
+            // The scan above cannot substitute — it matched nothing on a live
+            // launch, which is how one directory per launch was leaking.
+            if let Some(tmp) = crate::residual::owned_chromium_tmp_dir_via_profile(dir) {
+                if !sides.iter().any(|e| e == &tmp) {
+                    sides.push(tmp);
+                }
+            }
             wipe_owned_path(dir);
         }
         for p in sides {

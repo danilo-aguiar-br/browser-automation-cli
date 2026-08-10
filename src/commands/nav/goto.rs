@@ -154,7 +154,7 @@ pub(crate) fn handle_reload(
         return Err(CliError::with_suggestion(
             ErrorKind::Usage,
             crate::i18n::suggestion_key("run_script_multi_step", None),
-            "Use: browser-automation-cli run --script steps.jsonl  (goto then reload --init-script …)",
+            crate::i18n::suggestion_key("goto_run_script", None),
         ));
     }
     let beforeunload = handle_before_unload.map(|a| a.as_str().to_string());

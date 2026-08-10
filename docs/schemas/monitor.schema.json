@@ -21,6 +21,18 @@
               ],
               "type": "string"
             },
+            "diff_mode": {
+              "argv": "--diff-mode",
+              "default": "none",
+              "description": "Report WHAT changed, not just that it did: `none`, `git` or `json`",
+              "required": false,
+              "source": "parser",
+              "step_key": "diff_mode",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
             "engine": {
               "argv": "--engine",
               "default": "http",

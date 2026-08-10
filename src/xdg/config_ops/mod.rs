@@ -11,12 +11,17 @@
 //! | get | `config get` single key and full dump |
 
 mod get;
+mod get_table;
+mod key_entries;
 mod keys;
 mod set;
 mod set_media;
+mod set_network;
 mod set_scrape;
-mod validate;
+pub(crate) mod unset;
+pub(crate) mod validate;
 
 pub use get::config_get;
 pub use keys::{all_config_keys, config_keys_description, config_list_keys, CONFIG_KEYS};
 pub use set::config_set;
+pub use unset::config_unset;

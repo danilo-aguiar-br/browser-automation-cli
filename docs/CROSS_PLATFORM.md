@@ -80,7 +80,7 @@ Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `p
 - On Alpine or other musl hosts, cross-compile or build natively for the musl target
 - Provide a real Chrome or Chromium binary; the CLI does not bundle a browser
 - Containers auto-add Chrome `--no-sandbox` and `--disable-dev-shm-usage` when root or docker/podman/k8s markers are present
-- Residual disk hygiene (v0.1.5 law still current in 0.1.7): BORN + FINALIZE scavenge owned Singleton-only Chromium tmp under process temp (commonly `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*`)
+- Residual disk hygiene (v0.1.5 law still current in 0.1.8): BORN + FINALIZE scavenge owned Singleton-only Chromium tmp under process temp (commonly `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*`)
 - Stale Singleton GC age floor is **60s**; only same-uid Singleton-only (or empty) dirs with no live `/proc` holder are wiped
 - CLI markers use prefix `browser-automation-cli-chrome-*` under the process temp dir
 - Host Flatpak Chrome temp prefixes are **never** deleted by product residual GC
@@ -105,6 +105,44 @@ Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `p
 - Path basenames reserved on Windows (`CON`, `NUL`, `COM1`, …) are rejected on **all** hosts for portable scripts
 - Residual **process** hygiene uses Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) so Chrome trees die with the CLI process
 - Disk residual report fields (`residual` / `residual_disk`) remain available via doctor for marker and temp hygiene diagnostics
+
+
+## Anti-Detection Across Platforms
+- `stealth` ships on by default and behaves the same on all three systems
+- `stealth_profile auto` resolves against the host: Windows gives chrome-win, macOS gives chrome-mac
+- Every other host resolves to chrome-linux, containers and WSL included
+- A foreign profile is reported, never blocked, through `profile_contradicts_host`
+- The headless override swaps only the `HeadlessChrome` product token for `Chrome`
+- That swap keeps the real host platform and never invents another one
+- `browser_mode auto` resolves to headless on Linux, macOS and Windows alike
+- The private virtual display (Xvfb) is Linux only and needs an explicit headed launch
+- macOS always has Quartz and Windows always has DWM, so neither uses Xvfb
+- `doctor` reports the `xvfb` check as info on every non-Linux host
+- Without Xvfb on PATH a headed launch falls back to the current display
+- The install hint is read from `/etc/os-release` and the CLI never installs anything
+- `DISPLAY` and `WAYLAND_DISPLAY` are host facts read only on Linux
+- Reading them is not product configuration, which stays flags plus XDG
+- The `virtual_display` check exposes `host_has_display` and `private_display_supported`
+- Vulkan and ANGLE flags behind `--enable-unsafe-webgpu` are emitted on Linux only
+- The proxy path does not vary by platform at any point
+- `proxy_url` feeds Chrome `--proxy-server` and the shared HTTP client alike
+- `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` are never inherited on any host
+- Without `proxy_url` the client calls `no_proxy` and disables system proxy discovery
+- `cdp_proxy_bypass_loopback` appends loopback to the bypass list on both sides
+- Credentials come only from `proxy_username` and `proxy_password` under XDG
+- With stealth on, Chrome receives `--disable-quic` on every platform
+- HTTP/2 window and frame values are identical on every platform
+- `http2_enabled false` drops the client to HTTP/1.1 and reports `http2_profile: disabled`
+- `input_profile human` synthesizes events through CDP `Input` domain calls only
+- No operating system input API is used, so kinematics are identical everywhere
+- macOS asks for no accessibility permission because no native input API is touched
+- Key codes travel in `windows_virtual_key_code` and `native_virtual_key_code` on every host
+- The macOS Cmd modifier is the caller's bitmask choice, not a product default
+- `stealth_seed` pins the identity across processes and its cache is 0600 on Unix
+- Windows gets no such file permission tightening on that seed cache
+- Chrome receives `--password-store=basic` and `--use-mock-keychain` by default on every host
+- Both are suppressed together when a launch opts into the real keychain, which no product path does today
+- Key names and defaults for this family live in [CONFIGURATION.md](CONFIGURATION.md)
 
 
 ## Containers
@@ -155,8 +193,15 @@ browser-automation-cli completions powershell
 - Product logging: `--verbose` / `--debug` / `-q` or XDG `log_level`
 - Color: `config set color`; Chrome path: `config set chrome_path`
 
-## v0.1.7 agent surface (compact)
+## v0.1.8 agent surface (compact)
 
+- Anti-detection family is live: `stealth`, `stealth_profile`, `stealth_seed`, `browser_mode`, `input_profile`
+- Same family adds proxy keys, HTTP/2 `SETTINGS` keys and the ten `input_*` timing keys
+- Global anti-detection flags: `--no-stealth`, `--stealth-profile`, `--stealth-seed`, `--input-profile`, `--input-seed`
+- More of the same family: `--proxy`, `--proxy-bypass`, `--headed`, `--no-xvfb`, `--warmup`, `--warmup-url`
+- Every one of those flags parses identically on Linux, macOS and Windows
+- Scrape envelopes disclose `stealth`, `profile_contradicts_host`, `http2_profile` and `tls_impersonation`
+- Platform behaviour for the whole family lives in [Anti-Detection Across Platforms](#anti-detection-across-platforms)
 - **`dialog_settled`** boolean after real dialog accept/dismiss (GAP-054); multi-tab isolation via `Page::session_id` / `dialog_map_key`
 - **`dialog_settle_ms`** via XDG `config set` only (flags + XDG; never product env vars)
 - **`wait_timeout_ms`** public key on run wait steps (GAP-053)
@@ -166,7 +211,7 @@ browser-automation-cli completions powershell
 - **`agent_ops`** appears in the success envelope only when one of those flags ran; `unresolved_paths` names a path no row carried
 - **`agent_ops` is omitted when there is nothing to report:** a flag that ran and resolved cleanly leaves the envelope shape untouched, on every platform
 - **`--select`/`--filter`/`--limit`/`--sort` are NOT global:** they are per-command flags on scrape, crawl, map, search, batch-scrape and the media `info` verbs
-- **XDG keys:** 176 documented in [CONFIGURATION.md](CONFIGURATION.md); discover live with `config list-keys --json`
+- **XDG keys:** 204 documented in [CONFIGURATION.md](CONFIGURATION.md); discover live with `config list-keys --json`
 - **`grab` encode:** png|jpeg|webp only; AVIF removed (breaking)
 - Inventory **69** includes `submit` + `storage` + `image`+`video`+`audio`+`record`; residual-zero disk law from 0.1.5 still current
 - GAP-021 partial (unit LHR fixtures; e2e lighthouse mock SKIP); GAP-022 residual ~53 dups accepted; GAP-023/024 intentional in `parity_intentional_divergences.json`
@@ -179,12 +224,12 @@ Discover live: `browser-automation-cli commands --json`
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
-net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
+net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
 scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 66.
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **67** (69 agent names − 2 run-only).
 
 ## Performance by Target
 - Linux desktop and servers are the primary optimization target

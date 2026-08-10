@@ -7,6 +7,8 @@ use super::{result_code, DispatchCtx};
 use crate::cli::{AudioAction, ImageAction, QrAction, VideoAction};
 use crate::commands::scrape::*;
 
+use super::scrape_args::{pair_attribute_targets, parse_actions};
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn scrape(
     ctx: &DispatchCtx<'_>,
@@ -25,7 +27,24 @@ pub(crate) fn scrape(
     question: Option<&str>,
     header: &[String],
     wait_ms: u64,
+    attribute_selector: &[String],
+    attribute_name: &[String],
+    action: &[String],
+    no_cache: Option<bool>,
 ) -> i32 {
+    // Paired here, once, before any work happens. Pairing inside the handler
+    // would put the check after the browser has already launched, and a
+    // mismatched count is an argv mistake, not a page problem.
+    let attribute_targets = match pair_attribute_targets(attribute_selector, attribute_name) {
+        Ok(pairs) => pairs,
+        Err(e) => return result_code(Err(e), ctx.json),
+    };
+    // Parsed before the browser launches: a malformed action is an argv
+    // mistake, and finding it after a page load wastes the navigation.
+    let actions = match parse_actions(action) {
+        Ok(steps) => steps,
+        Err(e) => return result_code(Err(e), ctx.json),
+    };
     result_code(
         handle_scrape(
             ctx.life,
@@ -48,6 +67,9 @@ pub(crate) fn scrape(
             question,
             header,
             wait_ms,
+            &attribute_targets,
+            &actions,
+            no_cache,
         ),
         ctx.json,
     )

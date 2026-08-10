@@ -9,3 +9,4 @@ pub mod lightpanda;
 pub mod oxide;
 pub mod spawn;
 pub mod types;
+pub mod xvfb;

@@ -136,6 +136,27 @@ scan_scope_violations() {
 scan_scope_violations locales/en.ftl "en"
 scan_scope_violations locales/pt-BR.ftl "pt-BR"
 
+# ── 4. No suggestion anywhere may cite a flag the product never declares ─
+# The scope check above has two blind spots that let a real defect through.
+# It reads only `locales/*.ftl`, so advice built by `format!` in Rust is
+# invisible to it; and it filters to `agent-ops-*` keys, so every other message
+# in the file it DOES read is out of scope.
+#
+# Both fired at once: the block-detection envelope told the agent to use
+# `--proxy`, a flag that did not exist, and a unit test asserted the string
+# contained it. The gate written for this exact class of defect ratified it.
+#
+# The scan below walks the LIVE binary for every declared flag at any depth,
+# checks every citation in the catalogs against that universe, and forbids
+# suggestion prose from being assembled outside `src/i18n/` at all.
+# The scan now lives in `tests/phantom_flag_gate.rs`, which `ci-check` runs under
+# `cargo test --tests`. It moved on 2026-08-10 because it was a Python script,
+# and this line made `ci-check` — the product's own closure criterion — fail on
+# any host without python3, under `set -euo pipefail`, with no guard. The tool is
+# Rust end to end, so its gates are too. Coverage is unchanged: the three
+# properties are the same three, and the port resolves the binary through
+# `CARGO_BIN_EXE_` instead of guessing between debug and release.
+
 if [[ "$fail" -ne 0 ]]; then
   echo "agent-ops-check: FAIL"
   exit 1

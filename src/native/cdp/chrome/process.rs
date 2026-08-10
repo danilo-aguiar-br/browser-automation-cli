@@ -20,6 +20,16 @@ pub struct ChromeProcess {
     pgid: Option<i32>,
     /// Join handles of the stdout/stderr drainer threads.
     log_drainers: Vec<std::thread::JoinHandle<()>>,
+    /// The private X server this Chrome draws into, when one was started.
+    ///
+    /// Owned here so the ordering is the only one that is safe: this struct
+    /// reaps Chrome, and the field drops afterwards, so the display always
+    /// outlives the browser drawing into it. Killing the server first would
+    /// take Chrome down with it and turn an orderly teardown into a crash.
+    ///
+    /// It also means the display cannot leak by being forgotten at a call
+    /// site: whoever owns the browser owns the screen it renders on.
+    xvfb: Option<crate::native::cdp::xvfb::XvfbGuard>,
 }
 
 impl ChromeProcess {
@@ -34,7 +44,21 @@ impl ChromeProcess {
             child: Some(child),
             pgid,
             log_drainers,
+            xvfb: None,
         }
+    }
+
+    /// Hand the private display to the process that renders into it.
+    ///
+    /// Separate from [`Self::new`] so the twelve call sites that never start a
+    /// display do not have to name the field.
+    #[must_use]
+    pub fn with_private_display(
+        mut self,
+        xvfb: Option<crate::native::cdp::xvfb::XvfbGuard>,
+    ) -> Self {
+        self.xvfb = xvfb;
+        self
     }
 
     /// Kill and reap the child (idempotent). Safe to call from Drop.

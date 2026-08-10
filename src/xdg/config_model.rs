@@ -30,6 +30,78 @@ pub struct ProductConfig {
     /// Tracing filter level when flags are quiet/default (`error`/`info`/`debug`).
     #[serde(default)]
     pub log_level: Option<String>,
+    /// Default `--input-profile` (`human` | `direct`).
+    ///
+    /// The flag still wins; this is what an operator sets once instead of
+    /// repeating `--input-profile direct` on every invocation.
+    pub input_profile: Option<String>,
+    /// Window mode when no flag decides: `auto` | `headed` | `headless`.
+    ///
+    /// `auto` is headed inside a private Xvfb on Linux and headed directly on
+    /// macOS and Windows. Deliberately not an environment variable: window mode
+    /// changes the fingerprint, so it belongs in a file an operator can audit.
+    #[serde(default)]
+    pub browser_mode: Option<String>,
+    /// Whether anti-detection patches run. Default on; `--no-stealth` opts out.
+    #[serde(default)]
+    pub stealth: Option<bool>,
+    /// Impersonated identity: `auto` | `chrome-linux` | `chrome-win` | `chrome-mac`.
+    ///
+    /// `auto` follows the host, which is the only value that cannot contradict
+    /// the Canvas and WebGL hashes the real GPU produces.
+    #[serde(default)]
+    pub stealth_profile: Option<String>,
+    /// Egress proxy URL for both Chrome and the HTTP engine.
+    #[serde(default)]
+    pub proxy_url: Option<String>,
+    /// Hosts bypassing the proxy, in Chrome's bypass-list syntax.
+    #[serde(default)]
+    pub proxy_bypass: Option<String>,
+    /// Always bypass loopback when `--proxy` is set, so the CDP control
+    /// channel is not routed through the proxy (default true).
+    #[serde(default)]
+    pub cdp_proxy_bypass_loopback: Option<bool>,
+    /// Proxy username. XDG only: argv is visible in the host process table.
+    #[serde(default)]
+    pub proxy_username: Option<String>,
+    /// Proxy password. XDG only, for the same reason as [`Self::proxy_username`].
+    #[serde(default)]
+    pub proxy_password: Option<String>,
+    /// Seed pinning the stealth identity across processes.
+    ///
+    /// Absent means the identity is redrawn per process, which is the historical
+    /// behaviour. Present means the generated patch script is cached under XDG
+    /// state so N one-shot runs present one machine instead of N.
+    #[serde(default)]
+    pub stealth_seed: Option<String>,
+    /// Negotiate HTTP/2 on the shared HTTP client.
+    ///
+    /// On by default: Chrome always offers `h2` in ALPN, so an HTTP/1.1-only
+    /// client announces itself as a non-browser before any header is sent.
+    #[serde(default)]
+    pub http2_enabled: Option<bool>,
+    /// HTTP/2 `SETTINGS_INITIAL_WINDOW_SIZE` advertised to the peer.
+    #[serde(default)]
+    pub http2_initial_stream_window_size: Option<u32>,
+    /// HTTP/2 connection-level flow-control window.
+    #[serde(default)]
+    pub http2_initial_connection_window_size: Option<u32>,
+    /// HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE`.
+    #[serde(default)]
+    pub http2_max_header_list_size: Option<u32>,
+    /// HTTP/2 `SETTINGS_MAX_FRAME_SIZE`.
+    #[serde(default)]
+    pub http2_max_frame_size: Option<u32>,
+    /// Allow the HTTP/2 flow-control window to resize at runtime.
+    #[serde(default)]
+    pub http2_adaptive_window: Option<bool>,
+    /// User-agent token `robots.txt` rules are matched against.
+    ///
+    /// Exists because stealth sends a browser User-Agent while the product's own
+    /// identity string stays honest. Matching robots against the wrong token
+    /// would read the wrong rules, so the token is explicit rather than implied.
+    #[serde(default)]
+    pub robots_user_agent: Option<String>,
     /// Absolute path to Chrome/Chromium binary (XDG only; never product env).
     #[serde(default)]
     pub chrome_path: Option<String>,
@@ -150,6 +222,9 @@ pub struct ProductConfig {
     /// Collapse near-duplicate pages by content similarity.
     #[serde(default)]
     pub scrape_dedup_similar: Option<bool>,
+    /// Ignore the response cache on read and always go to origin.
+    #[serde(default)]
+    pub scrape_no_cache: Option<bool>,
     /// SimHash Hamming distance under which pages count as near-duplicates.
     #[serde(default)]
     pub scrape_dedup_similar_distance: Option<u64>,

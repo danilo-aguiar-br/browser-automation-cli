@@ -10,3 +10,4 @@
 
 mod spawn;
 mod state;
+mod stealth;

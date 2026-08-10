@@ -1,6 +1,6 @@
 [package]
 name = "browser-automation-cli"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 rust-version = "1.88.0"
 authors = ["Danilo Aguiar <daniloaguiarbr@proton.me>"]
@@ -142,6 +142,18 @@ tokio-util = { version = "0.7", features = ["rt"] }
 # CPU-bound fan-out (sg scan, multi-file text); sized via concurrency::rayon_threads.
 rayon = "1.10"
 chromiumoxide = "0.9.1"
+# Anti-detection payloads: the pre-navigation JS that masks automation markers,
+# plus the Chrome identity tables (User-Agent, Client Hints brands, GPU vendor
+# and renderer strings) those patches have to stay consistent with.
+#
+# Adopted after measuring the graph rather than on reputation: it adds exactly
+# six crates this tree did not already have -- `case_insensitive_string`,
+# `castaway`, `compact_str`, `serde_urlencoded`, `static_assertions` and itself
+# -- and every one is pure Rust. No `*-sys`, no `cc` beyond what `ring` already
+# required, nothing for `natives-check.sh` to reject. Hand-writing the same JS
+# was the alternative and would have meant maintaining Chrome version tables,
+# GPU strings and brand lists by hand, which age silently.
+spider_fingerprint = "2.39"
 futures = "0.3"
 futures-util = "0.3"
 url = "2"
@@ -150,7 +162,43 @@ uuid = { version = "1", features = ["v4"] }
 # the graph). 0.13 split the old `rustls-tls-webpki-roots` feature into
 # `rustls` + `webpki-roots`; the combination is the same TLS stack (rustls with
 # bundled webpki roots, no native-tls).
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "webpki-roots", "stream", "blocking"] }
+#
+# `http2` is on for DETECTION, not throughput. ALPN is offered in the clear
+# during the TLS handshake and Chrome always lists `h2` there; a client built
+# without the protocol advertises `http/1.1` alone and has answered "not a
+# browser" before a single HTTP byte exists. The feature pulls the `h2` crate,
+# which is pure Rust — verified against the `*-sys` allowlist in
+# `scripts/natives-check.sh`, so it does not breach the no-C-toolchain rule.
+#
+# `gzip` + `brotli` + `deflate` + `zstd` are not throughput either: they are the
+# other half of a header this product already sends. The stealth identity
+# advertises `accept-encoding: gzip, deflate, br, zstd` because Chrome does, and
+# a client that advertises an encoding it cannot decode hands the caller a
+# gzip-framed byte string as if it were page text — with `ok: true` and exit 0.
+# Measured on five hosts before the fix: every `data.text` began with the `1f 8b`
+# gzip magic.
+#
+# Enabling them does NOT cost the disguise. reqwest 0.13 delegates to
+# `tower_http::decompression`, which inserts its own `Accept-Encoding` only when
+# the header is Vacant, and decompresses purely off the response's
+# `Content-Encoding`. The hand-written header therefore survives and the body
+# still arrives decoded.
+#
+# `cookies` closes the same class of defect one layer up: `--warmup` documented a
+# cookie-store side effect the client never had, so the warm-up was heating a
+# connection pool and nothing else.
+#
+# Dependency cost is zero. `flate2`, `brotli`, `async-compression`, `tower-http`
+# and `zstd-sys` are already in `Cargo.lock` via `hudsucker`, which is an
+# unconditional dependency below. No new C toolchain enters the graph; re-verify
+# with `scripts/natives-check.sh`.
+#
+# Held at 0.13.1 rather than 0.13.4 on purpose. Measured 2026-08-08:
+# `cargo update -p reqwest --precise 0.13.4` fails with "reqwest does not have
+# that feature" for `webpki-roots`, which 0.13.4 folded away. Taking the bump
+# means re-deciding where the trust roots come from, and there is no defect in
+# 0.13.1 that would pay for that. Revisit deliberately, not as a version bump.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "webpki-roots", "stream", "blocking", "http2", "gzip", "brotli", "deflate", "zstd", "cookies"] }
 sha2 = "0.10"
 aes-gcm = "0.10"
 # Wipe derived session encryption keys on stack before drop (rules: sensitive memory zeroize).
@@ -205,6 +253,12 @@ petgraph = "0.7"
 rusqlite = { version = "0.32", features = ["bundled"] }
 rcgen = "0.14.8"
 hudsucker = "0.25.0"
+# Reading an intercepted body needs `BodyExt::collect`, which hudsucker does not
+# re-export. Both crates are already in `Cargo.lock` as transitive deps of
+# hudsucker itself, so declaring them adds no compilation unit and no C: this
+# only makes an existing edge visible to the build.
+http-body-util = "0.1"
+bytes = "1"
 lopdf = "0.44"
 zip = { version = "8.2.0", default-features = false, features = ["deflate"] }
 # 0.36 is required to pull quick-xml >= 0.41, which closes RUSTSEC-2026-0194 and
@@ -221,6 +275,41 @@ rqrr = "0.9"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 # Pure-Rust EXIF reader for `image info` / `image exif` (no FFI; multiplatform).
 kamadak-exif = "0.6"
+# ── A known portability bug we are deliberately NOT pinning around ──────────
+#
+# `image`'s `jpeg` feature pulls `zune-jpeg`. In 0.5.15 — the current stable —
+# `mcu_prog.rs` calls `warn!(...)` with no trailing semicolon, while
+# `zune-core`'s `__warn!` expands to `#[cfg(feature = "std")] { }`. That is an
+# attribute on a block: a statement, not an expression. The file compiles only
+# on toolchains that still tolerate it. `rust-toolchain.toml` pins 1.88.0 here,
+# which is precisely why the breakage is invisible on this host and fatal on a
+# macOS host with a newer toolchain. A pinned toolchain was hiding a real
+# portability bug.
+#
+# The fix exists upstream. Measured on 2026-08-08 by extracting both crates:
+# the pattern occurs once in `0.5.15/src` and zero times in `0.5.16-rc1/src`,
+# where the call now ends in a semicolon.
+#
+# It is nevertheless unreachable, and the attempt is recorded so nobody spends
+# the afternoon again:
+#
+#   * `zune-jpeg = "=0.5.16-rc1"` as a direct dependency does NOT unify. Cargo
+#     will not let a pre-release satisfy `image`'s `^0.5` requirement, so it
+#     resolved by DOWNGRADING `image` 0.25.10 → 0.25.8, which depends on
+#     `zune-jpeg` 0.4.21. Measured result: two copies of `zune-jpeg` in the
+#     lock, the broken 0.5.15 replaced by an older 0.4.21, and the pinned rc1
+#     sitting in the graph used by nobody. Strictly worse than doing nothing.
+#   * `[patch.crates-io]` is not carried to consumers. Anyone running
+#     `cargo install browser-automation-cli` would still build the broken file,
+#     so it fixes the maintainer's laptop and not the product.
+#   * Dropping the `jpeg` feature removes the crate, and with it
+#     `image convert --format jpeg` and JPEG resize. Losing a shipped feature
+#     to work around someone else's missing semicolon is the wrong trade.
+#
+# So the limit is declared instead of papered over: `doctor` reports it under
+# `jpeg_decoder_toolchain`, and it closes by itself the day 0.5.16 goes stable
+# and `cargo update` picks it up. Re-verify with:
+#   cargo tree -i zune-jpeg   # expect a single 0.5.x
 
 # ── Optional pure-Rust media codecs / parsers (Wave 6) ─────────────────────
 # Every crate below was probed with `cargo tree -i cc` and `cargo tree -i nasm-rs`
@@ -300,12 +389,20 @@ fast_image_resize = { version = "6.1", features = ["image"], optional = true }
 # fetch stack (reqwest + tokio + decryption helpers) that duplicates ours.
 m3u8-rs = { version = "6.0", optional = true }
 dash-mpd = { version = "0.20", default-features = false, optional = true }
-# Embedded OCR (ocrs + rten) is NOT declared here. It clears the no-C-toolchain
-# bar and needs no runtime download — models are operator-supplied `.rten` files —
-# but every rten release from 0.22 onward requires rustc 1.89, above this crate's
-# declared `rust-version = "1.88.0"`. Raising the product MSRV is not a codec
-# decision, so the dependency stays out until that call is made deliberately.
-# See `src/image_local/ocr_rs.rs` for the refusal path an agent actually hits.
+# Embedded text recognition is NOT declared here and never will be. This is a
+# product rule, not a dependency trade-off: every agent that drives this CLI —
+# Claude, Grok, Gemini — reads images natively, so shipping a second, worse
+# reader inside the tool duplicates a capability the caller already has and then
+# has to be kept current forever.
+#
+# The note that stood here until 2026-08-10 framed the omission as deferred,
+# blocked on an MSRV bump, and pointed at `src/image_local/ocr_rs.rs` for "the
+# refusal path". That file does not exist and never did. A comment describing a
+# decision that was never taken, citing a file that was never written, is the
+# same defect class as documentation that contradicts the code — it sends the
+# next reader looking for a door in a wall.
+#
+# `image info` and `image exif` return metadata; pixels go to the agent.
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -324,7 +421,8 @@ windows-sys = { version = "0.52", features = [
 # Optional locale packs beyond MVP en + pt-BR (rules: never ship top-20 by default).
 [features]
 # Sensible default: the two media features that are pure-Rust, dependency-light,
-# and already 1.0+. AVIF/HEIC/SVG/OCR stay opt-in — see each feature's note.
+# and already 1.0+. AVIF/HEIC/SVG stay opt-in — see each feature's note. Text
+# recognition is not on this list because it is not a feature of this product.
 default = ["image-simd-resize", "media-manifest"]
 # AVIF encode via ravif (decode is impossible without a C assembler — see deps).
 # Off by default: rav1e is a large compile unit and most agents never emit AVIF.
@@ -352,6 +450,13 @@ tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
 proptest = "1"
+# Fixture COMPRESSORS for `tests/compression_gate.rs`. Test-only: the product
+# never compresses, it only decodes what a server sent. Both crates are already
+# in the lock via the runtime graph, so this adds nothing to a release build —
+# it just lets the gate build a body the same way a real server would, instead
+# of pinning a checked-in blob nobody can re-derive.
+flate2 = "1"
+brotli = "8"
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 
 [[bench]]

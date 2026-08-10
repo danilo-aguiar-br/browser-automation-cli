@@ -61,6 +61,7 @@ fn spawn_proxy(
     ca: RcgenAuthority,
     port: u16,
     capture: SharedCapture,
+    intercept_hosts: Vec<String>,
 ) -> Result<
     (
         tokio::task::JoinHandle<()>,
@@ -68,7 +69,15 @@ fn spawn_proxy(
     ),
     CliError,
 > {
-    let handler = CaptureHandler { cap: capture };
+    let handler = CaptureHandler {
+        cap: capture,
+        slot: None,
+        body_policy: super::handler::BodyPolicy {
+            max_bytes: super::policy::max_body_bytes(),
+            skip_media: super::policy::skip_media(),
+        },
+        intercept_hosts: std::sync::Arc::new(intercept_hosts),
+    };
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     let proxy = Proxy::builder()
         .with_addr(loopback_socket_addr(port))
@@ -99,7 +108,8 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
     let capture = shared_capture()?;
     let port = bind_loopback_ephemeral()?;
     let seconds = seconds.clamp(1, MITM_PROXY_SECONDS_MAX);
-    let (proxy_task, tx) = spawn_proxy(ca, port, capture.clone())?;
+    // `mitm start` has no per-command host list; the global one still applies.
+    let (proxy_task, tx) = spawn_proxy(ca, port, capture.clone(), super::policy::hosts().to_vec())?;
 
     let cancel = crate::lifecycle::current_cancel();
     tokio::select! {
@@ -133,13 +143,19 @@ pub async fn capture_url_oneshot(
     url: &str,
     seconds: u64,
     har: Option<&std::path::Path>,
-    _hosts: Option<&str>,
+    hosts: Option<&str>,
 ) -> Result<Value, CliError> {
     let ca = build_authority().await?;
     let capture = shared_capture()?;
     let port = bind_loopback_ephemeral()?;
     let seconds = seconds.clamp(1, MITM_PROXY_SECONDS_MAX);
-    let (proxy_task, tx) = spawn_proxy(ca, port, capture.clone())?;
+    // Per-command `--hosts` wins; the global `--mitm-hosts` is the fallback so
+    // `scrape --mitm --mitm-hosts` can narrow interception too.
+    let intercept_hosts = match super::handler::parse_hosts(hosts) {
+        v if v.is_empty() => super::policy::hosts().to_vec(),
+        v => v,
+    };
+    let (proxy_task, tx) = spawn_proxy(ca, port, capture.clone(), intercept_hosts.clone())?;
 
     // Brief settle so accept loop is live before Chrome connects.
     tokio::time::sleep(std::time::Duration::from_millis(MITM_CHROME_SETTLE_MS)).await;
@@ -204,6 +220,7 @@ pub async fn capture_url_oneshot(
                     response_body: None,
                     host,
                     started_ms: now_ms(),
+                    finished_ms: None,
                 });
             }
         }
@@ -223,6 +240,7 @@ pub async fn capture_url_oneshot(
                     .ok()
                     .and_then(|p| p.host_str().map(|s| s.to_string())),
                 started_ms: now_ms(),
+                finished_ms: None,
             });
         }
     }
@@ -252,7 +270,14 @@ pub async fn capture_url_oneshot(
     if let Err(e) = &nav {
         out["nav_error"] = json!(e.message());
     }
-    if let Some(har_path) = har {
+    // Per-command `--har` wins; the global `--mitm-har` is the fallback, which
+    // is what makes that flag mean something outside `mitm har`.
+    // Owned so the global fallback (`'static`) and the per-command borrow can
+    // share one binding without tying the caller to the process lifetime.
+    let har: Option<std::path::PathBuf> = har
+        .map(std::path::Path::to_path_buf)
+        .or_else(|| super::policy::har_path().map(std::path::Path::to_path_buf));
+    if let Some(har_path) = har.as_deref() {
         let har_val = export_har(har_path, None)?;
         out["har"] = har_val;
     }

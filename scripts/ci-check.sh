@@ -104,6 +104,24 @@ step "cargo test (compile all targets)" \
 step "cargo test --tests (serial)" \
   cargo test --tests --all-features --quiet -- --test-threads=1
 
+# ── Lockfile freshness ──────────────────────────────────────────────────────
+# Every step above resolves dependencies WITHOUT `--locked`, so each one is free
+# to rewrite `Cargo.lock` and then succeed against the file it just wrote. That
+# makes a stale lockfile structurally invisible here.
+#
+# Measured 2026-08-06: the manifest was bumped to 0.1.8 while `Cargo.lock` still
+# carried 0.1.7. Ten local gates passed; `cargo build --release --locked` failed
+# with "the lock file needs to be updated but --locked was passed". The first
+# reader of that failure was the publish path, which is the worst place to learn
+# it.
+#
+# `--locked` is the whole point of this step: it forbids the implicit rewrite, so
+# the check fails on drift instead of quietly repairing it.
+lockfile_check() {
+  cargo build --locked --quiet
+}
+step "cargo build --locked (lockfile freshness)" lockfile_check
+
 # ── Binary smoke (clap debug_assert on the real argv tree) ───────────────────
 binary_smoke() {
   cargo run --quiet -- version --json >/dev/null &&

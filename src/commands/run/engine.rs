@@ -73,7 +73,7 @@ pub async fn run_script_with_flags(
                         "run step {idx} cmd={cmd} exceeded --step-timeout {}s",
                         flags.step_timeout_secs
                     ),
-                    "Raise --step-timeout / --timeout or split the script",
+                    crate::i18n::suggestion_key("raise_step_timeout", None),
                 )),
             }
         } else {

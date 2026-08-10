@@ -48,12 +48,16 @@
 //! | `parse` | local file parse |
 //! | `urls` | URL list file helpers |
 
+mod attributes;
 mod batch;
+mod block_detect;
+mod content_kind;
 mod crawl;
 mod crawl_frontier;
 mod crawl_map;
 mod dedup_similar;
 mod directives;
+mod disclosure;
 mod emit;
 mod encoding;
 mod error_page;
@@ -75,15 +79,24 @@ mod project;
 mod rel_next;
 mod scheme;
 mod search;
+mod shape;
 mod simhash;
 mod sitemap;
 mod types;
 mod urls;
+mod warmup;
 
 #[cfg(test)]
 mod tests;
 
 pub use batch::batch_scrape_http;
+// Only the aliases something actually calls are re-exported. `detect` and
+// `classify` are reached through their module path (`block_detect::detect`,
+// `content_kind::classify`) by every call site in `http.rs`, so re-exporting
+// them under a second name creates a public symbol nothing needs — and one the
+// compiler will never flag, because `pub use` counts as "used by the API".
+pub use block_detect::{detect_in_body, detect_in_page, BlockDetection, BlockPhase};
+pub use content_kind::ContentKind;
 pub use crawl::crawl_http;
 pub use crawl_map::map_http;
 pub use dedup_similar::dedup_similar_pages_envelope;
@@ -104,7 +117,9 @@ pub use project::{
 };
 pub use scheme::reject_non_http_scheme_for_http_engine;
 pub use search::search_http;
+pub use shape::{unify_scrape_shape, unify_single_format_shape};
 pub use simhash::SimHash;
 pub use sitemap::{discover_sitemap_urls, parse_sitemap_xml};
 pub use types::{ScrapeFormat, ScrapeOpts, HTTP_USER_AGENT};
 pub use urls::read_urls_file;
+pub(crate) use warmup::origin_root_of;

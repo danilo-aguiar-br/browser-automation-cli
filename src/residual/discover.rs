@@ -13,6 +13,55 @@ use super::constants::{
 };
 use super::roots::residual_scan_roots;
 
+/// Resolve the `/tmp/org.chromium.Chromium.*` directory Chrome made for THIS
+/// launch, by reading the symlink Chrome leaves inside our own profile.
+///
+/// # Why the heuristic scan was not enough
+///
+/// A unix socket path is capped near 108 bytes, and this product's profile
+/// path — an XDG cache dir plus a UUID — blows past that. So Chrome puts the
+/// real `SingletonSocket` in a short `/tmp` directory and drops a symlink to
+/// it in the profile. That directory is never inside the profile, so wiping
+/// the profile does not touch it.
+///
+/// [`discover_owned_chromium_tmp_side_channels`] tried to claim it by scanning
+/// and matching, and measured against a live launch it claimed nothing: the
+/// directory names the pid nowhere, names the profile nowhere, and Chrome
+/// creates it during startup — before the launch timestamp the scan compares
+/// against. The result was one leaked directory per browser launch, counted by
+/// `chromium_tmp_singleton_orphans` and cleaned by nobody.
+///
+/// The symlink removes every guess. It is written by Chrome, it lives in a
+/// profile this process created under a UUID no other process can name, and it
+/// points at exactly one directory. Ownership is proven rather than inferred.
+///
+/// # Why the target is still checked
+///
+/// The return value is fed to a recursive delete. A symlink is attacker-
+/// writable in principle, so the target must look like a Chromium temp
+/// directory, be owned by this uid, and sit under a scan root this product
+/// already claims. A path that fails any of those is returned as `None` and
+/// left alone — leaking a directory is a smaller harm than deleting one that
+/// belongs to somebody else.
+///
+/// Must be called while the profile still exists: FINALIZE wipes the profile,
+/// and the symlink goes with it.
+#[must_use]
+pub fn owned_chromium_tmp_dir_via_profile(profile: &Path) -> Option<PathBuf> {
+    let target = std::fs::read_link(profile.join("SingletonSocket")).ok()?;
+    let dir = target.parent()?;
+    if !is_chromium_tmp_name(&dir.file_name()?.to_string_lossy()) {
+        return None;
+    }
+    if !residual_scan_roots().iter().any(|r| dir.starts_with(r)) {
+        return None;
+    }
+    if !owned_by_current_user(dir) {
+        return None;
+    }
+    Some(dir.to_path_buf())
+}
+
 /// Discover Chromium side-channel paths that belong to this launch (GAP-020).
 ///
 /// Scans OS temp (Chromium side-channels) and XDG chrome-profiles (product
