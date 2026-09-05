@@ -17,13 +17,9 @@
 #![cfg(feature = "media-manifest")]
 
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 
-use std::io::Write;
-
-fn bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_browser-automation-cli"))
-}
+mod common;
+use common::run_json_stdin;
 
 const MASTER: &str = "#EXTM3U\n\
 #EXT-X-STREAM-INF:BANDWIDTH=1280000,RESOLUTION=720x480,CODECS=\"avc1.4d401f\"\n\
@@ -40,37 +36,27 @@ seg1.ts\n\
 seg2.ts\n\
 #EXT-X-ENDLIST\n";
 
-/// Write a fixture into the test's own temp dir and return its path.
-fn fixture(name: &str, body: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join("bac-video-manifest-cli");
-    std::fs::create_dir_all(&dir).expect("fixture dir");
-    let path = dir.join(name);
+/// Write a fixture into a scratch dir and return the guard with its path.
+///
+/// The guard is returned rather than dropped here because dropping it removes
+/// the directory: a caller that binds only the path would hand the CLI a file
+/// that no longer exists. Bind it as `_tmp`, never as `_`, which drops at once.
+///
+/// The directory used to be the fixed `bac-video-manifest-cli` with no removal,
+/// so it outlived every run and was shared by all five cases.
+fn fixture(name: &str, body: &str) -> (tempfile::TempDir, PathBuf) {
+    let tmp = tempfile::Builder::new()
+        .prefix("bac-video-manifest-cli-")
+        .tempdir()
+        .expect("fixture dir");
+    let path = tmp.path().join(name);
     std::fs::write(&path, body).expect("write fixture");
-    path
-}
-
-fn run_json(args: &[&str], stdin_body: Option<&str>) -> serde_json::Value {
-    let mut cmd = Command::new(bin());
-    cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::null());
-    if stdin_body.is_some() {
-        cmd.stdin(Stdio::piped());
-    }
-    let mut child = cmd.spawn().expect("spawn browser-automation-cli");
-    if let Some(body) = stdin_body {
-        child
-            .stdin
-            .as_mut()
-            .expect("stdin pipe")
-            .write_all(body.as_bytes())
-            .expect("feed stdin");
-    }
-    let out = child.wait_with_output().expect("collect output");
-    serde_json::from_slice(&out.stdout).expect("stdout must be a JSON envelope")
+    (tmp, path)
 }
 
 #[test]
 fn manifest_is_an_advertised_video_action() {
-    let v = run_json(&["--json", "schema", "video"], None);
+    let v = run_json_stdin(&["--json", "schema", "video"], None);
     let actions = v
         .pointer("/data/schema/properties/action/enum")
         .and_then(serde_json::Value::as_array)
@@ -83,8 +69,8 @@ fn manifest_is_an_advertised_video_action() {
 
 #[test]
 fn a_master_playlist_reports_its_variant_ladder() {
-    let path = fixture("master.m3u8", MASTER);
-    let v = run_json(
+    let (_tmp, path) = fixture("master.m3u8", MASTER);
+    let v = run_json_stdin(
         &[
             "--json",
             "video",
@@ -102,8 +88,8 @@ fn a_master_playlist_reports_its_variant_ladder() {
 
 #[test]
 fn a_media_playlist_summarises_instead_of_dumping_segments() {
-    let path = fixture("media.m3u8", MEDIA);
-    let v = run_json(
+    let (_tmp, path) = fixture("media.m3u8", MEDIA);
+    let v = run_json_stdin(
         &[
             "--json",
             "video",
@@ -123,7 +109,7 @@ fn a_media_playlist_summarises_instead_of_dumping_segments() {
 
 #[test]
 fn stdin_and_base_url_absolutise_relative_uris() {
-    let v = run_json(
+    let v = run_json_stdin(
         &[
             "--json",
             "video",
@@ -143,8 +129,8 @@ fn stdin_and_base_url_absolutise_relative_uris() {
 
 #[test]
 fn select_projects_the_manifest_envelope() {
-    let path = fixture("master.m3u8", MASTER);
-    let v = run_json(
+    let (_tmp, path) = fixture("master.m3u8", MASTER);
+    let v = run_json_stdin(
         &[
             "--json",
             "video",
@@ -166,8 +152,8 @@ fn select_projects_the_manifest_envelope() {
 
 #[test]
 fn a_body_that_is_neither_dialect_fails_closed() {
-    let path = fixture("not-a-manifest.txt", "just some prose\n");
-    let v = run_json(
+    let (_tmp, path) = fixture("not-a-manifest.txt", "just some prose\n");
+    let v = run_json_stdin(
         &[
             "--json",
             "video",
@@ -182,8 +168,8 @@ fn a_body_that_is_neither_dialect_fails_closed() {
 
 #[test]
 fn path_and_stdin_together_are_a_usage_error() {
-    let path = fixture("master.m3u8", MASTER);
-    let v = run_json(
+    let (_tmp, path) = fixture("master.m3u8", MASTER);
+    let v = run_json_stdin(
         &[
             "--json",
             "video",

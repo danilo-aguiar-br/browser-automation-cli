@@ -190,7 +190,14 @@ where
 
     rt.block_on(async move {
         let cancel_for_signal = cancel.clone();
-        tokio::spawn(async move {
+        // Bound to a NAMED guard, so the signal task dies with THIS call instead
+        // of with the runtime. A bare `tokio::spawn` DETACHES: with one runtime
+        // per call the teardown collected it, which hid the real constraint —
+        // the primitive could not be called in a loop over a SHARED runtime,
+        // because N calls would leave N tasks parked in `shutdown_signal()`.
+        // That, and not the cost of the runtime, is what blocked hoisting a
+        // single runtime out of the batch, crawl and offline loops.
+        let _signal_task = AbortOnDrop::new(tokio::spawn(async move {
             let first = shutdown_signal().await;
             tracing::warn!(
                 trigger = first.as_str(),
@@ -205,7 +212,7 @@ where
             if let Some(life) = life_for_signal {
                 life.finalize();
             }
-        });
+        }));
 
         if timeout_secs == 0 {
             tokio::select! {
@@ -230,9 +237,92 @@ where
     })
 }
 
+/// A spawned task that is aborted when this handle is dropped.
+///
+/// # Why dropping the bare `JoinHandle` is not enough
+///
+/// In Tokio, dropping a `JoinHandle` DETACHES the task; it does not cancel it.
+/// A background loop whose only brake is an `abort()` call further down the
+/// function therefore survives every path that never reaches that call — and
+/// the path that matters here is cancellation.
+///
+/// On SIGINT, [`block_on_with_shutdown`] resolves its `select!` on the cancel
+/// branch and DROPS the work future. Every `abort()` written after the awaited
+/// work is skipped, the handle is dropped, and the loop keeps running detached
+/// against a browser the process is trying to shut down. It stops only when
+/// `shutdown_timeout` tears the runtime down, and a loop still issuing CDP
+/// commands during FINALIZE is exactly what a clean shutdown must not do.
+///
+/// Wrapping the handle moves the abort into `Drop`, so it fires on all four
+/// paths — success, error, timeout and abandonment — instead of the three a
+/// human remembered to write.
+///
+/// `abort()` is still asynchronous: it schedules cancellation at the task's
+/// next await point. That is sufficient here, because the loops this guards
+/// await a sleep on every iteration.
+pub(crate) struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl AbortOnDrop {
+    /// Take ownership of `handle`, aborting its task when the guard is dropped.
+    pub(crate) fn new(handle: tokio::task::JoinHandle<()>) -> Self {
+        Self(handle)
+    }
+}
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Dropping the guard must stop the task; dropping a bare handle must not.
+    ///
+    /// Both halves are asserted, because only the contrast shows that the guard
+    /// is doing the work. A test on the guard alone would still pass if Tokio
+    /// had cancelled detached tasks all along, and would prove nothing.
+    #[test]
+    fn abort_on_drop_stops_a_loop_that_a_bare_handle_leaves_running() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let rt = build_browser_runtime().expect("browser rt");
+        let slice = std::time::Duration::from_millis(5);
+        let settle = std::time::Duration::from_millis(120);
+
+        let spawn_counting_loop = |counter: Arc<AtomicUsize>| {
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(slice).await;
+                    counter.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+        };
+
+        let (guarded, detached) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        rt.block_on(async {
+            drop(AbortOnDrop::new(spawn_counting_loop(Arc::clone(&guarded))));
+            drop(spawn_counting_loop(Arc::clone(&detached)));
+            tokio::time::sleep(settle).await;
+        });
+
+        let (g, d) = (
+            guarded.load(Ordering::SeqCst),
+            detached.load(Ordering::SeqCst),
+        );
+        assert_eq!(
+            g, 0,
+            "guarded loop ran {g} times after its guard was dropped"
+        );
+        assert!(
+            d > 0,
+            "the detached loop never ran, so this test proves nothing about the guard"
+        );
+        shutdown_runtime(rt);
+    }
 
     #[test]
     fn browser_runtime_builds() {

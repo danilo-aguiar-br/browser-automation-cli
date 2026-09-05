@@ -25,6 +25,13 @@ impl RobotsPolicy {
     }
 
     /// Build policy from CLI flags. Ignore only when both flags are set.
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::Usage`] when exactly one of the two flags is present:
+    /// `--ignore-robots` without `--i-accept-robots-risk`, or the reverse. Both
+    /// carry the `robots_dual` suggestion. Bypassing robots takes two explicit
+    /// flags, so a single one is never enough and never silently honoured.
     pub fn from_flags(ignore_robots: bool, accept_risk: bool) -> Result<Self, CliError> {
         match (ignore_robots, accept_risk) {
             (false, false) => Ok(Self::Honor),
@@ -142,7 +149,7 @@ pub fn scheme_skips_robots(url: &str) -> bool {
         || lower.starts_with("file:")
         || lower.starts_with("data:")
         || lower.starts_with("blob:")
-        || lower == "about:blank"
+        || lower == crate::constants::ABOUT_BLANK
 }
 
 /// Check URL against robots.txt body for a user-agent using DefaultMatcher.

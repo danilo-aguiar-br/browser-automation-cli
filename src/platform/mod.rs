@@ -32,7 +32,8 @@ mod tests;
 pub use console::configure_console;
 pub use host::HostEnvironment;
 pub use path_util::{
-    first_existing_executable, is_executable_file, probe_binary_version, which_bin,
+    create_private_file, first_existing_executable, is_executable_file, probe_binary_version,
+    restrict_to_owner, which_bin,
 };
 pub use process_util::{
     arg_contains_nul, is_spawn_safe_binary, run_capture_with_timeout, wait_child_or_kill,

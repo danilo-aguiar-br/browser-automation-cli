@@ -33,11 +33,13 @@
 //! | `proxy` | oneshot start + capture_url windows |
 
 mod analyze;
+mod body;
 mod ca;
 mod handler;
 mod har;
 pub mod policy;
 mod proxy;
+mod redact;
 mod store;
 mod types;
 mod util;

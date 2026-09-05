@@ -23,8 +23,8 @@
 - Helpers de golden i18n e cold-start (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Cobertura e2e opcional de eventos CDP quando Chrome está disponível (`tests/e2e_cdp_events.rs`)
 - Script e2e completo das **53 tools** DevTools (nome legado do arquivo): `scripts/e2e_all_52_tools.sh`
-- Inventário vivo da CLI é **69 nomes de agente** (`commands --json`) — mais amplo que o conjunto e2e de 53 tool-ref; inclui inventário de agente `select-option` e `pick` (run/exec/schema, não clap), meta `locale` e `man`, mais clap `submit` e `storage`
-- Gates de produto introduzidos na v0.1.7 e ainda vigentes na 0.1.8 (locais; Chrome serial quando necessário):
+- Inventário vivo da CLI é **71 nomes de agente** (`commands --json`) — mais amplo que o conjunto e2e de 53 tool-ref; inclui inventário de agente `select-option` e `pick` (run/exec/schema, não clap), meta `locale` e `man`, mais clap `submit` e `storage`
+- Gates de produto introduzidos na v0.1.7 e ainda vigentes na 0.1.9 (locais; Chrome serial quando necessário):
   - `tests/dialog_multitab_gate.rs` — isolamento multi-aba de diálogo + `dialog_settled` (GAP-054)
   - `tests/option_pick_gate.rs` — select nativo `input`+`change` (GAP-055)
   - `tests/wait_conditions_gate.rs` — honesty de prazo `wait_timeout_ms` (GAP-053)
@@ -33,6 +33,30 @@
 - Suite de integração residual: `tests/residual_one_shot.rs` (marker zero, não-crescimento de Singleton, wipe de fixture no BORN, campos residual no doctor)
 - Gates locais residual: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (só scripts locais do mantenedor)
 - Fixture vendored de tool-ref: `tests/fixtures/tool-reference.md`
+- A suíte EXIGE `--test-threads=1`; nada no código impõe isso
+- Medido: lançamentos concorrentes de Chrome produzem `SingletonLock: No such file or directory`, `No chromiumoxide Page for session_id` e `Page.navigate: Request timed out`
+- Serial também é mais rápido aqui: 101s serial contra 148s paralelo
+- Não existe dependência `serial_test` nem `#[serial]`, então `cargo test` puro, runner de IDE ou `cargo nextest` reproduzem essas falhas
+- A suíte também exige que NADA MAIS toque cargo sobre o mesmo `target/` enquanto ela roda
+- Medido em 2026-08-25: um `cargo run` lançado junto com a suíte reconstruiu `target/debug/browser-automation-cli` com features DEFAULT e trocou o binário em voo
+- Quatro gates de `tests/image_media_cli_e2e.rs` então falharam com `rebuild with the image-svg Cargo feature` — afirmação verdadeira sobre o artefato errado, que se lê como regressão de produto
+- `CARGO_BIN_EXE_*` NÃO protege contra isso: ele resolve em tempo de COMPILAÇÃO e garante qual build PRODUZIU o artefato, nunca quem sobrescreve esse caminho compartilhado depois
+- Vermelho que some na reexecução isolada diagnostica a medição, nunca o produto; reexecute o teste falho sozinho antes de concluir regressão
+- Este projeto usa ZERO `#[ignore]` INCONDICIONAL, deliberadamente: libtest reporta teste ignorado como `ok`, o mesmo falso verde que um skip produz
+- A árvore carrega NOVE atributos `#[cfg_attr(…, ignore = …)]` em três arquivos de teste, e exatamente dois deles ignoram SOB `--all-features`: os `#[cfg_attr(feature = "…", ignore = "feature is on in this build")]` de `tests/image_wave6_codecs.rs` e `tests/video_manifest_hls_dash.rs`
+- Os outros sete têm a forma `not(feature = "…")`, que sob `--all-features` não ignora nada; contagem afirmada sem o predicado que a mede conta o que o BUILD ignora e se lê como o que a ÁRVORE contém, e fica falsa na primeira feature nova
+- Os dois asserem o comportamento fail-closed de um build SEM a feature, então sob `--all-features` a asserção é inalcançável por construção e o teste ainda roda de verdade no build que ele descreve
+- É a mesma distinção que `strict-gates` faz: inalcançável por construção é desculpado, ferramenta ausente não é
+- Teste que não pode rodar declina por `skip_with_reason` ou `skip_with_remedy` (`tests/common/mod.rs`), nunca por `eprintln!` cru
+- Sob `--features strict-gates` esses helpers dão `panic!` em vez de retornar, então gate que declina FALHA em vez de reportar pass
+- `scripts/ci-check.sh` roda com `--all-features`, o que liga `strict-gates`
+- Declínio no lado unit usa `skip_unit_test` (`src/test_utils.rs`)
+- Como declinar ali é falhar, `strict-gates` transforma toda ferramenta de host que um teste precisa em PRÉ-REQUISITO DURO
+- Exigido no PATH para um run verde com `--all-features`: um Chrome ou Chromium que `find_chrome` resolva, `ffmpeg`, `ffprobe`, `Xvfb` (Linux), `/bin/sh` e `redis-server`
+- `redis-server` guarda apenas `redis_real_server_if_present` (`src/cache/tests.rs`); o eixo do protocolo RESP em si é sempre coberto in-process por `redis_roundtrip_via_resp_mock`, que não precisa de binário externo
+- Medido no Fedora 44: `dnf install redis` resolve para `valkey` mais `valkey-compat-redis`, que fornece `/usr/bin/redis-server` e satisfaz o gate sem alteração
+- Ferramenta ausente NÃO é desculpada de propósito: instalá-la torna a asserção alcançável, e essa é a distinção que `strict-gates` existe para impor
+- A forma oposta — asserção inalcançável por construção, como o host já ocupar o display que o teste precisa livre — declina com `eprintln!` cru mais justificativa escrita (`src/native/cdp/xvfb/spawn.rs`)
 
 
 ## Como Rodar
@@ -72,7 +96,7 @@ bash scripts/e2e_all_52_tools.sh
 - A suite de 52-tools não substitui smokes residuais de comandos fora do conjunto tool-ref
 
 
-## Gates Residual-Zero de Disco (lei da v0.1.5 — ainda corrente na 0.1.8)
+## Gates Residual-Zero de Disco (lei da v0.1.5 — ainda corrente na 0.1.9)
 ```bash
 cargo build --release --locked
 cargo test --lib residual:: --locked
@@ -108,12 +132,12 @@ bash scripts/residual-check.sh
 - `scrape_step_gate`: scrape em run com `format=text` sem dump de HTML (GAP-057)
 - Lighthouse e2e mock permanece SKIP; fixtures unit são o gate honesto do parser (GAP-021 parcial)
 - **Encode do `grab`:** só png|jpeg|webp; AVIF removido (breaking) — smokes residuais não devem passar `--format avif`
-- **Residual intencional GAP-024:** divergências wishlist de PRD ficam em `parity_intentional_divergences.json` (não alegue paridade PRD completa)
+- **Residual intencional GAP-024:** divergências wishlist de PRD seguem intencionais (não alegue paridade PRD completa)
 - **Não** trate dashboards remotos de orquestração como superfície de produto; use só cargo local e `scripts/*-check.sh`
 
 
 ## Famílias de Gate Sob tests/
-- `tests/` tem 68 arquivos de gate de integração, cada um rodado com `cargo test --test <name> --locked`
+- `tests/` tem 67 arquivos de gate de integração, cada um rodado com `cargo test --test <name> --locked`
 - Cada família abaixo fecha uma classe de defeito, nunca um comando
 - Todo gate é local e não precisa de runner além do cargo
 - Um gate sem sua pré-condição faz SKIP em voz alta em vez de aprovar em silêncio
@@ -212,27 +236,27 @@ bash scripts/residual-check.sh
 - As linhas são só arquivos locais; este produto não tem telemetria remota
 
 
-## Inventário completo de agente (69)
+## Inventário completo de agente (71)
 
 Descubra ao vivo: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
-crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
-net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
-scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
+scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **67** (69 nomes de agente − 2 só-run).
+Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **69** (71 nomes de agente − 2 só-run).
 
-Gate local de honesty do inventário (sem GHA): após editar inventário ou listas planas, rode `bash scripts/inventory-flat-check.sh` (espera `commands --json` com **69** nomes incluindo `image`+`video`+`audio`+`record`).
+Gate local de honesty do inventário (sem GHA): após editar inventário ou listas planas, rode `bash scripts/inventory-flat-check.sh` (espera `commands --json` com **71** nomes incluindo `image`+`video`+`audio`+`record`).
 
 O gate agora se chama `scripts/inventory-flat-check.sh`. O nome antigo `scripts/verify-inventory-flat.sh` permanece como shim fino que delega para ele. Motivo: `scripts/ci-check.sh` descobre verificadores pelo glob `scripts/*-check.sh`, e o nome antigo nunca casava com esse glob, então o gate jamais rodou no bundle e os docs derivaram para a contagem obsoleta 67 enquanto o runner reportava verde.
 
 ## Smokes Residuais de PRD (além das 53 tools)
-Rode após o e2e ao validar o inventário completo de **69** nomes:
+Rode após o e2e ao validar o inventário completo de **71** nomes:
 
 ```bash
 # print-pdf artifact (one-shot + run)
@@ -327,7 +351,7 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 browser-automation-cli --json mitm init-ca
 # browser-automation-cli --json mitm capture-url https://example.com --seconds 15 --har /tmp/cap.har
 # browser-automation-cli --json mitm har --out /tmp/capture.har
-# browser-automation-cli --json mitm redact --secrets
+# browser-automation-cli --json mitm redact
 
 # config list-keys + redis honesty (no rediss)
 browser-automation-cli --json config list-keys
@@ -364,7 +388,7 @@ browser-automation-cli page new --help | rg isolated-context
 # browser-automation-cli --timeout 60 --json run --script /tmp/pdf.run.json
 # schema já coberto
 
-# locale / man meta + submit/storage/image/video/audio/record (inventário 69)
+# locale / man meta + submit/storage/image/video/audio/record (inventário 71)
 browser-automation-cli --json locale
 browser-automation-cli --json man >/tmp/browser-automation-cli.1
 browser-automation-cli --json schema submit
@@ -455,10 +479,35 @@ bash scripts/doc-coverage-check.sh
 - `scripts/ci-check.sh` descobre este gate pelo glob `scripts/*-check.sh`
 - `verifier-controls-check.sh` carrega 3 controles positivos deste gate
 - O script resolve o binário com o mesmo fallback de PATH pelo mesmo motivo
+- LIMITAÇÃO CONHECIDA de todo este conjunto de gates: nenhum gate de documentação EXECUTA bloco cercado
+- O `audit_bilingual_docs.sh` compara as invocações de CLI entre os dois idiomas e nunca as roda
+- Uma receita publicada que sai diferente de zero passa, portanto, por todos os gates de documentação
+- Medido em 2026-08-28: quatro receitas `run --script` do `docs/COOKBOOK.md` saíram diferente de zero com os cinco gates verdes
+- As causas foram elemento ausente da página alvo, contradição de perfil stealth que o produto recusa de propósito, e dois blocos supondo arquivos de entrada que eles nunca criam
+- NENHUMA era erro de chave de passo, então uma checagem estática de todo passo documentado contra `schema <comando>` não teria achado nenhuma delas
+- Essa checagem estática foi escrita e rodada sobre 327 passos documentados: ela produziu seis achados e os seis eram falsos positivos
+- Receita se verifica EXECUTANDO, e essa execução é manual hoje
+
+
+## Harness de Controles de Verificadores
+- `scripts/verifier-controls-check.sh` é o meta-gate: ele prova que os demais verificadores conseguem FALHAR
+- Lei do projeto: um controle que nunca falha é um verificador que não verifica
+- Cada controle copia a árvore de trabalho para um sandbox descartável e a muta
+- A mutação é escolhida para que o verificador sob teste TENHA de reportar falha
+- Um verificador que continua verde sob a própria mutação está cego, e o harness diz isso
+- `bash scripts/verifier-controls-check.sh` executa; o `ci-check.sh` também o descobre pelo glob `scripts/*-check.sh`
+- A contagem de controles é derivada em tempo de execução contando `^run_control `, nunca congelada em prosa
+- Este é o passo mais caro do pacote: uma cópia inteira da árvore por controle
+- A cópia usa `fd -H -I`, então caminhos escondidos pelas regras de ignore do git seguem presentes no sandbox
+- Sem o `-I` o sandbox ficava sem `docs_prd/`, `gaps.md` e `CLAUDE.md`, que é a cópia parcial contra a qual o próprio cabeçalho adverte
+- Matá-lo no meio deixa um diretório `bac-verifier-control-*` para trás, porque a limpeza só roda nos caminhos de retorno
 
 
 ## Escala da Suíte Completa de Verificadores
-- `scripts/` tem **42** arquivos `.sh` de topo; `tests/` tem **68** arquivos `.rs` de gate
+- `scripts/` tem **44** arquivos `.sh` de topo; `tests/` tem **92** arquivos `.rs` de gate
+- Medido em 2026-09-01 com `fd -d 1 -e sh . scripts/` e `fd -d 1 -e rs . tests/`
+- `tests/doc_measured_claims_gate.rs` remede os dois, porque o par de 2026-08-28 dizia 42 e 73 e envelheceu sem ninguém notar
+- O `-d 1` faz parte da medição e não é enfeite: sem ele a contagem de `scripts/` alcança subdiretórios e devolve 45
 - `bash scripts/ci-check.sh` é o runner local do bundle
 - Ele descobre sozinho todo `scripts/*-check.sh` executável por esse glob
 - Um script cujo nome não termina em `-check.sh` nunca entra no bundle e precisa ser invocado pelo nome
@@ -482,15 +531,14 @@ bash scripts/doc-coverage-check.sh
 - `scripts/filesize-check.sh` — teto de 300 linhas de **código** por arquivo de produção; prosa de rustdoc não é código, então contar linhas físicas premiaria apagar documentação; exceções declaradas carregam versão de expiração e reprovam como qualquer outro arquivo depois dela
 - `scripts/orphan-module-check.sh` — todo `src/**/*.rs` deve ser alcançável a partir de uma raiz de crate; um arquivo que nenhum pai declara com `mod` fica ausente do binário enquanto build, clippy e a suíte inteira seguem verdes
 - `scripts/reachability-check.sh` — itens `pub use` sem call site sob `src/`; o lint `dead_code` para na fronteira do crate, então um item reexportado que ninguém chama permanece silencioso
+- `scripts/split-conservation-audit.sh` — recebe pares `<original.rs> <new_dir>` e asserta que toda linha significativa de um arquivo pré-split ainda existe sob o diretório que o substituiu; dividir `commands/ops/lighthouse.rs` apagou em silêncio um doc comment `pub(crate)` enquanto build, clippy, `cargo doc -D warnings` e a suíte inteira seguiam verdes, porque `missing_docs` dispara em documentação AUSENTE de item público e é cego a documentação APAGADA de item que ele não cobre
 
 
 ## Verificadores de Superfície e Paridade de Esquema
 - `scripts/clap-schema-parity-check.sh` — compara o **parser** clap contra o esquema publicado, o eixo que o `schema-drift-check.sh` estruturalmente não enxerga porque os dois lados dele derivam do mesmo módulo de esquema; medidos 29 flags aceitos pelo clap e ausentes do `schema`, incluindo o obrigatório `storage export --path`
-- `scripts/schema-drift-check.sh` — adaptador fino sobre o `--check` do gerador; o runtime é a fonte da verdade e `docs/schemas/*.json` é artefato derivado; a capacidade existia muito antes da ligação, e sete de 68 esquemas tinham derivado enquanto toda auditoria reportava verde
+- `scripts/schema-drift-check.sh` — adaptador fino sobre o `--check` do gerador; o runtime é a fonte da verdade e `docs/schemas/*.json` é artefato derivado; a capacidade existia muito antes da ligação, e sete esquemas tinham derivado enquanto toda auditoria reportava verde
 - `scripts/config-roundtrip-check.sh` — toda chave de `CONFIG_KEYS` precisa existir no gravador e no leitor (veja v0.1.8 abaixo)
 - `scripts/phantom-flag-gate.sh` — adaptador bash sobre `tests/phantom_flag_gate.rs` (veja v0.1.8 abaixo)
-- `scripts/parity-check.sh` — paridade DevTools em três camadas (nome, parâmetro, semântica); a árvore de referência e `docs_prd/` não são vendorizadas, e o gate faz **SKIP em voz alta** quando elas faltam em vez de aprovar em silêncio
-- `scripts/inventory_diff_base.sh` — nomes de tool da base de conhecimento ⊆ mapa da CLI ∪ `tests/fixtures/tool-reference.md`, com tabela explícita de aliases; faz SKIP quando o diretório da base está ausente
 
 
 ## Verificadores de Documentação e Localização
@@ -510,6 +558,7 @@ bash scripts/doc-coverage-check.sh
 ## Geradores (não são verificadores)
 - `scripts/gen-completions.sh` — congela completions de shell em `target/completions/` para empacotamento de distro; em runtime as completions continuam vindo de `browser-automation-cli completions <shell>`
 - `scripts/gen-llms-txt.sh` — regenera o bloco de inventário legível por máquina do `llms.txt` a partir de `commands --json` ao vivo, substituindo o bloco gerado anterior e deixando a prosa intacta
+- `scripts/gen-flag-reconciliation.sh` — reconcilia os flags que o PRD declara globais contra onde a capacidade de fato vive, classificando cada um como `global`, `local`, `xdg` ou `absent` (GAP-023); `xdg` deliberadamente NÃO é sinônimo de `global`, porque chave XDG é por host e não varia por invocação, então fundir os dois reportaria um gap como fechado enquanto o controle por invocação segue ausente
 - Nenhum dos dois asserta nada, então nenhum pertence ao glob `scripts/*-check.sh`
 
 
@@ -528,6 +577,36 @@ bash scripts/doc-coverage-check.sh
 - `scripts/doc-coverage-check.sh` — lê o binário vivo e reprova quando a prosa deriva da superfície viva de chaves ou de comandos; veja a seção própria acima para as sete asserções
 
 
+## Gates de Afirmação Contra o Binário
+- Estes quatro gates vivem em `tests/` e nenhum documento de `docs/` os descrevia até agora
+- Cada um compara uma afirmação escrita em prosa contra a superfície que o binário vivo publica
+### tests/doc_binary_numeral_gate.rs
+- Rode com `cargo test --test doc_binary_numeral_gate --locked`
+- Uma contagem de chaves de configuração escrita em prosa é uma afirmação que o binário resolve, e nada estava perguntando a ele
+- Medido em 2026-09-04: dezessete pontos da documentação publicada afirmavam uma contagem de 206 enquanto `config list-keys` devolvia 215, com todos os gates verdes
+- `scripts/doc-coverage-check.sh` valida COBERTURA, isto é, que cada chave viva apareça em `docs/CONFIGURATION.md`, e nunca lê o NUMERAL na prosa ao lado
+- Cobertura dos itens e afirmação sobre quantos itens existem são duas asserções diferentes, e só uma tinha dono
+### tests/root_doc_xdg_coverage_gate.rs
+- Rode com `cargo test --test root_doc_xdg_coverage_gate --locked`
+- Os documentos `llms-full` da raiz publicam a superfície XDG duas vezes, uma como NUMERAL e outra como ENUMERAÇÃO, e nada checava se as duas metades da mesma frase concordam entre si e com o binário
+- Medido em 2026-09-04: `llms-full.txt` anunciava uma superfície agrupada por família de 217 e enumerava apenas 205 abaixo dela, e `llms-full.pt-BR.txt` carregava o defeito idêntico em português
+- O numeral fora atualizado quando a superfície cresceu, e a lista embaixo dele não
+### tests/bilingual_flag_parity_gate.rs
+- Rode com `cargo test --test bilingual_flag_parity_gate --locked`
+- Um par traduzido que enumera flags DEVE enumerar as MESMAS flags
+- A flag global `--mitm-ws` estava listada em `README.md` e ausente de `README.pt-BR.md`
+- `scripts/audit_bilingual_docs.sh` imprimiu `Summary: ok=18 fail=0` antes e depois da correção, porque compara INVOCAÇÕES da CLI entre as duas metades e nunca olha uma flag enumerada num bullet de prosa
+- A forma geral é que um gate que verifica a PRESENÇA de um item nunca enxerga a ausência desse item do outro lado
+### tests/schema_input_drift_gate.rs
+- Rode com `cargo test --test schema_input_drift_gate --locked`
+- Todo `docs/schemas/<cmd>.schema.json` DEVE descrever a mesma superfície de ENTRADA que o binário vivo publica em `schema --cmd <cmd>`
+- A capacidade já existia como `scripts/generate_command_schemas.sh --check`, alcançada por `scripts/schema-drift-check.sh`
+- Um script de shell não é executado por `cargo test`, então nada no laço comum compara os dois lados e os arquivos envelheceram em silêncio
+- `docs/schemas/config.schema.json` não listava `user_data_dir` nem `input_typo_permille`, as duas chaves acrescentadas pela versão mais recente
+### O Fio que Une os Quatro
+- Os quatro nasceram do mesmo padrão: um gate que verifica a presença de um item nunca vê a ausência de outro, e um gate que lê um número nunca lê a lista ao lado dele
+
+
 ## Logging e Paths Durante Testes
 - Logging de produto na CLI sob teste: `--verbose` / `--debug` / `-q` ou XDG `config set log_level`
 - Defaults de cor via `config set color`
@@ -541,7 +620,7 @@ bash scripts/doc-coverage-check.sh
 - Falhas de schema gate: atualize código e `docs/schemas/` na mesma mudança
 - Drift de schema de comando: reexecute `bash scripts/generate_command_schemas.sh` após mudar `meta.rs`
 - Drift bilíngue de fences: reexecute `bash scripts/audit_bilingual_docs.sh` e alinhe blocos de comando EN e `.pt-BR`
-- Drift de inventário: reconcilie com `commands --json` (69) e `tests/fixtures/tool-reference.md` (53 tools)
+- Drift de inventário: reconcilie com `commands --json` (71) e `tests/fixtures/tool-reference.md` (53 tools)
 - Leaks residual de disco: reexecute `cargo test --test residual_one_shot` e `bash scripts/residual-check.sh`; inspecione `residual` do doctor
 - Drift de inventário run: atualize `RUN_DISPATCHED_CMDS` e reexecute `cargo test --test parity_run_inventory`
 - Falhas de clap assert: corrija `GlobalOpts` / definições de subcomando e reexecute `cargo test --test clap_command_debug_assert`

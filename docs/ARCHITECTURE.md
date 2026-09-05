@@ -4,7 +4,7 @@
 
 - One-shot Chrome CDP automation for AI agents
 - Lifecycle is always: BORN → EXECUTE → FINALIZE → DIE (single process; no daemon)
-- Full agent command list (**69** names): see [docs/HOW_TO_USE.md](HOW_TO_USE.md) and `browser-automation-cli commands --json`
+- Full agent command list (**71** names): see [docs/HOW_TO_USE.md](HOW_TO_USE.md) and `browser-automation-cli commands --json`
 
 ## Layers
 
@@ -39,14 +39,12 @@
 | Agent output ops | `src/agent_ops/` | eight universal operations applied over `data` before stdout |
 
 ## Residual product law (process + disk)
-
-Product law residual-zero covers **both** live Chrome trees and **disk** hygiene after DIE:
-
-1. **Process residual** — ledger-owned Chrome PID (Unix SIGTERM → grace → SIGKILL; Windows Job Object kill-on-close).
-2. **Marker residual** — CLI-owned temp profiles under `browser-automation-cli-chrome-*`.
-3. **Chromium tmp Singleton residual** — owned `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*` that are Singleton-only (or empty), same uid, with no live process holding the path.
-
-Never kill or wipe **host Flatpak** Chrome trees (for example `com.google.Chrome.*` temp prefixes). Cross-run GC is Singleton-shape + uid + age + no live holder only.
+- Residual-zero covers **both** live Chrome trees and **disk** hygiene after DIE
+- **Process residual** — ledger-owned Chrome PID (Unix SIGTERM → grace → SIGKILL; Windows Job Object kill-on-close)
+- **Marker residual** — CLI-owned temp profiles under `browser-automation-cli-chrome-*`
+- **Chromium tmp Singleton residual** — owned `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*` that are Singleton-only (or empty), same uid, with no live process holding the path
+- Never kill or wipe **host Flatpak** Chrome trees (for example `com.google.Chrome.*` temp prefixes)
+- Cross-run GC is Singleton-shape + uid + age + no live holder only
 
 ### Role of `src/residual/`
 
@@ -64,55 +62,49 @@ Never kill or wipe **host Flatpak** Chrome trees (for example `com.google.Chrome
 | **FINALIZE** (`Lifecycle::finalize`) | Ledger residual kill/wipe; re-discover invocation-window side-channels; `scavenge_owned_chromium_tmp_orphans`; **second** `scavenge_stale_singleton_orphans` |
 | **Drop** | Sync safety net calling the same idempotent finalize path |
 
-FINALIZE dual scavenge = invocation-window orphans **plus** stale Singleton GC so a one-shot cannot leave disk litter for the next process.
+- FINALIZE dual scavenge = invocation-window orphans **plus** stale Singleton GC so a one-shot cannot leave disk litter for the next process
 
 ### Doctor residual surface
-
-- Check id: `residual_disk` (path-light; no Chrome launch for the report itself).
-- Top-level doctor JSON field: `residual` (`ResidualDiskReport`).
-- Fields (all ten; a shorter list here used to disagree with the struct):
-  - `scanned_roots` — the roots this report actually walked; a zero without them is unfalsifiable
-  - `cli_marker_dirs` — count of `browser-automation-cli-chrome-*` under the scanned roots
-  - `chromium_tmp_singleton_orphans` — Singleton-only Chromium tmp that looks orphaned
-  - `scavenge_safe_candidates` — paths stale GC would wipe now (age ≥ 60s, owned, no live holder)
-  - `live_cli_marker_processes` — legacy per-process count; agents MUST NOT require zero
-  - `sibling_live_processes` — concurrent invocations; informational, never fails
-  - `orphan_marker_dirs` — marker dir past the age floor whose owner pid is dead
-  - `foreign_root_orphans` — held marker PROFILES outside the scanned roots
-  - `ghost_marker_processes` — live CLI browser whose marker profile dir is gone
-  - `process_table_unavailable` — enumeration failed, so every wipe is refused
-- Status: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; `warn` on marker dirs or
-  Singleton orphans; else `pass`. A live sibling invocation is healthy and never fails the check.
+- Check id: `residual_disk` (path-light; no Chrome launch for the report itself)
+- Top-level doctor JSON field: `residual` (`ResidualDiskReport`)
+- Fields (all ten; a shorter list here used to disagree with the struct)
+- `scanned_roots` — the roots this report actually walked; a zero without them is unfalsifiable
+- `cli_marker_dirs` — count of `browser-automation-cli-chrome-*` under the scanned roots
+- `chromium_tmp_singleton_orphans` — Singleton-only Chromium tmp that looks orphaned
+- `scavenge_safe_candidates` — paths stale GC would wipe now (age ≥ 60s, owned, no live holder)
+- `live_cli_marker_processes` — legacy per-process count; agents MUST NOT require zero
+- `sibling_live_processes` — concurrent invocations; informational, never fails
+- `orphan_marker_dirs` — marker dir past the age floor whose owner pid is dead
+- `foreign_root_orphans` — held marker PROFILES outside the scanned roots
+- `ghost_marker_processes` — live CLI browser whose marker profile dir is gone
+- `process_table_unavailable` — enumeration failed, so every wipe is refused
+- Status: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; `warn` on marker dirs or Singleton orphans; else `pass`
+- A live sibling invocation is healthy and never fails the check
 
 ### How a process is identified as a browser
-
-- Identity comes from the kernel-reported executable path, never from argv.
-- argv is written by the process itself; `sysinfo` documents `cmd[0]` as untrustworthy for this.
-- The predicate is split by consequence, because the same error costs opposite things:
-  - Verdict and reaping are STRICT — an unknown executable is never treated as a browser.
-  - Wipe protection is PERMISSIVE — anything that might hold a profile keeps it alive.
-- Known blind spot: sandbox wrappers report `bwrap` (Flatpak) or `snap` as the tree root, so the
-  strict counts under-report those roots. Under-reporting cannot fail a healthy host or signal an
-  innocent process, which is why the trade goes this way.
-
-Local maintainer gates (local maintainer scripts only): `scripts/residual-check.sh`, `scripts/residual-stress.sh`.
+- Identity comes from the kernel-reported executable path, never from argv
+- argv is written by the process itself; `sysinfo` documents `cmd[0]` as untrustworthy for this
+- The predicate is split by consequence, because the same error costs opposite things
+- Verdict and reaping are STRICT — an unknown executable is never treated as a browser
+- Wipe protection is PERMISSIVE — anything that might hold a profile keeps it alive
+- Known blind spot: sandbox wrappers report `bwrap` (Flatpak) or `snap` as the tree root
+- The strict counts under-report those roots, and under-reporting cannot fail a healthy host or signal an innocent process
+- Local maintainer gates (local maintainer scripts only): `scripts/residual-check.sh`, `scripts/residual-stress.sh`
 
 ## i18n (human suggestions)
-
-Precedence for product docs and agents: **`--lang` → XDG `lang` → OS locale (`sys-locale` + `fluent-langneg`) → default `en`**.
-
-- MVP packs: `en` + `pt-BR` (`UiLocale` / `UiMessage` exhaustive match + FTL parity).
-- Machine JSON `error.message` and tracing stay English (agent contract).
-- Optional packs: features `i18n-cjk` / `i18n-rtl` / `i18n-europe` / `i18n-full` (scaffold).
-- Diagnostics: subcommand `locale` (+ `--json`).
-- Man page generation: subcommand `man` (roff via clap_mangen; no Chrome).
-
-Product settings (including language) use **flags + XDG only**. Do not invent or promote product environment variables for durable config.
+- Precedence: **`--lang` → XDG `lang` → OS locale (`sys-locale` + `fluent-langneg`) → default `en`**
+- MVP packs: `en` + `pt-BR` (`UiLocale` / `UiMessage` exhaustive match + FTL parity)
+- Machine JSON `error.message` and tracing stay English (agent contract)
+- Optional packs: features `i18n-cjk` / `i18n-rtl` / `i18n-europe` / `i18n-full` (scaffold)
+- Diagnostics: subcommand `locale` (+ `--json`)
+- Man page generation: subcommand `man` (roff via clap_mangen; no Chrome)
+- Product settings (including language) use **flags + XDG only**
+- Do not invent or promote product environment variables for durable config
 
 ## Module map (`commands`)
 
 - `mod.rs` — `dispatch` match on `Commands` + browser/session handlers  
-- `meta/` — `commands` / `schema` inventory for agents (**69** names via `commands --json`; schema SRP dir)  
+- `meta/` — `commands` / `schema` inventory for agents (**71** names via `commands --json`; schema SRP dir)  
 - `run/` — multi-step `run` / `exec` script engine (NDJSON steps)
 
 ### Dialog multi-tab and settle (v0.1.6)
@@ -129,20 +121,19 @@ Product settings (including language) use **flags + XDG only**. Do not invent or
 - **Scrape `format`/`formats` in run:** without HTML monster when only text is requested (GAP-057).
 - **Native select:** `pick` / `select-option` dispatch `input` then `change`, report `via: native_select` (GAP-055).
 - **`grab` encode:** **png|jpeg|webp** only; AVIF removed (breaking).
-- Inventory **69** includes `submit` + `storage` + `image` + `video` + `audio` + `record`; clap product surface is **67** (`pick` / `select-option` are inventory/run multi-step names).
+- Inventory **71** includes `submit` + `storage` + `image` + `video` + `audio` + `record`; clap product surface is **69** (`pick` / `select-option` are inventory/run multi-step names).
 
 ### Lighthouse LHR pure parse (v0.1.6)
 
 - **`scores_from_lhr`:** pure function extracts category scores from Lighthouse Result JSON (0–1 or null audits). Unit fixtures: `scripts/fixtures/lighthouse/minimal_lhr.json` and real sanitized `chrome_captured_lhr.json`. E2e mock path stays SKIP (not a parser PASS claim). GAP-021 partial.
 - **GAP-022 residual:** ~53 multi-version dups accepted (cheap prune exhausted).
-- **GAP-023/024:** intentional PRD divergences in `parity_intentional_divergences.json`.
+- **GAP-023/024:** intentional PRD divergences.
 - Residual-zero disk law from 0.1.5 still current.
 - Product config: flags + XDG only (never product env vars).
 
 ## Anti-detection family (v0.1.8)
-
 ### Process browser policy (`browser_policy`)
-- `src/browser_policy.rs` publishes window mode, stealth and egress once during CLI dispatch
+- `src/browser_policy/` publishes window mode, stealth and egress once during CLI dispatch
 - It exists because three global flags parsed and were read by nobody
 - `--headed` was one of them: the session hard-coded `headless: true`, so the flag changed only the help text
 - Window mode resolves `auto | headed | headless` by flag, then XDG config, then the compiled default
@@ -168,7 +159,7 @@ Product settings (including language) use **flags + XDG only**. Do not invent or
 - It is split from `state.rs` by reason to change: domains needed vs. what the page sees before its own scripts run
 
 ### Human input kinematics (`native/interaction`)
-- `src/native/interaction/kinematics.rs` is pure pointer and keyboard geometry and timing, with no CDP in it
+- `src/native/interaction/kinematics/` is pure pointer and keyboard geometry and timing, with no CDP in it
 - Every function maps numbers to numbers, so trajectory maths is unit-tested without a browser
 - The interpolation loop used to live in `drag_html5` alone, so `press`, `hover`, `scroll` and `type` dispatched input no hand could produce
 - `InputProfile::Direct` reproduces the pre-0.1.8 dispatch byte for byte, for speed or exact determinism
@@ -180,6 +171,21 @@ Product settings (including language) use **flags + XDG only**. Do not invent or
 - Redaction did happen, but by accident of call site: every caller passed `true` literally, so the flag could neither enable nor disable it
 - The values live in atomics because the hudsucker handler is cloned per request/response pair
 - Threading them through the proxy constructor would put the policy in a dozen signatures that have no interest in it
+- `mitm block` was declared surface that nothing ever consumed
+- `RequestOrResponse::Response` was never constructed anywhere in the crate, and `block_rules.json` was written and never read back
+- The command answered `{"ok": true}` while the traffic the operator asked to refuse went through intact
+- v0.1.9 short-circuits a matching request with `204 No Content` before any DNS lookup or connection
+- The refusal is recorded in the capture, so a blocked request is distinguishable from one that never happened
+- This is the THIRD occurrence of the same class in this module: `--hosts` was accepted and discarded, `--mitm-max-body-bytes` was declared and ignored, and now `mitm block`
+- The lesson this architecture has to record is not about MITM
+- Declared surface that nothing ever consumes is a defect no gate in this project detects today
+- That is a KNOWN limitation of the verifier set, written here because no gate covers it and none is promised
+- Body buffering now has a real ceiling on the READ, not only on a declared length
+- `body_is_bufferable` admitted every body with no `content-length`, which is the `chunked` case and is the norm
+- The readers then called `body.collect()` with no envelope, so the remote peer chose how much memory this process allocated
+- `clip` never protected anything, because it runs after the body is already resident and trims what is RETAINED, not what is READ
+- Both directions now wrap the body in `Limited` with the 8 MiB ceiling of `BUFFER_CEILING_BYTES`
+- The declared consequence is that a `chunked` body above 8 MiB now arrives empty
 
 ### Scrape envelope shape (`scrape_local/shape`)
 - `src/scrape_local/shape.rs` gives `scrape` one envelope shape whatever `--format` carried
@@ -198,7 +204,7 @@ Product settings (including language) use **flags + XDG only**. Do not invent or
 
 ## Agent output operations (`agent_ops`)
 - `src/agent_ops/` applies eight universal operations over `data` before stdout
-- One implementation covers all 69 commands, including the ones nobody wired locally
+- One implementation covers all 71 commands, including the ones nobody wired locally
 - Four of the global flags are `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`
 - The other four are `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`
 - `--select`, `--filter`, `--limit` and `--sort` are not global flags
@@ -237,24 +243,24 @@ Product settings (including language) use **flags + XDG only**. Do not invent or
 - That fallback would make `dc:title` silently answer with `og:title`
 - Literal matching keeps the harvest from reporting fields the page never declared
 
-## Full agent inventory (69)
+## Full agent inventory (71)
 
 Discover live: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
-crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
-net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
-scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
+scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 67.
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **69**.
 
-Large handler surface remains in `mod.rs` by design (single match table for agent
-parity). Prefer extracting **new** command families into sibling modules rather
-than growing unrelated helpers.
+- Large handler surface remains in `mod.rs` by design (single match table for agent parity)
+- Prefer extracting **new** command families into sibling modules rather than growing unrelated helpers
+- Full list of names: `docs/HOW_TO_USE.md` and `browser-automation-cli commands --json`
 
 ## Macros / codegen
 
@@ -263,12 +269,7 @@ than growing unrelated helpers.
 - Event forwarders: generic functions (`spawn_cdp_event_forwarder`), not macros.
 
 ## Browser discovery (multiplatform)
-
-Order: XDG `chrome_path` → product browsers cache → `$PATH` names → known absolute
-layouts (Linux `/usr`/`/opt`/snap/flatpak, macOS `/Applications`, Windows
-`%ProgramFiles%` / LocalAppData including Edge/Beta/Canary/Brave) → home
-Puppeteer/Playwright caches.
-
+- Order: XDG `chrome_path` → product browsers cache → `$PATH` names → known absolute layouts (Linux `/usr`/`/opt`/snap/flatpak, macOS `/Applications`, Windows `%ProgramFiles%` / LocalAppData including Edge/Beta/Canary/Brave) → home Puppeteer/Playwright caches
 - No product `CHROME_PATH` env (product law: flags + XDG only).  
 - Snap/Flatpak paths warn via `tracing` and doctor `sandbox` field.  
 - Containers/root get Chrome `--no-sandbox` + `--disable-dev-shm-usage`.  
@@ -290,7 +291,7 @@ Puppeteer/Playwright caches.
 - `docs/COOKBOOK.md` — agent recipes
 - `docs/TESTING.md` — how to run gates
 - `docs/CROSS_PLATFORM.md` — OS matrix, browser paths, sandboxes
-- `docs/HOW_TO_USE.md` — full inventory of **69** commands
+- `docs/HOW_TO_USE.md` — full inventory of **71** commands
 - `docs/ARCHITECTURE.pt-BR.md` — Portuguese mirror
 - `gaps.md` — Status v0.1.6 residual DoD + historical 0.1.5 audit catalogue
 - `PRIVACY.md` — local-only data handling

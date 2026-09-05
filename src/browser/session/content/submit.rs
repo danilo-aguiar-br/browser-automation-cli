@@ -56,6 +56,26 @@ impl OneShotSession {
     /// There is no fixed sleep. A submission the page cancelled with
     /// `preventDefault()` and no network call returns immediately with
     /// `outcome: "prevented"`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the session has no active page, and with
+    /// [`ErrorKind::Browser`] when `target`
+    /// resolves to no element (`"submit failed: …"`), when
+    /// `Runtime.callFunctionOn` is refused, or when the page threw
+    /// (`"submit failed in page: …"`).
+    ///
+    /// Fails with [`ErrorKind::Data`] when
+    /// `target` is neither a `<form>` nor inside one, and when
+    /// `requestSubmit()` refused the form because constraint validation
+    /// failed — the `submit` event never fired, so the page was never asked.
+    ///
+    /// Fails with [`ErrorKind::Timeout`]
+    /// when neither a URL change nor a completed request is observed inside
+    /// `timeout_ms` (10 000 ms by default) and the page did not cancel the
+    /// submission. A cancelled submission with no request is reported as
+    /// `outcome: "prevented"` with a warning rather than as a timeout, because
+    /// "the page refused to send it" is an answer, not a hang.
     pub async fn submit(
         &mut self,
         target: &str,
@@ -230,7 +250,7 @@ impl OneShotSession {
                          (requests started: {})",
                         self.net_started.saturating_sub(requests_before)
                     ),
-                    crate::i18n::suggestion_key("raise_timeout", None),
+                    crate::i18n::suggestion_key("raise_submit_timeout", None),
                 ));
             }
 

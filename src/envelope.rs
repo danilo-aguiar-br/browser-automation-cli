@@ -58,6 +58,19 @@ pub struct ErrorBody {
     pub message: String,
     /// Sysexits-style process exit code.
     pub exit_code: u8,
+    /// Whether retrying the same call could plausibly succeed.
+    ///
+    /// Emitted unconditionally, `false` included, for the reason
+    /// `scrape_local::disclosure` states about its own fields: a key that
+    /// appears only when true is indistinguishable to a consumer from a key
+    /// that was never implemented, and the agent then has to decide between
+    /// retrying everything and retrying nothing.
+    ///
+    /// Derived from the message rather than the kind, because the kind is too
+    /// coarse: `unavailable` covers both "chrome is not installed", which no
+    /// amount of retrying fixes, and "connection reset", which is exactly what
+    /// a retry is for.
+    pub retryable: bool,
     /// Optional recovery hint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
@@ -136,6 +149,12 @@ pub fn print_error_json(err: &CliError) -> Result<(), CliError> {
 /// print_error_json_with_data(&err, Some(json!({"steps": []}))).ok();
 /// ```
 pub fn print_error_json_with_data(err: &CliError, data: Option<Value>) -> Result<(), CliError> {
+    // A failed `run` carries its completed steps here, and that partial payload
+    // is exactly as large as the successful one — so it has to obey the same
+    // reduction. Applied leniently on purpose: if the cut itself fails we still
+    // owe the caller the ORIGINAL error, never a second error about the cut.
+    let data = data
+        .map(|d| crate::agent_ops::apply_process_ops(d.clone()).map_or(d, |(reduced, _)| reduced));
     let env = ErrorEnvelope {
         schema_version: crate::constants::ENVELOPE_SCHEMA_VERSION,
         ok: false,
@@ -144,6 +163,7 @@ pub fn print_error_json_with_data(err: &CliError, data: Option<Value>) -> Result
             kind: err.kind().as_str().to_string(),
             message: err.message().to_string(),
             exit_code: err.exit_code(),
+            retryable: crate::retry::is_retryable_message(err.message()),
             suggestion: err.suggestion().map(|s| s.to_string()),
         },
         data,
@@ -188,6 +208,7 @@ mod tests {
                 kind: err.kind().as_str().to_string(),
                 message: err.message().to_string(),
                 exit_code: err.exit_code(),
+                retryable: crate::retry::is_retryable_message(err.message()),
                 suggestion: None,
             },
             data: None,

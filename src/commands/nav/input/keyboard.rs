@@ -5,7 +5,15 @@ use crate::browser::{block_on_browser_timeout, run_keys, run_type, CaptureOpts};
 use crate::commands::common::emit_ok;
 use crate::commands::nav::session::with_session_blank;
 use crate::error::{CliError, ErrorKind};
+use crate::etd::{with_target, TargetSource};
 use crate::lifecycle::Lifecycle;
+
+/// What a verb that acts on whatever holds focus reports as its target.
+///
+/// It is deliberately not an element reference: the process never named one, and
+/// inventing a plausible-looking selector here would hide exactly the guess the
+/// `ambient` source exists to expose.
+const FOCUSED: &str = "(focused element)";
 
 pub(crate) fn handle_keys(
     life: &Lifecycle,
@@ -17,6 +25,9 @@ pub(crate) fn handle_keys(
 ) -> Result<(), CliError> {
     let data =
         block_on_browser_timeout(run_keys(life, key, include_snapshot, capture), timeout_secs)?;
+    // `keys` has no target argument at all: it dispatches to whatever the page
+    // focused. That is an ambient target, and the envelope says so.
+    let data = with_target(data, FOCUSED, TargetSource::Ambient);
     emit_ok(data, json, |_| {
         crate::output::writeln_stdout(format!("ok key={key}"))
     })
@@ -56,6 +67,12 @@ pub(crate) fn handle_type(
         timeout_secs,
     )?;
     let label = target.unwrap_or("(focused)");
+    // `--focus-only` is the ambient branch: the caller declined to name an
+    // element and accepted whatever the page had focused.
+    let data = match target {
+        Some(t) => with_target(data, t, TargetSource::Argv),
+        None => with_target(data, FOCUSED, TargetSource::Ambient),
+    };
     emit_ok(data, json, |_| {
         crate::output::writeln_stdout(format!(
             "ok typed={label} len={} clear={clear} submit={submit:?} focus_only={focus_only}",
@@ -73,11 +90,13 @@ pub(crate) fn handle_hover(
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
+    let resolved = target.to_string();
     let target = target.to_string();
     let data = with_session_blank(life, capture, timeout_secs, move |mut session| async move {
         let v = session.hover(&target, include_snapshot).await?;
         Ok((session, v))
     })?;
+    let data = with_target(data, &resolved, TargetSource::Argv);
     emit_ok(data, json, |_| crate::output::writeln_stdout("ok hover"))
 }
 
@@ -116,6 +135,13 @@ pub(crate) fn handle_drag(
         ),
         None => None,
     };
+    // A drag mutates two places, so naming only the source would under-report
+    // what the verb touched.
+    let resolved = match (to, to_x, to_y) {
+        (Some(t), _, _) => format!("{from}->{t}"),
+        (None, Some(x), Some(y)) => format!("{from}->{x},{y}"),
+        _ => from.to_string(),
+    };
     let req = crate::native::interaction::DragRequest {
         from: from.to_string(),
         to: to.map(str::to_string),
@@ -128,6 +154,7 @@ pub(crate) fn handle_drag(
         let v = session.drag_ex(req, include_snapshot).await?;
         Ok((session, v))
     })?;
+    let data = with_target(data, &resolved, TargetSource::Argv);
     emit_ok(data, json, |d| {
         let route = d.get("route").and_then(|v| v.as_str()).unwrap_or("unknown");
         crate::output::writeln_stdout(format!("ok drag route={route}"))

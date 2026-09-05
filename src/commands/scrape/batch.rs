@@ -29,6 +29,7 @@ pub(crate) fn handle_batch_scrape(
     concurrency: usize,
     engine: &str,
     json: bool,
+    only_main_content: bool,
     select: Option<&str>,
     max_text_chars: Option<usize>,
     filter: Option<&str>,
@@ -40,6 +41,7 @@ pub(crate) fn handle_batch_scrape(
     exclude_selector: &[String],
     redact_pii: bool,
     with_content_hash: bool,
+    webhook_url: Option<&str>,
 ) -> Result<(), CliError> {
     let urls = crate::scrape_local::read_urls_file(urls_file)?;
     let engine_l = engine.to_ascii_lowercase();
@@ -73,8 +75,22 @@ pub(crate) fn handle_batch_scrape(
                 })),
             }
         }
+        // Same status trio `batch_scrape_http` emits, derived here because this
+        // branch builds its envelope by hand instead of inheriting one. It never
+        // carried the three fields at all: measured 2026-09-01, a two-URL batch
+        // with one dead host answered `count: 1` next to a one-entry `errors`
+        // array and nothing that said the batch had partially failed. The single
+        // format branch had them, so the same command reported a partial failure
+        // or hid it depending on which engine the caller picked.
+        let all_succeeded = errors.is_empty();
+        let partial_failure = !errors.is_empty() && !pages.is_empty();
+        let error_count = errors.len();
+        let count = pages.len();
         let data = json!({
-            "count": pages.len(),
+            "all_succeeded": all_succeeded,
+            "partial_failure": partial_failure,
+            "count": count,
+            "error_count": error_count,
             "pages": pages,
             "errors": errors,
             "engine": "browser",
@@ -84,6 +100,9 @@ pub(crate) fn handle_batch_scrape(
         });
         let data = dedup_similar_pages_envelope(data, dedup_similar, dedup_distance);
         let data = finalize_scrape_value_ex(data, select, filter, Some(max_text), sort, dedup_key);
+        if let Some(wh) = webhook_url {
+            crate::commands::nav::post_webhook(wh, &data)?;
+        }
         if emit_collection(&data, "pages", output_mode, json, "")? {
             return Ok(());
         }
@@ -102,6 +121,7 @@ pub(crate) fn handle_batch_scrape(
             format: crate::scrape_local::ScrapeFormat::parse(formats[0])?,
             engine: "http".into(),
             max_text_chars: max_text,
+            only_main_content,
             include_selectors: include_selector.to_vec(),
             exclude_selectors: exclude_selector.to_vec(),
             redact_pii,
@@ -123,6 +143,9 @@ pub(crate) fn handle_batch_scrape(
         }
         let data = dedup_similar_pages_envelope(data, dedup_similar, dedup_distance);
         let data = finalize_scrape_value_ex(data, select, filter, Some(max_text), sort, dedup_key);
+        if let Some(wh) = webhook_url {
+            crate::commands::nav::post_webhook(wh, &data)?;
+        }
         let key = if data.get("pages").is_some() {
             "pages"
         } else {
@@ -145,6 +168,7 @@ pub(crate) fn handle_batch_scrape(
         format: crate::scrape_local::ScrapeFormat::Html,
         engine: "http".into(),
         max_text_chars: max_text,
+        only_main_content,
         include_selectors: include_selector.to_vec(),
         exclude_selectors: exclude_selector.to_vec(),
         redact_pii,
@@ -155,55 +179,90 @@ pub(crate) fn handle_batch_scrape(
         crate::scrape_local::batch_scrape_http(&urls, robots, &opts_html, concurrency),
         0,
     )?;
-    let mut pages = Vec::new();
     let results = base
         .get("results")
         .or_else(|| base.get("pages"))
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    for page in results {
-        let html = page
-            .get("html")
-            .or_else(|| page.get("content"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let source = page
-            .get("source_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let status = page
-            .get("status_code")
-            .or_else(|| page.get("status"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(200) as u16;
-        if html.is_empty() {
-            pages.push(page);
-            continue;
-        }
-        let formats_out =
-            build_formats_map(&source, status, &html, &formats, &opts_html, "http", robots)?;
-        pages.push(json!({
-            "source_url": source,
-            "engine": "http",
-            "formats": formats_out,
-            "format_list": formats,
-            "status_code": status,
-        }));
-    }
+    // Deriving N formats from one HTML body is CPU-bound parsing, and it used
+    // to run in a serial loop immediately after a parallel fetch — so a batch
+    // of 50 URLs fanned out to fetch and then re-serialised to parse. Rayon
+    // over the pages restores the shape the fetch already had. `map_cpu` keeps
+    // input order, which the envelope requires, and falls back to serial below
+    // its own threshold so a two-URL batch pays no pool cost.
+    let derived: Vec<Result<serde_json::Value, CliError>> =
+        crate::concurrency::map_cpu_owned(results, |page| {
+            let html = page
+                .get("html")
+                .or_else(|| page.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let source = page
+                .get("source_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let status = page
+                .get("status_code")
+                .or_else(|| page.get("status"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(200) as u16;
+            if html.is_empty() {
+                return Ok(page);
+            }
+            let formats_out =
+                build_formats_map(&source, status, &html, &formats, &opts_html, "http", robots)?;
+            Ok(json!({
+                "source_url": source,
+                "engine": "http",
+                "formats": formats_out,
+                "format_list": formats,
+                "status_code": status,
+            }))
+        });
+    let pages = derived
+        .into_iter()
+        .collect::<Result<Vec<serde_json::Value>, _>>()?;
+    // Derived from the two arrays THIS branch emits, not copied from `base`.
+    //
+    // The line replaced here read `base.get("ok")` with `unwrap_or(json!(true))`.
+    // `batch_scrape_http` stopped emitting `ok` when Defeito 12 was fixed — the
+    // key was renamed to `all_succeeded` precisely because a nested `ok` collided
+    // with the envelope's own — so the lookup found nothing and the optimistic
+    // default won every time. Measured 2026-09-01: a two-URL batch with one dead
+    // host answered `ok: true` here while `errors` held one entry, and the three
+    // status fields the single-format branch carries were absent entirely. The
+    // rename fixed one branch and silently un-fixed this one.
+    //
+    // No `ok` key is emitted at all. Reintroducing it, even with the right value,
+    // would restore the collision that `src/scrape_local/batch.rs` banned it for.
+    let errors = base
+        .get("errors")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let all_succeeded = errors.is_empty();
+    let partial_failure = !errors.is_empty() && !pages.is_empty();
+    let error_count = errors.len();
+    let count = pages.len();
     let data = json!({
-        "ok": base.get("ok").cloned().unwrap_or(json!(true)),
-        "count": pages.len(),
+        "all_succeeded": all_succeeded,
+        "partial_failure": partial_failure,
+        "count": count,
+        "error_count": error_count,
         "pages": pages,
-        "errors": base.get("errors").cloned().unwrap_or(json!([])),
+        "errors": errors,
         "engine": "http",
         "format": formats,
         "multi_format": true,
     });
     let data = dedup_similar_pages_envelope(data, dedup_similar, dedup_distance);
     let data = finalize_scrape_value_ex(data, select, filter, Some(max_text), sort, dedup_key);
+    if let Some(wh) = webhook_url {
+        crate::commands::nav::post_webhook(wh, &data)?;
+    }
     if emit_collection(&data, "pages", output_mode, json, "")? {
         return Ok(());
     }

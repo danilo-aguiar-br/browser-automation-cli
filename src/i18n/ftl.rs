@@ -19,6 +19,14 @@ pub fn ftl_source(ui_locale: UiLocale) -> &'static str {
 }
 
 /// Build a Fluent bundle for a UI locale from the embedded FTL (for tests / diagnostics).
+///
+/// # Errors
+///
+/// A plain `String` (this sits below the typed-error boundary and is consumed by
+/// tests and diagnostics) when `FluentResource::try_new` reports parse errors in
+/// the embedded FTL for `ui_locale`, or when `FluentBundle::add_resource`
+/// rejects the resource — a duplicate message id being the practical case. Both
+/// are catalog defects in the crate's own `locales/*.ftl`, never operator input.
 pub fn bundle_for(ui_locale: UiLocale) -> Result<FluentBundle<FluentResource>, String> {
     let lang: LanguageIdentifier = ui_locale.language_identifier();
     let mut bundle = FluentBundle::new(vec![lang]);

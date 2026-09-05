@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Native wheel gesture: aim, dispatch, and converge on the requested delta.
 //!
-//! Split from [`super::scroll`] so the scripted `scrollBy` path and the real
+//! Split from [`mod@super::scroll`] so the scripted `scrollBy` path and the real
 //! `mouseWheel` path cannot share helpers by accident. That sharing is how the
 //! original defect survived: measuring and scrolling lived in one JS function,
 //! so making it also scroll was one line and no caller could tell.
@@ -144,6 +144,8 @@ async fn send_ticks(
                     delta_x: Some(dx),
                     delta_y: Some(dy),
                     modifiers: None,
+                    screen_x: None,
+                    screen_y: None,
                 },
                 Some(session_id),
             )

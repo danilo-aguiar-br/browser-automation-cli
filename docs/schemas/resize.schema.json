@@ -45,6 +45,19 @@
       ],
       "type": "number"
     },
+    "screen": {
+      "argv": "--screen",
+      "description": "Screen size `WxH`. Defaults to the viewport so screen cannot stay 800x600",
+      "required": false,
+      "source": "parser",
+      "step_key": "screen",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
+    },
     "width": {
       "argv": "--width",
       "description": "Viewport width in CSS pixels",

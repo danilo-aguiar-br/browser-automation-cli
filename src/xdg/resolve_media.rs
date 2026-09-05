@@ -113,6 +113,11 @@ pub fn resolve_manifest_max_bytes() -> usize {
 }
 
 /// Max variant / representation entries emitted per manifest envelope.
+///
+/// The stored knob is a `u32`, so the cast to `usize` is lossless on every
+/// target this crate builds for, where a pointer is at least 32 bits wide. The
+/// sibling byte knobs above store a `u64` and cannot do this — they narrow
+/// through `usize::try_from` because a 32-bit target would truncate them.
 pub fn resolve_manifest_max_variants() -> usize {
     load_config()
         .ok()

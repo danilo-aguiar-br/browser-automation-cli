@@ -4,11 +4,8 @@
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
+use super::super::{CaptureOpts, OneShotSession};
 use crate::error::{CliError, ErrorKind};
-use crate::native::cdp::types::CdpEvent;
-use crate::native::network;
-
-use super::super::{is_noise_network_url, CaptureOpts, OneShotSession};
 
 impl OneShotSession {
     /// OS process id of the launched Chrome, when known.
@@ -70,7 +67,7 @@ impl OneShotSession {
     /// Browser-scope events arrive without a session id; attributing them to the
     /// active page is the only reading that keeps the guard useful, and it is the
     /// conservative one (it blocks rather than silently allows).
-    fn dialog_key_for(&self, session_id: Option<&str>) -> String {
+    pub(super) fn dialog_key_for(&self, session_id: Option<&str>) -> String {
         dialog_map_key(session_id, self.manager.active_session_id().ok())
     }
 
@@ -130,16 +127,26 @@ impl OneShotSession {
         }
     }
 
-    /// Merge console/network buffers into a result JSON when capture flags are on.
+    /// Merge console/network buffers and the resolved browser policy into a
+    /// result JSON.
+    ///
+    /// The policy witness is attached here, and not at each `json!` literal,
+    /// because this is the one place every session result already passes
+    /// through. `robots_policy` took the other route and is now hand-written in
+    /// ten sites, which is how a field ends up present in nine of them.
     pub fn with_capture_fields(&mut self, mut data: Value) -> Value {
         self.drain_events();
+        // Answers "did this run paint a window, and was that asked for or
+        // inherited" — the question the caller could not settle from the
+        // envelope before 0.1.9.
+        crate::browser_policy::attach_witness(&mut data);
         if let Some(obj) = data.as_object_mut() {
             if self.capture.console {
-                obj.insert("console".to_string(), json!(self.console_log.clone()));
+                obj.insert("console".to_string(), json!(&self.console_log));
                 obj.insert("console_count".to_string(), json!(self.console_log.len()));
             }
             if self.capture.network {
-                obj.insert("network".to_string(), json!(self.network_log.clone()));
+                obj.insert("network".to_string(), json!(&self.network_log));
                 obj.insert("network_count".to_string(), json!(self.network_log.len()));
             }
         }
@@ -176,139 +183,6 @@ impl OneShotSession {
                     session_id.as_deref(),
                 )
                 .await;
-        }
-    }
-
-    /// Ingest one CDP event by shared reference (fields are only read / selectively cloned).
-    fn ingest_event(&mut self, evt: &CdpEvent) {
-        match evt.method.as_str() {
-            "Runtime.consoleAPICalled" if self.capture.console => {
-                let level = evt
-                    .params
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("log")
-                    .to_string();
-                let raw_args: Vec<Value> = evt
-                    .params
-                    .get("args")
-                    .and_then(|v| v.as_array())
-                    .cloned()
-                    .unwrap_or_default();
-                let text = network::format_console_args(&raw_args);
-                self.console_log.push(json!({
-                    "type": level,
-                    "text": text,
-                    "args": raw_args,
-                }));
-            }
-            // GAP-030: the page's own DataTransfer, captured while
-            // Input.setInterceptDrags is armed. Kept unconditionally: it is only
-            // ever produced by a drag this process started.
-            "Input.dragIntercepted" => {
-                self.drag_intercepted = Some(evt.params.clone());
-            }
-            // GAP-032: network quiet tracking. Counted regardless of
-            // `--capture-network`, which only governs the request *log*.
-            "Network.loadingFinished" | "Network.loadingFailed" => {
-                self.net_inflight = self.net_inflight.saturating_sub(1).max(0);
-                self.net_last_activity = Some(std::time::Instant::now());
-            }
-            "Network.requestWillBeSent" => {
-                self.net_inflight += 1;
-                self.net_started += 1;
-                self.net_last_activity = Some(std::time::Instant::now());
-                if !self.capture.network {
-                    return;
-                }
-                let request = evt.params.get("request").cloned().unwrap_or(Value::Null);
-                let method = request
-                    .get("method")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("GET");
-                let url = request.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                if is_noise_network_url(url) {
-                    return;
-                }
-                let request_id = evt
-                    .params
-                    .get("requestId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                self.network_log.push(json!({
-                    "requestId": request_id,
-                    "method": method,
-                    "url": url,
-                }));
-            }
-            "HeapProfiler.addHeapSnapshotChunk" => {
-                if let Some(chunk) = evt.params.get("chunk").and_then(|v| v.as_str()) {
-                    self.heap_chunks.push(chunk.to_string());
-                }
-            }
-            "HeapProfiler.reportHeapSnapshotProgress" => {
-                if evt
-                    .params
-                    .get("finished")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-                {
-                    self.heap_snapshot_finished = true;
-                }
-            }
-            "Tracing.dataCollected" => {
-                if let Some(value) = evt.params.get("value") {
-                    // CDP sends an array of events; store as one NDJSON line (or expand).
-                    if let Some(arr) = value.as_array() {
-                        for item in arr {
-                            self.trace_chunks
-                                .push(serde_json::to_string(item).unwrap_or_default());
-                        }
-                    } else {
-                        self.trace_chunks
-                            .push(serde_json::to_string(value).unwrap_or_default());
-                    }
-                }
-            }
-            "Tracing.tracingComplete" => {
-                self.tracing_complete = true;
-            }
-            "Page.screencastFrame" => {
-                if let Some(data) = evt.params.get("data").and_then(|v| v.as_str()) {
-                    // Cap buffer to avoid unbounded memory in long screencasts.
-                    if self.screencast_frames.len() < 600 {
-                        self.screencast_frames.push(data.to_string());
-                    }
-                }
-                if let Some(sid) = evt.params.get("sessionId").and_then(|v| v.as_i64()) {
-                    self.screencast_ack_ids.push(sid);
-                }
-            }
-            // GAP-041: track dialogs per page. `CdpEvent::session_id` is the CDP
-            // session, which maps 1:1 to a target, so a dialog on one tab no
-            // longer blocks commands on another.
-            "Page.javascriptDialogOpening" => {
-                let key = self.dialog_key_for(evt.session_id.as_deref());
-                // GAP-054: after handleJavaScriptDialog, Opening may still be in
-                // the broadcast queue; re-arming would block the next step.
-                if self
-                    .dialog_suppress_open
-                    .get(&key)
-                    .copied()
-                    .unwrap_or(false)
-                {
-                    return;
-                }
-                self.dialog_open.insert(key, true);
-            }
-            "Page.javascriptDialogClosed" => {
-                let key = self.dialog_key_for(evt.session_id.as_deref());
-                self.dialog_open.remove(&key);
-                self.dialog_suppress_open.remove(&key);
-            }
-            // GAP-A012: unknown / extra CDP events (e.g. *ExtraInfo on modern Chrome) are
-            // intentionally ignored so network/console capture is not aborted.
-            _ => {}
         }
     }
 }

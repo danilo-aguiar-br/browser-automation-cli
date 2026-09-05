@@ -46,6 +46,17 @@ use crate::error::{CliError, ErrorKind};
 /// Unsetting a key that is already absent succeeds: the requested end state is
 /// the observed end state, and reporting an error there would make the command
 /// unusable in any script that cannot know the prior state.
+///
+/// # Errors
+///
+/// [`ErrorKind::Usage`] when `key` is not in [`all_config_keys`], carrying the
+/// `config_list_keys` suggestion.
+/// [`ErrorKind::Software`] when [`ProductConfig`](super::super::config_model::ProductConfig)
+/// does not serialise to a JSON object, or does not deserialise back after the
+/// key is nulled — both are model bugs, never operator input.
+/// [`ErrorKind::Config`] propagated from [`load_config`] for an unreadable value
+/// already on disk, and [`ErrorKind::Io`] from [`load_config`] or
+/// [`write_config`] for path resolution and the atomic rewrite.
 pub fn config_unset(key: &str) -> Result<Value, CliError> {
     if !all_config_keys().contains(&key) {
         return Err(CliError::with_suggestion(

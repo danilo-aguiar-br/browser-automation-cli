@@ -66,6 +66,29 @@ pub struct OneShotSession {
     event_rx: broadcast::Receiver<CdpEvent>,
     console_log: Vec<Value>,
     network_log: Vec<Value>,
+    /// Oldest console entries dropped to hold the capture ring cap.
+    console_dropped: u64,
+    /// Oldest network entries dropped to hold the capture ring cap.
+    network_dropped: u64,
+    /// Oldest trace chunks dropped to hold the tracing ring cap.
+    ///
+    /// Separate from the console and network counters because `Tracing.
+    /// dataCollected` arrives in a different order of magnitude — tens of
+    /// thousands of events for a few seconds of recording.
+    trace_dropped: u64,
+    /// Bytes accumulated across `heap_chunks` while a snapshot streams in.
+    ///
+    /// Tracked rather than derived so the budget can be enforced as the chunks
+    /// arrive, instead of after the process has already paid for the memory.
+    heap_bytes: usize,
+    /// Set when `heap_bytes` crossed the `heap_snapshot_max_bytes` budget.
+    ///
+    /// A heap snapshot is ONE JSON document that CDP delivers in slices, so it
+    /// CANNOT be capped by dropping the oldest chunk the way the console,
+    /// network and trace rings are: the surviving text would be syntactically
+    /// invalid JSON, written to disk with `ok: true` and a healthy-looking
+    /// `bytes`. The buffer therefore stops growing and the read fails closed.
+    heap_overflow: bool,
     perf_active: bool,
     screencast_active: bool,
     heap_chunks: Vec<String>,
@@ -76,6 +99,16 @@ pub struct OneShotSession {
     last_trace_body: Option<String>,
     /// PNG base64 frames from Page.screencastFrame.
     screencast_frames: Vec<String>,
+    /// Oldest screencast frames dropped to hold the frame ring cap.
+    ///
+    /// This buffer was capped long before the console, network and trace rings
+    /// were, and the audit plan cited it as "the correct pattern" to copy when
+    /// they got their ceilings. Measured 2026-08-30: it violated both halves of
+    /// the rule that wave added. It kept the OLDEST frames and discarded every
+    /// frame after the cap, and it reported neither fact — so a recording past
+    /// the ceiling ended early while the envelope answered `ok: true` with a
+    /// healthy `frames_buffered`. This counter is the half that was missing.
+    screencast_dropped: u64,
     /// Output directory for screencast frames (set on start).
     screencast_dir: Option<std::path::PathBuf>,
     /// Pending screencast frame sessionIds awaiting ack.
@@ -115,4 +148,9 @@ pub struct OneShotSession {
     net_started: u64,
     /// Monotonic tick of the last network start/finish/failure.
     net_last_activity: Option<std::time::Instant>,
+    /// Last device metrics applied in this one-shot (width, height, scale, mobile).
+    ///
+    /// `emulate` with only `screen` reuses this pair so CDP can attach
+    /// `screenWidth`/`screenHeight` without resetting a prior resize.
+    last_device_metrics: (i32, i32, f64, bool),
 }

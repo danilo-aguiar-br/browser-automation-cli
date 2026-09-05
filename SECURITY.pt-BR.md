@@ -62,6 +62,10 @@
 ## Boas Práticas MITM
 - Faça bind e use MITM apenas em `127.0.0.1` (proxy local one-shot; não exponha em LAN ou interfaces públicas)
 - Mantenha a CA local sob XDG data (`mitm/ca`) e proteja instalações no trust-store do host
+- Prefira `mitm init-ca` e deixe o material da CA sob o caminho XDG data reportado por `config path`
+- Prefira one-shots curtos: `mitm start --seconds N` ou `mitm capture-url <url> --seconds N [--har caminho]`
+- Exporte HAR com `mitm har --out <caminho>` (obrigatório) ou com a global `--mitm-har` no FINALIZE quando `--mitm` estiver ativo
+- Redija segredos na exportação: `mitm redact --secrets` e/ou a global `--mitm-redact-secrets` (redação de Authorization/Cookie)
 - Não exponha o proxy MITM além da máquina do operador
 - Trate capturas, exports HAR e material privado da CA como sensíveis
 - Prefira orçamentos curtos de `--seconds` em `mitm start` e limpe artefatos de captura após a análise

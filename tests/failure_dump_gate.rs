@@ -56,20 +56,15 @@
 //! would rebuild the blind spot this gate exists to remove.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+mod common;
+use common::{binary, chrome_not_ready, missing_binary, root};
+
+const GATE: &str = "failure_dump_gate";
 
 /// Tokens the fixture writes to the console and to no other file in the tree.
 const CONSOLE_TOKEN: &str = "EVIDENCE_LOG_A1B2";
 const WARN_TOKEN: &str = "EVIDENCE_WARN_C3D4";
-
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn binary() -> Option<PathBuf> {
-    let p = root().join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
 
 fn fixture_url() -> Option<String> {
     let p = root().join("scripts/fixtures/failure_dump/noisy.html");
@@ -77,16 +72,18 @@ fn fixture_url() -> Option<String> {
 }
 
 /// A private artifacts directory for one case.
-fn artifacts_dir(tag: &str) -> PathBuf {
-    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "failure-dump-gate-{}-{tag}-{n}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("artifacts dir");
-    dir
+///
+/// The guard is returned, not the path: dropping it removes the directory, and
+/// the dumps this gate counts would go with it.
+///
+/// The old body swept with `remove_dir_all` BEFORE creating, which cleaned up
+/// the PREVIOUS run and never this one — four directories survived every pass.
+/// A sweep placed before the work is not cleanup, it is a collision guard.
+fn artifacts_dir(tag: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("failure-dump-gate-{tag}-"))
+        .tempdir()
+        .expect("artifacts dir")
 }
 
 /// Files currently present in `dir`.
@@ -107,7 +104,7 @@ fn run_with(extra: &[&str], lines: &[String], arts: &Path) -> Option<serde_json:
     let script = dir.join("steps.jsonl");
     std::fs::write(&script, lines.join("\n")).ok()?;
 
-    let mut cmd = Command::new(&bin);
+    let mut cmd = common::isolated_cmd(&bin);
     cmd.args(["-q", "--timeout", "120", "--json"]);
     cmd.args(extra);
     cmd.args(["--artifacts-dir"]).arg(arts);
@@ -128,33 +125,17 @@ fn failing_script() -> Vec<String> {
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    if binary().is_none() {
-        eprintln!(
-            "SKIP failure_dump_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    if missing_binary(GATE) {
         return true;
     }
     if fixture_url().is_none() {
-        eprintln!(
-            "SKIP failure_dump_gate: fixture scripts/fixtures/failure_dump/noisy.html absent. \
-             This is NOT a pass."
+        common::skip_with_reason(
+            "failure_dump_gate",
+            "fixture scripts/fixtures/failure_dump/noisy.html absent.",
         );
         return true;
     }
-    let probe = Command::new(binary().expect("binary"))
-        .args(["-q", "--json", "doctor", "--offline", "--quick"])
-        .output();
-    let chrome_ok = probe
-        .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if !chrome_ok {
-        eprintln!(
-            "SKIP failure_dump_gate: doctor reports the host is not ready for Chrome. \
-             This is NOT a pass."
-        );
+    if chrome_not_ready(GATE, &binary().expect("binary")) {
         return true;
     }
     false
@@ -171,7 +152,8 @@ fn a_failing_run_writes_the_captured_rings_to_disk_and_names_the_path() {
     if cannot_run() {
         return;
     }
-    let arts = artifacts_dir("positive");
+    let arts_dir = artifacts_dir("positive");
+    let arts = arts_dir.path().to_path_buf();
     let env = run_with(
         &[
             "--capture-console",
@@ -247,7 +229,8 @@ fn the_same_failure_without_the_flag_leaves_no_artifact() {
     if cannot_run() {
         return;
     }
-    let arts = artifacts_dir("negative");
+    let arts_dir = artifacts_dir("negative");
+    let arts = arts_dir.path().to_path_buf();
     let env = run_with(
         &["--capture-console", "--capture-network"],
         &failing_script(),
@@ -265,8 +248,14 @@ fn the_same_failure_without_the_flag_leaves_no_artifact() {
         "no flag, no path: {env}"
     );
 
-    // Absence has to be measured after the writer would have run.
-    std::thread::sleep(std::time::Duration::from_millis(1500));
+    // No wait: `run_with` uses `Command::output()`, which returns only after
+    // the child has exited and been reaped. The product is one-shot, so no
+    // writer outlives that process — if a dump were going to be written, it
+    // was written before the call above returned. The 1500ms sleep this
+    // replaces did not observe anything the assertion could not already see;
+    // worse, it ASSERTED a race the architecture rules out, so the next person
+    // to see this test flake would have raised the timeout instead of looking
+    // for the real cause.
     let found = dumps_in(&arts);
     assert!(
         found.is_empty(),
@@ -285,7 +274,8 @@ fn a_successful_run_produces_no_artifact_even_with_the_flag() {
         return;
     }
     let url = fixture_url().expect("fixture url");
-    let arts = artifacts_dir("success");
+    let arts_dir = artifacts_dir("success");
+    let arts = arts_dir.path().to_path_buf();
     let env = run_with(
         &[
             "--capture-console",
@@ -307,7 +297,8 @@ fn a_successful_run_produces_no_artifact_even_with_the_flag() {
         "a successful run must not report a failure dump: {env}"
     );
 
-    std::thread::sleep(std::time::Duration::from_millis(1500));
+    // See the negative case above: the child is already reaped, so absence is
+    // decidable now and does not need a wait.
     let found = dumps_in(&arts);
     assert!(
         found.is_empty(),
@@ -331,7 +322,8 @@ fn the_flag_alone_without_a_capture_ring_writes_nothing() {
     if cannot_run() {
         return;
     }
-    let arts = artifacts_dir("uncaptured");
+    let arts_dir = artifacts_dir("uncaptured");
+    let arts = arts_dir.path().to_path_buf();
     let env = run_with(&["--dump-on-failure"], &failing_script(), &arts).expect("run envelope");
 
     assert_eq!(
@@ -345,7 +337,8 @@ fn the_flag_alone_without_a_capture_ring_writes_nothing() {
          reported: {env}"
     );
 
-    std::thread::sleep(std::time::Duration::from_millis(1500));
+    // See the negative case above: the child is already reaped, so absence is
+    // decidable now and does not need a wait.
     let found = dumps_in(&arts);
     assert!(
         found.is_empty(),

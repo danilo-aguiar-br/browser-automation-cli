@@ -34,6 +34,7 @@
 
 ## Core and Locale
 - `lang` — Message locale override (`en` or `pt-BR`; bare `pt` rejected). Default: none
+- `lang` selects the locale of the `suggestion` field only; `message` is the technical diagnostic and stays English in every locale, the same split `rustc` and `git` ship — see `docs/AGENTS.md`
 - `timeout` — Global timeout in seconds. Default: `0`
 - `artifacts_dir` — Artifacts output directory. Default: none
 - `namespace` — Isolated state namespace. Default: none
@@ -44,6 +45,7 @@
 ## Logging
 - `log_level` — Tracing `EnvFilter` used when argv flags stay quiet. Default: `error`
 - `log_to_file` — Rotated local JSON logs under XDG state, never remote. Default: none
+- `mitm/redact_policy.json` — persisted redact-secrets default under XDG state, written by `mitm redact --secrets true|false`. Read only when neither `--mitm-redact-secrets` nor `--mitm-no-redact-secrets` is on argv; argv always wins and the built-in default is to redact
 - `max_log_files` — Retained rotated log files in range `1..=90`. Default: `14`
 - `log_rotation` — Rolling policy `daily`, `hourly` or `never`. Default: `daily`
 
@@ -87,14 +89,14 @@
 - `scrape_max_body_bytes` — Max HTTP scrape body bytes. Default: `5000000`
 - `browser_scrape_max_body_bytes` — Max body bytes for browser-engine scrape helpers. Default: `2000000`
 - `search_base_url` — HTML search endpoint base with `?q=` appended. Default: `https://html.duckduckgo.com/html/`
+- `user_data_dir` — persistent Chrome profile directory, opt-in. Unset by default, and unset is what keeps residual-zero: the launch gets a throwaway profile and the run leaves nothing on disk. Set it only when a detector attests session across invocations, because a persistent profile is a directory this CLI will never delete for you. Created with mode 0700 on Unix. `--profile` on argv wins over this key. Default: unset
 
 
 ## Robots and Politeness
 - `ignore_robots` — Default robots ignore, with both CLI risk flags still required. Default: none
 - `robots_loopback_exempt` — Loopback hosts skip `robots.txt`; set false to enforce against localhost. Default: `true`
-- `robots_probe_timeout_secs` — `robots.txt` HEAD or probe timeout in seconds. Default: `5`
+- `robots_probe_timeout_secs` — `robots.txt` request timeout in seconds. Default: `5`
 - `robots_max_body_bytes` — Max `robots.txt` body bytes as anti-OOM guard. Default: `524288`
-- `robots_fetch_timeout_secs` — Timeout for fetching `robots.txt` in seconds. Default: `30`
 - `scrape_min_delay_ms` — Floor delay between same-origin GETs in milliseconds. Default: `0`
 - `scrape_honor_meta_robots` — Honor meta robots and `X-Robots-Tag` noindex. Default: `true`
 - `scrape_honor_nofollow` — Skip `rel=nofollow` links in crawl discovery. Default: `true`
@@ -159,7 +161,7 @@
 - `browser_close_wait_secs` — `Browser.close` and process wait budget during FINALIZE in seconds. Default: `5`
 - `residual_orphan_min_age_secs` — Age floor in seconds before a dead-owner marker profile is collectable. Default: `60`
 - `platform_child_wait_secs` — Platform child wait deadline in seconds. Default: `5`
-- `shutdown_poll_ms` — Shutdown cooperative poll interval in milliseconds. Default: `5`
+- `platform_child_poll_ms` — Child-process exit poll interval during FINALIZE in milliseconds. Default: `50`
 - `shutdown_deadline_secs` — Shutdown hard deadline waiting for browser exit in seconds. Default: `30`
 
 
@@ -172,9 +174,11 @@
 - `cdp_network_idle_settle_ms` — CDP network-idle settle window in milliseconds. Default: `500`
 - `cdp_target_event_wait_ms` — CDP target event short wait in milliseconds. Default: `600`
 - `event_tracker_max_entries` — In-memory console and network tracker ring size per page session. Default: `1000`
+- `capture_preserved_rings` — Navigation boundaries kept for console and net `--include-preserved`. Default: `3`
 - `event_pump_slice_ms` — Wait and eval event pump slice in milliseconds. Default: `50`
 - `eval_drain_slice_ms` — Eval drain slice while waiting for `Runtime.evaluate` results in milliseconds. Default: `40`
 - `extension_attach_poll_ms` — Extension attach poll slice in milliseconds. Default: `150`
+- `extension_attach_poll_iters` — Extension attach poll iterations; slice x iterations is the total wait. Default: `20`
 
 
 ## Lightpanda Engine
@@ -199,6 +203,7 @@
 - `browser_mode` — Window mode: `auto` resolves to `headless`; `headed` puts a real window on your display, and on Linux that window is rendered into a private virtual display when Xvfb is available; `headless` is cheapest and most detectable. `--headed` still wins. Inverting the `auto` default carries a latency bill and is a separate decision; `doctor` reports what `auto` resolves to on this host under the `virtual_display` check, so the answer never drifts from the binary. Default: `auto`
 - `stealth` — Anti-detection patches applied before the first navigation. `--no-stealth` turns them off for one run. Default: `true`
 - `stealth_profile` — Impersonated identity: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`. `auto` follows the host, which is the only value that cannot contradict the Canvas and WebGL hashes the real GPU produces. Default: `auto`
+- `doctor --fingerprint` (not an XDG key) — envelope fields `measurement_scope` (`linux-headless-xvfb`), `unmeasured_os` (`macos`, `windows`), `measurement_note`. Live Canvas/WebGL/audio have been scored only on Linux headless + Xvfb; the same types compile on macOS and Windows
 - `proxy_url` — Egress proxy for both Chrome and the HTTP engine (`http`, `https`, `socks5`, `socks5h`). Put credentials here rather than in `--proxy`, where the process table exposes them. Default: none
 - `proxy_bypass` — Hosts bypassing the proxy, in Chrome's bypass-list syntax. Default: none
 - `proxy_username` — Proxy account name, sent as basic auth. Kept here rather than in argv, where the process table would expose it. Default: none
@@ -221,6 +226,16 @@
 - `input_scroll_max_ticks` — Ceiling on the number of wheel ticks one scroll gesture synthesizes. Each tick is a CDP round trip, so without a ceiling the cost of a scroll grows linearly with the distance requested and a large `--delta-y` exhausts the command timeout. Past the ceiling the ticks carry more pixels each; total travel is unchanged and only the granularity degrades. Default: `40`
 - `input_target_jitter_px` — Radius of the random offset applied to a click target in CSS pixels. Default: `3`
 - `input_scroll_settle_rounds` — Extra rounds allowed to deliver a wheel delta the renderer dropped. Default: `3`
+- `input_timing_distribution` — Shape of the dispersion drawn around every input delay: `lognormal`, `normal` or `uniform`. `lognormal` is the default because human inter-key intervals are right-skewed, and a symmetric draw reproduces the width of the human distribution without its asymmetry. It governs the fast rhythm only; the long-pause tail is `input_word_pause_permille`. Every mean is floored at 5% dispersion and truncated between a quarter and four times itself, so setting a standard deviation to `0` does not buy the zero variance a detector reads as machine. Default: `lognormal`
+- `input_move_steps_stddev` — Standard deviation of the per-gesture pointer sample budget, so two moves over the same distance do not carry the same number of intermediate positions. A drag rescales this to its own smaller budget instead of carrying the absolute value across. Default: `6`
+- `input_move_gap_stddev_ms` — Standard deviation of the delay between synthesized pointer positions in milliseconds. Default: `5`
+- `input_click_dwell_stddev_ms` — Standard deviation of the press-to-release hold in milliseconds. Default: `26`
+- `input_key_dwell_stddev_ms` — Standard deviation of the `keyDown`-to-`keyUp` hold in milliseconds. Default: `18`
+- `input_type_delay_stddev_ms` — Standard deviation of the delay between characters in milliseconds. A caller that asks for its own typing rhythm gets this dispersion rescaled by the same ratio, so halving the mean halves the spread instead of leaving an absolute value that no longer fits. Default: `40`
+- `input_scroll_tick_stddev_px` — Standard deviation of the distance one synthesized wheel tick carries in CSS pixels. Default: `25`
+- `input_word_pause_ms` — Mean of the extra pause taken at a word or sentence boundary in milliseconds, itself dispersed by half of its value. This pause is what produces the long right tail of a typing trace, which no amount of jitter around the per-character mean can create. Default: `320`
+- `input_word_pause_permille` — Chance in a thousand that a word or sentence boundary earns that long pause. `0` removes the tail and leaves only the fast rhythm. Default: `120`
+- `input_typo_permille` — Chance in a thousand that a character is typed wrong, erased with `Backspace` and retyped. The field always ends up holding exactly the requested text. `0` by default, and the only humanisation key that is: every other one disperses TIMING, which a page cannot read as a different value, while this one changes the CHARACTER STREAM, so an `input` listener sees the wrong prefix and may autocomplete or navigate on it. The wrong key is always a physical neighbour on the QWERTY row. Default: `0`
 - `support_settle_ms` — Support-thread settle for sync helpers in milliseconds. Default: `80`
 - `nav_micro_settle_ms` — Navigation micro-settle after page transitions in milliseconds. Default: `100`
 
@@ -292,8 +307,9 @@
 
 
 ## Viewport and State
-- `default_viewport_width` — Default headless Chrome window width when launch options omit the viewport. Default: `1280`
-- `default_viewport_height` — Default headless Chrome window height when launch options omit the viewport. Default: `720`
+- `default_viewport_width` — Default headless Chrome window width (`--window-size`) when launch options omit the viewport. Default: `1920`. Distinct from `screen`: this is the process window and the screenshot/screencast fallback, not `screen.width`.
+- `default_viewport_height` — Default headless Chrome window height (`--window-size`) when launch options omit the viewport. Default: `1080`
+- `screen` — Default page screen `WxH` for `Emulation.setDeviceMetricsOverride` (`screen.width`/`screen.height`). Absent = mirror the viewport. Argv `--screen` and a `run` emulate/resize `screen` field still win. Never smaller than the viewport. Default: none
 - `state_collect_deadline_secs` — CDP storage collect outer deadline in seconds. Default: `5`
 - `state_event_recv_secs` — CDP storage event recv slice in seconds. Default: `2`
 - `state_load_settle_ms` — Settle delay after `load_state` navigation in milliseconds. Default: `500`
@@ -302,8 +318,10 @@
 ## Discovering Keys at Runtime
 - Enumerate every accepted key on the running binary with the JSON envelope
 - `browser-automation-cli --json config list-keys`
+- Each entry returns the key name, the built-in default and the description
 - Read one resolved value with `browser-automation-cli --json config get <key>`
 - Inspect the whole effective set with `browser-automation-cli --json config show`
+- Confirm which file won with `browser-automation-cli --json config path`
 - Treat the live output as the source of truth when this document and the binary disagree
 
 

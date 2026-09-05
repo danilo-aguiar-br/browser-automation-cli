@@ -30,7 +30,7 @@ pub struct FindPathsArgs {
     #[arg(long = "type")]
     pub entry_type: Option<String>,
     /// Max results
-    #[arg(long, default_value_t = 10000)]
+    #[arg(long, default_value_t = crate::constants::FIND_PATHS_LIMIT)]
     pub limit: usize,
     /// Shell-style glob filter (e.g. `**/*.rs`) — GAP-A011 / §5AE
     #[arg(long)]
@@ -67,11 +67,14 @@ pub struct ResizeArgs {
     #[arg(long)]
     pub height: i32,
     /// Device pixel ratio
-    #[arg(long, default_value_t = 1.0)]
+    #[arg(long, default_value_t = crate::constants::EMULATE_DEFAULT_SCALE)]
     pub scale: f64,
     /// Enable mobile metrics emulation
     #[arg(long, action = ArgAction::SetTrue)]
     pub mobile: bool,
+    /// Screen size `WxH`. Defaults to the viewport so screen cannot stay 800x600.
+    #[arg(long, value_name = "WxH")]
+    pub screen: Option<String>,
 }
 
 /// Write a simple XLSX workbook from CSV/JSON (one-shot; §5Z / GAP-A011)
@@ -86,4 +89,11 @@ pub struct SheetWriteArgs {
     /// Worksheet name
     #[arg(long, default_value = "Sheet1")]
     pub sheet: String,
+    /// Overwrite `--out` when it already exists
+    ///
+    /// Without this, an existing destination is refused rather than replaced.
+    /// A workbook is a deliverable, not a scratch file, and losing one to a
+    /// re-run with a stale `-o` is not recoverable from the envelope.
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    pub force: bool,
 }

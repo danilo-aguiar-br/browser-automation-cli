@@ -87,6 +87,14 @@ static GUARD: OnceLock<Sender<Job>> = OnceLock::new();
 ///
 /// Blocking: the caller waits for the fork to complete. Async call sites must
 /// wrap this in `spawn_blocking` so a Tokio worker is never pinned by the fork.
+///
+/// # Errors
+///
+/// Fails when the guard thread never started or has since died — the job
+/// channel refuses the send, or the reply channel is dropped before an answer
+/// arrives — and otherwise carries the `fork_child` message: `Command::spawn`
+/// could not launch `request.program`, typically a missing or non-executable
+/// binary.
 pub fn spawn_guarded(request: SpawnRequest) -> Result<GuardedChild, String> {
     let sender = GUARD.get_or_init(start_guard_thread);
     let (reply, answer) = sync_channel(1);
@@ -152,7 +160,7 @@ mod tests {
     #[cfg(unix)]
     fn guard_thread_spawns_and_reports_group() {
         let Some(program) = crate::platform::which_bin("true") else {
-            eprintln!("skip: /bin/true not found on this host");
+            crate::test_utils::skip_unit_test("guard_thread", "/bin/true not found on this host.");
             return;
         };
         let mut guarded = spawn_guarded(SpawnRequest::new(program, Vec::new()))
@@ -173,7 +181,7 @@ mod tests {
     #[test]
     fn repeated_spawns_reuse_one_guard_thread() {
         let Some(program) = crate::platform::which_bin("true") else {
-            eprintln!("skip: /bin/true not found on this host");
+            crate::test_utils::skip_unit_test("guard_thread", "/bin/true not found on this host.");
             return;
         };
         for _ in 0..3 {
@@ -189,7 +197,7 @@ mod tests {
     #[cfg(unix)]
     fn extra_environment_reaches_the_child() {
         let Some(program) = crate::platform::which_bin("sh") else {
-            eprintln!("skip: /bin/sh not found on this host");
+            crate::test_utils::skip_unit_test("guard_thread", "/bin/sh not found on this host.");
             return;
         };
         let guarded = spawn_guarded(SpawnRequest {

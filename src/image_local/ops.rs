@@ -30,6 +30,9 @@ impl ImageSource {
     pub fn load_bytes(&self, limits: ImageLimits) -> Result<(Vec<u8>, Option<PathBuf>), CliError> {
         match self {
             Self::Path(p) => {
+                // GAP-026: same funnel argument as the write side — every
+                // `image` verb that names a file arrives here.
+                crate::fs_roots::ensure_read_allowed(p)?;
                 let meta = std::fs::metadata(p)
                     .map_err(|e| crate::image_local::magic::io_open_err(p, &e))?;
                 limits.check_input_len(meta.len() as usize)?;
@@ -42,7 +45,7 @@ impl ImageSource {
                 let stdin = std::io::stdin();
                 let mut handle = stdin.lock();
                 // Cap read to max_input_bytes + 1 to detect overflow.
-                let mut chunk = [0u8; 64 * 1024];
+                let mut chunk = vec![0u8; crate::constants::MEDIA_STREAM_CHUNK_BYTES];
                 loop {
                     let n = handle.read(&mut chunk).map_err(|e| {
                         CliError::new(ErrorKind::Io, format!("image stdin read: {e}"))
@@ -179,7 +182,18 @@ pub fn convert(
     };
     // Pixel re-encode always drops EXIF APP1/chunks; keep_exif cannot be honored yet.
     let written = encode_to_path(&decoded.image, &out_path, out_fmt, q)?;
-    let out_bytes = std::fs::read(&out_path).unwrap_or_default();
+    // Propagate, NEVER `unwrap_or_default`. These bytes feed both `magic_ok`
+    // and `sha256` below, so an empty Vec does not degrade the answer — it
+    // FABRICATES one: `sha256_hex(&[])` is the well-known digest of nothing,
+    // and it would be published next to `ok: true` as the digest of a file
+    // that was just written. A file we cannot re-read after writing it is a
+    // real failure, and the caller has to hear about it.
+    let out_bytes = std::fs::read(&out_path).map_err(|e| {
+        CliError::new(
+            ErrorKind::Io,
+            format!("read back {}: {e}", out_path.display()),
+        )
+    })?;
     let magic_ok = detect_format(&out_bytes)
         .map(|f| f.as_str() == wire || (wire == "jpeg" && f.as_str() == "jpeg"))
         .unwrap_or(false);
@@ -258,7 +272,14 @@ pub fn resize(
         None => default_out_path(wire)?,
     };
     let written = encode_to_path(&resized, &out_path, out_fmt, q)?;
-    let out_bytes = std::fs::read(&out_path).unwrap_or_default();
+    // Same reasoning as the convert arm above: a failed read-back must not
+    // become the digest of an empty buffer.
+    let out_bytes = std::fs::read(&out_path).map_err(|e| {
+        CliError::new(
+            ErrorKind::Io,
+            format!("read back {}: {e}", out_path.display()),
+        )
+    })?;
     let quality_applied = out_fmt.quality_applies();
     Ok(json!({
         "action": "resize",
@@ -281,5 +302,16 @@ pub fn resize(
 
 /// Decode path helper used by QR (magic-first).
 pub fn decode_path_for_qr(path: &Path) -> Result<image::DynamicImage, CliError> {
-    Ok(decode_path(path, ImageLimits::from_xdg())?.image)
+    decode_path_for_qr_with(path, ImageLimits::from_xdg())
+}
+
+/// Parameterized core: the same magic-first decode against explicit limits.
+///
+/// Exists so a test can pin the MAGIC behaviour without the operator’s
+/// `image_max_input_bytes` deciding whether the fixture is even readable.
+pub fn decode_path_for_qr_with(
+    path: &Path,
+    limits: ImageLimits,
+) -> Result<image::DynamicImage, CliError> {
+    Ok(decode_path(path, limits)?.image)
 }

@@ -36,6 +36,12 @@
 #
 # CLEAN STDOUT: one status line on stdout; diagnostics on stderr.
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -54,7 +60,10 @@ is_crate_root() {
 #
 # Paths in the attribute are relative to the DIRECTORY of the declaring file, so
 # they are normalised against that directory rather than against the repo root.
-declare -A PATH_ATTR_TARGETS=()
+#
+# `declare -A` needs bash 4 and macOS ships bash 3.2, so the set is one path per
+# line and membership below is an exact whole-line match (2026-09-04).
+PATH_ATTR_TARGETS=""
 while IFS= read -r hit; do
   [[ -z "$hit" ]] && continue
   decl_file="${hit%%:*}"
@@ -63,7 +72,7 @@ while IFS= read -r hit; do
   # `realpath -m` resolves `..` without requiring the file to exist.
   abs="$(realpath -m "$decl_dir/$rel" 2>/dev/null || true)"
   [[ -z "$abs" ]] && continue
-  PATH_ATTR_TARGETS["${abs#"$ROOT/"}"]=1
+  PATH_ATTR_TARGETS="${PATH_ATTR_TARGETS}${abs#"$ROOT/"}"$'\n'
 done < <(rg -n --no-heading -o '#\[path\s*=\s*"([^"]+)"\]' -r '$1' "$TARGET_DIR" 2>/dev/null |
   sd '^([^:]+):[0-9]+:' '$1:' || true)
 
@@ -86,7 +95,7 @@ while IFS= read -r file; do
   is_crate_root "$file" && continue
 
   # Honoured before the normal rule: `#[path]` deliberately breaks it.
-  if [[ -n "${PATH_ATTR_TARGETS[$file]:-}" ]]; then
+  if printf '%s' "$PATH_ATTR_TARGETS" | rg -q -x -F -e "$file"; then
     via_path_attr=$((via_path_attr + 1))
     checked=$((checked + 1))
     continue

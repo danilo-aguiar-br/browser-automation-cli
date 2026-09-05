@@ -5,6 +5,17 @@
   "type": "object",
   "description": "Write a simple XLSX workbook from CSV/JSON (one-shot; §5Z / GAP-A011)",
   "properties": {
+    "force": {
+      "argv": "--force",
+      "description": "Overwrite `--out` when it already exists",
+      "required": false,
+      "source": "parser",
+      "step_key": "force",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
     "input": {
       "argv": "<INPUT>",
       "description": "Input path (.csv or .json array-of-objects)",

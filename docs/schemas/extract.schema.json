@@ -60,7 +60,7 @@
     "target": {
       "argv": "<TARGET>",
       "description": "Selector, @eN ref, about:blank target, or http(s) URL for LLM/text path",
-      "required": true,
+      "required": false,
       "source": "parser",
       "step_key": "target",
       "surfaces": [
@@ -69,10 +69,21 @@
         "exec"
       ],
       "type": "string"
+    },
+    "url": {
+      "argv": "--url",
+      "description": "Alias for the positional `<TARGET>`; pass one form or the other",
+      "required": false,
+      "source": "parser",
+      "step_key": "url",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
     }
   },
-  "required": [
-    "target"
-  ],
+  "required": [],
   "additionalProperties": false
 }

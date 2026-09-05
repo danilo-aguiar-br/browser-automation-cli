@@ -35,7 +35,9 @@ pub(crate) fn handle_extension(
                     life.record_chrome(session.chrome_pid());
                     // Service workers may take a moment to register after --load-extension.
                     let mut listed = session.extension_list().await?;
-                    for _ in 0..20 {
+                    for _ in 0..crate::xdg::policy::policy_u32(
+                        crate::xdg::policy::key::EXTENSION_ATTACH_POLL_ITERS,
+                    ) {
                         let count = listed.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
                         if count > 0 {
                             break;

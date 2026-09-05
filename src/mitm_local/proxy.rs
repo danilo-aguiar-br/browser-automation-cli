@@ -5,12 +5,10 @@ use hudsucker::rcgen::{Issuer, KeyPair};
 use hudsucker::{certificate_authority::RcgenAuthority, rustls::crypto::aws_lc_rs, Proxy};
 use serde_json::{json, Value};
 
-use crate::constants::{
-    MITM_BIND_HOST, MITM_CAPTURE_WAIT_MAX_MS, MITM_CAPTURE_WAIT_MIN_MS, MITM_CA_CACHE_SIZE,
-    MITM_CHROME_SETTLE_MS, MITM_PROXY_SECONDS_MAX,
-};
+use crate::constants::MITM_BIND_HOST;
 use crate::error::{CliError, ErrorKind};
 use crate::net::{loopback_bind_ephemeral, loopback_socket_addr};
+use crate::xdg::policy::{key, policy_u64};
 
 use super::ca::load_ca_pems_blocking;
 use super::handler::CaptureHandler;
@@ -27,7 +25,7 @@ async fn build_authority() -> Result<RcgenAuthority, CliError> {
         .map_err(|e| CliError::new(ErrorKind::Software, format!("parse CA cert: {e}")))?;
     Ok(RcgenAuthority::new(
         issuer,
-        MITM_CA_CACHE_SIZE,
+        policy_u64(key::MITM_CA_CACHE_SIZE),
         aws_lc_rs::default_provider(),
     ))
 }
@@ -62,6 +60,7 @@ fn spawn_proxy(
     port: u16,
     capture: SharedCapture,
     intercept_hosts: Vec<String>,
+    record_hosts: Vec<String>,
 ) -> Result<
     (
         tokio::task::JoinHandle<()>,
@@ -76,7 +75,11 @@ fn spawn_proxy(
             max_bytes: super::policy::max_body_bytes(),
             skip_media: super::policy::skip_media(),
         },
-        intercept_hosts: std::sync::Arc::new(intercept_hosts),
+        intercept_hosts: std::sync::Arc::from(intercept_hosts),
+        record_hosts: std::sync::Arc::from(record_hosts),
+        // Read once here rather than per request: only `mitm block` writes this
+        // file, and it runs in a different process.
+        block_rules: std::sync::Arc::from(super::store::load_block_rules()),
     };
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     let proxy = Proxy::builder()
@@ -107,9 +110,16 @@ pub async fn start_proxy_oneshot(seconds: u64) -> Result<Value, CliError> {
     let ca = build_authority().await?;
     let capture = shared_capture()?;
     let port = bind_loopback_ephemeral()?;
-    let seconds = seconds.clamp(1, MITM_PROXY_SECONDS_MAX);
+    let seconds = seconds.clamp(1, policy_u64(key::MITM_PROXY_SECONDS_MAX));
     // `mitm start` has no per-command host list; the global one still applies.
-    let (proxy_task, tx) = spawn_proxy(ca, port, capture.clone(), super::policy::hosts().to_vec())?;
+    // It has no `--capture-hosts` either, so the record allowlist stays empty.
+    let (proxy_task, tx) = spawn_proxy(
+        ca,
+        port,
+        capture.clone(),
+        super::policy::hosts().to_vec(),
+        Vec::new(),
+    )?;
 
     let cancel = crate::lifecycle::current_cancel();
     tokio::select! {
@@ -144,21 +154,36 @@ pub async fn capture_url_oneshot(
     seconds: u64,
     har: Option<&std::path::Path>,
     hosts: Option<&str>,
+    capture_hosts: Option<&str>,
 ) -> Result<Value, CliError> {
     let ca = build_authority().await?;
     let capture = shared_capture()?;
     let port = bind_loopback_ephemeral()?;
-    let seconds = seconds.clamp(1, MITM_PROXY_SECONDS_MAX);
+    let seconds = seconds.clamp(1, policy_u64(key::MITM_PROXY_SECONDS_MAX));
     // Per-command `--hosts` wins; the global `--mitm-hosts` is the fallback so
     // `scrape --mitm --mitm-hosts` can narrow interception too.
     let intercept_hosts = match super::handler::parse_hosts(hosts) {
         v if v.is_empty() => super::policy::hosts().to_vec(),
         v => v,
     };
-    let (proxy_task, tx) = spawn_proxy(ca, port, capture.clone(), intercept_hosts.clone())?;
+    // `--capture-hosts` is deliberately NOT defaulted from `--hosts`: deciding
+    // what to decrypt and deciding what to keep are different questions, and
+    // silently answering the second with the first would make the narrower
+    // decryption also drop the plaintext exchanges the operator can still see.
+    let record_hosts = super::handler::parse_hosts(capture_hosts);
+    let (proxy_task, tx) = spawn_proxy(
+        ca,
+        port,
+        capture.clone(),
+        intercept_hosts.clone(),
+        record_hosts.clone(),
+    )?;
 
     // Brief settle so accept loop is live before Chrome connects.
-    tokio::time::sleep(std::time::Duration::from_millis(MITM_CHROME_SETTLE_MS)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(policy_u64(
+        key::MITM_CHROME_SETTLE_MS,
+    )))
+    .await;
 
     let proxy_url = format!("http://{MITM_BIND_HOST}:{port}");
     let capture_opts = crate::browser::CaptureOpts {
@@ -171,8 +196,10 @@ pub async fn capture_url_oneshot(
 
     let nav = session.goto(url, crate::robots::RobotsPolicy::Honor).await;
     // Allow in-flight responses to hit the proxy handler.
-    let wait_ms =
-        (seconds.saturating_mul(1000)).clamp(MITM_CAPTURE_WAIT_MIN_MS, MITM_CAPTURE_WAIT_MAX_MS);
+    let wait_ms = (seconds.saturating_mul(1000)).clamp(
+        policy_u64(key::MITM_CAPTURE_WAIT_MIN_MS),
+        policy_u64(key::MITM_CAPTURE_WAIT_MAX_MS),
+    );
     let cancel = crate::lifecycle::current_cancel();
     tokio::select! {
         biased;
@@ -193,9 +220,13 @@ pub async fn capture_url_oneshot(
             .unwrap_or_else(|| json!([]));
         if let Some(arr) = net.as_array() {
             for ev in arr {
+                // The `request_method` fallback that stood here read a key no
+                // site in this repository ever wrote, so it could only ever be
+                // reached when `method` was absent — and `method` is written on
+                // every record. A fallback that cannot fire reads as tolerance
+                // and is really just a second name nobody honours.
                 let method = ev
                     .get("method")
-                    .or_else(|| ev.get("request_method"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("GET")
                     .to_string();
@@ -208,6 +239,13 @@ pub async fn capture_url_oneshot(
                 let host = url::Url::parse(&u)
                     .ok()
                     .and_then(|p| p.host_str().map(|s| s.to_string()));
+                // The merge is a second door into the same capture. Filtering
+                // only the proxy handler would leave the browser's background
+                // chatter arriving through CDP, which is where most of it came
+                // from: a limit checked at one entry point is not a limit.
+                if !super::handler::record_allowed(host.as_deref(), &record_hosts) {
+                    continue;
+                }
                 g.push(CapturedExchange {
                     id: 0,
                     method,
@@ -224,8 +262,14 @@ pub async fn capture_url_oneshot(
                 });
             }
         }
-        // Always record the navigated target as an exchange for agent acceptance.
-        if g.items.is_empty() {
+        // Record the navigated target as an exchange for agent acceptance, but
+        // never in violation of the record allowlist: an empty capture is the
+        // honest answer when the operator filtered out everything that happened.
+        let nav_host = url::Url::parse(url)
+            .ok()
+            .and_then(|p| p.host_str().map(|s| s.to_string()));
+        if g.items.is_empty() && super::handler::record_allowed(nav_host.as_deref(), &record_hosts)
+        {
             g.push(CapturedExchange {
                 id: 0,
                 method: "GET".into(),
@@ -236,9 +280,7 @@ pub async fn capture_url_oneshot(
                 response_headers: BTreeMapString::new(),
                 request_body: None,
                 response_body: None,
-                host: url::Url::parse(url)
-                    .ok()
-                    .and_then(|p| p.host_str().map(|s| s.to_string())),
+                host: nav_host,
                 started_ms: now_ms(),
                 finished_ms: None,
             });

@@ -87,6 +87,17 @@
               ],
               "type": "string"
             },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one audio path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
             "sample_rate": {
               "argv": "--sample-rate",
               "description": "Sample rate Hz (optional re-encode)",
@@ -219,6 +230,17 @@
               ],
               "type": "string"
             },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one audio path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
             "select": {
               "argv": "--select",
               "description": "Project envelope fields (CSV): path,container,audio_codec,duration_secs,sha256,…; aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs, codec→audio_codec",
@@ -307,6 +329,17 @@
               "required": false,
               "source": "parser",
               "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one audio path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
               "surfaces": [
                 "argv"
               ],

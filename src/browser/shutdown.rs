@@ -147,9 +147,7 @@ mod tests {
         let r = block_on_browser_timeout(
             async {
                 tokio::time::sleep(std::time::Duration::from_millis(
-                    crate::xdg::policy::policy_u64(
-                        crate::xdg::policy::key::DEFAULT_SHUTDOWN_POLL_MS,
-                    ),
+                    crate::xdg::policy::policy_u64(crate::xdg::policy::key::PLATFORM_CHILD_POLL_MS),
                 ))
                 .await;
                 Ok::<u32, crate::error::CliError>(7)
@@ -195,7 +193,7 @@ mod tests {
         assert!(is_internal_browser_url("chrome-extension://abc/x.js"));
         assert!(is_internal_browser_url("devtools://devtools/bundled/"));
         assert!(!is_internal_browser_url("https://example.com/"));
-        assert!(!is_internal_browser_url("about:blank"));
+        assert!(!is_internal_browser_url(crate::constants::ABOUT_BLANK));
         assert!(is_noise_network_url(
             "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
         ));

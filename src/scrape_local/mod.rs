@@ -103,12 +103,12 @@ pub use dedup_similar::dedup_similar_pages_envelope;
 pub use emit::{emit_csv_array, emit_ndjson_array, emit_scrape_collection};
 pub use error_page::{http_error_page, status_from_error_message};
 pub use formats_map::build_formats_map;
-pub use html_sanitize::redact_pii;
+pub use html_sanitize::{redact_pii, validate_css_selector_arg};
 pub use http::scrape_http;
 pub use page_ops::{
     dedup_pages_envelope, filter_pages_envelope, page_matches_filter, sort_pages_envelope,
 };
-pub use parse::{parse_file, parse_file_opts};
+pub use parse::{parse_file, parse_file_formats, parse_file_opts};
 pub use path_filter::{normalize_url_for_dedup, normalize_url_for_dedup_ex, PathFilter};
 pub use payload::build_scrape_payload;
 pub use project::{

@@ -23,12 +23,15 @@
 //! | `limits` | XDG-backed input/download ceilings |
 //! | `download` | HTTP fetch + SSRF + body cap + magic |
 //! | `probe` | ffprobe JSON metadata (path-only; no full decode) |
-//! | `validate` | container×codec plan (smart copy / re-encode) |
+//! | `container_matrix` | container×codec compatibility (spec facts, no policy) |
+//! | `encoder_policy` | smart copy / re-encode plan and encoder defaults |
 //! | `ffmpeg_bin` | resolve ffmpeg/ffprobe binaries |
 //! | `ffmpeg_ops` | convert / to-mp3 / trim / thumbnail argv + atomic out |
 //! | `ops` | public info / convert / to_mp3 / trim / thumbnail / download |
 
+mod container_matrix;
 mod download;
+mod encoder_policy;
 mod ffmpeg_bin;
 mod ffmpeg_ops;
 mod limits;
@@ -37,11 +40,11 @@ mod manifest;
 mod ops;
 mod probe;
 mod site_extraction;
-mod validate;
 
 #[cfg(test)]
 mod tests;
 
+pub use container_matrix::{parse_output_container, OutputContainer};
 pub use download::download_video;
 pub use ffmpeg_bin::{require_ffmpeg, require_ffprobe, resolve_ffmpeg_bin, resolve_ffprobe_bin};
 pub use ffmpeg_ops::ConvertOpts;
@@ -57,4 +60,3 @@ pub use probe::{
     compact_streams, duration_secs, primary_audio_codec, primary_video_codec, probe_path,
 };
 pub use site_extraction::{classify_non_media, non_media_error, NonMediaBody};
-pub use validate::{parse_output_container, OutputContainer};

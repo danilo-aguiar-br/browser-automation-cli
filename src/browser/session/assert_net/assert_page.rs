@@ -10,6 +10,13 @@ use super::super::OneShotSession;
 
 impl OneShotSession {
     /// Current URL and title of the active page.
+    ///
+    /// # Errors
+    ///
+    /// Never returns `Err`. Both reads are best-effort: a page that cannot be
+    /// evaluated — no active tab, or a destroyed execution context — yields
+    /// empty strings rather than a failure, so the envelope always describes
+    /// what the session could see.
     pub async fn page_info(&mut self) -> Result<Value, CliError> {
         self.drain_events();
         let url = self.manager.get_url().await.unwrap_or_default();
@@ -21,6 +28,17 @@ impl OneShotSession {
     ///
     /// `contains` is what makes an assertion survive a query string the caller
     /// does not control.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Data`] when the
+    /// live URL does not match `value` — by substring under `contains`, byte
+    /// for byte otherwise. The message carries both sides, and the suggestion
+    /// names the usual cause: nothing navigated in this process, so the URL is
+    /// still `about:blank`.
+    ///
+    /// A URL that cannot be read is not distinguished from a mismatch: it
+    /// reads as the empty string and fails the same way.
     pub async fn assert_url(&mut self, value: &str, contains: bool) -> Result<Value, CliError> {
         self.drain_events();
         let url = self.manager.get_url().await.unwrap_or_default();
@@ -35,13 +53,25 @@ impl OneShotSession {
                 format!(
                     "assert url failed: got={url:?} expected contains={contains} value={value:?}"
                 ),
-                "Navigate first with goto in the same run",
+                crate::i18n::suggestion_key("assert_url_navigate_first", None),
             ));
         }
         Ok(json!({ "assert": "url", "ok": true, "url": url, "value": value, "contains": contains }))
     }
 
     /// Assert that text is present on the page.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when no page is active, and with `"assert text: …"` when `target`
+    /// resolves to no element or the `document.body.innerText` evaluation is
+    /// refused. Unlike [`assert_url`](Self::assert_url), an unreadable page is
+    /// reported as an error here rather than folded into a mismatch.
+    ///
+    /// Fails with [`ErrorKind::Data`] when the
+    /// text is absent. The comparison is a case-sensitive substring, so a
+    /// difference in capitalisation fails as "not found".
     pub async fn assert_text(
         &mut self,
         value: &str,
@@ -76,7 +106,7 @@ impl OneShotSession {
             return Err(CliError::with_suggestion(
                 ErrorKind::Data,
                 format!("assert text failed: value not found: {value:?}"),
-                "Check view/extract in the same run; text match is substring",
+                crate::i18n::suggestion_key("assert_text_substring", None),
             ));
         }
         Ok(json!({ "assert": "text", "ok": true, "value": value, "target": target }))
@@ -86,6 +116,17 @@ impl OneShotSession {
     ///
     /// Requires `--capture-console` on this same process: without it the buffer
     /// is empty and the assertion passes for the wrong reason.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Usage`] when
+    /// `--capture-console` was not given on this invocation. That gate is the
+    /// point of the method: without capture the buffer is empty and every
+    /// threshold would pass, which is worse than refusing.
+    ///
+    /// Fails with [`ErrorKind::Data`] when the
+    /// count of entries whose `type` equals `level` (case-insensitive) exceeds
+    /// `max`. An unknown `level` matches nothing and therefore passes.
     pub async fn assert_console(&mut self, level: &str, max: u64) -> Result<Value, CliError> {
         if !self.capture.console {
             return Err(CliError::with_suggestion(
@@ -120,6 +161,14 @@ impl OneShotSession {
     }
 
     /// GAP-025: assert the captured console buffer is empty (any level).
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Usage`] without
+    /// `--capture-console` on this invocation, and with
+    /// [`ErrorKind::Data`] when the buffer
+    /// holds any entry at all — including `log` and `info`, since this
+    /// assertion is level-blind by design.
     pub async fn assert_console_empty(&mut self) -> Result<Value, CliError> {
         if !self.capture.console {
             return Err(CliError::with_suggestion(
@@ -145,6 +194,16 @@ impl OneShotSession {
     }
 
     /// GAP-025: assert no console message text matches `pattern` (substring, case-insensitive).
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Usage`] without
+    /// `--capture-console` on this invocation, and with
+    /// [`ErrorKind::Data`] when any entry's
+    /// `text`, `message` or `args` field contains `pattern`, compared
+    /// case-insensitively. The match runs over the JSON rendering of those
+    /// fields, so a pattern can also hit escaping and punctuation the console
+    /// never printed.
     pub async fn assert_console_no_match(&mut self, pattern: &str) -> Result<Value, CliError> {
         if !self.capture.console {
             return Err(CliError::with_suggestion(
@@ -157,9 +216,18 @@ impl OneShotSession {
         let pat = pattern.to_ascii_lowercase();
         // ECO-11/PAR-85: count only — do not clone the full console buffer.
         let hits = crate::concurrency::count_cpu(&self.console_log, |m| {
+            // `text` and `args` are two of the three keys the producer writes
+            // in `ingest.rs`. `message` was a third spelling nothing has ever
+            // written onto a console record, so this arm could not fire.
+            //
+            // It never changed an answer, because `text` is always present and
+            // the chain short-circuits before reaching it. It is recorded here
+            // anyway because of WHERE it survived: it is the same shape as the
+            // `level` key removed from `console.rs` one wave earlier, and it
+            // outlived that fix by sitting in the one file in this directory
+            // the class gate did not inspect.
             let text = m
                 .get("text")
-                .or_else(|| m.get("message"))
                 .or_else(|| m.get("args"))
                 .map(|v| v.to_string())
                 .unwrap_or_default()

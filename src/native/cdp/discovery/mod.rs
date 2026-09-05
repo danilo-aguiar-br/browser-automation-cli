@@ -20,6 +20,14 @@ fn default_discovery_timeout() -> Duration {
 /// An optional `query` string (without the leading `?`) is appended to the
 /// final WebSocket URL so that user-supplied URL parameters (e.g.
 /// `?mode=Hello`) are forwarded to the remote endpoint.
+///
+/// # Errors
+///
+/// Propagates
+/// [`discover_cdp_url_with_timeout`] under
+/// [`DEFAULT_CDP_DISCOVERY_TIMEOUT_SECS`](crate::xdg::policy::key::DEFAULT_CDP_DISCOVERY_TIMEOUT_SECS):
+/// all three discovery methods failed, and the message carries the reason for
+/// each one.
 pub async fn discover_cdp_url(
     host: &str,
     port: u16,
@@ -29,6 +37,14 @@ pub async fn discover_cdp_url(
 }
 
 /// Like [`discover_cdp_url`] but with a custom request timeout.
+///
+/// # Errors
+///
+/// Fails only after [`crate::retry::RetryConfig::cdp`] exhausts its attempts,
+/// and then carries the last `discover_cdp_url_once` message: one line joining
+/// why `/json/version`, `/json/list` and the direct `/devtools/browser`
+/// WebSocket each failed — endpoint unreachable, `timeout` elapsed, malformed
+/// JSON, or a response with no `webSocketDebuggerUrl`.
 pub async fn discover_cdp_url_with_timeout(
     host: &str,
     port: u16,

@@ -24,17 +24,16 @@
 //! added and removed. It also pins the OCR excision: `ocr_engine`, `ocr_lang`
 //! and `tesseract_path` are gone and must report as unknown, never as invalid.
 
-use std::path::PathBuf;
-use std::process::Command;
-
-fn bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_browser-automation-cli"))
-}
+mod common;
 
 /// Run `config set KEY VALUE` in an isolated config home and return the message.
 fn set_key_message(home: &std::path::Path, key: &str, value: &str) -> String {
-    let out = Command::new(bin())
+    let out = common::cmd()
         .args(["--json", "config", "set", key, value])
+        // `HOME` is what isolates config on macOS: `directories` resolves to
+        // ~/Library/Application Support and never reads `XDG_CONFIG_HOME`.
+        // Full measurement (2026-09-04) lives in `tests/scrape_wave6_gate.rs`.
+        .env("HOME", home)
         .env("XDG_CONFIG_HOME", home)
         .output()
         .expect("spawn config set");
@@ -53,8 +52,11 @@ fn set_key_message(home: &std::path::Path, key: &str, value: &str) -> String {
 
 #[test]
 fn an_unknown_key_reads_the_same_whatever_the_value_looks_like() {
-    let tmp = std::env::temp_dir().join("bac-config-key-diagnosis-unknown");
-    std::fs::create_dir_all(&tmp).expect("temp config home");
+    let guard = tempfile::Builder::new()
+        .prefix("bac-config-key-diagnosis-")
+        .tempdir()
+        .expect("temp config home");
+    let tmp = guard.path().to_path_buf();
 
     let numeric = set_key_message(&tmp, "totally_invented_key", "42");
     let textual = set_key_message(&tmp, "totally_invented_key", "abc");
@@ -71,8 +73,11 @@ fn an_unknown_key_reads_the_same_whatever_the_value_looks_like() {
 
 #[test]
 fn the_excised_ocr_keys_report_as_unknown() {
-    let tmp = std::env::temp_dir().join("bac-config-key-diagnosis-ocr");
-    std::fs::create_dir_all(&tmp).expect("temp config home");
+    let guard = tempfile::Builder::new()
+        .prefix("bac-config-key-diagnosis-")
+        .tempdir()
+        .expect("temp config home");
+    let tmp = guard.path().to_path_buf();
 
     for key in ["ocr_engine", "ocr_lang", "tesseract_path"] {
         let msg = set_key_message(&tmp, key, "tesseract");
@@ -85,8 +90,11 @@ fn the_excised_ocr_keys_report_as_unknown() {
 
 #[test]
 fn a_real_knob_still_rejects_a_bad_value_by_naming_the_value() {
-    let tmp = std::env::temp_dir().join("bac-config-key-diagnosis-real");
-    std::fs::create_dir_all(&tmp).expect("temp config home");
+    let guard = tempfile::Builder::new()
+        .prefix("bac-config-key-diagnosis-")
+        .tempdir()
+        .expect("temp config home");
+    let tmp = guard.path().to_path_buf();
 
     let msg = set_key_message(&tmp, "redis_io_timeout_secs", "not-a-number");
     assert!(
@@ -101,7 +109,7 @@ fn a_real_knob_still_rejects_a_bad_value_by_naming_the_value() {
 
 #[test]
 fn the_ocr_keys_are_absent_from_list_keys() {
-    let out = Command::new(bin())
+    let out = common::cmd()
         .args(["--json", "config", "list-keys"])
         .output()
         .expect("spawn config list-keys");

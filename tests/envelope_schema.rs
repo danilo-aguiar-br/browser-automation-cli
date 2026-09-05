@@ -1,8 +1,9 @@
 //! Gate: success/error JSON envelopes expose stable agent fields.
 //! Behavior-Closed DoD requires more than `--help` presence.
 
-use assert_cmd::cargo::cargo_bin_cmd;
 use serde_json::Value;
+
+mod common;
 
 fn parse_stdout(assert: &assert_cmd::assert::Assert) -> Value {
     let stdout = &assert.get_output().stdout;
@@ -11,7 +12,7 @@ fn parse_stdout(assert: &assert_cmd::assert::Assert) -> Value {
 
 #[test]
 fn version_envelope_has_schema_ok_data() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["--json", "version"])
         .assert()
         .success();
@@ -33,7 +34,7 @@ fn version_envelope_has_schema_ok_data() {
 /// can prove a clean tree, and a field that guesses would be worse than none.
 #[test]
 fn version_envelope_carries_a_source_fingerprint() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["--json", "version"])
         .assert()
         .success();
@@ -62,7 +63,7 @@ fn version_envelope_carries_a_source_fingerprint() {
 
 #[test]
 fn commands_json_includes_devtools_tool_map() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["commands", "--json"])
         .assert()
         .success();
@@ -95,10 +96,7 @@ fn commands_json_includes_devtools_tool_map() {
 
 #[test]
 fn global_flags_present_in_root_help() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
-        .args(["--help"])
-        .assert()
-        .success();
+    let assert = common::assert_bin().args(["--help"]).assert().success();
     let help = String::from_utf8_lossy(&assert.get_output().stdout);
     for needle in [
         "--quiet",
@@ -115,7 +113,7 @@ fn global_flags_present_in_root_help() {
 
 #[test]
 fn correlation_id_echoed_on_success_envelope() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["--json", "--correlation-id", "agent-corr-1", "version"])
         .assert()
         .success();
@@ -127,7 +125,7 @@ fn correlation_id_echoed_on_success_envelope() {
 
 #[test]
 fn correlation_id_omitted_when_unset() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["--json", "version"])
         .assert()
         .success();
@@ -146,10 +144,7 @@ fn text_scroll_cookie_registered_in_help() {
         (&["cookie", "--help"][..], &["list", "set", "clear"][..]),
         (&["page", "select", "--help"][..], &["page-id"][..]),
     ] {
-        let assert = cargo_bin_cmd!("browser-automation-cli")
-            .args(cmd)
-            .assert()
-            .success();
+        let assert = common::assert_bin().args(cmd).assert().success();
         let help = String::from_utf8_lossy(&assert.get_output().stdout);
         for n in needles {
             assert!(
@@ -163,7 +158,7 @@ fn text_scroll_cookie_registered_in_help() {
 
 #[test]
 fn usage_error_envelope_shape() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["--json", "schema", "--cmd", "___no_such_command___"])
         .assert()
         .failure();

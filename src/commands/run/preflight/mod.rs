@@ -33,6 +33,9 @@ mod tests;
 mod tests_include;
 mod validate;
 
+// `exec` runs one step and needs the same argv check the script path gets.
+pub(crate) use validate::validate_action;
+
 use super::flags::RunFlags;
 use crate::browser::CaptureOpts;
 use crate::error::{CliError, ErrorKind};
@@ -68,7 +71,7 @@ pub fn preflight_script(
         return Err(CliError::with_suggestion(
             ErrorKind::Data,
             "script has no steps",
-            "Add at least one NDJSON line or a JSON array of objects with a cmd field",
+            crate::i18n::suggestion_key("run_script_empty", None),
         ));
     }
 

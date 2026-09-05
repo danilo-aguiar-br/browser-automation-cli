@@ -33,16 +33,11 @@
 //! file fails the ENVIRONMENT so a host that can never run the gate is visible.
 
 use std::path::PathBuf;
-use std::process::Command;
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+mod common;
+use common::{binary, chrome_not_ready, missing_binary, root};
 
-fn binary() -> Option<PathBuf> {
-    let p = root().join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
+const GATE: &str = "record_gate";
 
 fn fixture_url() -> Option<String> {
     let p = root().join("scripts/fixtures/record/interactions.html");
@@ -51,19 +46,23 @@ fn fixture_url() -> Option<String> {
 
 /// A per-case scratch directory: the cases run as threads of ONE test binary,
 /// so a path keyed only by pid would be shared and the files would collide.
-fn scratch(tag: &str) -> Option<PathBuf> {
-    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("record-gate-{tag}-{}-{n}", std::process::id()));
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir)
+///
+/// Returns the `TempDir` GUARD and not its path. The pid+counter name resolved
+/// collision and never cleanup, so a case whose assertion panicked left the
+/// recording behind; the guard removes it on unwind too. The caller must bind
+/// it to a named variable — the directory lives exactly as long as that binding.
+fn scratch(tag: &str) -> Option<tempfile::TempDir> {
+    tempfile::Builder::new()
+        .prefix(&format!("bac-record-gate-{tag}-"))
+        .tempdir()
+        .ok()
 }
 
 /// Run `record` against the fixture and return `(envelope, recorded lines)`.
 fn record(out: &PathBuf, max_events: u32) -> Option<(serde_json::Value, Vec<String>)> {
     let bin = binary()?;
     let url = fixture_url()?;
-    let output = Command::new(&bin)
+    let output = common::isolated_cmd(&bin)
         .args(["-q", "--timeout", "120", "--json", "record", "--url"])
         .arg(&url)
         .arg("--path")
@@ -80,7 +79,7 @@ fn record(out: &PathBuf, max_events: u32) -> Option<(serde_json::Value, Vec<Stri
 /// Replay a recorded NDJSON file through `run --script` and return the envelope.
 fn replay(script: &PathBuf) -> Option<serde_json::Value> {
     let bin = binary()?;
-    let output = Command::new(&bin)
+    let output = common::isolated_cmd(&bin)
         .args(["-q", "--timeout", "120", "--json", "run", "--script"])
         .arg(script)
         .output()
@@ -90,33 +89,17 @@ fn replay(script: &PathBuf) -> Option<serde_json::Value> {
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    if binary().is_none() {
-        eprintln!(
-            "SKIP record_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    if missing_binary(GATE) {
         return true;
     }
     if fixture_url().is_none() {
-        eprintln!(
-            "SKIP record_gate: fixture scripts/fixtures/record/interactions.html absent. \
-             This is NOT a pass."
+        common::skip_with_reason(
+            "record_gate",
+            "fixture scripts/fixtures/record/interactions.html absent.",
         );
         return true;
     }
-    let probe = Command::new(binary().expect("binary"))
-        .args(["-q", "--json", "doctor", "--offline", "--quick"])
-        .output();
-    let chrome_ok = probe
-        .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if !chrome_ok {
-        eprintln!(
-            "SKIP record_gate: doctor reports the host is not ready for Chrome. \
-             This is NOT a pass."
-        );
+    if chrome_not_ready(GATE, &binary().expect("binary")) {
         return true;
     }
     false
@@ -131,8 +114,8 @@ fn recorded_ndjson_is_one_line_per_event_and_replays_through_run() {
     if cannot_run() {
         return;
     }
-    let dir = scratch("replay").expect("scratch dir");
-    let out = dir.join("steps.jsonl");
+    let scratch = scratch("replay").expect("scratch dir");
+    let out = scratch.path().join("steps.jsonl");
     let (envelope, lines) = record(&out, 50).expect("record envelope");
 
     assert_eq!(
@@ -197,8 +180,6 @@ fn recorded_ndjson_is_one_line_per_event_and_replays_through_run() {
         Some(true),
         "the recorded file must run unmodified through `run --script`: {replayed}"
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// CEILING: `--max-events 1` stops after one step and SAYS it stopped early.
@@ -210,8 +191,8 @@ fn the_event_ceiling_truncates_and_is_reported() {
     if cannot_run() {
         return;
     }
-    let dir = scratch("truncate").expect("scratch dir");
-    let out = dir.join("steps.jsonl");
+    let scratch = scratch("truncate").expect("scratch dir");
+    let out = scratch.path().join("steps.jsonl");
     let (envelope, lines) = record(&out, 1).expect("record envelope");
 
     assert_eq!(
@@ -231,8 +212,6 @@ fn the_event_ceiling_truncates_and_is_reported() {
         1,
         "the file must honour the ceiling: {lines:?}"
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// ENVIRONMENT GUARD: this one never skips.

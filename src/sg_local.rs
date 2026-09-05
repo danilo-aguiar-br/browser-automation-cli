@@ -13,17 +13,49 @@
 //! - Rewrite path stays sequential when `--apply` (deterministic atomic writes; no
 //!   concurrent writers on the same tree).
 //! - Regex rules compile once via [`LazyLock`](std::sync::LazyLock) (fixed closures; MSRV ≥ 1.80).
+//!
+//! # Accuracy, measured
+//!
+//! Run over `src/` and `tests/` on 2026-08-25, this scanner reported 16
+//! findings and all 16 were false positives. Three causes, each closed by a
+//! named exemption: prose describing a rule (`is_comment_line`), the file
+//! defining the rules scanning itself (`defines_the_rules`), and a test
+//! exemption bolted to one rule by string comparison rather than declared per
+//! rule (`Rule::exempt_in_tests`). The same run now reports 1.
+//!
+//! ## The one that is left
+//!
+//! `src/xdg/config_write.rs` builds the default `config.toml`, and the TOML
+//! header it writes reads "no `.env` at runtime". That sentence is prose, but it
+//! lives inside a Rust string literal rather than a comment, so the line IS
+//! code and `is_comment_line` correctly declines to skip it.
+//!
+//! It stays. Separating prose in a string from a path in a string needs to know
+//! where string literals begin and end, which is a parser, and every cheap
+//! approximation available here — skipping lines with `#`, skipping lines
+//! inside `format!` — trades one loud false positive for a class of silent
+//! false negatives. A scanner that misses a real dotenv read is worse than one
+//! that flags a sentence, so the number is written down instead of driven to
+//! zero.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
 
 use ignore::WalkBuilder;
 use rayon::prelude::*;
-use regex::Regex;
 use serde_json::{json, Value};
 
-use crate::error::{CliError, ErrorKind};
+use crate::error::CliError;
+
+mod rewrite;
+mod rules;
+
+#[cfg(test)]
+mod tests;
+
+pub use rewrite::sg_rewrite;
+
+use rules::{compiled_rules, Rule};
 
 /// A single finding.
 #[derive(Debug, Clone)]
@@ -112,29 +144,105 @@ pub fn sg_scan(roots: &[PathBuf], limit: usize) -> Result<Value, CliError> {
     Ok(findings_to_json(&findings, false))
 }
 
-fn scan_file(path: &Path, rules: &[(&'static str, Regex)]) -> Vec<Finding> {
+/// Whether a path holds test code by construction, for the `unwrap_prod` rule.
+///
+/// Three shapes, because this crate uses all three: the `tests/` integration
+/// directory, an in-crate module declared as `#[cfg(test)] mod tests;` in its
+/// PARENT file, and the `test_utils` helper. The parent's attribute never
+/// appears inside `tests.rs` itself, so a scanner that looks for `#[cfg(test)]`
+/// within the file classifies every one of those modules as production. Measured
+/// on 2026-08-25: the previous path filter reported 323 test `unwrap()` calls as
+/// violations, which is a false-positive rate high enough to retire the rule
+/// without the gate ever turning red.
+fn is_test_path(path: &Path) -> bool {
+    let file = path
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if file == "tests.rs" || file == "test_utils.rs" || file.ends_with("_test.rs") {
+        return true;
+    }
+    path.components()
+        .any(|c| matches!(c.as_os_str().to_str(), Some("tests") | Some("benches")))
+}
+
+/// Line number of the file's first `#[cfg(test)]`, if it has one.
+///
+/// Rust convention puts the in-file test module last, so every line from that
+/// attribute onwards is test code. This is the weaker of the two signals and it
+/// only covers inline `#[cfg(test)] mod tests { .. }` blocks inside production
+/// files; [`is_test_path`] carries the cases where the attribute lives in a
+/// different file altogether.
+fn first_cfg_test_line(text: &str) -> Option<usize> {
+    text.lines()
+        .position(|l| l.trim_start().starts_with("#[cfg(test)]"))
+        .map(|i| i + 1)
+}
+
+/// Whether the line is a Rust line comment, and therefore prose rather than code.
+///
+/// Every rule here forbids a runtime BEHAVIOUR, so a line that cannot execute
+/// cannot violate one. Skipping comments closes a class of false positive with a
+/// perverse shape: the better a rule was documented, the more violations it
+/// reported. Measured on 2026-08-25 over `src/` and `tests/`, five of sixteen
+/// findings were sentences ASSERTING the conformance — `src/lib.rs` promising
+/// "no `.env` at runtime" was accused of reading `.env`.
+///
+/// Block comments (`/* .. */`) are deliberately NOT handled. This is a line
+/// scanner; spanning constructs need a parser, and pretending otherwise would
+/// trade a loud false positive for a silent false negative. The debt is stated
+/// here rather than hidden in the loop.
+fn is_comment_line(line: &str) -> bool {
+    line.trim_start().starts_with("//")
+}
+
+/// Whether this path is the file that DEFINES the rules, and is exempt from them.
+///
+/// A rule's own pattern is, by construction, an instance of what it hunts:
+/// `Regex::new(r"\.unwrap\(\)")` contains the exact text the unwrap rule looks
+/// for. Measured on 2026-08-25 over `src/` and `tests/`, seven of sixteen
+/// findings were this one file, including the line that IS the dotenv pattern.
+///
+/// The path comes from [`file!`], so renaming or moving this module carries the
+/// exemption with it instead of leaving a dead string literal behind — the
+/// failure mode this crate has already hit once, in the path filter that
+/// `is_test_path` replaced. The accepted trade is that a DIFFERENT crate with a
+/// file at the same relative path would also be skipped; this scanner is aimed
+/// at this repository and says so.
+fn defines_the_rules(path: &Path) -> bool {
+    path.ends_with(file!())
+}
+
+fn scan_file(path: &Path, rules: &[Rule]) -> Vec<Finding> {
+    if defines_the_rules(path) {
+        return Vec::new();
+    }
     let Some(text) = read_source_within_budget(path) else {
         return Vec::new();
     };
-    let s = path.to_string_lossy();
+    // The test exemption is decided once per file, never per line: either the
+    // path is test code by construction, or the file opens its own `#[cfg(test)]`
+    // block at a known line.
+    let path_is_test = is_test_path(path);
+    let inline_test_from = first_cfg_test_line(&text);
     // Pre-size conservatively: most files yield few findings; reserve a small
     // floor so the first hits avoid reallocation (rules: with_capacity).
     let mut out = Vec::with_capacity(4);
     for (lineno, line) in text.lines().enumerate() {
         let lineno = lineno + 1;
-        for (rule, re) in rules {
-            if re.is_match(line) {
-                if *rule == "unwrap_prod"
-                    && (s.contains("/tests/")
-                        || s.contains("\\tests\\")
-                        || path.ends_with("test_utils.rs"))
-                {
-                    continue;
-                }
+        if is_comment_line(line) {
+            continue;
+        }
+        let in_test_code = path_is_test || inline_test_from.is_some_and(|start| lineno >= start);
+        for rule in rules {
+            if rule.exempt_in_tests && in_test_code {
+                continue;
+            }
+            if rule.re.is_match(line) {
                 out.push(Finding {
                     path: path.display().to_string(),
                     line: lineno,
-                    rule,
+                    rule: rule.name,
                     snippet: line.trim().chars().take(160).collect(),
                 });
             }
@@ -142,145 +250,6 @@ fn scan_file(path: &Path, rules: &[(&'static str, Regex)]) -> Vec<Finding> {
     }
     out
 }
-
-/// Dry-run or apply safe rewrites (GAP-A011). Only applies trivial safe fixes.
-///
-/// # Parallelism
-///
-/// - **Collect paths:** multi-threaded `ignore` walk.
-/// - **Dry-run (`apply=false`):** Rayon `par_iter` over paths (CPU + disk read).
-/// - **Apply (`apply=true`):** **sequential** by design — concurrent writers would
-///   race on the same tree; atomic rename is per-file but ordering stays deterministic.
-pub fn sg_rewrite(roots: &[PathBuf], apply: bool) -> Result<Value, CliError> {
-    crate::concurrency::install_rayon_pool_once();
-    let roots = if roots.is_empty() {
-        vec![PathBuf::from(".")]
-    } else {
-        roots.to_vec()
-    };
-    // Safe rewrite: strip `RUST_LOG` product-env comments that reintroduce env secrets guidance.
-    // Real rewrites of unwrap are intentionally NOT automatic (would be blind rewrite — forbidden).
-    let re_env_hint = re_rust_log_export();
-    let walk_threads = crate::concurrency::walk_threads();
-    let collect_root = |root: &PathBuf| -> Vec<PathBuf> {
-        let mut local = Vec::new();
-        let mut builder = WalkBuilder::new(root);
-        builder.git_ignore(true);
-        builder.threads(walk_threads);
-        for entry in builder.build() {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-            let path = entry.path();
-            if path
-                .extension()
-                .and_then(|e| e.to_str())
-                .is_none_or(|e| e != "md" && e != "txt" && e != "rs")
-            {
-                continue;
-            }
-            let s = path.to_string_lossy();
-            if s.contains("/target/") {
-                continue;
-            }
-            local.push(path.to_path_buf());
-        }
-        local
-    };
-    let mut paths: Vec<PathBuf> = if roots.len() <= 1 {
-        roots.iter().flat_map(collect_root).collect()
-    } else {
-        roots.par_iter().flat_map(collect_root).collect()
-    };
-
-    let replacement = "# (removed product RUST_LOG export — use XDG log_level) ";
-    let mut changed = Vec::new();
-    let planned;
-
-    if apply {
-        // Sequential apply: deterministic order + no concurrent writers (N-136).
-        // PAR-94: large path lists use par_sort before sequential apply.
-        crate::concurrency::sort_cpu(&mut paths);
-        let mut n = 0usize;
-        for path in &paths {
-            let Some(text) = read_source_within_budget(path) else {
-                continue;
-            };
-            if !re_env_hint.is_match(&text) {
-                continue;
-            }
-            n += 1;
-            let new_text = re_env_hint.replace_all(&text, replacement);
-            atomic_write(path, new_text.as_ref())?;
-            changed.push(path.display().to_string());
-        }
-        planned = n;
-    } else {
-        // Dry-run: parallel CPU match over collected paths.
-        let mut hits: Vec<String> = paths
-            .par_iter()
-            .filter_map(|path| {
-                let text = read_source_within_budget(path)?;
-                if re_env_hint.is_match(&text) {
-                    Some(path.display().to_string())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        crate::concurrency::sort_cpu(&mut hits);
-        planned = hits.len();
-        changed = hits;
-    }
-
-    Ok(json!({
-        "ok": true,
-        "apply": apply,
-        "planned": planned,
-        "changed": changed,
-        "note": "Blind AST rewrite is forbidden; only safe RUST_LOG export hints are rewritten",
-        "chrome": false,
-        "parallel_walk": true,
-        "dry_run_rayon": !apply,
-        "apply_sequential": apply,
-        "concurrency": crate::concurrency::effective_limit(),
-    }))
-}
-
-fn re_rust_log_export() -> &'static Regex {
-    static RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"(?i)export\s+RUST_LOG\s*="#).expect("RUST_LOG export regex")
-    });
-    &RE
-}
-
-fn compiled_rules() -> &'static [(&'static str, Regex)] {
-    static RULES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
-        vec![
-            (
-                "telemetry_string",
-                Regex::new(r"(?i)\b(opentelemetry|sentry\.io|telemetry\.|posthog|datadog)\b")
-                    .expect("telemetry regex"),
-            ),
-            (
-                "product_env_secret",
-                Regex::new(r#"std::env::var\(\s*"(API_KEY|OPENAI_API_KEY|SECRET|TOKEN|PASSWORD)""#)
-                    .expect("env secret regex"),
-            ),
-            (
-                "unwrap_prod",
-                Regex::new(r"\.unwrap\(\)").expect("unwrap regex"),
-            ),
-            (
-                "dotenv",
-                Regex::new(r"(?i)\bdotenv\b|\.env\b").expect("dotenv regex"),
-            ),
-        ]
-    });
-    RULES.as_slice()
-}
-
 fn findings_to_json(findings: &[Finding], apply: bool) -> Value {
     let items: Vec<Value> = findings
         .iter()
@@ -303,37 +272,4 @@ fn findings_to_json(findings: &[Finding], apply: bool) -> Value {
         "concurrency": crate::concurrency::effective_limit(),
         "chrome": false,
     })
-}
-
-fn atomic_write(path: &Path, body: &str) -> Result<(), CliError> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let tmp = parent.join(format!(
-        ".browser-automation-cli-sg-{}.tmp",
-        std::process::id()
-    ));
-    fs::write(&tmp, body)
-        .map_err(|e| CliError::new(ErrorKind::Io, format!("write temp {}: {e}", tmp.display())))?;
-    fs::rename(&tmp, path).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        CliError::new(
-            ErrorKind::Io,
-            format!("rename {} → {}: {e}", tmp.display(), path.display()),
-        )
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-
-    #[test]
-    fn scan_finds_unwrap_in_temp_rs() {
-        let dir = tempfile::tempdir().unwrap();
-        let f = dir.path().join("prod.rs");
-        let mut file = fs::File::create(&f).unwrap();
-        writeln!(file, "fn x() {{ let _ = \"a\".parse::<u32>().unwrap(); }}").unwrap();
-        let v = sg_scan(&[dir.path().to_path_buf()], 50).unwrap();
-        assert!(v.get("count").and_then(|c| c.as_u64()).unwrap_or(0) >= 1);
-    }
 }

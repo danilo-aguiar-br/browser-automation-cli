@@ -25,6 +25,9 @@ pub struct DoctorArgs {
     /// Attach a suggested repair command to each failing check
     #[arg(long, action = ArgAction::SetTrue)]
     pub fix: bool,
+    /// Compare identity signals (webdriver, platform vs UA, screen vs viewport)
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub fingerprint: bool,
 }
 
 /// JSON Schema fragment for a command (agent discovery)

@@ -59,20 +59,13 @@
 //! `the_host_can_actually_run_this_gate` turns that skip into exactly one red
 //! case instead of four silent greens.
 
-use std::path::PathBuf;
-use std::process::Command;
+mod common;
+use common::{binary, chrome_not_ready, missing_binary, root};
+
+const GATE: &str = "scrape_step_gate";
 
 const HEAD_TOKEN: &str = "CONTENT_HEAD_K1L2";
 const BODY_TOKEN: &str = "CONTENT_BODY_P5Q6";
-
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn binary() -> Option<PathBuf> {
-    let p = root().join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
 
 fn fixture_url() -> Option<String> {
     let p = root().join("scripts/fixtures/content/page.html");
@@ -82,19 +75,25 @@ fn fixture_url() -> Option<String> {
 /// Run a script through `run` and return the parsed envelope.
 fn run_script(lines: &[String]) -> Option<serde_json::Value> {
     let bin = binary()?;
-    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("scrape-gate-{}-{n}", std::process::id()));
-    std::fs::create_dir_all(&dir).ok()?;
+    // A `TempDir` and not a pid+counter path: the counter only ever resolved
+    // COLLISION between the threads of this one binary, never cleanup, so an
+    // assertion that panicked left the directory behind for good. The guard is
+    // bound to a NAMED variable on purpose — `let _ = ...` drops it on the spot
+    // and deletes the script before the child process can read it.
+    let scratch = tempfile::Builder::new()
+        .prefix("bac-scrape-gate-")
+        .tempdir()
+        .ok()?;
+    let dir = scratch.path();
     let script = dir.join("steps.jsonl");
     std::fs::write(&script, lines.join("\n")).ok()?;
 
-    let out = Command::new(&bin)
+    let out = common::isolated_cmd(&bin)
         .args(["-q", "--timeout", "120", "--json", "run", "--script"])
         .arg(&script)
         .output()
         .ok()?;
-    let _ = std::fs::remove_dir_all(&dir);
+
     serde_json::from_slice(&out.stdout).ok()
 }
 
@@ -115,33 +114,17 @@ fn scrape(format: &str) -> String {
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    if binary().is_none() {
-        eprintln!(
-            "SKIP scrape_step_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    if missing_binary(GATE) {
         return true;
     }
     if fixture_url().is_none() {
-        eprintln!(
-            "SKIP scrape_step_gate: fixture scripts/fixtures/content/page.html absent. \
-             This is NOT a pass."
+        common::skip_with_reason(
+            "scrape_step_gate",
+            "fixture scripts/fixtures/content/page.html absent.",
         );
         return true;
     }
-    let probe = Command::new(binary().expect("binary"))
-        .args(["-q", "--json", "doctor", "--offline", "--quick"])
-        .output();
-    let chrome_ok = probe
-        .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if !chrome_ok {
-        eprintln!(
-            "SKIP scrape_step_gate: doctor reports the host is not ready for Chrome. \
-             This is NOT a pass."
-        );
+    if chrome_not_ready(GATE, &binary().expect("binary")) {
         return true;
     }
     false
@@ -202,9 +185,9 @@ fn scrape_ignores_the_currently_open_page_and_uses_its_own_url() {
     }
     let other = root().join("scripts/fixtures/assert_step/page.html");
     if !other.exists() {
-        eprintln!(
-            "SKIP scrape_ignores_the_currently_open_page: \
-             scripts/fixtures/assert_step/page.html absent. This is NOT a pass."
+        common::skip_with_reason(
+            "scrape_ignores_the_currently_open_page",
+            "scripts/fixtures/assert_step/page.html absent.",
         );
         return;
     }
@@ -254,7 +237,7 @@ fn the_http_engine_refuses_a_file_url_and_names_the_reason() {
     }
     let bin = binary().expect("binary");
     let url = fixture_url().expect("fixture url");
-    let out = Command::new(&bin)
+    let out = common::isolated_cmd(&bin)
         .args(["-q", "--timeout", "60", "--json", "scrape"])
         .arg(&url)
         .args(["--format", "text", "--engine", "http"])
@@ -348,8 +331,23 @@ fn scrape_formats_are_not_identical_key_sets() {
     }
     let text_env = run_script(&[scrape("text")]).expect("text");
     let md_env = run_script(&[scrape("markdown")]).expect("markdown");
-    assert_eq!(text_env.get("ok").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(md_env.get("ok").and_then(|v| v.as_bool()), Some(true));
+    // Both envelopes are printed on failure. This case launches the browser
+    // TWICE in sequence, so it is the one most exposed to a launch that loses a
+    // contended host; measured 2026-08-18, the second launch failed inside the
+    // full 65-binary suite while the same case passed 6 of 6 alone. The bare
+    // `assert_eq!` that used to stand here reported only `Some(false)` against
+    // `Some(true)`, discarding the `error` field that says WHICH launch failed
+    // and why — the sibling assertions in this file already carry their envelope.
+    assert_eq!(
+        text_env.get("ok").and_then(|v| v.as_bool()),
+        Some(true),
+        "format=text scrape must succeed: {text_env}"
+    );
+    assert_eq!(
+        md_env.get("ok").and_then(|v| v.as_bool()),
+        Some(true),
+        "format=markdown scrape must succeed: {md_env}"
+    );
     let text_data = scrape_data(&text_env).expect("text data");
     let md_data = scrape_data(&md_env).expect("md data");
     let text_keys: Vec<_> = text_data
@@ -375,6 +373,122 @@ fn scrape_formats_are_not_identical_key_sets() {
             || md_data.get("markdown").is_some()
             || md_data.get("content").is_some(),
         "text and markdown must not collapse to identical envelopes; text={text_data} md={md_data}"
+    );
+}
+
+/// Run a script and return BOTH the process exit code and the parsed envelope.
+///
+/// `run_script` above discards the status, which is right for the cases that only
+/// read the envelope. The `engine` refusal below must pin the exit code too: an
+/// agent branches on the process status before it parses anything, so a usage
+/// error that answered exit 0 would be read as success no matter what the JSON
+/// said.
+fn run_script_with_status(lines: &[String]) -> Option<(i32, serde_json::Value)> {
+    let bin = binary()?;
+    let scratch = tempfile::Builder::new()
+        .prefix("bac-scrape-gate-")
+        .tempdir()
+        .ok()?;
+    let script = scratch.path().join("steps.jsonl");
+    std::fs::write(&script, lines.join("\n")).ok()?;
+
+    let out = common::isolated_cmd(&bin)
+        .args(["-q", "--timeout", "120", "--json", "run", "--script"])
+        .arg(&script)
+        .output()
+        .ok()?;
+
+    let env = serde_json::from_slice(&out.stdout).ok()?;
+    Some((out.status.code().unwrap_or(-1), env))
+}
+
+/// `engine` inside a run step is REFUSED, and the refusal names the alternative.
+///
+/// # Why refusing beats honouring, and beats ignoring
+///
+/// Inside `run` the browser session is already live, so the engine was settled at
+/// launch. Honouring the field would mean relaunching mid-script; the step has no
+/// authority to do that.
+///
+/// Ignoring it is what the step used to do, and MEASURED 2026-08-31 that produced
+/// the one shape a caller cannot detect: a step asking for `"engine":"http"`
+/// returned `ok: true` carrying `engine: "browser"`. The envelope contradicted the
+/// request and still reported success, so nothing an agent reads would reveal that
+/// the field was thrown away.
+///
+/// The message is asserted, not just the kind. A bare usage error would send the
+/// caller looking for a typo in the step instead of at the top-level `scrape`,
+/// which is where the engine choice actually lives.
+#[test]
+fn scrape_step_refuses_engine_and_names_the_top_level_alternative() {
+    if cannot_run() {
+        return;
+    }
+    let url = fixture_url().expect("fixture url");
+    let step = format!(r#"{{"cmd":"scrape","url":"{url}","format":"text","engine":"http"}}"#);
+    let (code, env) = run_script_with_status(&[step]).expect("run envelope");
+
+    assert_eq!(
+        code, 2,
+        "a step field the command cannot honour is malformed input, and exit 2 is \
+         what an agent branches on before parsing: {env}"
+    );
+    assert_eq!(
+        env.get("ok").and_then(|v| v.as_bool()),
+        Some(false),
+        "accepting the key and discarding it is the defect this pins: {env}"
+    );
+    assert_eq!(
+        env.pointer("/error/kind").and_then(|v| v.as_str()),
+        Some("usage"),
+        "a field this command cannot honour is a usage error: {env}"
+    );
+    let message = env
+        .pointer("/error/message")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    assert!(
+        message.contains("engine"),
+        "the refusal must name the field that caused it; got {message}"
+    );
+    assert!(
+        message.contains("scrape") && message.contains("--engine"),
+        "the refusal must name WHERE the engine can be chosen — the top-level \
+         `scrape --engine` — or the caller edits the step forever; got {message}"
+    );
+}
+
+/// CONTROL: the same step WITHOUT `engine` still succeeds.
+///
+/// This case is what stops the refusal above from being satisfied by a step that
+/// broke for some unrelated reason. Without it, a `scrape` arm that started
+/// failing on every input would keep the rejection test green while silently
+/// destroying the feature.
+#[test]
+fn scrape_step_without_engine_still_succeeds() {
+    if cannot_run() {
+        return;
+    }
+    let (code, env) = run_script_with_status(&[scrape("text")]).expect("run envelope");
+
+    assert_eq!(
+        code, 0,
+        "dropping `engine` must leave a working step, not a broken one: {env}"
+    );
+    assert_eq!(
+        env.get("ok").and_then(|v| v.as_bool()),
+        Some(true),
+        "the control proves the refusal is about the FIELD, not about scrape: {env}"
+    );
+    let data = scrape_data(&env).expect("scrape step data");
+    let text = data
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    assert!(
+        text.contains(HEAD_TOKEN) && text.contains(BODY_TOKEN),
+        "the control must return the fixture's own tokens, or it proves nothing \
+         about the step still working; got {text:?}"
     );
 }
 

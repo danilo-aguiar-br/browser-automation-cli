@@ -3,6 +3,34 @@
 
 use std::sync::{Mutex, MutexGuard};
 
+/// Announce that a unit test declined to run, and fail when the suite is strict.
+///
+/// # Why this exists
+///
+/// Several unit tests need a host tool (`/bin/sh`, Xvfb, a mock script) and used
+/// to `eprintln!("skip: …")` and then return. libtest counts that as PASSED, so
+/// a gate that never executed was indistinguishable from a gate that executed
+/// and held. The integration suite closed the same hole in
+/// `tests/common::enforce_strict`; this is its in-crate twin.
+///
+/// The switch is the `strict-gates` cargo feature, never an environment
+/// variable, because this product bans product environment variables.
+///
+/// # Panics
+///
+/// Whenever the `strict-gates` feature is enabled.
+/// `print_stderr` is denied package-wide so that agent-consumable output stays
+/// in `src/output.rs`. This is the one announcement that must NOT go there: a
+/// skip is a message to the human running the suite, and routing it through the
+/// agent envelope would make a gate that declined look like a gate that ran.
+#[allow(clippy::print_stderr)]
+pub fn skip_unit_test(gate: &str, reason: &str) {
+    eprintln!("skip {gate}: {reason} This is NOT a pass.");
+    if cfg!(feature = "strict-gates") {
+        panic!("{gate} declined to run under --features strict-gates: {reason}");
+    }
+}
+
 /// Global mutex shared across all test modules to prevent parallel tests from
 /// interfering with each other when mutating environment variables.
 ///
@@ -14,6 +42,35 @@ use std::sync::{Mutex, MutexGuard};
 pub static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
 /// RAII guard that locks [`ENV_MUTEX`] and restores environment variables on drop.
+///
+/// # This guard is UNSOUND, and is legacy — do not extend it
+///
+/// It calls `std::env::set_var`, which the std documentation says is unsound in
+/// a multi-threaded program on every platform except Windows. The requirement
+/// is not merely that no other thread WRITES the environment: no other thread
+/// may even READ it concurrently, and libc reads it without announcing —
+/// address resolution through `ToSocketAddrs` is the example the std docs
+/// themselves give.
+///
+/// [`ENV_MUTEX`] does not fix that. A lock binds only the threads that choose
+/// to take it, and libc never will. libtest runs the tests inside one binary on
+/// many threads, so a fixture mutating its OWN process environment is undefined
+/// behaviour by construction, mutex or no mutex.
+///
+/// `set_var` and `remove_var` also become `unsafe` in edition 2024, so this
+/// compiles today only because the crate is on 2021.
+///
+/// # What to do instead
+///
+/// Parameterize. A function that resolves policy from XDG should delegate to a
+/// core that TAKES the policy, and the test should call the core — the shape
+/// `net::assert_safe_http_url` / `assert_safe_http_url_mode` uses. When a child
+/// process is involved, hand the variables to the CHILD via `Command::env`,
+/// which is the documented alternative and mutates nothing in this process;
+/// `tests/common/mod.rs` does exactly that.
+///
+/// This guard remains only for fixtures not yet migrated. Every new test must
+/// use one of the two approaches above.
 ///
 /// Lifetime is elided at the impl boundary (`clippy::elidable_lifetime_names`);
 /// the struct still names `'a` because it holds a `MutexGuard<'a, ()>`.
@@ -68,6 +125,11 @@ impl EnvGuard<'_> {
     ///
     /// Debug builds assert the variable was registered in [`EnvGuard::new`];
     /// an unregistered write would never be restored.
+    /// `clippy::disallowed_methods` bans `set_var` package-wide (see
+    /// `clippy.toml`). This guard is the legacy holder of that debt, documented
+    /// as unsound on the type itself; the exemption is scoped to it so a new
+    /// call site elsewhere still fails the gate.
+    #[allow(clippy::disallowed_methods)]
     pub fn set(&self, name: &str, value: &str) {
         debug_assert!(
             self.vars.iter().any(|(n, _)| n == name),
@@ -81,6 +143,9 @@ impl EnvGuard<'_> {
     /// # Panics
     ///
     /// Debug builds assert the variable was registered in [`EnvGuard::new`].
+    /// See [`EnvGuard::set`] for why this call is exempt from
+    /// `clippy::disallowed_methods`.
+    #[allow(clippy::disallowed_methods)]
     pub fn remove(&self, name: &str) {
         debug_assert!(
             self.vars.iter().any(|(n, _)| n == name),
@@ -91,6 +156,9 @@ impl EnvGuard<'_> {
 }
 
 impl Drop for EnvGuard<'_> {
+    /// See [`EnvGuard::set`] for why these calls are exempt from
+    /// `clippy::disallowed_methods`.
+    #[allow(clippy::disallowed_methods)]
     fn drop(&mut self) {
         for (name, value) in &self.vars {
             match value {

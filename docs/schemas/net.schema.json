@@ -23,6 +23,22 @@
               ],
               "type": "string"
             },
+            "include_preserved": {
+              "argv": "--include-preserved",
+              "description": "Index over the preserved rings too, matching `net list --include-preserved`. Without it the ids of the two commands address different buffers and silently disagree",
+              "required": false,
+              "source": "parser",
+              "step_key": "include_preserved",
+              "step_key_aliases": [
+                "includePreservedRequests"
+              ],
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            },
             "request_path": {
               "argv": "--request-path",
               "description": "Write the request body to this file",
@@ -60,6 +76,9 @@
               "required": false,
               "source": "parser",
               "step_key": "include_preserved",
+              "step_key_aliases": [
+                "includePreservedRequests"
+              ],
               "surfaces": [
                 "argv",
                 "run_step",
@@ -73,6 +92,9 @@
               "required": false,
               "source": "parser",
               "step_key": "page_idx",
+              "step_key_aliases": [
+                "pageIdx"
+              ],
               "surfaces": [
                 "argv",
                 "run_step",
@@ -86,6 +108,9 @@
               "required": false,
               "source": "parser",
               "step_key": "page_size",
+              "step_key_aliases": [
+                "pageSize"
+              ],
               "surfaces": [
                 "argv",
                 "run_step",
@@ -95,10 +120,13 @@
             },
             "resource_types": {
               "argv": "--resource-types",
-              "description": "Filter resource types (comma-separated: Document,Script,XHR,Fetch,...)",
+              "description": "Filter CDP resource types, comma-separated and matched exactly (Document, Stylesheet, Image, Media, Font, Script, TextTrack, XHR, Fetch, Prefetch, EventSource, WebSocket, Manifest, SignedExchange, Ping, CSPViolationReport, Preflight, FedCM, Other). An unknown token is refused by the parser, before any browser launch",
               "required": false,
               "source": "parser",
               "step_key": "resource_types",
+              "step_key_aliases": [
+                "resourceTypes"
+              ],
               "surfaces": [
                 "argv",
                 "run_step",

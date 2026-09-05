@@ -3,17 +3,27 @@
 
 use super::*;
 use crate::error::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-fn temp_child(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("bac-roots-test-{name}"));
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+/// A scratch dir under the system temp root, removed when the guard drops.
+///
+/// The guard must be BOUND by the caller. `temp_child("x").path()` compiles and
+/// then deletes the directory before the assertion runs, because the temporary
+/// lives only to the end of the statement.
+///
+/// This used to be `temp_dir().join("bac-roots-test-{name}")` with no removal at
+/// all, so every `cargo test` left three directories behind for good.
+fn temp_child(name: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("bac-roots-test-{name}-"))
+        .tempdir()
+        .expect("create scratch dir")
 }
 
 #[test]
 fn temp_dir_is_inside_default_roots() {
-    let dir = temp_child("inside");
+    let tmp = temp_child("inside");
+    let dir = tmp.path();
     let file = dir.join("fixture.html");
     std::fs::write(&file, b"<html></html>").expect("write fixture");
     assert!(ensure_within_roots(&file, PathUse::Read, false).is_ok());
@@ -37,7 +47,8 @@ fn escape_flag_permits_the_same_path() {
 
 #[test]
 fn traversal_out_of_a_root_is_rejected() {
-    let dir = temp_child("traversal");
+    let tmp = temp_child("traversal");
+    let dir = tmp.path();
     let sneaky = dir.join("../../../../etc/passwd");
     if !Path::new("/etc/passwd").exists() {
         return;
@@ -78,12 +89,13 @@ fn refusal_is_policy_not_argv() {
 #[test]
 fn non_file_urls_are_not_gated_here() {
     assert!(ensure_file_url_allowed("https://example.com/", false).is_ok());
-    assert!(ensure_file_url_allowed("about:blank", false).is_ok());
+    assert!(ensure_file_url_allowed(crate::constants::ABOUT_BLANK, false).is_ok());
 }
 
 #[test]
 fn write_target_that_does_not_exist_yet_resolves_via_parent() {
-    let dir = temp_child("write");
+    let tmp = temp_child("write");
+    let dir = tmp.path();
     let target = dir.join("new-artifact.png");
     let _ = std::fs::remove_file(&target);
     assert!(ensure_within_roots(&target, PathUse::Write, false).is_ok());

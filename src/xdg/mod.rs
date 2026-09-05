@@ -69,10 +69,11 @@ pub use resolve::{
     resolve_max_cli_json_payload_bytes, resolve_max_json_file_bytes, resolve_max_ndjson_line_bytes,
     resolve_monitor_diff_max_bytes, resolve_proxy_credentials, resolve_redis_allow_remote,
     resolve_redis_connect_timeout_secs, resolve_robots_loopback_exempt, resolve_robots_user_agent,
-    resolve_screencast_jpeg_quality, resolve_stealth_seed, resolve_svg_max_bytes,
-    resolve_svg_max_depth, resolve_svg_max_entities, resolve_video_default_audio_bitrate,
-    resolve_video_default_container, resolve_video_default_crf, resolve_video_download_max_bytes,
-    resolve_video_max_input_bytes, search_base_url,
+    resolve_screen_spec, resolve_screencast_jpeg_quality, resolve_stealth_seed,
+    resolve_svg_max_bytes, resolve_svg_max_depth, resolve_svg_max_entities,
+    resolve_video_default_audio_bitrate, resolve_video_default_container,
+    resolve_video_default_crf, resolve_video_download_max_bytes, resolve_video_max_input_bytes,
+    search_base_url, user_data_dir,
 };
 pub use resolve_scrape::{
     resolve_scrape_charset_peek_bytes, resolve_scrape_dedup_similar,

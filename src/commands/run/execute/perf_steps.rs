@@ -12,6 +12,35 @@ use crate::robots::RobotsPolicy;
 use super::super::RunFlags;
 use super::helpers::{scrape_formats_from_step, step_beforeunload_action};
 
+/// Actions the `perf` arm below accepts.
+///
+/// See [`COOKIE_ACTIONS`](super::page_steps::COOKIE_ACTIONS) for why the
+/// slice sits beside the `match` it mirrors. The path goes through the
+/// `page_steps` re-export rather than `page_steps::state`, which is private to
+/// that module and unreachable from here.
+pub(crate) const PERF_ACTIONS: &[&str] = &["start", "stop", "insight"];
+
+/// Actions the `screencast` arm below accepts.
+pub(crate) const SCREENCAST_ACTIONS: &[&str] = &["start", "stop"];
+
+/// Actions the `heap` arm below accepts, aliases included.
+pub(crate) const HEAP_ACTIONS: &[&str] = &[
+    "take",
+    "summary",
+    "close",
+    "details",
+    "dup-strings",
+    "dup_strings",
+    "compare",
+    "class-nodes",
+    "dominators",
+    "edges",
+    "retainers",
+    "paths",
+    "object-details",
+    "object_details",
+];
+
 pub(super) async fn handle(
     session: &mut OneShotSession,
     cmd: &str,
@@ -54,7 +83,31 @@ pub(super) async fn handle(
                         .get("insight_set_id")
                         .or_else(|| step.get("insightSetId"))
                         .and_then(|v| v.as_str());
-                    session.perf_insight(name, set_id).await
+                    // `step_fields` has always listed `path` among the keys a
+                    // `perf` step accepts, and nothing here read it: the key was
+                    // accepted and silently ignored, so a script asking to
+                    // analyse a trace offline got a live capture instead, with
+                    // no error to say the request had been dropped.
+                    //
+                    // `perf_insight_file` carries its own root check, so the
+                    // path is bounded before the file is opened.
+                    match step.get("path").and_then(|v| v.as_str()) {
+                        Some(trace) => {
+                            // Same refusal the CLI arm makes: an offline trace
+                            // has no insight sets, so honouring `path` while
+                            // discarding `insight_set_id` would answer a
+                            // request nobody made and report success over it.
+                            if set_id.is_some() {
+                                return Err(CliError::new(
+                                    ErrorKind::Usage,
+                                    "perf insight with `path` reads a trace file offline and has \
+                                     no insight sets; drop `insight_set_id`, or drop `path`",
+                                ));
+                            }
+                            OneShotSession::perf_insight_file(Path::new(trace), name)
+                        }
+                        None => session.perf_insight(name, set_id).await,
+                    }
                 }
                 other => Err(CliError::new(
                     ErrorKind::Usage,
@@ -78,7 +131,19 @@ pub(super) async fn handle(
                     session.screencast_start(path).await
                 }
                 "stop" => {
-                    let path = step.get("path").and_then(|v| v.as_str()).map(Path::new);
+                    // `dir` is read here for the same reason `start` reads it:
+                    // `STEP_KEY_SYNONYMS` declares it as a spelling of `path`
+                    // for the COMMAND, so the validator accepts it on either
+                    // action. Reading it in only one arm left
+                    // `{"cmd":"screencast","action":"stop","dir":"..."}`
+                    // accepted and discarded, which breaks the invariant
+                    // `step_key_reads` states in so many words: an allowed
+                    // synonym cannot go unread.
+                    let path = step
+                        .get("path")
+                        .or_else(|| step.get("dir"))
+                        .and_then(|v| v.as_str())
+                        .map(Path::new);
                     session.screencast_stop(path).await
                 }
                 other => Err(CliError::new(
@@ -179,10 +244,29 @@ pub(super) async fn handle(
                 .get("url")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| CliError::new(ErrorKind::Usage, "scrape requires url"))?;
+            // Refuse `engine` rather than discard it.
+            //
+            // Inside `run` the browser session is already live, so the engine was
+            // settled at launch and no step can move it: honouring the field would
+            // mean tearing the session down and relaunching mid-script.
+            //
+            // Discarding it was worse than it sounds. Measured 2026-08-31, a step
+            // asking for `"engine":"http"` returned `ok: true` with `engine:
+            // "browser"` in the same envelope — the answer contradicted the request
+            // and still reported success, which is the one shape a caller cannot
+            // detect by reading `ok`.
+            // SECOND line of defence. `reject_unknown_step_fields` already
+            // refuses this before the browser launches, because `engine` is
+            // absent from the `scrape` row in `STEP_FIELDS`. This arm survives
+            // for a dispatch path added later that does not reach the preflight,
+            // and it calls the SAME constructor so the two layers cannot drift
+            // into two different explanations of one refusal.
+            if step.get("engine").is_some() {
+                return Err(super::helpers::scrape_engine_refusal());
+            }
             // GAP-057: honour format/formats like the top-level scrape subcommand.
             let formats = scrape_formats_from_step(step);
             let fmt_refs: Vec<&str> = formats.iter().map(String::as_str).collect();
-            // Prefer browser engine inside `run` (session already live).
             session.scrape(url, robots, &fmt_refs).await
         }
         "print-pdf" | "print_pdf" => {
@@ -211,26 +295,31 @@ pub(super) async fn handle(
                 let url_now = info
                     .get("url")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("about:blank");
+                    .unwrap_or(crate::constants::ABOUT_BLANK);
                 if !allow_empty
                     && (url_now.is_empty()
-                        || url_now == "about:blank"
+                        || url_now == crate::constants::ABOUT_BLANK
                         || url_now.starts_with("chrome://"))
                 {
                     return Err(CliError::with_suggestion(
                         ErrorKind::Usage,
                         "print-pdf requires a navigated page or step url (blank page refused)",
-                        "Add {\"cmd\":\"goto\",\"url\":\"…\"} before print-pdf, or pass \"url\" on the step, or allow_empty:true",
+                        crate::i18n::suggestion_key("print_pdf_needs_navigation", None),
                     ));
                 }
             }
             let path = step.get("path").and_then(|v| v.as_str()).map(Path::new);
-            let mut pdf = session.print_pdf(path).await?;
-            // GAP-020: optional landscape/scale when provided (passed through if session supports).
-            if let Some(land) = step.get("landscape").and_then(|v| v.as_bool()) {
-                pdf["landscape"] = json!(land);
-            }
-            Ok(pdf)
+            // `landscape` now travels INTO the call. It used to be written onto
+            // the returned object after the fact, with a comment claiming it was
+            // "passed through if session supports" -- it was passed nowhere, and
+            // `print_pdf` took no such argument. The step answered `ok: true`
+            // with `landscape: true` and produced a portrait PDF, so the
+            // envelope confirmed a request that was never made.
+            let landscape = step
+                .get("landscape")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(session.print_pdf(path, landscape).await?)
         }
         "lighthouse" => {
             let url = step

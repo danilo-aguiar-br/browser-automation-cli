@@ -26,22 +26,17 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::Path;
 use std::thread;
 
-fn binary() -> Option<PathBuf> {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
+mod common;
+use common::{binary, missing_binary};
+
+const GATE: &str = "scrape_wave6_gate";
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    if binary().is_none() {
-        eprintln!(
-            "SKIP scrape_wave6_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    if missing_binary(GATE) {
         return true;
     }
     false
@@ -131,15 +126,33 @@ fn serve_one(mut stream: TcpStream) {
 }
 
 /// An isolated XDG config dir so the gate never reads the developer's config.
-fn config_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("bac-wave6-{name}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create isolated config dir");
-    dir
+///
+/// The guard is returned, not the path: dropping it removes the directory, and a
+/// caller holding only the path would hand the CLI a config home that no longer
+/// exists. The old body used a pid-keyed name with no removal at all.
+fn config_dir(name: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("bac-wave6-{name}-"))
+        .tempdir()
+        .expect("create isolated config dir")
 }
 
 /// Run the CLI with an isolated config, returning parsed stdout JSON.
-fn run(cfg: &PathBuf, args: &[&str]) -> serde_json::Value {
-    let out = Command::new(binary().expect("binary"))
+fn run(cfg: &Path, args: &[&str]) -> serde_json::Value {
+    let out = common::isolated_cmd(&binary().expect("binary"))
+        // BOTH, and `HOME` is the one that actually isolates on macOS.
+        //
+        // `directories` resolves to `~/Library/Application Support/...` there
+        // and never reads `XDG_CONFIG_HOME`, so this override alone steered
+        // nothing: every test in this binary shared the one config derived from
+        // the process-wide sandbox `HOME`, and cargo runs them in PARALLEL.
+        //
+        // Measured 2026-09-04: 7 of 8 failed with `config set` returning
+        // `ok:false` as tests raced the same file; `--test-threads=1` cut it to
+        // 1, and that survivor failed because `scrape_follow_rel_next` was left
+        // ON by a sibling test — leakage, not a product defect. On Linux the
+        // XDG variable works and none of this was ever visible.
+        .env("HOME", cfg)
         .env("XDG_CONFIG_HOME", cfg)
         .args(args)
         .output()
@@ -154,16 +167,16 @@ fn run(cfg: &PathBuf, args: &[&str]) -> serde_json::Value {
     })
 }
 
-fn set(cfg: &PathBuf, key: &str, value: &str) {
+fn set(cfg: &Path, key: &str, value: &str) {
     let v = run(cfg, &["-q", "--json", "config", "set", key, value]);
     assert_eq!(v["ok"], serde_json::json!(true), "config set {key}={value}");
 }
 
 /// Loopback fixtures need SSRF and robots exemptions; both are XDG knobs.
-fn prepare(name: &str) -> PathBuf {
+fn prepare(name: &str) -> tempfile::TempDir {
     let cfg = config_dir(name);
-    set(&cfg, "http_ssrf_mode", "allow_loopback");
-    set(&cfg, "robots_loopback_exempt", "true");
+    set(cfg.path(), "http_ssrf_mode", "allow_loopback");
+    set(cfg.path(), "robots_loopback_exempt", "true");
     cfg
 }
 
@@ -172,7 +185,8 @@ fn feed_format_returns_structured_entries() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("feed");
+    let cfg_dir = prepare("feed");
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/feed.xml");
     let v = run(&cfg, &["-q", "--json", "scrape", &url, "--format", "feed"]);
@@ -204,7 +218,8 @@ fn feed_max_entries_cap_is_honoured_and_flagged() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("feedcap");
+    let cfg_dir = prepare("feedcap");
+    let cfg = cfg_dir.path().to_path_buf();
     set(&cfg, "scrape_feed_max_entries", "1");
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/feed.xml");
@@ -237,7 +252,8 @@ fn rel_next_is_not_followed_by_default() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("relnextoff");
+    let cfg_dir = prepare("relnextoff");
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/p1.html");
     let v = run(
@@ -269,7 +285,8 @@ fn rel_next_follows_the_chain_when_enabled() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("relnexton");
+    let cfg_dir = prepare("relnexton");
+    let cfg = cfg_dir.path().to_path_buf();
     set(&cfg, "scrape_follow_rel_next", "true");
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/p1.html");
@@ -307,7 +324,8 @@ fn rel_next_still_obeys_limit_and_max_depth() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("relnextbounds");
+    let cfg_dir = prepare("relnextbounds");
+    let cfg = cfg_dir.path().to_path_buf();
     set(&cfg, "scrape_follow_rel_next", "true");
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/p1.html");
@@ -364,7 +382,8 @@ fn near_duplicate_collapse_is_off_by_default() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("dedupoff");
+    let cfg_dir = prepare("dedupoff");
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/hub.html");
     let v = run(
@@ -398,7 +417,8 @@ fn near_duplicate_collapse_reports_what_it_removed() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("dedupon");
+    let cfg_dir = prepare("dedupon");
+    let cfg = cfg_dir.path().to_path_buf();
     set(&cfg, "scrape_dedup_similar", "true");
     set(&cfg, "scrape_dedup_similar_distance", "8");
     let port = start_fixture_server();
@@ -444,7 +464,8 @@ fn near_duplicate_distance_zero_keeps_merely_similar_pages() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("dedupstrict");
+    let cfg_dir = prepare("dedupstrict");
+    let cfg = cfg_dir.path().to_path_buf();
     set(&cfg, "scrape_dedup_similar", "true");
     set(&cfg, "scrape_dedup_similar_distance", "0");
     let port = start_fixture_server();

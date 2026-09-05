@@ -14,6 +14,15 @@ use crate::error::{CliError, ErrorKind};
 ///
 /// Returns `Ok(false)` when `key` belongs to another family, so the caller
 /// falls through to its own match without treating it as an unknown key.
+///
+/// # Errors
+///
+/// [`ErrorKind::Usage`] when a byte/char cap fails
+/// [`parse_positive_u64`], when a
+/// politeness or robots boolean carries a token outside
+/// [`BOOL_TOKENS`](super::validate::BOOL_TOKENS), or when a bounded knob such as
+/// the jitter ratio or the near-duplicate distance falls outside its range. Keys
+/// of another family return `Ok(false)` rather than an error.
 pub(super) fn apply_scrape_set(
     cfg: &mut ProductConfig,
     key: &str,

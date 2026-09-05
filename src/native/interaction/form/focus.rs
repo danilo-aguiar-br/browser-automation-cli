@@ -6,6 +6,14 @@ use crate::native::element::{resolve_element_object_id, RefMap};
 use serde_json::Value;
 
 /// Give an element keyboard focus.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`]
+/// and the CDP error raised by `Runtime.callFunctionOn`. An element that
+/// cannot take focus — no `tabindex`, or hidden — is not an error: `focus()`
+/// is a no-op and the call succeeds.
 pub async fn focus(
     client: &CdpClient,
     session_id: &str,
@@ -40,6 +48,14 @@ pub async fn focus(
 }
 
 /// Empty a field and fire the events a page listens for.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`]
+/// and the CDP error raised by `Runtime.callFunctionOn` — which is where a
+/// throwing `input` or `change` handler surfaces. An element with no `value`
+/// property is not an error: the assignment creates one the page ignores.
 pub async fn clear(
     client: &CdpClient,
     session_id: &str,

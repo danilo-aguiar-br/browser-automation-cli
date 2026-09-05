@@ -93,7 +93,7 @@ pub(crate) async fn collect_storage_via_temp_target(
         .send_command_typed(
             "Target.createTarget",
             &CreateTargetParams {
-                url: "about:blank".to_string(),
+                url: crate::constants::ABOUT_BLANK.to_string(),
                 browser_context_id: None,
             },
             None,
@@ -135,11 +135,14 @@ pub(crate) async fn collect_storage_in_target(
 
     let temp_session = &attach_result.session_id;
 
+    // `Page` only. This target consumes exactly two events —
+    // `Fetch.requestPaused` and `Page.loadEventFired` — and neither belongs to
+    // `Runtime`. The `Runtime.evaluate` on the origin script above is a COMMAND
+    // and answers with the domain disabled, so enabling it here bought nothing
+    // and paid the same detectable fingerprint the launch path just stopped
+    // paying. Removed 2026-09-04, same sweep as `launch/domains.rs`.
     client
         .send_command_no_params("Page.enable", Some(temp_session))
-        .await?;
-    client
-        .send_command_no_params("Runtime.enable", Some(temp_session))
         .await?;
 
     // Blank HTML response body, pre-encoded to avoid repeated base64 work per request

@@ -13,16 +13,25 @@
 //! | Check | Rule |
 //! |-------|------|
 //! | duplicate | A literal byte-equal to an `en.ftl` value must use the key |
-//! | ratchet | The literal count must not exceed [`LITERAL_BASELINE`] |
+//! | ratchet | The literal count must not exceed `LITERAL_BASELINE` |
 //!
-//! The ratchet is a floor, not an endorsement: it stops the debt from growing
-//! while the remaining literals are migrated family by family.
+//! `LITERAL_BASELINE` is `#[cfg(test)]`, so it does not exist in a doc build
+//! and cannot be linked from here — the backticks are deliberate.
+//!
+//! The ratchet is now closed: the baseline is zero, so any new literal fails.
 
 /// Maximum number of raw-literal suggestion sites tolerated in `src/`.
 ///
-/// Lower this number when literals are migrated to catalog keys; never raise it.
+/// Zero is the only value that keeps the debt from coming back. Any positive
+/// baseline is a budget for literals, and a budget gets spent: it lets the next
+/// hand-written English hint land silently and stay, which is exactly how the
+/// 29 literals this gate was built to retire accumulated in the first place.
+/// A non-zero number also cannot distinguish a migration that removed a site
+/// from one that added one, so it stops measuring the thing it names. Route
+/// every new suggestion through [`crate::i18n::suggestion_key`]; never raise
+/// this back above zero to make a build green.
 #[cfg(test)]
-pub(crate) const LITERAL_BASELINE: usize = 45;
+pub(crate) const LITERAL_BASELINE: usize = 0;
 
 /// One classified `with_suggestion` call site.
 #[cfg(test)]
@@ -269,8 +278,14 @@ mod tests {
             .filter(|s| s.kind == "literal")
             .map(|s| format!("{}:{} {}", s.file, s.line, s.argument))
             .collect();
+        // `is_empty()`, not `<= LITERAL_BASELINE`: with the baseline at zero the
+        // comparison degenerates into `usize <= 0`, whose `<` half can never
+        // occur, and clippy rejects it as `absurd_extreme_comparisons`. The
+        // predicate below states the invariant directly — no literal at all —
+        // instead of leaning on an arithmetic that the type makes vacuous.
+        // The constant survives as the documented invariant, quoted below.
         assert!(
-            literals.len() <= LITERAL_BASELINE,
+            literals.is_empty(),
             "raw-literal suggestions grew to {} (baseline {LITERAL_BASELINE}); \
              route new suggestions through crate::i18n::suggestion_key:\n{}",
             literals.len(),

@@ -23,8 +23,8 @@
 - Golden i18n and cold-start helpers (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Optional e2e CDP event coverage when Chrome is available (`tests/e2e_cdp_events.rs`)
 - Full **53-tool** DevTools e2e script (legacy filename): `scripts/e2e_all_52_tools.sh`
-- Live CLI inventory is **69 agent names** (`commands --json`) — broader than the 53 tool-ref e2e set; includes agent-inventory `select-option` and `pick` (run/exec/schema, not clap), meta `locale` and `man`, plus clap `submit` and `storage`
-- Product gates introduced in v0.1.7 and still shipped in 0.1.8 (local, Chrome serial when required):
+- Live CLI inventory is **71 agent names** (`commands --json`) — broader than the 53 tool-ref e2e set; includes agent-inventory `select-option` and `pick` (run/exec/schema, not clap), meta `locale` and `man`, plus clap `submit` and `storage`
+- Product gates introduced in v0.1.7 and still shipped in 0.1.9 (local, Chrome serial when required):
   - `tests/dialog_multitab_gate.rs` — multi-tab dialog isolation + `dialog_settled` (GAP-054)
   - `tests/option_pick_gate.rs` — native select `input`+`change` (GAP-055)
   - `tests/wait_conditions_gate.rs` — `wait_timeout_ms` deadline honesty (GAP-053)
@@ -33,6 +33,30 @@
 - Residual integration suite: `tests/residual_one_shot.rs` (marker zero, Singleton non-growth, BORN fixture wipe, doctor residual fields)
 - Local residual gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (local maintainer scripts only)
 - Vendored tool-ref fixture: `tests/fixtures/tool-reference.md`
+- The suite REQUIRES `--test-threads=1`; nothing in the code enforces it
+- Measured: concurrent Chrome launches produce `SingletonLock: No such file or directory`, `No chromiumoxide Page for session_id` and `Page.navigate: Request timed out`
+- Serial is also faster here: 101s serial against 148s parallel
+- There is no `serial_test` dependency and no `#[serial]`, so a bare `cargo test`, an IDE runner or `cargo nextest` all reproduce those failures
+- The suite also requires that NOTHING ELSE drive cargo against the same `target/` while it runs
+- Measured on 2026-08-25: a `cargo run` launched alongside the suite rebuilt `target/debug/browser-automation-cli` with DEFAULT features and replaced the binary in flight
+- Four gates in `tests/image_media_cli_e2e.rs` then failed with `rebuild with the image-svg Cargo feature` — a true statement about the wrong artifact, which reads as a product regression
+- `CARGO_BIN_EXE_*` does NOT protect against this: it resolves at COMPILE time and guarantees which build PRODUCED the artifact, never who overwrites that shared path afterwards
+- A red that disappears on an isolated re-run diagnoses the measurement, never the product; re-run the failing test alone before concluding regression
+- This project uses ZERO UNCONDITIONAL `#[ignore]`, deliberately: libtest reports an ignored test as `ok`, which is the same false green a skip produces
+- The tree carries NINE `#[cfg_attr(…, ignore = …)]` attributes across three test files, and exactly two of them ignore UNDER `--all-features`: the `#[cfg_attr(feature = "…", ignore = "feature is on in this build")]` of `tests/image_wave6_codecs.rs` and `tests/video_manifest_hls_dash.rs`
+- The other seven take the `not(feature = "…")` form, which ignores nothing under `--all-features`; a count stated without the predicate that measures it counts what the BUILD ignores and reads as what the TREE contains, and goes false the moment a feature is added
+- Both assert the fail-closed behaviour of a build WITHOUT the feature, so under `--all-features` the assertion is unreachable by construction and the test still runs for real in the build it describes
+- That is the same distinction `strict-gates` draws: unreachable by construction is excused, a missing tool is not
+- A test that cannot run declines through `skip_with_reason` or `skip_with_remedy` (`tests/common/mod.rs`), never through a bare `eprintln!`
+- Under `--features strict-gates` those helpers `panic!` instead of returning, so a declined gate FAILS rather than reporting a pass
+- `scripts/ci-check.sh` runs with `--all-features`, which turns `strict-gates` on
+- Unit-side declines use `skip_unit_test` (`src/test_utils.rs`)
+- Because a decline is a failure there, `strict-gates` turns every host tool a test needs into a HARD PREREQUISITE
+- Required on PATH for a green `--all-features` run: a Chrome or Chromium build `find_chrome` can resolve, `ffmpeg`, `ffprobe`, `Xvfb` (Linux), `/bin/sh`, and `redis-server`
+- `redis-server` gates `redis_real_server_if_present` (`src/cache/tests.rs`) only; the RESP protocol axis itself is always covered in-process by `redis_roundtrip_via_resp_mock`, which needs no external binary
+- Measured on Fedora 44: `dnf install redis` resolves to `valkey` plus `valkey-compat-redis`, which provides `/usr/bin/redis-server` and satisfies the gate unchanged
+- A missing tool is deliberately NOT excused: installing it makes the assertion reachable, which is the distinction `strict-gates` exists to enforce
+- The opposite shape — an assertion unreachable by construction, such as the host already occupying the display the test needs free — declines with a bare `eprintln!` plus a written justification (`src/native/cdp/xvfb/spawn.rs`)
 
 
 ## How to Run
@@ -72,7 +96,7 @@ bash scripts/e2e_all_52_tools.sh
 - The 52-tool suite does not replace residual smokes for commands outside the tool-ref set
 
 
-## Residual-Zero Disk Gates (law of v0.1.5 — still current in 0.1.8)
+## Residual-Zero Disk Gates (law of v0.1.5 — still current in 0.1.9)
 ```bash
 cargo build --release --locked
 cargo test --lib residual:: --locked
@@ -108,12 +132,12 @@ bash scripts/residual-check.sh
 - `scrape_step_gate`: run scrape `format=text` without HTML dump (GAP-057)
 - Lighthouse e2e mock remains SKIP; unit fixtures are the honest parser gate (GAP-021 partial)
 - **`grab` encode:** png|jpeg|webp only; AVIF removed (breaking) — residual smokes must not pass `--format avif`
-- **GAP-024 intentional residual:** PRD wishlist divergences stay in `parity_intentional_divergences.json` (do not claim full PRD parity)
+- **GAP-024 intentional residual:** PRD wishlist divergences stay intentional (do not claim full PRD parity)
 - Do **not** treat remote orchestration dashboards as product surface; use local cargo and `scripts/*-check.sh` only
 
 
 ## Gate Families Under tests/
-- `tests/` holds 68 integration gate files, each run with `cargo test --test <name> --locked`
+- `tests/` holds 67 integration gate files, each run with `cargo test --test <name> --locked`
 - Each family below closes one class of defect, never one command
 - Every gate is local and needs no runner beyond cargo
 - A gate that cannot run its precondition SKIPs loudly instead of passing silently
@@ -212,27 +236,27 @@ bash scripts/residual-check.sh
 - The lines are local files only; this product has no remote telemetry
 
 
-## Full agent inventory (69)
+## Full agent inventory (71)
 
 Discover live: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
-crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
-net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
-scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
+scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **67** (69 agent names − 2 run-only).
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **69** (71 agent names − 2 run-only).
 
-Local inventory honesty gate (no GHA): after inventory or flat-list docs edits, run `bash scripts/inventory-flat-check.sh` (expects live `commands --json` length **69** with `image`+`video`+`audio`+`record`).
+Local inventory honesty gate (no GHA): after inventory or flat-list docs edits, run `bash scripts/inventory-flat-check.sh` (expects live `commands --json` length **71** with `image`+`video`+`audio`+`record`).
 
 The gate is now named `scripts/inventory-flat-check.sh`. The old name `scripts/verify-inventory-flat.sh` is kept as a thin shim that delegates to it. Reason: `scripts/ci-check.sh` auto-discovers verifiers with the glob `scripts/*-check.sh`, and the old filename never matched that glob, so the gate never ran in the bundle and docs drifted to a stale count of 67 while the runner reported green.
 
 ## Residual PRD Smokes (beyond 53 tools)
-Run after e2e when validating the full **69**-name inventory:
+Run after e2e when validating the full **71**-name inventory:
 
 ```bash
 # print-pdf artifact (one-shot + run)
@@ -327,7 +351,7 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 browser-automation-cli --json mitm init-ca
 # browser-automation-cli --json mitm capture-url https://example.com --seconds 15 --har /tmp/cap.har
 # browser-automation-cli --json mitm har --out /tmp/capture.har
-# browser-automation-cli --json mitm redact --secrets
+# browser-automation-cli --json mitm redact
 
 # config list-keys + redis honesty (no rediss)
 browser-automation-cli --json config list-keys
@@ -364,7 +388,7 @@ browser-automation-cli page new --help | rg isolated-context
 # browser-automation-cli --timeout 60 --json run --script /tmp/pdf.run.json
 # schema already covered
 
-# locale / man meta + submit/storage/image/video/audio/record (inventory 69)
+# locale / man meta + submit/storage/image/video/audio/record (inventory 71)
 browser-automation-cli --json locale
 browser-automation-cli --json man >/tmp/browser-automation-cli.1
 browser-automation-cli --json schema submit
@@ -455,10 +479,35 @@ bash scripts/doc-coverage-check.sh
 - `scripts/ci-check.sh` discovers this gate through the glob `scripts/*-check.sh`
 - `verifier-controls-check.sh` carries 3 positive controls for this gate
 - The script resolves the binary with the same PATH fallback for the same reason
+- KNOWN LIMITATION of this whole gate set: no documentation gate EXECUTES a fenced block
+- `audit_bilingual_docs.sh` compares the CLI invocations between the two languages and never runs them
+- A published recipe that exits non-zero therefore passes every documentation gate
+- Measured 2026-08-28: four `run --script` recipes in `docs/COOKBOOK.md` exited non-zero while all five gates were green
+- The causes were an element absent from the target page, a stealth-profile contradiction the product refuses by design, and two blocks assuming input files they never create
+- NONE was a step-key error, so a static check of every documented step against `schema <command>` would have found none of them
+- That static check was written and run over 327 documented steps: it produced six hits and all six were false positives
+- Recipes are verified by EXECUTING them, and that execution is manual today
+
+
+## Verifier Controls Harness
+- `scripts/verifier-controls-check.sh` is the meta-gate: it proves the other verifiers can FAIL
+- Project law: a control that never fails is a verifier that does not verify
+- Each control copies the working tree into a throwaway sandbox and mutates it
+- The mutation is chosen so the verifier under test MUST report failure
+- A verifier that stays green under its own mutation is blind, and the harness says so
+- `bash scripts/verifier-controls-check.sh` runs it; `ci-check.sh` also discovers it through the `scripts/*-check.sh` glob
+- The control count is derived at runtime by counting `^run_control `, never frozen in prose
+- This is the most expensive step in the bundle: one whole tree copy per control
+- The copy uses `fd -H -I`, so paths the git ignore rules hide are still present in the sandbox
+- Without `-I` the sandbox silently lacked `docs_prd/`, `gaps.md` and `CLAUDE.md`, which is the partial copy its own header warns against
+- Killing it mid-run leaves one `bac-verifier-control-*` directory behind, because cleanup runs on the return paths only
 
 
 ## Full Verifier Suite Scale
-- `scripts/` holds **42** top-level `.sh` files; `tests/` holds **68** `.rs` gate files
+- `scripts/` holds **44** top-level `.sh` files; `tests/` holds **92** `.rs` gate files
+- Measured 2026-09-01 with `fd -d 1 -e sh . scripts/` and `fd -d 1 -e rs . tests/`
+- `tests/doc_measured_claims_gate.rs` re-measures both, because the 2026-08-28 pair read 42 and 73 and went stale unnoticed
+- `-d 1` is part of the measurement, not decoration: without it the `scripts/` count picks up subdirectories and reads 45
 - `bash scripts/ci-check.sh` is the local runner for the bundle
 - It auto-discovers every executable `scripts/*-check.sh` through that glob
 - A script whose name does not end in `-check.sh` never enters the bundle and must be invoked by name
@@ -482,15 +531,14 @@ bash scripts/doc-coverage-check.sh
 - `scripts/filesize-check.sh` — 300 **code**-line ceiling per production file; rustdoc prose is not code, so counting physical lines would reward deleting documentation; declared exceptions carry an expiry version and fail like any other file past it
 - `scripts/orphan-module-check.sh` — every `src/**/*.rs` must be reachable from a crate root; a file no parent declares with `mod` is absent from the binary while build, clippy and the whole suite stay green
 - `scripts/reachability-check.sh` — `pub use` items with no call site under `src/`; the `dead_code` lint stops at the crate boundary, so a re-exported item nobody calls stays silent
+- `scripts/split-conservation-audit.sh` — takes `<original.rs> <new_dir>` pairs and asserts every significant line of a pre-split file still exists under the directory that replaced it; splitting `commands/ops/lighthouse.rs` silently dropped a `pub(crate)` doc comment while build, clippy, `cargo doc -D warnings` and the whole suite stayed green, because `missing_docs` fires on ABSENT documentation of a public item and is blind to documentation that was DELETED from an item it does not cover
 
 
 ## Surface and Schema Parity Verifiers
 - `scripts/clap-schema-parity-check.sh` — compares the clap **parser** against the published schema, the axis `schema-drift-check.sh` structurally cannot see because both of its sides derive from the same schema module; measured 29 flags accepted by clap and absent from `schema`, including the required `storage export --path`
-- `scripts/schema-drift-check.sh` — thin adapter over the generator's `--check`; the runtime is the source of truth and `docs/schemas/*.json` is a derived artifact; the capability existed long before the wiring, and seven of 68 schemas had drifted while every audit reported green
+- `scripts/schema-drift-check.sh` — thin adapter over the generator's `--check`; the runtime is the source of truth and `docs/schemas/*.json` is a derived artifact; the capability existed long before the wiring, and seven schemas had drifted while every audit reported green
 - `scripts/config-roundtrip-check.sh` — every `CONFIG_KEYS` literal must exist in the writer and in the reader (see v0.1.8 below)
 - `scripts/phantom-flag-gate.sh` — bash adapter over `tests/phantom_flag_gate.rs` (see v0.1.8 below)
-- `scripts/parity-check.sh` — three-layer DevTools parity (name, parameter, semantics); the reference tree and `docs_prd/` are not vendored, and the gate **SKIPs loudly** when they are absent instead of passing silently
-- `scripts/inventory_diff_base.sh` — base knowledge tool names ⊆ CLI map ∪ `tests/fixtures/tool-reference.md`, with an explicit alias table; SKIPs when the base knowledge directory is absent
 
 
 ## Documentation and Localization Verifiers
@@ -510,6 +558,7 @@ bash scripts/doc-coverage-check.sh
 ## Generators (not verifiers)
 - `scripts/gen-completions.sh` — freezes shell completions into `target/completions/` for distro packaging; at runtime completions still come from `browser-automation-cli completions <shell>`
 - `scripts/gen-llms-txt.sh` — regenerates the machine inventory block of `llms.txt` from live `commands --json`, replacing the previous generated block and leaving the prose alone
+- `scripts/gen-flag-reconciliation.sh` — reconciles the flags the PRD declares global against where the capability actually lives, classifying each as `global`, `local`, `xdg` or `absent` (GAP-023); `xdg` is deliberately NOT a synonym for `global`, because an XDG key is per-host and cannot be varied per invocation, so folding the two would report a gap as closed while the per-invocation control stays missing
 - Neither script asserts anything, so neither belongs in the `scripts/*-check.sh` glob
 
 
@@ -528,6 +577,36 @@ bash scripts/doc-coverage-check.sh
 - `scripts/doc-coverage-check.sh` — reads the live binary and fails when prose drifts from the live key surface or the live command surface; see its own section above for the seven assertions
 
 
+## Claim-Versus-Binary Gates
+- These four gates live under `tests/` and no document under `docs/` described them until now
+- Each one compares a claim written in prose against the surface the live binary publishes
+### tests/doc_binary_numeral_gate.rs
+- Run it with `cargo test --test doc_binary_numeral_gate --locked`
+- A configuration key count written in prose is a claim the binary settles, and nothing was asking it
+- Measured 2026-09-04: seventeen points of the published documentation claimed a key count of 206 while `config list-keys` answered 215, with every gate green
+- `scripts/doc-coverage-check.sh` validates COVERAGE, that every live key appears in `docs/CONFIGURATION.md`, and never reads the NUMERAL in the prose beside it
+- Covering the items and claiming how many items exist are two different assertions, and only one had an owner
+### tests/root_doc_xdg_coverage_gate.rs
+- Run it with `cargo test --test root_doc_xdg_coverage_gate --locked`
+- The root `llms-full` documents publish the XDG surface twice, once as a NUMERAL and once as an ENUMERATION, and nothing checked that the two halves of the same sentence agree with each other and with the binary
+- Measured 2026-09-04: `llms-full.txt` announced a family-grouped surface of 217 and then enumerated only 205 under it, and `llms-full.pt-BR.txt` carried the identical defect in Portuguese
+- The numeral had been updated when the surface grew, and the list under it had not
+### tests/bilingual_flag_parity_gate.rs
+- Run it with `cargo test --test bilingual_flag_parity_gate --locked`
+- A translated pair that enumerates flags MUST enumerate the SAME flags
+- The global flag `--mitm-ws` was listed in `README.md` and absent from `README.pt-BR.md`
+- `scripts/audit_bilingual_docs.sh` printed `Summary: ok=18 fail=0` before and after the fix, because it compares CLI INVOCATIONS between the two halves and never looks at a flag enumerated in a prose bullet
+- The general form is that a gate verifying the PRESENCE of an item never sees the absence of that item on the other side
+### tests/schema_input_drift_gate.rs
+- Run it with `cargo test --test schema_input_drift_gate --locked`
+- Every `docs/schemas/<cmd>.schema.json` MUST describe the same INPUT surface the live binary publishes in `schema --cmd <cmd>`
+- The capability already existed as `scripts/generate_command_schemas.sh --check`, reached by `scripts/schema-drift-check.sh`
+- A shell script is not executed by `cargo test`, so nothing in the common loop compared the two sides and the files aged in silence
+- `docs/schemas/config.schema.json` listed neither `user_data_dir` nor `input_typo_permille`, the two keys the most recent version added
+### The Thread That Joins the Four
+- The four were born of the same pattern: a gate that verifies the presence of one item never sees the absence of another, and a gate that reads a number never reads the list beside it
+
+
 ## Logging and Paths During Tests
 - Product logging in the CLI under test: `--verbose` / `--debug` / `-q` or XDG `config set log_level`
 - Color defaults via `config set color`
@@ -541,7 +620,7 @@ bash scripts/doc-coverage-check.sh
 - Schema gate failures: update both code and `docs/schemas/` in the same change
 - Command schema drift: re-run `bash scripts/generate_command_schemas.sh` after changing `meta.rs`
 - Bilingual fence drift: re-run `bash scripts/audit_bilingual_docs.sh` and align EN and `.pt-BR` command blocks
-- Inventory drift: refresh against `commands --json` (69) and `tests/fixtures/tool-reference.md` (53 tools)
+- Inventory drift: refresh against `commands --json` (71) and `tests/fixtures/tool-reference.md` (53 tools)
 - Residual disk leaks: re-run `cargo test --test residual_one_shot` and `bash scripts/residual-check.sh`; inspect doctor `residual`
 - Run inventory drift: refresh `RUN_DISPATCHED_CMDS` and re-run `cargo test --test parity_run_inventory`
 - Clap assert failures: fix `GlobalOpts` / subcommand definitions then re-run `cargo test --test clap_command_debug_assert`

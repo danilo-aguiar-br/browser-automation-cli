@@ -17,15 +17,16 @@
 - Use `grab --path <file>` (não path posicional bare)
 - Use `wait --text` repetível para semântica OR entre várias strings
 - Use `scrape --format` / `scrape --engine` para formatos de scrape local
-- Scrape browser aplica `--format` via outerHTML; 14 formatos vivos: `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed` (`raw-html` continua alias aceito de `rawHtml`)
+- Scrape browser aplica `--format` via outerHTML; 15 formatos vivos: `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed`, `attributes` (`raw-html` continua alias aceito de `rawHtml`)
 - `0.1.0` entrega a superfície de paridade DevTools default-on mais gates de categoria
 - `0.1.1` adiciona `config` XDG, MITM local, journal de workflow e superfície local scrape/crawl/map/search/parse (`batch-scrape`, `crawl`, `map`, `search`, `parse`, `scrape` expandido)
 - `0.1.2` fecha gaps agent-first e adiciona `print-pdf`, `monitor`, `qr`, `find-paths`, tipos de documento no parse, extract LLM e chaves de config expandidas
 - `0.1.3` fecha residual-zero e contratos de agente: `run` NDJSON|array JSON, reload/beforeunload/init_script CDP, honestidade Redis/Lighthouse, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 comandos de topo; 53 tools DevTools e2e)
 - `0.1.4` fecha gaps agent-first: `--json-steps`, `wait` url/navigation/multi-seletor, `select-option`/`pick` (run/schema), assert `console_*`, `schema <cmd>` posicional, MITM `capture-url` + `--mitm*`, scrape multi-formato, batch/crawl `--engine browser`, `print-pdf` no `run`
 - `0.1.5` fecha residual-zero de disco (RES-01…12): BORN auto-GC de dirs Chromium Singleton-only em `/tmp` (piso de idade 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + campo de topo `residual` (`ResidualDiskReport`), nunca mata Chrome Flatpak do host; honestidade de inventário com `locale`/`man`
-- `0.1.6` fecha confiança agent-first de diálogo/select/scrape/wait: booleano `dialog_settled` + XDG `dialog_settle_ms`, isolamento multi-aba de diálogo por `session_id` com gate e2e, select nativo `input`+`change`, `wait_timeout_ms` em `run`, scrape `format`/`formats` em `run`, grab só `png|jpeg|webp` (encode AVIF removido); inventário tip 0.1.8 **69** via `commands --json` (0.1.6: `submit`/`storage` → 65; 0.1.7: `image`+`video`+`audio` → 68 depois `record` → 69; também `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (mock lighthouse SKIP honesto)
-- `0.1.8` fecha anti-detecção e controle de saída: família stealth (`--no-stealth`, `--stealth-profile`, `--stealth-seed`), modo de janela pela chave XDG `browser_mode` mais `--no-xvfb`, proxy de saída (`--proxy`, `--proxy-bypass`) valendo para o Chrome e para o motor HTTP, chaves de fingerprint HTTP/2 constante, cinemática humana de input (`--input-profile`, `--input-seed`), warmup de sessão (`--warmup`, `--warmup-url`), asserções sobre o payload (`--expect`, `--expect-exit-code`) e `config unset <KEY>`; a superfície de configuração cresce de 176 para **204** chaves enquanto o inventário tip permanece **69** via `commands --json`
+- `0.1.6` fecha confiança agent-first de diálogo/select/scrape/wait: booleano `dialog_settled` + XDG `dialog_settle_ms`, isolamento multi-aba de diálogo por `session_id` com gate e2e, select nativo `input`+`change`, `wait_timeout_ms` em `run`, scrape `format`/`formats` em `run`, grab só `png|jpeg|webp` (encode AVIF removido); inventário tip 0.1.8 era 69 via `commands --json` (0.1.6: `submit`/`storage` → 65; 0.1.7: `image`+`video`+`audio` → 68 depois `record` → 69; também `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (mock lighthouse SKIP honesto)
+- `0.1.8` fecha anti-detecção e controle de saída: família stealth (`--no-stealth`, `--stealth-profile`, `--stealth-seed`), modo de janela pela chave XDG `browser_mode` mais `--no-xvfb`, proxy de saída (`--proxy`, `--proxy-bypass`) valendo para o Chrome e para o motor HTTP, chaves de fingerprint HTTP/2 constante, cinemática humana de input (`--input-profile`, `--input-seed`), warmup de sessão (`--warmup`, `--warmup-url`), asserções sobre o payload (`--expect`, `--expect-exit-code`) e `config unset <KEY>`; a superfície de configuração cresce de 176 para **204** chaves enquanto o inventário tip da 0.1.8 permanecia 69 via `commands --json`
+- Superfície viva (v0.1.9): **217** chaves XDG via `config list-keys --json` (o 204 fica no parágrafo da 0.1.8 acima); `doctor --fingerprint` acrescenta `measurement_scope` / `unmeasured_os` (não são chaves XDG); `emulate`/`resize` `screen` aplica CDP; o plano `--no-stealth` do fingerprint casa com a página
 - Ferramentas experimentais exigem `--experimental-vision` ou `--experimental-screencast`
 
 ## Tabela Resumo
@@ -83,7 +84,7 @@ echo "$out" | jaq -e '.ok == true'
 - `0.1.0`: gates de categoria, vision e screencast experimentais, flags de capture, schema discovery
 - `0.1.1`: `config` XDG (`init`/`path`/`show`/`get`/`set`), `mitm` (CA local + proxy one-shot em `127.0.0.1`), `workflow` (`run`/`resume`/`status`), superfície local de scrape (`scrape --format/--engine`, `batch-scrape`, `crawl`, `map`, `search`, `parse`), `wait --text` multi OR, `grab --path`
 - `0.1.2`:
-  - `scrape --engine browser` aplica `--format` via outerHTML nos 14 formatos vivos `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed` (`raw-html` continua alias aceito de `rawHtml`)
+  - `scrape --engine browser` aplica `--format` via outerHTML nos 15 formatos vivos `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed`, `attributes` (`raw-html` continua alias aceito de `rawHtml`)
   - Aliases de scroll em `run` `dy`/`dx` para `delta_y`/`delta_x`; envelopes de erro fail-fast podem incluir `data.steps` parciais
   - `schema --cmd` expandido para `goto`/`eval`/`type`/`scroll`/`assert`
   - `--lang pt-BR` e `config set lang` localizam sugestões humanas
@@ -110,13 +111,13 @@ echo "$out" | jaq -e '.ok == true'
   - Global `--json-steps`: stream NDJSON por passo (`step`, `cmd`, `ok`, `result`) durante `run`
   - `wait` multi-seletor CSS OR (`#a, #b`), arrays `selectors`, `url` / `url_contains` / `navigation`
   - Multi-passo `select-option` / `pick` (badge/popover / `role=option`; descobertos via `schema` e inventário run)
-  - Assert `console_empty` / `console_no_match` (CLI `assert console-empty` / `assert console-no-match`)
+  - Assert `console_empty` / `console_no_match` (CLI `assert console-empty` / `assert console-no-match --pattern`)
   - `schema <cmd>` posicional além de `schema --cmd`
   - `goto`/`reload` `--handle-before-unload accept|dismiss` (`BeforeUnloadAction`)
   - MITM `capture-url` one-shot + flags globais `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
   - MITM subcomandos: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
   - Scrape multi-formato (`--format` repetível/CSV); `batch-scrape` e `crawl` aceitam `--engine browser` (default http)
-  - `print-pdf` no multi-passo `run`; diálogo soft com `--if-present` (GAP-006)
+  - `view --allow-empty`; `print-pdf` no multi-passo `run`; diálogo soft com `--if-present` (GAP-006)
   - Inventário de comandos com 61 nomes de topo (`commands --json`), incluindo `select-option` e `pick`
 - `0.1.5`:
   - Higiene residual-zero de disco (product law: residual-zero de processo + disco)
@@ -133,7 +134,7 @@ echo "$out" | jaq -e '.ok == true'
   - Run: `wait_timeout_ms` público nos passos wait; scrape com `format`/`formats` (texto compacto sem monstro HTML quando só text)
   - Grab: `--format png|jpeg|webp` apenas — encode AVIF removido
   - Lighthouse: fixtures unitárias com LHR capturado (forma 13.4.1); e2e mock permanece SKIP (nunca alegar PASS de parser a partir do mock)
-  - Inventário tip (0.1.8): **69** nomes de agente via `commands --json` (inclui `submit`, `storage`, 0.1.7 `image`+`video`+`audio`+`record`, `select-option`, `pick`, `locale`, `man`, …)
+  - A ponta do inventário na 0.1.6 era 65 nomes de agente via `commands --json`, depois que `submit` e `storage` se juntaram a `select-option` e `pick`
   - Descubra o conjunto completo de chaves com `config list-keys --json` (não é contagem fixa de 16)
   - Residual intencional: GAP-022 ~53 multi-versões de dependência; GAP-023/024 wishlist PRD sem paridade completa
 - `0.1.8`:
@@ -147,4 +148,21 @@ echo "$out" | jaq -e '.ok == true'
   - `config unset <KEY>` restaura uma chave ao default embutido
   - Chaves avulsas novas: `robots_user_agent`, `scrape_no_cache`, `monitor_diff_max_bytes`
   - A superfície de configuração cresce de 176 para **204** chaves (`config list-keys --json`)
-  - O inventário tip permanece **69** nomes de agente via `commands --json`
+  - A ponta do inventário permaneceu em 69 nomes de agente via `commands --json`: a 0.1.8 acrescentou flags e chaves, nunca um comando
+- `0.1.9`:
+  - Comandos novos `sitemap` e `feed`, o primeiro crescimento de inventário desde a 0.1.7. Nenhum dos dois acrescenta capacidade: `sitemap <url>` é `map --sitemap-only` e `feed <url>` é `scrape --formats feed --engine http`. Eles existem por DESCOBRIBILIDADE, porque numa CLI voltada a agente uma capacidade alcançável só por saber que uma flag de um verbo com outro nome a carrega é, na prática, inalcançável
+  - `sitemap <url>` aceita `--limit`, `--select`, `--include-path`, `--exclude-path`, `--search`, `--sort`, `--dedup-key`, `--include-subdomains`, `--ignore-query-params`. Não existe `--depth`: um sitemap é uma lista DECLARADA, não uma fronteira, então não há grafo de links a limitar
+  - `feed <url>` aceita `--select`, `--header`, `--no-cache`. As flags que moldam HTML estão ausentes em vez de ignoradas, porque `ScrapeFormat::Feed` parseia o corpo BRUTO e a redução por seletor destruiria um documento XML ou JSON; o Chrome não é oferecido porque renderizar um feed produz o visualizador XML do navegador
+  - `doctor --fingerprint` acrescenta `stealth_installed`, `stealth_seed_active`, `measurement_scope_matches_host`, `measurement_scope` (`linux-headless-xvfb`), `unmeasured_os`, `stealth_profile_source`, `fonts_method` e os derivados `gpu_source` / `fonts_source` / `audio_source`; novo mismatch de coerência `stealth_not_installed`
+  - `--stealth-profile list` imprime os quatro tokens sem lançar o Chrome; `commands --json` também emite `stealth_profiles`, `stealth_seed_fields` e `stealth_seed_does_not_vary`
+  - `--min-delay-ms` define o piso de cortesia por origem a cada invocação; a espera efetiva é o MÁXIMO entre a flag, o piso XDG `scrape_min_delay_ms` e o `Crawl-delay` do site
+  - `--max-items` é aceito como alias de `--limit-rows`; ele limita o que é EMITIDO, enquanto o `--limit` de um comando limita o que é BUSCADO
+  - `crawl --include-regex` / `--exclude-regex` / `--sitemap-only`; `--webhook-url` em `crawl` e `batch-scrape`; `map --include-subdomains` e `map --ignore-query-params`; `search --include-domains`, `--exclude-domains`, `--country`, `--search-lang`, `--time-filter`
+  - `map` restringe os resultados ao host semente por padrão; `--include-subdomains` amplia, e não existe mais forma de fazer o `map` devolver hosts externos arbitrários
+  - `parse --format` deriva formatos de scrape de um arquivo parseado; `heap take --url` navega antes de capturar; `sheet-write --force`; `--paths-file` em treze ações de `image` / `video` / `audio`; `mitm capture-url --capture-hosts`
+  - `cookie clear` exige `--all`, e `mitm block` exige `--host` ou `--path`: verbo irreversível toma o escopo do argv, nunca da ausência de uma flag
+  - `--timeout` é limitado a 86400 segundos; `--schema-json` passa pela mesma jaula de sistema de arquivos do `run --script`
+  - Todo verbo com efeito colateral publica `target_resolved` e `target_source` (`argv` / `step` / `xdg` / `ambient`), o contrato de Explicit Target Designation, verificado por `tests/etd_gate.rs`
+  - Chaves XDG novas `screen` (`WxH`), `platform_child_poll_ms`, `extension_attach_poll_iters`, `user_data_dir` (perfil persistente do Chrome, opt-in, ausente por padrão, e deixá-la ausente é o que mantém o residual-zero verdadeiro), `input_typo_permille` (`0`) e `capture_preserved_rings` (`3`); dezoito chaves que eram aceitas e ignoradas em runtime estão ligadas
+  - Superfície de configuração: **217** chaves via `config list-keys --json` (o número 204 pertence ao parágrafo da 0.1.8 acima)
+  - A ponta do inventário é **71** nomes de agente via `commands --json`; a superfície de topo do clap é 69, porque `select-option` e `pick` seguem sendo nomes de multi-step sem verbo autônomo

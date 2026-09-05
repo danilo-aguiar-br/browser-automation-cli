@@ -15,6 +15,13 @@ use crate::native::element::{resolve_element_object_id, RefMap};
 use serde_json::Value;
 
 /// Select every element matching a selector, for a bulk read.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`]
+/// and the CDP error raised by `Runtime.callFunctionOn` — which is where the
+/// `Range` fallback surfaces when the node cannot hold a selection.
 pub async fn select_all(
     client: &CdpClient,
     session_id: &str,
@@ -61,6 +68,14 @@ pub async fn select_all(
 }
 
 /// Scroll an element into the viewport before interacting with it.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`]
+/// and the CDP error raised by `Runtime.callFunctionOn`. An element that
+/// cannot actually be revealed — inside a non-scrollable container, or
+/// `display: none` — is not an error: `scrollIntoView` is a no-op there.
 pub async fn scroll_into_view(
     client: &CdpClient,
     session_id: &str,
@@ -97,6 +112,14 @@ pub async fn scroll_into_view(
 }
 
 /// Draw a temporary overlay on an element, for headed debugging.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`]
+/// and the CDP error raised by `Runtime.callFunctionOn` that injects the
+/// overlay. Headless is not an error: the overlay is created and simply never
+/// seen.
 pub async fn highlight(
     client: &CdpClient,
     session_id: &str,

@@ -122,7 +122,7 @@ fn chrome_binary_in_dir(dir: &Path) -> Option<PathBuf> {
                 "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
             ),
         ];
-        return crate::platform::first_existing_executable(candidates.iter().map(|p| p.as_path()));
+        crate::platform::first_existing_executable(candidates.iter().map(|p| p.as_path()))
     }
 
     #[cfg(target_os = "linux")]
@@ -134,7 +134,7 @@ fn chrome_binary_in_dir(dir: &Path) -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         let candidates = [dir.join("chrome.exe"), dir.join("chrome-win64/chrome.exe")];
-        return crate::platform::first_existing_executable(candidates.iter().map(|p| p.as_path()));
+        crate::platform::first_existing_executable(candidates.iter().map(|p| p.as_path()))
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -147,7 +147,6 @@ fn chrome_binary_in_dir(dir: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
     fn get_browsers_dir_ends_with_product_path() {
@@ -168,6 +167,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn chrome_binary_in_dir_finds_linux_layout() {
+        use std::fs;
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         let nested = tmp.path().join("chrome-linux64");

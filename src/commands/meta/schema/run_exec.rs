@@ -25,13 +25,16 @@ pub(crate) fn schema_for(cmd: &str) -> Option<Value> {
         "extract" => schema_object(
             "Extract text or attribute from target, or LLM extract with --llm",
             json!({
-                "target": { "type": "string", "description": "CSS/@eN, http(s) URL, or file path for --llm" },
+                "target": { "type": "string", "description": "CSS/@eN, http(s) URL, or file path for --llm (positional; or pass --url)" },
+                "url": { "type": "string", "description": "Alias for the positional target; pass one form or the other" },
                 "attr": { "type": "string" },
                 "llm": { "type": "boolean" },
                 "question": { "type": "string" },
                 "schema_json": { "type": "string", "description": "Path to JSON schema file" }
             }),
-            &["target"],
+            // Neither name is required alone: clap accepts the target
+            // positionally OR as `--url`, and refuses both at once.
+            &[],
         ),
         "text" => schema_object(
             "Extract visible text from target (PRD §7)",

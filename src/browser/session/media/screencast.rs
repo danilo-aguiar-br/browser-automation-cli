@@ -11,7 +11,40 @@ use super::super::OneShotSession;
 
 impl OneShotSession {
     /// Start Page.screencast frame capture into an optional directory.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when no page is active and when `Page.startScreencast` is refused
+    /// (`"screencast start: …"`), which is what an engine without the command
+    /// answers. `Page.enable` is best-effort.
+    ///
+    /// Fails with [`ErrorKind::Io`] —
+    /// `"screencast dir: …"` — when the frame directory cannot be created.
+    /// With `path` as `None` it is `screencast-<millis>` in the current
+    /// directory.
+    ///
+    /// Frames are buffered in this process, so nothing is on disk until
+    /// [`screencast_stop`](Self::screencast_stop) runs.
     pub async fn screencast_start(&mut self, path: Option<&Path>) -> Result<Value, CliError> {
+        // GAP-026, write axis. `--path` is operator argv and everything the
+        // capture produces lands under it: the frame directory created below,
+        // the PNG frames, `manifest.json`, and the video ffmpeg writes in
+        // `screencast_stop`. The last of those is a write delegated to a
+        // subprocess, so no search for `File::create` or `fs::write` finds it.
+        //
+        // Only the `Some` arm is bounded: the `None` arm builds the relative
+        // `screencast-<millis>` in the cwd, which is already a root, and
+        // refusing it would deny the product its own default.
+        //
+        // The check sits before `pump_events` so a path that will be refused
+        // never costs a browser session, matching `handle_monitor`, where the
+        // guard precedes the network fetch.
+        let bounded = match path {
+            Some(p) => Some(crate::fs_roots::ensure_write_allowed(p)?),
+            None => None,
+        };
+        let path = bounded.as_deref();
         self.pump_events().await;
         let session_id = self
             .manager
@@ -20,6 +53,9 @@ impl OneShotSession {
             .to_string();
         self.screencast_frames.clear();
         self.screencast_ack_ids.clear();
+        // Reset with the buffer it counts: a `start` that inherited the previous
+        // recording's drop count would report truncation that never happened.
+        self.screencast_dropped = 0;
         let dir = path.map(|p| p.to_path_buf()).unwrap_or_else(|| {
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -70,11 +106,39 @@ impl OneShotSession {
             "dir": dir_display,
             "note": "Frames buffered in process; stop writes PNG files + manifest.json",
             "frames_buffered": self.screencast_frames.len(),
+            "dropped_oldest": self.screencast_dropped,
         }))
     }
 
     /// Stop screencast and flush remaining frames to disk.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when no page is active, with
+    /// [`ErrorKind::Io`] —
+    /// `"screencast stop mkdir: …"` — when the output directory cannot be
+    /// created, and with
+    /// [`ErrorKind::Software`] —
+    /// `"screencast frames join: …"` — when the blocking frame-writing task
+    /// panics.
+    ///
+    /// `Page.stopScreencast` is best-effort. An individual frame that fails to
+    /// decode or write is skipped rather than reported, so `written` can be
+    /// lower than the number of frames captured. A missing `ffmpeg`, and a
+    /// failed encode, are likewise not errors: the PNG frames are kept and the
+    /// reason is reported in the encode note.
     pub async fn screencast_stop(&mut self, path: Option<&Path>) -> Result<Value, CliError> {
+        // GAP-026, write axis. `stop` is a separate one-shot process from
+        // `start`, so `self.screencast_dir` is empty here and this `path` is
+        // the operator argv that becomes `video_path` -- handed to ffmpeg as an
+        // argument, which writes it. Bounded on the `Some` arm for the same
+        // reason as `screencast_start`.
+        let bounded = match path {
+            Some(p) => Some(crate::fs_roots::ensure_write_allowed(p)?),
+            None => None,
+        };
+        let path = bounded.as_deref();
         for _ in 0..crate::xdg::policy::policy_u32(
             crate::xdg::policy::key::DEFAULT_SCREENCAST_STOP_PUMP_ITERS,
         ) {
@@ -152,10 +216,27 @@ impl OneShotSession {
         let mut video_out: Option<String> = None;
         let mut encode_note: Option<String> = None;
         if let Some(ref vp) = video_path {
+            // No extension is NOT mp4.
+            //
+            // `--help` promises `.webm`/`.mp4` encodes via ffmpeg and
+            // "otherwise PNG frames dir", and the block right above asks this
+            // same question CORRECTLY: it tests the suffix and answers `None`
+            // when neither matches. Here the question was asked by FABRICATING
+            // an extension, so a path carrying none became "mp4", `is_video`
+            // became true, and ffmpeg was handed a destination it cannot mux.
+            //
+            // Measured 2026-09-01: `screencast stop` with a path that has no
+            // extension answered `ok: true` with `video: null`, having buried
+            // `Unable to choose an output format` inside `encode_note` — the
+            // operator was told the capture succeeded and got no video, with
+            // the real error one level down in a field nothing checks.
+            //
+            // `unwrap_or_default` keeps the two decisions in agreement: an
+            // absent extension is absent, not a default anyone chose.
             let ext = vp
                 .extension()
                 .and_then(|e| e.to_str())
-                .unwrap_or("mp4")
+                .unwrap_or_default()
                 .to_ascii_lowercase();
             let is_video = ext == "webm" || ext == "mp4";
             if is_video && written > 0 {
@@ -264,6 +345,10 @@ impl OneShotSession {
             "screencast": "stop",
             "dir": dir.to_string_lossy(),
             "frame_count": written,
+            // `frame_count` is what reached disk; `dropped_oldest` is what the
+            // ring evicted before it could. Without the second number a
+            // truncated recording and a short one are the same envelope.
+            "dropped_oldest": self.screencast_dropped,
             "manifest": manifest_path.to_string_lossy(),
             "video": video_out,
             "encode_note": encode_note,

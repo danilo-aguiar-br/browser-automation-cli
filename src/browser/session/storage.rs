@@ -29,6 +29,23 @@ use super::OneShotSession;
 
 impl OneShotSession {
     /// Export cookies and per-origin storage to an explicit path.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `path` falls outside the roots
+    /// [`crate::fs_roots`] allows, and when the session has no active page.
+    ///
+    /// Fails with [`ErrorKind::Browser`] —
+    /// `"storage export failed: …"`, carrying the `navigate_first`
+    /// suggestion — when cookies cannot be read or the file cannot be written,
+    /// and with [`ErrorKind::Io`] when the
+    /// written file cannot be restricted to mode `0600`. That last failure is
+    /// surfaced rather than warned about: the artifact holds cookies and
+    /// tokens, so a world-readable one is not an acceptable success.
+    ///
+    /// Also propagates the summary read of the file just written — a state
+    /// file that cannot be re-read or exceeds the `max_json_file_bytes`
+    /// ceiling.
     pub async fn storage_export(&mut self, path: &Path) -> Result<Value, CliError> {
         let target = crate::fs_roots::ensure_write_allowed(path)?;
         let session_id = self.session_id()?;
@@ -64,6 +81,25 @@ impl OneShotSession {
     }
 
     /// Import cookies and per-origin storage from an explicit path.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `path` falls outside the roots
+    /// [`crate::fs_roots`] allows, with
+    /// [`ErrorKind::NoInput`] —
+    /// `"storage file not found: …"` — when it is missing or is a directory,
+    /// and when the session has no active page.
+    ///
+    /// Fails with [`ErrorKind::Data`] —
+    /// `"storage import failed: …"` — when the file is not a readable
+    /// `StorageState`, when an encrypted state has no configured key, or when
+    /// a per-origin navigation is refused.
+    ///
+    /// A partial restore is possible without an error: individual
+    /// `localStorage` / `sessionStorage` writes are best-effort, so an origin
+    /// that refuses storage is skipped silently. Call
+    /// [`storage_live_counts`](Self::storage_live_counts) to see what actually
+    /// landed.
     pub async fn storage_import(&mut self, path: &Path) -> Result<Value, CliError> {
         let source = crate::fs_roots::ensure_read_allowed(path)?;
         if !source.is_file() {
@@ -100,6 +136,12 @@ impl OneShotSession {
     ///
     /// Reported after `storage import --url` so the caller sees that the state
     /// actually landed, instead of trusting that the write succeeded.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`eval`](Self::eval): no active page, a refused
+    /// `Runtime.evaluate`, or a JavaScript exception — which is what an origin
+    /// that denies storage access raises when `localStorage` is touched.
     pub async fn storage_live_counts(&mut self) -> Result<Value, CliError> {
         let js = r#"(() => ({
             localStorage: localStorage.length,
@@ -160,40 +202,43 @@ mod tests {
 
     #[test]
     fn summarize_reads_counts() {
-        let dir = std::env::temp_dir().join("bac-storage-summary");
-        std::fs::create_dir_all(&dir).expect("mkdir");
-        let path = dir.join("state.json");
+        let tmp = tempfile::Builder::new()
+            .prefix("bac-storage-")
+            .tempdir()
+            .expect("scratch dir");
+        let path = tmp.path().join("state.json");
         std::fs::write(
             &path,
             br#"{"cookies":[{"name":"a"},{"name":"b"}],"origins":[{"origin":"https://x"}]}"#,
         )
         .expect("write");
         assert_eq!(summarize(&path).expect("summary"), (2, 1));
-        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
     fn summarize_tolerates_missing_sections() {
-        let dir = std::env::temp_dir().join("bac-storage-summary");
-        std::fs::create_dir_all(&dir).expect("mkdir");
-        let path = dir.join("empty.json");
+        let tmp = tempfile::Builder::new()
+            .prefix("bac-storage-")
+            .tempdir()
+            .expect("scratch dir");
+        let path = tmp.path().join("empty.json");
         std::fs::write(&path, b"{}").expect("write");
         assert_eq!(summarize(&path).expect("summary"), (0, 0));
-        let _ = std::fs::remove_file(&path);
     }
 
     #[cfg(unix)]
     #[test]
     fn restrict_to_owner_sets_0600() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join("bac-storage-mode");
-        std::fs::create_dir_all(&dir).expect("mkdir");
-        let path = dir.join("secret.json");
+        let tmp = tempfile::Builder::new()
+            .prefix("bac-storage-")
+            .tempdir()
+            .expect("scratch dir");
+        let path = tmp.path().join("secret.json");
         std::fs::write(&path, b"{}").expect("write");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
         restrict_to_owner(&path).expect("restrict");
         let mode = std::fs::metadata(&path).expect("meta").permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "state file must be owner-only");
-        let _ = std::fs::remove_file(&path);
     }
 }

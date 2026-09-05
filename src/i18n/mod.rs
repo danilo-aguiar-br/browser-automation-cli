@@ -12,7 +12,7 @@
 //!
 //! # Boot order (multi-language UI rules)
 //!
-//! 1. Windows console UTF-8 ([`configure_console_utf8`](crate::i18n::configure_console_utf8))
+//! 1. Windows console UTF-8 ([`configure_console`](crate::platform::configure_console)), called from `entry.rs`
 //! 2. TTY / plain / screen-reader hints (see [`crate::color`])
 //! 3. OS locale via `sys-locale` inside [`resolve_locale`](crate::i18n::resolve_locale)
 //! 4. Parse → `LanguageIdentifier` (`unic-langid`)
@@ -33,9 +33,7 @@ mod suggestion;
 mod ui_locale;
 mod ui_message;
 
-pub use detect::{
-    detect_system_langid, negotiate, parse_langid, resolve, LocaleSource, ResolvedLocale,
-};
+pub use detect::{resolve, LocaleSource, ResolvedLocale};
 pub use diagnostics::{locale_diagnostics, truncate_graphemes};
 pub use ftl::{format_ftl, ftl_keys, ftl_source};
 pub use suggestion::{localize_error_suggestion, suggestion_for, suggestion_key};
@@ -52,13 +50,6 @@ use std::sync::OnceLock;
 /// either the initialized value or the default [`UiLocale::En`] via [`effective_ui_locale`].
 static EFFECTIVE: OnceLock<ResolvedLocale> = OnceLock::new();
 
-/// Configure Windows console to UTF-8 (and VT) before any user-facing I/O.
-///
-/// Delegates to [`crate::platform::configure_console`] (single multiplatform entry).
-pub fn configure_console_utf8() {
-    crate::platform::configure_console();
-}
-
 /// Resolve language from CLI flag, then XDG, OS locale (see [`resolve`]).
 pub fn resolve_locale(cli_lang: Option<&str>) -> ResolvedLocale {
     let xdg = crate::xdg::load_config()
@@ -71,12 +62,20 @@ pub fn resolve_locale(cli_lang: Option<&str>) -> ResolvedLocale {
 /// Validate a `config set lang` / flag token (`en` | `pt-BR` and regional `en-*`).
 ///
 /// Rejects bare `pt` and unknown tags with a machine-English usage error.
+///
+/// # Errors
+///
+/// [`crate::error::ErrorKind::Usage`] when
+/// [`UiLocale::parse_token`](crate::i18n::UiLocale::parse_token) rejects `raw` —
+/// an unknown BCP47 tag, or the bare `pt` that this product does not accept
+/// because it does not name a compiled catalog. The message stays in machine
+/// English; the suggestion spells the two valid spellings.
 pub fn validate_lang_token(raw: &str) -> Result<UiLocale, crate::error::CliError> {
     UiLocale::parse_token(raw).ok_or_else(|| {
         crate::error::CliError::with_suggestion(
             crate::error::ErrorKind::Usage,
             format!("invalid lang {raw:?}; expected en or pt-BR (bare pt is not accepted)"),
-            "Use: config set lang en   or   config set lang pt-BR   or   --lang pt-BR",
+            crate::i18n::suggestion_key("lang_token_values", None),
         )
     })
 }
@@ -140,21 +139,6 @@ pub fn effective_resolved() -> ResolvedLocale {
 
 // ── Compatibility API (legacy `&'static str` tokens) ─────────────────────
 
-/// Normalize lang token to legacy `"en"` or `"pt"`.
-pub fn normalize_lang(lang: Option<&str>) -> &'static str {
-    match lang.and_then(UiLocale::parse_token) {
-        Some(UiLocale::PtBr) => "pt",
-        _ => "en",
-    }
-}
-
-/// Resolve language from CLI flag, then XDG config, then OS locale hints.
-///
-/// Returns legacy `"en"` / `"pt"` tokens for older call sites.
-pub fn resolve_lang(cli_lang: Option<&str>) -> &'static str {
-    resolve_locale(cli_lang).ui_locale.legacy_token()
-}
-
 /// Store effective language for the process (call once from `run()`).
 ///
 /// Accepts `"en"` / `"pt-BR"` / BCP47 tokens (`parse_token`). Bare `"pt"` is rejected → `en`.
@@ -165,11 +149,6 @@ pub fn set_effective_lang(lang: &'static str) {
         source: LocaleSource::Flag,
         system_raw: None,
     });
-}
-
-/// Current effective language legacy token (defaults to `en` if unset).
-pub fn effective_lang() -> &'static str {
-    effective_ui_locale().legacy_token()
 }
 
 #[cfg(test)]

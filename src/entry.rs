@@ -78,7 +78,13 @@ where
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 
+    // `clippy::disallowed_methods` bans `set_var` package-wide (see clippy.toml)
+    // because it is unsound in a multi-threaded program off Windows. This site
+    // is the exception the rule is shaped around: it is Windows-only, where the
+    // std docs place no such requirement, and it runs at BORN before the process
+    // has spawned a single thread.
     #[cfg(windows)]
+    #[allow(clippy::disallowed_methods)]
     {
         std::env::set_var("MSYS_NO_PATHCONV", "1");
         std::env::set_var("MSYS2_ARG_CONV_EXCL", "*");
@@ -133,6 +139,14 @@ where
     let resolved = crate::i18n::resolve_locale(cli.globals.lang.as_deref());
     crate::i18n::set_effective_ui_locale(resolved);
 
+    // `--stealth-profile list` is discovery, not an identity. Emit the tokens
+    // and die without launching Chrome (and without publishing `list` as a profile).
+    if cli.globals.stealth_profile.as_deref() == Some("list") {
+        let code = crate::doctor::emit_stealth_profiles(cli.globals.json);
+        life.finalize();
+        return ExitCode::from(code as u8);
+    }
+
     // Agent correlation: optional global flag → process-local context (envelopes / NDJSON).
     crate::agent_context::set_correlation_id(cli.globals.correlation_id.clone());
 
@@ -157,15 +171,31 @@ where
             .unwrap_or_default(),
     );
     crate::native::interaction::set_input_seed(cli.globals.input_seed);
+    crate::robots::set_min_delay_override_ms(cli.globals.min_delay_ms);
 
     // Browser policy, published before any launch. `--headed` and `no_xvfb` were
     // both declared and read by nobody before this call existed: the session
     // hard-coded `headless: true`, so the flag changed the help text and nothing
     // else. Same precedence rule as the input profile above.
     crate::browser_policy::publish(&crate::browser_policy::PolicyFlags {
-        headed: cli.globals.headed,
+        // Three spellings, one destination. The parser refuses more than one of
+        // them, so collapsing here cannot lose a conflict — it only picks the
+        // canonical form first and falls back to the two shorthands.
+        browser_mode: cli
+            .globals
+            .browser_mode
+            .as_deref()
+            .and_then(crate::browser_policy::BrowserMode::parse)
+            .or(if cli.globals.headed {
+                Some(crate::browser_policy::BrowserMode::Headed)
+            } else if cli.globals.headless {
+                Some(crate::browser_policy::BrowserMode::Headless)
+            } else {
+                None
+            }),
         no_xvfb: cli.globals.no_xvfb,
         no_stealth: cli.globals.no_stealth,
+        capture_console: cli.globals.capture_console,
         stealth_profile: cli.globals.stealth_profile.clone(),
         warmup: cli.globals.warmup,
         warmup_url: cli.globals.warmup_url.clone(),
@@ -177,7 +207,12 @@ where
     // Universal data operations (agent CLEAN STDOUT). Parsed and validated HERE,
     // before the command runs, so a malformed `--filter` costs an argv error and
     // not a completed browser session whose output is then rejected.
-    match cli.globals.agent_ops.to_ops() {
+    match cli
+        .globals
+        .agent_ops
+        .to_ops()
+        .and_then(|ops| ops.refuse_unless_json(cli.globals.json).map(|()| ops))
+    {
         Ok(ops) => crate::agent_ops::set_agent_ops(Some(ops)),
         Err(err) => {
             let code = err.exit_code();
@@ -196,12 +231,13 @@ where
     // process-wide budgets, because the hudsucker handler is cloned per
     // request/response pair and cannot carry operator intent in its signature.
     crate::mitm_local::policy::install(&crate::mitm_local::policy::CaptureFlags {
-        max_body_bytes: cli.globals.mitm_max_body_bytes,
-        no_media_bodies: cli.globals.mitm_no_media_bodies,
-        redact_secrets: cli.globals.mitm_redact_secrets,
-        no_redact_secrets: cli.globals.mitm_no_redact_secrets,
-        hosts: cli.globals.mitm_hosts.clone(),
-        har: cli.globals.mitm_har.clone(),
+        max_body_bytes: cli.globals.mitm_args.mitm_max_body_bytes,
+        no_media_bodies: cli.globals.mitm_args.mitm_no_media_bodies,
+        redact_secrets: cli.globals.mitm_args.mitm_redact_secrets,
+        no_redact_secrets: cli.globals.mitm_args.mitm_no_redact_secrets,
+        hosts: cli.globals.mitm_args.mitm_hosts.clone(),
+        har: cli.globals.mitm_args.mitm_har.clone(),
+        ca_dir: cli.globals.mitm_args.mitm_ca_dir.clone(),
     });
 
     // Install subscriber once; hold WorkerGuard (file path) until FINALIZE/DIE so

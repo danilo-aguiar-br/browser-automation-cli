@@ -9,9 +9,8 @@
 ## Quick Start
 ```bash
 git clone https://github.com/danilo-aguiar-br/browser-automation-cli
-cd browser-automation-cli
-cargo build --locked
-cargo test --locked
+cargo build --locked --manifest-path browser-automation-cli/Cargo.toml
+cargo test --locked --manifest-path browser-automation-cli/Cargo.toml
 browser-automation-cli doctor --offline --quick --json
 ```
 
@@ -20,6 +19,10 @@ browser-automation-cli doctor --offline --quick --json
 - Install Chrome or Chromium for runtime commands
 - Optional tools: `ffmpeg`, `lighthouse`, `cargo-deny`, `cargo-audit`
 - Prefer `cargo run -q -- <args>` during local development
+- If the checkout lives inside a synced folder (Dropbox, OneDrive, iCloud, Drive), exclude `target/` from that sync BEFORE the first build
+- On Linux Dropbox that is `mkdir -p target && setfattr -n user.com.dropbox.ignored -v 1 target`
+- The attribute lives on the DIRECTORY, so it is lost whenever `target/` is deleted and recreated, and must be re-applied then
+- Measured 2026-08-31: without it the sync client deleted `target/` mid-compile, which surfaced as `couldn't create a temp dir`, as a green `cargo build --release` whose artefact was gone minutes later, and as `SIGBUS` in `rustc` when a mapped `.rlib` was removed under the process
 
 ## Branching Strategy
 - Branch from `main`
@@ -57,7 +60,7 @@ browser-automation-cli doctor --offline --quick --json
 - When adding commands, update README Commands, INTEGRATIONS New Flags, llms.txt / llms-full Command Surface (EN+pt-BR), COOKBOOK recipes, skills, MIGRATION, and inventory counts
 - When adding an XDG config key or a global flag, not only a command, also update `docs/CONFIGURATION.md` and `docs/CONFIGURATION.pt-BR.md`, both embedded skill packages under `skills/` including `references/xdg-keys.md`, and the CHANGELOG entry for the version
 - `scripts/doc-coverage-check.sh` reads the live binary and fails when the prose drifts from the shipped surface
-- Live inventory tip (0.1.8): **69** agent names via `commands --json` (0.1.6 added `submit`/`storage` → 65; 0.1.7 adds `image`+`video`+`audio` → 68 then `record` → 69; also `select-option`, `pick`, `locale`, `man` — always re-measure with `commands --json`); **53** e2e DevTools tools with placar PASS=52 SKIP=1 when lighthouse mock is the only skip
+- Live inventory tip (0.1.9): **71** agent names via `commands --json` (0.1.6 added `submit`/`storage` → 65; 0.1.7 adds `image`+`video`+`audio` → 68 then `record` → 69; also `select-option`, `pick`, `locale`, `man` — always re-measure with `commands --json`); **53** e2e DevTools tools scoring PASS=52 SKIP=1 when lighthouse mock is the only skip
 
 ## Report Bugs
 - Open a GitHub issue with `browser-automation-cli --version`

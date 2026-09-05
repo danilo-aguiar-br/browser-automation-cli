@@ -31,6 +31,7 @@ pub(crate) mod common;
 mod dispatch;
 mod local_audio;
 mod local_video;
+mod media;
 mod meta;
 mod nav;
 mod ops;

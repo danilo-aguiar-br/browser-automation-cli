@@ -3,6 +3,12 @@
 # rules_rust_paralelismo_e_multiprocessamento — product law one-shot CLI.
 # Pass 23: Semaphore gate in join_bounded + spawn_blocking scrape parse.
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 

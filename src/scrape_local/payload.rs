@@ -54,13 +54,22 @@ pub fn build_scrape_payload(
     let description = meta_content(&document, "description")
         .or_else(|| meta_content(&document, "og:description"))
         .unwrap_or_default();
-    let mut body_html = if opts.only_main_content {
-        extract_main_html(&document).unwrap_or_else(|| html.to_string())
+    // `--only-main-content` is a HEURISTIC: the caller asked for "the article",
+    // not for a named element, so answering with the whole document when the
+    // page ships no <main> is defensible. Staying SILENT about which of the two
+    // happened was not, so `main_content_found` now says it in the envelope.
+    // Contrast with the include selector below, which names an exact target and
+    // therefore fails closed instead of widening.
+    let main_content = if opts.only_main_content {
+        extract_main_html(&document)
     } else {
-        html.to_string()
+        None
     };
-    body_html =
+    let main_content_found = main_content.is_some();
+    let mut body_html = main_content.unwrap_or_else(|| html.to_string());
+    let selector_filter =
         filter_html_by_selectors(&body_html, &opts.include_selectors, &opts.exclude_selectors);
+    body_html = selector_filter.html;
     let body_doc = Html::parse_document(&body_html);
     let mut text = visible_text(&body_doc);
     let mut markdown = html_to_markdown_simple(&body_html, &title);
@@ -68,7 +77,23 @@ pub fn build_scrape_payload(
         text = redact_pii(&text);
         markdown = redact_pii(&markdown);
     }
-    let links = extract_links(source_url, &document, opts.honor_nofollow);
+    // Selector-scoped when the caller asked for a subset, whole-document
+    // otherwise. Until 0.1.9 this always read `document`, so
+    // `--format links --include-selector <sel>` returned every link on the
+    // page with `ok: true` and no warning: the caller asked for a subset,
+    // received the whole set, and nothing in the envelope marked the
+    // difference. Note the contrast with `ScrapeFormat::Attributes` below,
+    // which reads the full document *on purpose* and says so — that one is a
+    // decision, this one was an omission.
+    //
+    // Shared with `ScrapeFormat::Images`, which is BODY content under exactly
+    // the same rule; hence `scoped_doc` and not a links-specific name.
+    let scoped_doc = if opts.include_selectors.is_empty() && opts.exclude_selectors.is_empty() {
+        &document
+    } else {
+        &body_doc
+    };
+    let links = extract_links(source_url, scoped_doc, opts.honor_nofollow);
     // Computed from the *full* document (not the selector-reduced body) because
     // `<link rel="next">` lives in <head>, which only_main_content strips.
     let rel_next = if opts.follow_rel_next {
@@ -90,6 +115,19 @@ pub fn build_scrape_payload(
         "format".into(),
         json!(format!("{:?}", opts.format).to_ascii_lowercase()),
     );
+    // Witnesses for the reductions the caller ASKED for, emitted only when the
+    // caller asked (CLEAN: omit null keys). These are what let an agent tell an
+    // empty result that means "no match" apart from an empty page.
+    if opts.only_main_content {
+        map.insert("main_content_found".into(), json!(main_content_found));
+    }
+    if !opts.include_selectors.is_empty() {
+        map.insert("selector_matched".into(), json!(selector_filter.matched));
+        map.insert(
+            "selector_match_count".into(),
+            json!(selector_filter.match_count),
+        );
+    }
 
     match opts.format {
         ScrapeFormat::Text => {
@@ -117,6 +155,11 @@ pub fn build_scrape_payload(
             // only the fetch knows (status, resolved URL, link count). Emitting
             // five hardcoded keys while og/dc/article/canonical/favicon sat
             // unread in the same parsed document was the whole defect.
+            //
+            // Reads the FULL document *on purpose*, like `Attributes` and
+            // `rel_next`: metadata lives in <head>, which selector reduction of
+            // the body would delete outright. Scoping it would not narrow the
+            // answer, it would empty it.
             let mut meta = super::html_meta::collect_metadata(&document);
             meta.insert("title".into(), json!(title));
             meta.insert("description".into(), json!(description));
@@ -146,20 +189,34 @@ pub fn build_scrape_payload(
             map.insert("llm_required_for_full".into(), json!(true));
         }
         ScrapeFormat::Product => {
+            // Reads the RAW body *on purpose*, like `Feed`: JSON-LD ships in
+            // <script type="application/ld+json">, which selector reduction of
+            // the body would drop. A caller narrowing the visible article is
+            // not asking to hide the page's structured product data.
             let product = extract_json_ld_product(html);
             map.insert("product".into(), product);
             map.insert("text".into(), json!(text));
         }
         ScrapeFormat::Branding => {
+            // Reads the RAW body *on purpose*: branding hints are favicon,
+            // logo and theme colour, which live in <head> and outside whatever
+            // subset the caller scoped the body to.
             map.insert("branding".into(), extract_branding_hints(html, &title));
             map.insert("text".into(), json!(text));
         }
         ScrapeFormat::Images => {
-            let images = extract_images(source_url, &document);
+            // BODY content, so it follows the same rule as `links` above: an
+            // `--include-selector 'article'` that still answered with every
+            // image on the page would answer a different question than the one
+            // asked.
+            let images = extract_images(source_url, scoped_doc);
             map.insert("images".into(), json!(images));
             map.insert("image_count".into(), json!(images.len()));
         }
         ScrapeFormat::JsonLd => {
+            // Reads the RAW body *on purpose*, for the same reason as
+            // `Product` above: JSON-LD blocks are document-level and survive no
+            // body reduction.
             let blocks = extract_all_json_ld(html);
             map.insert("jsonld".into(), json!(blocks));
             map.insert("jsonld_count".into(), json!(blocks.len()));

@@ -8,6 +8,14 @@ use crate::native::element::{resolve_element_object_id, RefMap};
 use serde_json::Value;
 
 /// Replace a field's contents in one step.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`],
+/// then the CDP error raised by the `Runtime.callFunctionOn` that focuses the
+/// element, by the second one that clears it, and by the `Input.insertText`
+/// that types `value`. A failure after the clear leaves the field empty.
 pub async fn fill(
     client: &CdpClient,
     session_id: &str,
@@ -78,6 +86,17 @@ pub async fn fill(
 /// - `<select>` → option match by value or label
 /// - checkbox/radio → `"true"`/`"false"` (radio true clicks to select)
 /// - otherwise → text fill via insertText
+///
+/// # Errors
+///
+/// Fails when the element cannot be resolved or the kind probe is refused,
+/// then propagates the branch it chose: [`select_option`] for a `<select>`
+/// (including "no option matched"), [`check`] / [`uncheck`] for a checkbox,
+/// and [`fill`] for anything else.
+///
+/// A radio with a falsy `value` fails with `"radio cannot be set to false via
+/// fill; select another radio option"`: unticking a radio is not a state HTML
+/// lets you reach, so the caller must name the option to select instead.
 pub async fn fill_smart(
     client: &CdpClient,
     session_id: &str,

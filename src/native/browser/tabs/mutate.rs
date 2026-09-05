@@ -18,6 +18,15 @@ impl BrowserManager {
     /// the owner target. We still update `active_page_index` so
     /// `Page.handleJavaScriptDialog` can target the correct session (GAP-041
     /// multi-tab). Cached url/title are used when live probes hang.
+    ///
+    /// # Errors
+    ///
+    /// Fails only with `"Tab index N out of range (0-M)"` when `index`
+    /// addresses no tracked tab. Nothing after the bounds check can fail: the
+    /// domain enable is bounded by
+    /// [`TAB_SWITCH_DOMAIN_ENABLE_BUDGET_MS`](crate::constants::TAB_SWITCH_DOMAIN_ENABLE_BUDGET_MS)
+    /// and reported as `domains_enabled: false`, `Page.bringToFront` is
+    /// best-effort, and the url/title probes fall back to the cached values.
     pub async fn tab_switch(&mut self, index: usize) -> Result<Value, String> {
         if index >= self.pages.len() {
             return Err(format!(
@@ -70,6 +79,15 @@ impl BrowserManager {
     }
 
     /// Close a tab by position, or the active one when `index` is `None`.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"Tab index N out of range"` when `index` addresses no
+    /// tracked tab, with `"Cannot close the last tab"` when only one remains —
+    /// a session with no page cannot serve any later command — and with the
+    /// domain-enable error for the tab that becomes active afterwards.
+    /// `Target.closeTarget` itself is best-effort: the tab is already dropped
+    /// from the registry, so a refusal must not fail the call.
     pub async fn tab_close(&mut self, index: Option<usize>) -> Result<Value, String> {
         let target_index = index.unwrap_or(self.active_page_index);
 
@@ -111,6 +129,13 @@ impl BrowserManager {
     // -----------------------------------------------------------------------
 
     /// Focus a tab by its stable id (`t2`). Unaffected by closes elsewhere.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"Tab ID N not found"` when no tracked tab carries that
+    /// stable id — it was closed, or it belongs to another session. Otherwise
+    /// propagates [`tab_switch`](Self::tab_switch), whose bounds check cannot
+    /// fail on an index just resolved from the registry.
     pub async fn tab_switch_by_id(&mut self, tab_id: u32) -> Result<Value, String> {
         let index = self
             .pages
@@ -121,6 +146,13 @@ impl BrowserManager {
     }
 
     /// Close a tab by stable id, or the active one when `tab_id` is `None`.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"Tab ID N not found"` when `tab_id` is `Some` and no
+    /// tracked tab carries it. Otherwise propagates
+    /// [`tab_close`](Self::tab_close): `"Cannot close the last tab"`, or a
+    /// failed domain enable on the tab that becomes active.
     pub async fn tab_close_by_id(&mut self, tab_id: Option<u32>) -> Result<Value, String> {
         let index = match tab_id {
             Some(id) => Some(

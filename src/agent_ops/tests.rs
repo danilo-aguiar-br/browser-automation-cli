@@ -3,6 +3,10 @@
 
 use serde_json::json;
 
+use crate::error::ErrorKind;
+
+use super::filter::FilterExpr;
+use super::pipeline::unmet_expectations;
 use super::*;
 
 fn ops() -> AgentOps {

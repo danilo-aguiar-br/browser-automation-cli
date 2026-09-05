@@ -24,7 +24,7 @@ impl SnapshotGraph {
     pub(crate) fn pick_root(&self) -> usize {
         // Prefer synthetic/(GC roots); else first node with no retainers; else 0.
         if let Some((i, _)) = self.nodes.iter().enumerate().find(|(_, n)| {
-            n.name.contains("GC roots") || n.type_name == "synthetic" || n.name == "(GC roots)"
+            n.name.contains("GC roots") || &*n.type_name == "synthetic" || &*n.name == "(GC roots)"
         }) {
             return i;
         }

@@ -30,7 +30,7 @@ use clap::{Arg, ArgAction, Command, CommandFactory};
 use serde_json::{json, Map, Value};
 
 use crate::cli::Cli;
-use crate::commands::run::RUN_DISPATCHED_CMDS;
+use crate::commands::run::{step_key_aliases, RUN_DISPATCHED_CMDS};
 
 /// Surface tokens an agent can use to supply a property.
 pub(crate) const SURFACE_ARGV: &str = "argv";
@@ -163,7 +163,12 @@ fn default_value(arg: &Arg, ty: &str) -> Option<Value> {
 }
 
 /// Build the schema property object for one clap arg.
-fn property_for(arg: &Arg, surfaces: &[&'static str]) -> (String, Value) {
+///
+/// `cmd` is the top-level command name, needed only to look the property's
+/// declared step-key aliases up: `include_preserved` carries a DIFFERENT
+/// camelCase spelling under `console` than under `net`, so the alias cannot be
+/// derived from the key alone.
+fn property_for(cmd: &str, arg: &Arg, surfaces: &[&'static str]) -> (String, Value) {
     let step_key = arg.get_id().as_str().to_string();
     let ty = json_type(arg);
     let mut obj = Map::new();
@@ -179,6 +184,13 @@ fn property_for(arg: &Arg, surfaces: &[&'static str]) -> (String, Value) {
     obj.insert("description".into(), json!(description));
     obj.insert("argv".into(), json!(argv_name(arg)));
     obj.insert("step_key".into(), json!(step_key));
+    // Only emitted when the table declares one, so a property with no alias
+    // stays byte-identical to what this generator produced before the field
+    // existed and the regenerated schemas show exactly the eight that changed.
+    let aliases = step_key_aliases(cmd, &step_key);
+    if !aliases.is_empty() {
+        obj.insert("step_key_aliases".into(), json!(aliases));
+    }
     obj.insert("surfaces".into(), json!(surfaces));
     obj.insert("source".into(), json!("parser"));
     obj.insert("required".into(), json!(arg.is_required_set()));
@@ -196,7 +208,7 @@ fn property_for(arg: &Arg, surfaces: &[&'static str]) -> (String, Value) {
 }
 
 /// Nested action property for subcommands that dispatch on an action word.
-fn action_property(sub: &Command, surfaces: &[&'static str]) -> Option<(String, Value)> {
+fn action_property(cmd: &str, sub: &Command, surfaces: &[&'static str]) -> Option<(String, Value)> {
     let names: Vec<String> = sub
         .get_subcommands()
         .map(|s| s.get_name().to_string())
@@ -209,7 +221,7 @@ fn action_property(sub: &Command, surfaces: &[&'static str]) -> Option<(String, 
         .map(|s| {
             let mut props = Map::new();
             for arg in s.get_arguments().filter(|a| !is_builtin(a)) {
-                let (key, value) = property_for(arg, surfaces);
+                let (key, value) = property_for(cmd, arg, surfaces);
                 props.insert(key, value);
             }
             (
@@ -250,10 +262,10 @@ pub(crate) fn derive_command(cmd: &str) -> Option<DerivedCommand> {
         if arg.is_required_set() {
             required.push(arg.get_id().as_str().to_string());
         }
-        let (key, value) = property_for(arg, &surfaces);
+        let (key, value) = property_for(cmd, arg, &surfaces);
         properties.insert(key, value);
     }
-    if let Some((key, value)) = action_property(sub, &surfaces) {
+    if let Some((key, value)) = action_property(cmd, sub, &surfaces) {
         if sub.is_subcommand_required_set() {
             required.push(key.clone());
         }

@@ -31,6 +31,20 @@ impl BrowserManager {
     ///
     /// `engine` selects Chrome or Lightpanda; `None` uses the default. On
     /// return the manager owns whatever was spawned and must be shut down.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `engine` is neither `chrome` nor `lightpanda`
+    /// (`"Unknown engine '<name>'…"`), when
+    /// `validate_launch_options` or `validate_lightpanda_options` rejects the
+    /// options, when the engine itself cannot be started or
+    /// attached to, when target discovery fails on the Chrome path, or when
+    /// the launched engine exposes no page (`"No active page"`).
+    ///
+    /// The post-attach tuning — `Security.setIgnoreCertificateErrors`,
+    /// `Emulation.setUserAgentOverride`, `Emulation.setEmulatedMedia`,
+    /// `Browser.setDownloadBehavior` — is best-effort: an engine that refuses
+    /// any of them still yields a usable manager.
     pub async fn launch(mut options: LaunchOptions, engine: Option<&str>) -> Result<Self, String> {
         let engine = engine.unwrap_or("chrome");
 
@@ -142,6 +156,11 @@ impl BrowserManager {
     }
 
     /// CDP session of the active tab, or an error when no tab is attached.
+    ///
+    /// # Errors
+    ///
+    /// Returns `"No active page"` when `active_page_index` addresses no
+    /// tracked page — before the first attach, or after every tab was closed.
     pub fn active_session_id(&self) -> Result<&str, String> {
         self.pages
             .get(self.active_page_index)

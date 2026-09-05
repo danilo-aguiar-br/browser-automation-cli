@@ -4,36 +4,39 @@
 
 - Automação Chrome CDP one-shot para agentes de IA
 - Ciclo de vida sempre: BORN → EXECUTE → FINALIZE → DIE (um processo; sem daemon)
+- Lista completa de comandos de agente (**71** nomes): veja [docs/HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) e `browser-automation-cli commands --json`
 
 ## Camadas
 
-- Binary thin — `src/main.rs` — panic hook, `run_from_args`, exit code
-- Lib entry — `src/lib.rs` — `run` / `run_from_args`, hold de telemetria, lifecycle
-- Superfície CLI — `src/cli/` — Clap derive (`Parser` / `Subcommand`); help = UX do agente
-- Dispatch — `src/commands/` — handlers PRD (`mod.rs` match + `meta` + `run`)
-- Session — `src/browser/` — sessão Chrome one-shot, actions, hooks do residual ledger
-- Native CDP — `src/native/` — client chromiumoxide, snapshot, heap, cookies, …
-- Contract I/O — `src/output.rs`, `src/envelope.rs`, `src/json_util.rs` — envelopes stdout; BrokenPipe → 141
-- Lifecycle — `src/lifecycle/` — cancel token, orquestração BORN/FINALIZE, SIGINT/SIGTERM
-- Residual disco/processo — `src/residual/` — marker + GC Singleton Chromium tmp; `ResidualDiskReport`
-- Tracing local — `src/tracing_local/` — dual sink tracing (stderr + JSON rotativo opcional)
-- Config XDG — `src/xdg/`, `src/config.rs` — settings de produto: só flags + XDG `config`
-- i18n — `src/i18n/`, `locales/*.ftl` — `--lang` + XDG `lang` → negotiate → OnceLock; só sugestões humanas
-- Platform — `src/platform/` — PATH `which_bin`, console UTF-8/VT, HostEnvironment, sandbox do browser
-- Windows jobs — `src/win_job.rs` — Job Object para kill residual de processo (stubs fora do Windows)
-- Tabela de capability — `src/capability/` — uma tabela declarativa de gate / captura / pré-condição de página lida pelo dispatch de argv, pelos passos de `run` e pelo preflight
-- Concorrência — `src/concurrency/` — orçamento de paralelismo limitado: semáforos Tokio para I/O, Rayon para CPU, sem fan-out ilimitado
-- Constantes nomeadas — `src/constants/` — defaults de compile-time (anti-hardcode): identidade, viewport, orçamentos HTTP/CDP, layouts do Chrome
-- Cache — `src/cache/` — cache de HTTP / parse: mapa L1 em processo + SQLite sob XDG; Redis só por `config set cache_backend`
-- Política de rede — `src/net/` — modos SSRF, tetos de corpo, endereçamento loopback; env de proxy de sistema do reqwest desligado por `no_proxy()`
-- Robots — `src/robots/` — robots.txt honrado por padrão; contorno exige **as duas** flags `--ignore-robots` e `--i-accept-robots-risk`
-- Contenção de raízes — `src/fs_roots/` — checagem canônica de raiz permitida para leitura local e escrita de artefato; escape `--allow-outside-roots`
-- Doctor — `src/doctor/` — probes locais sequenciais e leves de I/O, montados em ordem estável de relatório (nunca alega fan-out de CPU)
-- Scrape local — `src/scrape_local/` — engine de scrape HTTP / browser, forma do envelope, colheita de metadados, disclosure de cobertura
-- Mídia local — `src/image_local/`, `src/video_local/`, `src/audio_local/` — probe / convert / resize / trim de caminho para caminho; `ffprobe` / `ffmpeg` opcionais via XDG `ffmpeg_path`
-- MITM local — `src/mitm_local/` — CA local sob XDG data, store de captura sob XDG state, export HAR, política de captura por processo
-- Workflow local — `src/workflow_local/` — manifesto DAG one-shot + journal SQLite; ordem topológica sequencial com fail-fast
-- Agent output ops — `src/agent_ops/` — oito operações universais aplicadas sobre `data` antes do stdout
+| Camada | Caminho | Papel |
+|--------|---------|-------|
+| Binary thin | `src/main.rs` | panic hook, `run_from_args`, exit code |
+| Lib entry | `src/lib.rs` | `run` / `run_from_args`, hold de telemetria, lifecycle |
+| Superfície CLI | `src/cli/` | Clap derive (`Parser` / `Subcommand`); help = UX do agente |
+| Dispatch | `src/commands/` | handlers PRD (`mod.rs` match + `meta` + `run`) |
+| Session | `src/browser/` | sessão Chrome one-shot, actions, hooks do residual ledger |
+| Native CDP | `src/native/` | client chromiumoxide, snapshot, heap, cookies, … |
+| Contract I/O | `src/output.rs`, `src/envelope.rs`, `src/json_util.rs` | envelopes stdout; BrokenPipe → 141 |
+| Lifecycle | `src/lifecycle/` | cancel token, orquestração BORN/FINALIZE, SIGINT/SIGTERM |
+| Residual disco/processo | `src/residual/` | marker + GC Singleton Chromium tmp; `ResidualDiskReport` |
+| Tracing local | `src/tracing_local/` | dual sink tracing (stderr + JSON rotativo opcional) |
+| Config XDG | `src/xdg/`, `src/config.rs` | settings de produto: só flags + XDG `config` |
+| i18n | `src/i18n/`, `locales/*.ftl` | `--lang` + XDG `lang` → negotiate → OnceLock; só sugestões humanas |
+| Platform | `src/platform/` | PATH `which_bin`, console UTF-8/VT, HostEnvironment, sandbox do browser |
+| Windows jobs | `src/win_job.rs` | Job Object para kill residual de processo (stubs fora do Windows) |
+| Tabela de capability | `src/capability/` | uma tabela declarativa de gate / captura / pré-condição de página lida pelo dispatch de argv, pelos passos de `run` e pelo preflight |
+| Concorrência | `src/concurrency/` | orçamento de paralelismo limitado: semáforos Tokio para I/O, Rayon para CPU, sem fan-out ilimitado |
+| Constantes nomeadas | `src/constants/` | defaults de compile-time (anti-hardcode): identidade, viewport, orçamentos HTTP/CDP, layouts do Chrome |
+| Cache | `src/cache/` | cache de HTTP / parse: mapa L1 em processo + SQLite sob XDG; Redis só por `config set cache_backend` |
+| Política de rede | `src/net/` | modos SSRF, tetos de corpo, endereçamento loopback; env de proxy de sistema do reqwest desligado por `no_proxy()` |
+| Robots | `src/robots/` | robots.txt honrado por padrão; contorno exige **as duas** flags `--ignore-robots` e `--i-accept-robots-risk` |
+| Contenção de raízes | `src/fs_roots/` | checagem canônica de raiz permitida para leitura local e escrita de artefato; escape `--allow-outside-roots` |
+| Doctor | `src/doctor/` | probes locais sequenciais e leves de I/O, montados em ordem estável de relatório (nunca alega fan-out de CPU) |
+| Scrape local | `src/scrape_local/` | engine de scrape HTTP / browser, forma do envelope, colheita de metadados, disclosure de cobertura |
+| Mídia local | `src/image_local/`, `src/video_local/`, `src/audio_local/` | probe / convert / resize / trim de caminho para caminho; `ffprobe` / `ffmpeg` opcionais via XDG `ffmpeg_path` |
+| MITM local | `src/mitm_local/` | CA local sob XDG data, store de captura sob XDG state, export HAR, política de captura por processo |
+| Workflow local | `src/workflow_local/` | manifesto DAG one-shot + journal SQLite; ordem topológica sequencial com fail-fast |
+| Agent output ops | `src/agent_ops/` | oito operações universais aplicadas sobre `data` antes do stdout |
 
 ## Lei de produto residual (processo + disco)
 
@@ -54,9 +57,12 @@
 
 ### Scavenge dual BORN e FINALIZE
 
-- BORN (`Lifecycle::new`) — `scavenge_stale_singleton_orphans` apaga orphans Singleton-only cross-run com age > 60s
-- FINALIZE (`Lifecycle::finalize`) — kill/wipe residual do ledger; redescobre side-channels da invocação; `scavenge_owned_chromium_tmp_orphans`; segunda `scavenge_stale_singleton_orphans`
-- Drop — safety net síncrono no mesmo path de finalize idempotente
+| Fase | Trabalho residual |
+|------|-------------------|
+| **BORN** (`Lifecycle::new`) | `scavenge_stale_singleton_orphans` apaga orphans Singleton-only cross-run com age > 60s |
+| **FINALIZE** (`Lifecycle::finalize`) | kill/wipe residual do ledger; redescobre side-channels da invocação; `scavenge_owned_chromium_tmp_orphans`; **segunda** `scavenge_stale_singleton_orphans` |
+| **Drop** | safety net síncrono no mesmo path de finalize idempotente |
+
 - Dual scavenge no FINALIZE = orphans da janela de invocação mais GC Singleton stale, para o one-shot não deixar lixo de disco para o próximo processo
 
 ### Superfície residual do doctor
@@ -102,7 +108,7 @@
 ## Mapa de módulos (`commands`)
 
 - `mod.rs` — match `dispatch` em `Commands` + handlers browser/session  
-- `meta/` — inventário `commands` / `schema` para agentes (**69** nomes via `commands --json`; schema em dir SRP)
+- `meta/` — inventário `commands` / `schema` para agentes (**71** nomes via `commands --json`; schema em dir SRP)
 - `run/` — engine multi-passo `run` / `exec` (passos NDJSON)
 
 ### Diálogo multi-aba e settle (v0.1.6)
@@ -119,20 +125,19 @@
 - **Scrape `format`/`formats` em run:** sem monstro HTML quando só texto é pedido (GAP-057).
 - **Select nativo:** `pick` / `select-option` despacham `input` e depois `change`, reportam `via: native_select` (GAP-055).
 - **Encode do `grab`:** só **png|jpeg|webp**; AVIF removido (breaking).
-- Inventário **69** inclui `submit` + `storage` + `image` + `video` + `audio` + `record`; superfície clap de produto é **67** (`pick` / `select-option` são nomes multi-passo de inventário/run).
+- Inventário **71** inclui `submit` + `storage` + `image` + `video` + `audio` + `record`; superfície clap de produto é **69** (`pick` / `select-option` são nomes multi-passo de inventário/run).
 
 ### Parse puro de LHR lighthouse (v0.1.6)
 
 - **`scores_from_lhr`:** função pura extrai scores de categorias do JSON Lighthouse Result (auditorias 0–1 ou null). Fixtures unit: `scripts/fixtures/lighthouse/minimal_lhr.json` e `chrome_captured_lhr.json` real sanitizado. Caminho mock e2e permanece SKIP (não é alegação de PASS do parser). GAP-021 parcial.
 - **GAP-022 residual:** ~53 dups multi-versão aceitos (poda barata esgotada).
-- **GAP-023/024:** divergências intencionais de PRD em `parity_intentional_divergences.json`.
+- **GAP-023/024:** divergências intencionais de PRD.
 - Lei residual-zero de disco da 0.1.5 ainda corrente.
 - Config de produto: só flags + XDG (nunca env de produto).
 
 ## Família anti-detecção (v0.1.8)
-
 ### Política de browser do processo (`browser_policy`)
-- `src/browser_policy.rs` publica modo de janela, stealth e egress uma vez durante o dispatch da CLI
+- `src/browser_policy/` publica modo de janela, stealth e egress uma vez durante o dispatch da CLI
 - Ele existe porque três flags globais eram parseadas e ninguém as lia
 - `--headed` era uma delas: a sessão fixava `headless: true`, então a flag mudava só o texto do help
 - O modo de janela resolve `auto | headed | headless` por flag, depois config XDG, depois o default compilado
@@ -158,7 +163,7 @@
 - Está separado de `state.rs` por motivo de mudança: quais domínios a sessão precisa contra o que a página vê antes dos próprios scripts
 
 ### Cinemática de input humano (`native/interaction`)
-- `src/native/interaction/kinematics.rs` é geometria e temporização puras de ponteiro e teclado, sem nenhum CDP dentro
+- `src/native/interaction/kinematics/` é geometria e temporização puras de ponteiro e teclado, sem nenhum CDP dentro
 - Toda função mapeia números para números, então a matemática de trajetória é testada em unidade sem browser
 - O laço de interpolação vivia só em `drag_html5`, então `press`, `hover`, `scroll` e `type` despachavam input que nenhuma mão produziria
 - `InputProfile::Direct` reproduz o dispatch anterior à 0.1.8 byte a byte, para velocidade ou determinismo exato
@@ -170,6 +175,21 @@
 - A redação acontecia, mas por acidente do call site: todo chamador passava `true` literal, então a flag não ligava nem desligava
 - Os valores vivem em atômicos porque o handler do hudsucker é clonado por par request/response
 - Enfiá-los pelo construtor do proxy colocaria a política em uma dúzia de assinaturas que não têm interesse nela
+- `mitm block` era superfície declarada que nada jamais consumia
+- `RequestOrResponse::Response` não era construído em lugar nenhum do crate, e `block_rules.json` era escrito e jamais lido de volta
+- O comando respondia `{"ok": true}` enquanto o tráfego que o operador mandou recusar passava intacto
+- A 0.1.9 curto-circuita a requisição casada com `204 No Content` antes de qualquer DNS ou conexão
+- A recusa fica registrada na captura, então uma requisição bloqueada se distingue de uma que nunca aconteceu
+- Esta é a TERCEIRA ocorrência da mesma classe neste módulo: `--hosts` foi aceita e descartada, `--mitm-max-body-bytes` foi declarada e ignorada, e agora `mitm block`
+- A lição que esta arquitetura precisa registrar não é sobre MITM
+- Superfície declarada que nada jamais consome é um defeito que nenhum gate deste projeto detecta hoje
+- Essa é uma limitação CONHECIDA do conjunto de verificadores, escrita aqui porque nenhum gate a cobre e nenhum é prometido
+- O buffer de corpo agora tem teto real na LEITURA, e não só sobre um comprimento declarado
+- `body_is_bufferable` admitia todo corpo sem `content-length`, que é o caso `chunked` e é a norma
+- Os leitores então chamavam `body.collect()` sem envelope, então o par remoto escolhia quanta memória este processo alocava
+- O `clip` nunca protegeu nada, porque ele roda depois do corpo já residente e corta o RETIDO, não o LIDO
+- As duas direções agora envolvem o corpo em `Limited` com o teto de 8 MiB de `BUFFER_CEILING_BYTES`
+- A consequência declarada é que corpo `chunked` acima de 8 MiB agora chega vazio
 
 ### Forma do envelope de scrape (`scrape_local/shape`)
 - `src/scrape_local/shape.rs` dá ao `scrape` uma forma única de envelope, qualquer que seja o `--format`
@@ -188,7 +208,7 @@
 
 ## Operações de saída de agente (`agent_ops`)
 - `src/agent_ops/` aplica oito operações universais sobre `data` antes do stdout
-- Uma única implementação cobre os 69 comandos, inclusive os que ninguém ligou localmente
+- Uma única implementação cobre os 71 comandos, inclusive os que ninguém ligou localmente
 - Quatro das flags globais são `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`
 - As outras quatro são `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`
 - `--select`, `--filter`, `--limit` e `--sort` não são flags globais
@@ -227,20 +247,20 @@
 - Esse fallback faria `dc:title` responder silenciosamente com `og:title`
 - O match literal impede a colheita de reportar campo que a página nunca declarou
 
-## Inventário completo de agente (69)
+## Inventário completo de agente (71)
 
 Descubra ao vivo: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
-crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
-net page parse perf pick press print-pdf qr reload resize run schema scrape screencast
-scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
+scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **67**.
+Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **69**.
 
 - Superfície grande de handlers permanece em `mod.rs` de propósito (tabela match única para parity de agente)
 - Prefira extrair famílias novas de comando para módulos irmãos em vez de crescer helpers não relacionados
@@ -276,6 +296,7 @@ Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em s
 - `docs/COOKBOOK.pt-BR.md` — receitas para agentes
 - `docs/TESTING.pt-BR.md` — como rodar gates
 - `docs/CROSS_PLATFORM.pt-BR.md` — matriz de SO, paths de browser, sandboxes
-- `docs/HOW_TO_USE.pt-BR.md` — inventário completo dos **69** comandos
+- `docs/HOW_TO_USE.pt-BR.md` — inventário completo dos **71** comandos
+- `docs/ARCHITECTURE.md` — espelho em inglês
 - `gaps.md` — Status v0.1.6 residual DoD + catálogo histórico da auditoria 0.1.5
 - `PRIVACY.md` — tratamento de dados só local

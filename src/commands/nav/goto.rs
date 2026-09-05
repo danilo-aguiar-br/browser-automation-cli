@@ -62,7 +62,7 @@ pub(crate) fn handle_view(
                 || data
                     .get("url")
                     .and_then(|v| v.as_str())
-                    .is_some_and(|u| u == "about:blank");
+                    .is_some_and(|u| u == crate::constants::ABOUT_BLANK);
             if empty && !allow_empty {
                 // GAP-020: argv is valid; the page state is not. `Precondition`
                 // (75) tells the agent to navigate, where `Usage` (2) told it to

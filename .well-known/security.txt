@@ -1,0 +1,9 @@
+# RFC 9116 security policy for browser-automation-cli.
+# Expires is a HARD requirement of the RFC and must be renewed annually;
+# a stale Expires makes this file advisory rather than authoritative.
+
+Contact: mailto:daniloaguiarbr@proton.me
+Expires: 2027-08-28T00:00:00.000Z
+Preferred-Languages: en, pt-BR
+Canonical: https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/.well-known/security.txt
+Policy: https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/SECURITY.md

@@ -30,8 +30,14 @@ pub async fn discover_sitemap_urls(
     if let Ok(client) = shared_http_client() {
         if let Ok(resp) = client.get(&robots_url).send().await {
             if resp.status().is_success() {
-                let max_sm = crate::xdg::resolve_scrape_sitemap_max_bytes();
-                if let Ok(bytes) = crate::net::read_body_limited(resp, max_sm).await {
+                // This body is `robots.txt`, not a sitemap, so it takes the
+                // robots ceiling. It used to take `scrape_sitemap_max_bytes`
+                // while the actual sitemap read a 2 MB literal — the knob
+                // governed the wrong request in both directions.
+                let max_robots = crate::xdg::policy::policy_usize(
+                    crate::xdg::policy::key::ROBOTS_MAX_BODY_BYTES,
+                );
+                if let Ok(bytes) = crate::net::read_body_limited(resp, max_robots).await {
                     let body = String::from_utf8_lossy(&bytes);
                     for line in body.lines() {
                         let line = line.trim();
@@ -82,7 +88,13 @@ pub async fn discover_sitemap_urls(
         if !resp.status().is_success() {
             continue;
         }
-        let Ok(bytes) = crate::net::read_body_limited(resp, 2_000_000).await else {
+        // The sitemap body finally reads the knob NAMED for it. The literal it
+        // replaces was 2 MB, four times the knob's old default, so the default
+        // moved to 2 MB in the same change: wiring the knob at the documented
+        // 512 KiB would have started skipping every sitemap between the two
+        // sizes, trading a silent config bug for a silent coverage bug.
+        let max_sm = crate::xdg::resolve_scrape_sitemap_max_bytes();
+        let Ok(bytes) = crate::net::read_body_limited(resp, max_sm).await else {
             continue;
         };
         let xml = String::from_utf8_lossy(&bytes);

@@ -30,7 +30,11 @@
 //! blind spot this gate exists to remove.
 
 use std::path::PathBuf;
-use std::process::Command;
+
+mod common;
+use common::{binary, binary_or_skip, chrome_not_ready, root};
+
+const GATE: &str = "envelope_shape_gate";
 
 /// Ceiling for the committed ten-step reference script.
 ///
@@ -40,15 +44,6 @@ use std::process::Command;
 /// regression fit.
 const MAX_ENVELOPE_BYTES: usize = 2600;
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn binary() -> Option<PathBuf> {
-    let p = root().join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
-
 fn reference_script() -> Option<PathBuf> {
     let p = root().join("scripts/fixtures/envelope_shape/ten_steps.jsonl");
     p.exists().then_some(p)
@@ -56,32 +51,17 @@ fn reference_script() -> Option<PathBuf> {
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    let Some(bin) = binary() else {
-        eprintln!(
-            "SKIP envelope_shape_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    let Some(bin) = binary_or_skip(GATE) else {
         return true;
     };
     if reference_script().is_none() {
-        eprintln!(
-            "SKIP envelope_shape_gate: scripts/fixtures/envelope_shape/ten_steps.jsonl absent. \
-             This is NOT a pass."
+        common::skip_with_reason(
+            "envelope_shape_gate",
+            "scripts/fixtures/envelope_shape/ten_steps.jsonl absent.",
         );
         return true;
     }
-    let chrome_ok = Command::new(&bin)
-        .args(["-q", "--json", "doctor", "--offline", "--quick"])
-        .output()
-        .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if !chrome_ok {
-        eprintln!(
-            "SKIP envelope_shape_gate: doctor reports the host is not ready for Chrome. \
-             This is NOT a pass."
-        );
+    if chrome_not_ready(GATE, &bin) {
         return true;
     }
     false
@@ -91,7 +71,7 @@ fn cannot_run() -> bool {
 fn run_reference() -> Option<(Vec<u8>, serde_json::Value)> {
     let bin = binary()?;
     let script = reference_script()?;
-    let out = Command::new(&bin)
+    let out = common::isolated_cmd(&bin)
         .args(["-q", "--timeout", "120", "--json", "run", "--script"])
         .arg(&script)
         .output()

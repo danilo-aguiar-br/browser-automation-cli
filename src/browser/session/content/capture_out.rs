@@ -12,7 +12,37 @@ use crate::browser::helpers::verify_image_magic;
 
 impl OneShotSession {
     /// Render the current page to PDF.
-    pub async fn print_pdf(&mut self, path: Option<&Path>) -> Result<Value, CliError> {
+    ///
+    /// # Errors
+    ///
+    /// Fails when the session has no active page, and with
+    /// [`ErrorKind::Browser`] —
+    /// `"print-pdf failed: …"`, carrying the `navigate_first` suggestion —
+    /// when `Page.printToPDF` is refused, or when its result carries no base64
+    /// `data`.
+    ///
+    /// Fails with [`ErrorKind::Data`] when that
+    /// payload is not valid base64, and with
+    /// `"print-pdf: result is not a valid PDF"` when the decoded bytes do not
+    /// start with `%PDF` — a magic check, so a truncated or substituted
+    /// payload is caught before it reaches disk.
+    ///
+    /// Fails with [`ErrorKind::Io`] when the file
+    /// cannot be written. With `path` as `None` the output lands in the
+    /// current directory as `print-<millis>.pdf`.
+    /// `landscape` reaches `Page.printToPDF`, whose own default is `false`.
+    ///
+    /// It is a parameter and not a caller-side envelope field on purpose: the
+    /// `run` step used to stamp `landscape` onto the returned object AFTER this
+    /// function had already printed, so `{"cmd":"print-pdf","landscape":true}`
+    /// answered `ok: true` carrying `landscape: true` and a PORTRAIT document.
+    /// An envelope that confirms work nobody did is worse than an error, so the
+    /// field is now emitted by the code that actually sends it.
+    pub async fn print_pdf(
+        &mut self,
+        path: Option<&Path>,
+        landscape: bool,
+    ) -> Result<Value, CliError> {
         use base64::Engine as _;
         self.drain_events();
         let session_id = self.session_id()?;
@@ -24,6 +54,7 @@ impl OneShotSession {
                 Some(json!({
                     "printBackground": true,
                     "preferCSSPageSize": true,
+                    "landscape": landscape,
                 })),
                 Some(&session_id),
             )
@@ -72,10 +103,26 @@ impl OneShotSession {
             "path": out.display().to_string(),
             "bytes": byte_len,
             "format": "pdf",
+            "landscape": landscape,
         }))
     }
 
     /// Screenshot the page or one element.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the session has no active page, and with
+    /// [`ErrorKind::Browser`] —
+    /// `"grab failed: …"`, carrying the `navigate_first` suggestion — when
+    /// [`take_screenshot`](crate::native::screenshot::take_screenshot) fails:
+    /// `element` resolves to nothing, `Page.captureScreenshot` is refused, or
+    /// the file cannot be written.
+    ///
+    /// A file that ends up absent, or whose bytes do not carry the magic of
+    /// `format`, is **not** an error: it is reported as `written: false` /
+    /// `magic_ok: false`, so the caller can judge the artifact without a
+    /// second invocation. With `path` as `None` the output lands in the
+    /// current directory as `grab-<millis>.<ext>`.
     pub async fn grab(
         &mut self,
         path: Option<&Path>,

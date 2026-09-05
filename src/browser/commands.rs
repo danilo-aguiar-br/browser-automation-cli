@@ -12,6 +12,11 @@ use crate::lifecycle::Lifecycle;
 use super::session::{CaptureOpts, OneShotSession};
 use super::support::{finish, launch_marked};
 
+/// # Errors
+///
+/// Propagates [`run_goto_with_robots`] with no capture and robots honoured:
+/// [`ErrorKind::Unavailable`](crate::error::ErrorKind::Unavailable) when
+/// Chrome cannot be launched, a robots refusal, or a navigation failure.
 pub async fn run_goto(life: &Lifecycle, url: &str) -> Result<Value, CliError> {
     run_goto_with_robots(
         life,
@@ -22,6 +27,10 @@ pub async fn run_goto(life: &Lifecycle, url: &str) -> Result<Value, CliError> {
     .await
 }
 
+/// # Errors
+///
+/// Propagates [`run_goto_with_options`] with no init script, no beforeunload
+/// handling and the default navigation ceiling.
 pub async fn run_goto_with_robots(
     life: &Lifecycle,
     url: &str,
@@ -32,6 +41,20 @@ pub async fn run_goto_with_robots(
 }
 
 /// One-shot goto with tool-ref navigation options (init script, beforeunload, timeout).
+///
+/// # Errors
+///
+/// Fails with
+/// [`ErrorKind::Unavailable`](crate::error::ErrorKind::Unavailable) when
+/// Chrome cannot be launched or the navigation exceeds its ceiling, and
+/// otherwise propagates
+/// [`goto_with_options`](crate::browser::OneShotSession::goto_with_options):
+/// a `file:` URL outside the allowed roots, a robots refusal, a failed
+/// `init_script` registration, or a browser-reported navigation error.
+///
+/// A shutdown failure is also surfaced: the session is always closed, and when
+/// the work succeeded but FINALIZE did not, the close error is what the caller
+/// receives.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_goto_with_options(
     life: &Lifecycle,
@@ -55,6 +78,11 @@ pub async fn run_goto_with_options(
     finish(life, session, work).await
 }
 
+/// # Errors
+///
+/// Propagates [`run_scrape_wait`] with no post-navigation wait: a failed
+/// Chrome launch, a robots refusal, a navigation error, or an extraction
+/// failure.
 pub async fn run_scrape(
     life: &Lifecycle,
     url: &str,
@@ -65,6 +93,12 @@ pub async fn run_scrape(
 }
 
 /// Browser scrape with optional post-navigation wait (base waitFor parity, ms).
+///
+/// # Errors
+///
+/// Propagates [`run_scrape_actions`] with an empty action list: a failed
+/// Chrome launch, a robots refusal, a navigation error, or an extraction
+/// failure.
 pub async fn run_scrape_wait(
     life: &Lifecycle,
     url: &str,
@@ -96,6 +130,23 @@ pub async fn run_scrape_wait(
 /// A failing step fails the scrape. These are preconditions the caller stated
 /// for the extraction; scraping anyway would return a page that is not the one
 /// that was asked for, labelled as success.
+///
+/// # Errors
+///
+/// Fails with
+/// [`ErrorKind::Unavailable`](crate::error::ErrorKind::Unavailable) when
+/// Chrome cannot be launched, and propagates the navigation errors of
+/// [`goto`](crate::browser::OneShotSession::goto) — robots refusal, `file:`
+/// URL outside the allowed roots, navigation timeout.
+///
+/// Fails with [`ErrorKind::Usage`](crate::error::ErrorKind::Usage) —
+/// `"--action[N] has no `cmd` field"` — for a step that names no command, and
+/// otherwise re-raises the failing step's own kind with the message prefixed
+/// `"--action[N] (<cmd>): "`. The index is part of the contract: with several
+/// actions, the bare step error does not say which one failed.
+///
+/// A failing action fails the whole scrape by design; extracting anyway would
+/// return a page other than the one the caller described, labelled as success.
 pub async fn run_scrape_actions(
     life: &Lifecycle,
     url: &str,
@@ -150,6 +201,10 @@ async fn scrape_after_actions(
     session.scrape_with_wait(url, robots, &[], wait_ms).await
 }
 
+/// # Errors
+///
+/// Propagates [`run_goto_with_robots`] with robots honoured: a failed Chrome
+/// launch, a robots refusal, or a navigation error.
 pub async fn run_goto_capture(
     life: &Lifecycle,
     url: &str,
@@ -158,6 +213,17 @@ pub async fn run_goto_capture(
     run_goto_with_robots(life, url, capture, crate::robots::RobotsPolicy::Honor).await
 }
 
+/// # Errors
+///
+/// Fails with
+/// [`ErrorKind::Unavailable`](crate::error::ErrorKind::Unavailable) when
+/// Chrome cannot be launched, on the `about:blank` navigation, and then
+/// propagates [`view`](crate::browser::OneShotSession::view): a refused
+/// accessibility walk, or an empty tree when the caller did not allow one.
+///
+/// Because this launches its own browser and lands on `about:blank`, the
+/// snapshot describes a blank page unless a previous step in the same process
+/// navigated elsewhere.
 pub async fn run_view(
     life: &Lifecycle,
     verbose: bool,
@@ -166,7 +232,10 @@ pub async fn run_view(
     let mut session = launch_marked(life, capture).await?;
     let work = async {
         let _ = session
-            .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+            .goto(
+                crate::constants::ABOUT_BLANK,
+                crate::robots::RobotsPolicy::Honor,
+            )
             .await?;
         session.view(verbose).await
     }
@@ -174,6 +243,16 @@ pub async fn run_view(
     finish(life, session, work).await
 }
 
+/// # Errors
+///
+/// Fails with
+/// [`ErrorKind::Unavailable`](crate::error::ErrorKind::Unavailable) when
+/// Chrome cannot be launched or the `about:blank` navigation fails, then
+/// propagates [`press`](crate::browser::OneShotSession::press): `target`
+/// resolves to no element, or the click is refused.
+///
+/// A `@eN` ref cannot survive into this process — refs live only in the
+/// session that minted them — so a ref target fails as unknown here.
 pub async fn run_press(
     life: &Lifecycle,
     target: &str,
@@ -184,7 +263,10 @@ pub async fn run_press(
     let mut session = launch_marked(life, capture).await?;
     let work = async {
         let _ = session
-            .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+            .goto(
+                crate::constants::ABOUT_BLANK,
+                crate::robots::RobotsPolicy::Honor,
+            )
             .await?;
         session.press(target, dblclick, include_snapshot).await
     }
@@ -192,6 +274,13 @@ pub async fn run_press(
     finish(life, session, work).await
 }
 
+/// # Errors
+///
+/// Fails with
+/// [`ErrorKind::Unavailable`](crate::error::ErrorKind::Unavailable) when
+/// Chrome cannot be launched or the `about:blank` navigation fails, then
+/// propagates [`write`](crate::browser::OneShotSession::write): `target`
+/// resolves to no element, or the value cannot be assigned.
 pub async fn run_write(
     life: &Lifecycle,
     target: &str,
@@ -202,7 +291,10 @@ pub async fn run_write(
     let mut session = launch_marked(life, capture).await?;
     let work = async {
         let _ = session
-            .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+            .goto(
+                crate::constants::ABOUT_BLANK,
+                crate::robots::RobotsPolicy::Honor,
+            )
             .await?;
         session.write(target, value, include_snapshot).await
     }
@@ -210,6 +302,13 @@ pub async fn run_write(
     finish(life, session, work).await
 }
 
+/// # Errors
+///
+/// Fails with
+/// [`ErrorKind::Unavailable`](crate::error::ErrorKind::Unavailable) when
+/// Chrome cannot be launched or the `about:blank` navigation fails, then
+/// propagates [`keys`](crate::browser::OneShotSession::keys): the key event
+/// was refused by the browser.
 pub async fn run_keys(
     life: &Lifecycle,
     key: &str,
@@ -219,7 +318,10 @@ pub async fn run_keys(
     let mut session = launch_marked(life, capture).await?;
     let work = async {
         let _ = session
-            .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+            .goto(
+                crate::constants::ABOUT_BLANK,
+                crate::robots::RobotsPolicy::Honor,
+            )
             .await?;
         session.keys(key, include_snapshot).await
     }
@@ -229,6 +331,14 @@ pub async fn run_keys(
 
 // Mirrors the clap argument surface 1:1; grouping into a struct would add an
 // indirection that has to be kept in sync with argv by hand.
+/// # Errors
+///
+/// Fails with
+/// [`ErrorKind::Unavailable`](crate::error::ErrorKind::Unavailable) when
+/// Chrome cannot be launched or the `about:blank` navigation fails, then
+/// propagates [`type_text`](crate::browser::OneShotSession::type_text):
+/// neither `target` nor `focus_only` was given, `target` resolves to no
+/// element, or a key event was refused.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_type(
     life: &Lifecycle,
@@ -243,7 +353,10 @@ pub async fn run_type(
     let mut session = launch_marked(life, capture).await?;
     let work = async {
         let _ = session
-            .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+            .goto(
+                crate::constants::ABOUT_BLANK,
+                crate::robots::RobotsPolicy::Honor,
+            )
             .await?;
         session
             .type_text(target, text, clear, submit, focus_only, include_snapshot)
@@ -253,6 +366,17 @@ pub async fn run_type(
     finish(life, session, work).await
 }
 
+/// # Errors
+///
+/// Fails with
+/// [`ErrorKind::Unavailable`](crate::error::ErrorKind::Unavailable) when
+/// Chrome cannot be launched, and otherwise returns whatever `work` produced.
+///
+/// The two failure paths differ in teardown, deliberately. When `work`
+/// succeeds, FINALIZE runs and a failed shutdown becomes the returned error.
+/// When `work` fails it has already dropped the session, so the residual
+/// ledger is left armed rather than cleared — FINALIZE must still be able to
+/// reap the browser, and marking it closed here would strand a live Chrome.
 pub async fn run_with_session<F, Fut>(
     life: &Lifecycle,
     capture: CaptureOpts,
@@ -279,6 +403,13 @@ where
 /// # Workload
 ///
 /// **I/O-bound** (Chrome CDP + network). See [`block_on_browser_timeout`].
+///
+/// # Errors
+///
+/// Propagates [`block_on_browser_timeout`] with no timeout: a runtime that
+/// cannot be built, a cancel signal, or whatever `fut` itself returned. With
+/// `timeout_secs` at `0` there is no wall-clock ceiling here, so a hung future
+/// is bounded only by the per-operation budgets inside it.
 pub fn block_on_browser<F, T>(fut: F) -> Result<T, CliError>
 where
     F: std::future::Future<Output = Result<T, CliError>>,
@@ -320,6 +451,18 @@ where
 ///   Object / SIGTERM→grace→SIGKILL — not `systemd-run --scope` as product default.
 /// - **N/A (product law):** PGO/BOLT, isolcpus, mlockall, remote permit metrics,
 ///   loom CI full, systemd MemoryMax scopes — ops/HFT, not agent one-shot default.
+/// # Errors
+///
+/// Fails when [`crate::runtime_util::build_browser_runtime`] cannot create the
+/// Tokio runtime, with
+/// [`ErrorKind::Timeout`](crate::error::ErrorKind::Timeout) when
+/// `timeout_secs` is non-zero and elapses first, and with
+/// [`ErrorKind::Cancelled`](crate::error::ErrorKind::Cancelled) when SIGINT or
+/// SIGTERM cancels the shared token — exit **130** for both signals, which is
+/// the one-shot product contract rather than sysexits' 143.
+///
+/// Otherwise returns whatever `fut` produced. The runtime is torn down on
+/// every path, including the failing ones.
 pub fn block_on_browser_timeout<F, T>(fut: F, timeout_secs: u64) -> Result<T, CliError>
 where
     F: std::future::Future<Output = Result<T, CliError>>,

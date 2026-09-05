@@ -49,6 +49,12 @@
 #   1 at least one key is missing; the key and the missing side are named
 set -euo pipefail
 
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
+
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 KEYS_FILE="src/xdg/config_ops/keys.rs"
@@ -73,7 +79,10 @@ echo "== config-roundtrip-check (CONFIG_KEYS vs writer and reader) =="
 # Key literals live in the `CONFIG_KEYS` slice as `    "name",` lines. Taking the
 # whole file would also catch `config_keys_description`, so the extraction is
 # bounded to the slice body.
-mapfile -t KEYS < <(
+# `mapfile` is a bash 4 builtin and macOS ships bash 3.2, so the read loop
+# below is the portable equivalent (2026-09-04).
+KEYS=()
+while IFS= read -r __line; do KEYS+=("$__line"); done < <(
   awk '
     /pub const CONFIG_KEYS/ { inside = 1; next }
     inside && /^\];/        { inside = 0 }

@@ -42,6 +42,13 @@ fn cpu_blocking_gate() -> Arc<Semaphore> {
 /// Unchanged, and still cooperative: a started `spawn_blocking` task cannot be
 /// aborted. The permit only decides **when work is admitted**; teardown is
 /// bounded separately by [`crate::runtime_util::shutdown_runtime`].
+///
+/// # Errors
+///
+/// `tokio::task::JoinError` when the blocking closure panics, or when the task
+/// is cancelled during runtime shutdown. Acquiring the admission permit cannot
+/// fail: the semaphore lives in a `OnceLock` for the life of the process and is
+/// never closed, and a failed acquire falls through to running ungated.
 pub async fn spawn_cpu_blocking<F, R>(f: F) -> Result<R, tokio::task::JoinError>
 where
     F: FnOnce() -> R + Send + 'static,
@@ -74,7 +81,7 @@ where
     items.par_iter().map(f).collect()
 }
 
-/// Like [`map_cpu`](crate::concurrency::map_cpu) but for owned items that are consumed (into_par_iter).
+/// Like [`map_cpu`] but for owned items that are consumed (into_par_iter).
 pub fn map_cpu_owned<T, R, F>(items: Vec<T>, f: F) -> Vec<R>
 where
     T: Send,
@@ -89,7 +96,7 @@ where
     items.into_par_iter().map(f).collect()
 }
 
-/// Parallel filter with the same threshold rule as [`map_cpu`](crate::concurrency::map_cpu) (PAR-84).
+/// Parallel filter with the same threshold rule as [`map_cpu`] (PAR-84).
 ///
 /// Sequential when `items.len() < CPU_MAP_THRESHOLD` so small console/net buffers
 /// never pay Rayon coordination overhead.

@@ -10,12 +10,26 @@ pub struct PathFilter {
     pub include: Vec<String>,
     /// Path prefixes that are always rejected.
     pub exclude: Vec<String>,
+    /// Regexes matched against the path or the full URL (include family).
+    pub include_regex: Vec<regex::Regex>,
+    /// Regexes that reject the path or the full URL.
+    pub exclude_regex: Vec<regex::Regex>,
 }
 
 impl PathFilter {
     /// Build a filter from raw CLI/XDG path prefix lists.
     pub fn from_lists(include: &[String], exclude: &[String]) -> Self {
-        Self {
+        Self::from_lists_with_regex(include, exclude, &[], &[]).unwrap_or_default()
+    }
+
+    /// Prefix lists plus compiled include/exclude regular expressions.
+    pub fn from_lists_with_regex(
+        include: &[String],
+        exclude: &[String],
+        include_regex: &[String],
+        exclude_regex: &[String],
+    ) -> Result<Self, String> {
+        Ok(Self {
             include: include
                 .iter()
                 .map(|s| normalize_prefix(s))
@@ -26,7 +40,9 @@ impl PathFilter {
                 .map(|s| normalize_prefix(s))
                 .filter(|s| !s.is_empty())
                 .collect(),
-        }
+            include_regex: compile_regexes(include_regex, "include-regex")?,
+            exclude_regex: compile_regexes(exclude_regex, "exclude-regex")?,
+        })
     }
 
     /// Return true when the URL path is allowed by include/exclude rules.
@@ -41,25 +57,58 @@ impl PathFilter {
             }
             Err(_) => return false,
         };
-        self.allows_path(&path)
+        self.allows_target(&path, url)
     }
 
     /// Return true when the absolute path is allowed by include/exclude rules.
     pub fn allows_path(&self, path: &str) -> bool {
         let path = if path.is_empty() { "/" } else { path };
+        self.allows_target(path, path)
+    }
+
+    fn allows_target(&self, path: &str, url: &str) -> bool {
         if self.exclude.iter().any(|ex| path_matches(path, ex)) {
             return false;
         }
-        if self.include.is_empty() {
+        if self
+            .exclude_regex
+            .iter()
+            .any(|re| re.is_match(path) || re.is_match(url))
+        {
+            return false;
+        }
+        if self.include.is_empty() && self.include_regex.is_empty() {
             return true;
         }
         self.include.iter().any(|inc| path_matches(path, inc))
+            || self
+                .include_regex
+                .iter()
+                .any(|re| re.is_match(path) || re.is_match(url))
     }
 
     /// True when both include and exclude lists are empty.
     pub fn is_empty(&self) -> bool {
-        self.include.is_empty() && self.exclude.is_empty()
+        self.include.is_empty()
+            && self.exclude.is_empty()
+            && self.include_regex.is_empty()
+            && self.exclude_regex.is_empty()
     }
+}
+
+fn compile_regexes(raw: &[String], flag: &str) -> Result<Vec<regex::Regex>, String> {
+    let mut out = Vec::with_capacity(raw.len());
+    for pat in raw {
+        let pat = pat.trim();
+        if pat.is_empty() {
+            continue;
+        }
+        match regex::Regex::new(pat) {
+            Ok(re) => out.push(re),
+            Err(e) => return Err(format!("{flag} is not a valid regex: {e}")),
+        }
+    }
+    Ok(out)
 }
 
 fn normalize_prefix(s: &str) -> String {
@@ -127,6 +176,27 @@ mod tests {
         let f = PathFilter::from_lists(&[], &["/admin".into()]);
         assert!(!f.allows_url("https://ex.com/admin/x"));
         assert!(f.allows_url("https://ex.com/public"));
+    }
+
+    #[test]
+    fn include_regex_matches_path() {
+        let f = PathFilter::from_lists_with_regex(&[], &[], &[r"^/docs/.*\.md$".into()], &[])
+            .expect("regex");
+        assert!(f.allows_url("https://ex.com/docs/a.md"));
+        assert!(!f.allows_url("https://ex.com/docs/a.html"));
+    }
+
+    #[test]
+    fn exclude_regex_wins() {
+        let f = PathFilter::from_lists_with_regex(&["/docs".into()], &[], &[], &[r"secret".into()])
+            .expect("regex");
+        assert!(f.allows_url("https://ex.com/docs/a"));
+        assert!(!f.allows_url("https://ex.com/docs/secret"));
+    }
+
+    #[test]
+    fn bad_regex_is_an_error() {
+        assert!(PathFilter::from_lists_with_regex(&[], &[], &["(".into()], &[]).is_err());
     }
 
     #[test]

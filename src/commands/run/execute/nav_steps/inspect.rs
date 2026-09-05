@@ -8,11 +8,11 @@ use serde_json::{json, Value};
 use crate::browser::OneShotSession;
 use crate::error::{CliError, ErrorKind};
 
-use super::fields::{first_bool, first_str};
+use super::fields::{step_bool, step_str};
 
 pub(super) async fn view(session: &mut OneShotSession, step: &Value) -> Result<Value, CliError> {
-    let verbose = first_bool(step, &["verbose", "detailed"], false);
-    let allow_empty = first_bool(step, &["allow_empty", "allowEmpty"], false);
+    let verbose = step_bool(step, "view", "verbose", false);
+    let allow_empty = step_bool(step, "view", "allow_empty", false);
     let mut data = session.view(verbose).await?;
     let ref_count = data
         .get("ref_count")
@@ -28,9 +28,9 @@ pub(super) async fn view(session: &mut OneShotSession, step: &Value) -> Result<V
     let url_now = info
         .get("url")
         .and_then(|v| v.as_str())
-        .unwrap_or("about:blank");
+        .unwrap_or(crate::constants::ABOUT_BLANK);
     let empty = ref_count == 0
-        || url_now == "about:blank"
+        || url_now == crate::constants::ABOUT_BLANK
         || data
             .get("tree")
             .and_then(|v| v.as_str())
@@ -49,9 +49,24 @@ pub(super) async fn view(session: &mut OneShotSession, step: &Value) -> Result<V
     Ok(data)
 }
 
+/// The expression `eval` will read, or `None` when the step carries none.
+///
+/// Preflight calls this so a malformed `eval` is refused from argv alone. The
+/// point is that it is the SAME reader the dispatcher uses, not a copy of the
+/// rule: a second list of accepted key names would drift, and a drifted list
+/// rejects a step that would have run — the failure mode this module already
+/// warns about for `is_dispatchable_cmd` and `known_actions`.
+pub(crate) fn eval_expression(step: &Value) -> Option<&str> {
+    step_str(step, "eval", "expression")
+}
+
+/// Error for an `eval` step with no expression, worded like the dispatcher's.
+pub(crate) fn eval_expression_error() -> CliError {
+    CliError::new(ErrorKind::Usage, "eval requires expression")
+}
+
 pub(super) async fn eval(session: &mut OneShotSession, step: &Value) -> Result<Value, CliError> {
-    let expr = first_str(step, &["expression", "function", "js"])
-        .ok_or_else(|| CliError::new(ErrorKind::Usage, "eval requires expression"))?;
+    let expr = eval_expression(step).ok_or_else(eval_expression_error)?;
     let args = step.get("args").map(|v| {
         if let Some(s) = v.as_str() {
             s.to_string()
@@ -59,8 +74,8 @@ pub(super) async fn eval(session: &mut OneShotSession, step: &Value) -> Result<V
             v.to_string()
         }
     });
-    let dialog_action = first_str(step, &["dialog_action", "dialogAction"]);
-    let file_path = first_str(step, &["file_path", "filePath"]).map(Path::new);
+    let dialog_action = step_str(step, "eval", "dialog_action");
+    let file_path = step_str(step, "eval", "file_path").map(Path::new);
     // GAP-035: `typed` swaps the envelope from `result` to `value` + `value_type`.
     // Declared breaking change, opt-in per step.
     let typed = step.get("typed").and_then(|v| v.as_bool()).unwrap_or(false);

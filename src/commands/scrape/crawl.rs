@@ -17,6 +17,12 @@ use super::options::{
 };
 
 /// Crawl a seed URL and emit the aggregated page collection.
+///
+/// # Errors
+///
+/// Returns [`CliError`] when a path/regex filter is malformed, when a requested
+/// output format cannot be parsed, when the browser or HTTP fetch fails, or when
+/// the envelope cannot be written to stdout.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_crawl(
     life: &Lifecycle,
@@ -37,6 +43,7 @@ pub(crate) fn handle_crawl(
     include_path: &[String],
     exclude_path: &[String],
     use_sitemap: Option<bool>,
+    sitemap_only: bool,
     ignore_query_params: bool,
     follow_rel_next: Option<bool>,
     dedup_similar: Option<bool>,
@@ -46,16 +53,46 @@ pub(crate) fn handle_crawl(
     with_content_hash: bool,
     include_selector: &[String],
     exclude_selector: &[String],
+    only_main_content: bool,
     dry_run: bool,
+    include_regex: &[String],
+    exclude_regex: &[String],
+    webhook_url: Option<&str>,
 ) -> Result<(), CliError> {
     let engine_l = engine.to_ascii_lowercase();
     let max_text = resolve_max_text(max_text_chars);
-    let path_filter = PathFilter::from_lists(include_path, exclude_path);
+    let path_filter =
+        PathFilter::from_lists_with_regex(include_path, exclude_path, include_regex, exclude_regex)
+            .map_err(|e| {
+                CliError::with_suggestion(
+                    crate::error::ErrorKind::Usage,
+                    e,
+                    crate::i18n::suggestion_key("path_regex_invalid", None),
+                )
+            })?;
     // Near-duplicate collapsing is opt-in (XDG `scrape_dedup_similar`, default
     // off) because it changes how many rows the envelope emits.
     let dedup_similar = resolve_dedup_similar(dedup_similar);
     let dedup_distance = resolve_dedup_similar_distance();
-    let use_sm = resolve_use_sitemap(use_sitemap);
+    // `--sitemap-only` is the two knobs below said once: seed from the sitemap,
+    // and never let HTML link discovery descend from it. Resolved here rather
+    // than in the dispatcher so `--dry-run` reports the depth that will actually
+    // be used, instead of the one the caller typed.
+    let use_sm = if sitemap_only {
+        true
+    } else {
+        resolve_use_sitemap(use_sitemap)
+    };
+    let max_depth = if sitemap_only { 0 } else { max_depth };
+    // The browser path is seed+1 hop with no sitemap frontier at all, so
+    // honouring the flag there is impossible. Refusing beats parsing it and
+    // crawling the HTML anyway under a name that promises otherwise.
+    if sitemap_only && engine_l == "browser" {
+        return Err(CliError::new(
+            crate::error::ErrorKind::Usage,
+            "--sitemap-only requires --engine http; the browser crawl has no sitemap frontier",
+        ));
+    }
 
     if dry_run {
         // Every knob above is already resolved: flags merged over XDG over
@@ -76,6 +113,7 @@ pub(crate) fn handle_crawl(
                 "robots": format!("{robots:?}").to_ascii_lowercase(),
                 "max_text_chars": max_text,
                 "use_sitemap": use_sm,
+                "sitemap_only": sitemap_only,
                 "ignore_query_params": ignore_query_params,
                 "dedup_similar": dedup_similar,
                 "dedup_similar_distance": dedup_distance,
@@ -108,6 +146,52 @@ pub(crate) fn handle_crawl(
     }
 
     if engine_l == "browser" {
+        // Refused rather than ignored, on the same rule as `--action` in
+        // `page.rs`. This branch calls `run_scrape`, which takes no
+        // `ScrapeOpts`, so every content-reduction knob the caller passed is
+        // dropped — and the envelope below still STAMPED `format` with what was
+        // asked for. Measured 2026-09-01 before this guard:
+        // `crawl --engine browser --format markdown --include-selector 'nav.x'`
+        // exited 0 carrying `format: ["markdown"]`, while the page held no
+        // `markdown` key at all and no `selector_matched`. A key that is
+        // REFUSED tells the caller. A key that is STAMPED fabricates the
+        // evidence that it worked, which is strictly worse than dropping it.
+        let mut unhonored: Vec<&str> = Vec::new();
+        if !include_selector.is_empty() {
+            unhonored.push("--include-selector");
+        }
+        if !exclude_selector.is_empty() {
+            unhonored.push("--exclude-selector");
+        }
+        if only_main_content {
+            unhonored.push("--only-main-content");
+        }
+        if redact_pii {
+            unhonored.push("--redact-pii");
+        }
+        if with_content_hash {
+            unhonored.push("--with-content-hash");
+        }
+        if max_text_chars.is_some() {
+            unhonored.push("--max-text-chars");
+        }
+        // `--format` defaults to `text`, which this branch does produce, so the
+        // default stays legal. Any other value is a request it cannot serve.
+        if formats.len() != 1 || formats.first().map(String::as_str) != Some("text") {
+            unhonored.push("--format");
+        }
+        if !unhonored.is_empty() {
+            return Err(CliError::with_suggestion(
+                crate::error::ErrorKind::Usage,
+                format!(
+                    "crawl --engine browser cannot honor {}: it renders each page \
+                     through the browser path, which applies no content reduction. \
+                     Use --engine http for these",
+                    unhonored.join(", ")
+                ),
+                crate::i18n::suggestion_key("scrape_engine_choice", None),
+            ));
+        }
         let seed = block_on_browser_timeout(run_scrape(life, url, robots, capture), timeout_secs)?;
         let mut pages = vec![seed.clone()];
         let mut seen = std::collections::BTreeSet::new();
@@ -186,6 +270,7 @@ pub(crate) fn handle_crawl(
         with_content_hash,
         include_selectors: include_selector.to_vec(),
         exclude_selectors: exclude_selector.to_vec(),
+        only_main_content,
         follow_rel_next: resolve_follow_rel_next(follow_rel_next),
         ..Default::default()
     };
@@ -238,6 +323,9 @@ pub(crate) fn handle_crawl(
     }
     let data = dedup_similar_pages_envelope(data, dedup_similar, dedup_distance);
     let data = finalize_scrape_value_ex(data, select, filter, Some(max_text), sort, dedup_key);
+    if let Some(wh) = webhook_url {
+        crate::commands::nav::post_webhook(wh, &data)?;
+    }
     if emit_collection(&data, "pages", output_mode, json, url)? {
         return Ok(());
     }

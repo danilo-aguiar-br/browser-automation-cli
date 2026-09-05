@@ -17,13 +17,35 @@ impl CdpClient {
     ///
     /// The handler must be driven for the connection to progress, so it is spawned
     /// here rather than left to the caller to remember.
+    ///
+    /// # Errors
+    ///
+    /// Propagates `spawn_event_forwarders`: the first page listing or
+    /// per-page event subscription refused by the freshly attached browser.
+    /// Constructing the broadcast channel and spawning the handler task cannot
+    /// fail.
     pub async fn from_browser(browser: Browser, mut handler: Handler) -> Result<Self, String> {
+        // The pump used to `break` on any error with no trace at all, and a dead
+        // pump makes every later CDP call fail the same anonymous way: the
+        // command times out after 30 s while `Browser::pages` waits forever.
+        // Ruling that out cost a full instrumented run on 2026-09-04 — the pump
+        // was alive and Chrome had simply answered `Input.dispatchKeyEvent`
+        // 30_183 ms late — so the line below is what makes the next reader spend
+        // one `rg` instead of one browser session.
+        //
+        // `warn` and not `error`: FINALIZE awaits `Browser.close` BEFORE calling
+        // [`stop_event_pump`](Self::stop_event_pump), so the pump can still
+        // observe the reset Chrome leaves behind on a run that SUCCEEDED. The
+        // default filter is `error`, which keeps that case silent, and `-v`
+        // raises it to `info` and shows the line to whoever went looking.
         let handler_task = tokio::spawn(async move {
             while let Some(h) = handler.next().await {
-                if h.is_err() {
+                if let Err(e) = h {
+                    tracing::warn!(error = %e, "CDP event pump stopped on handler error");
                     break;
                 }
             }
+            tracing::debug!("CDP event pump ended");
         });
 
         let (event_tx, _) = broadcast::channel(crate::xdg::policy::policy_usize(
@@ -64,11 +86,24 @@ impl CdpClient {
     }
 
     /// Attach via chromiumoxide `Browser::connect` (lightpanda only).
+    ///
+    /// # Errors
+    ///
+    /// Propagates
+    /// [`connect_with_headers`](Self::connect_with_headers): the WebSocket at
+    /// `url` is unreachable or rejects the upgrade, or the event forwarders
+    /// cannot be armed.
     pub async fn connect(url: &str) -> Result<Self, String> {
         Self::connect_with_headers(url, None).await
     }
 
     /// Headers are ignored on the oxide path (chromiumoxide connect has no custom WS headers API).
+    ///
+    /// # Errors
+    ///
+    /// Fails when `Browser::connect` cannot reach `url` — endpoint down, wrong
+    /// port, or a WebSocket upgrade refused — and otherwise propagates
+    /// [`from_browser`](Self::from_browser).
     pub async fn connect_with_headers(
         url: &str,
         _headers: Option<Vec<(String, String)>>,

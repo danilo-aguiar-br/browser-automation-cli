@@ -82,6 +82,17 @@ pub fn arg_contains_nul(arg: impl AsRef<OsStr>) -> bool {
 /// `kill`+`wait`. Every path reaps the child (no zombies).
 ///
 /// Callers on the Tokio runtime must wrap this in `spawn_blocking`.
+///
+/// # Errors
+///
+/// [`ProcessCaptureError::Spawn`] when `Command::spawn` fails — the binary is
+/// missing, is not executable, or the fork/exec is refused.
+/// [`ProcessCaptureError::Timeout`] when the child is still alive at the
+/// deadline; it is killed and reaped before returning.
+/// [`ProcessCaptureError::Wait`] when `try_wait` fails, or when
+/// `wait_with_output` fails while draining the captured pipes. A non-zero exit
+/// status is **not** an error: it is carried in the returned
+/// [`Output`].
 pub fn run_capture_with_timeout(
     cmd: &mut Command,
     timeout: Duration,
@@ -93,7 +104,9 @@ pub fn run_capture_with_timeout(
 
     let mut child = cmd.spawn().map_err(ProcessCaptureError::Spawn)?;
     let deadline = Instant::now() + timeout;
-    let poll = Duration::from_millis(crate::constants::PLATFORM_CHILD_POLL_MS);
+    let poll = Duration::from_millis(crate::xdg::policy::policy_u64(
+        crate::xdg::policy::key::PLATFORM_CHILD_POLL_MS,
+    ));
 
     loop {
         match child.try_wait() {
@@ -123,7 +136,9 @@ pub fn run_capture_with_timeout(
 /// Used by long-lived children (Lightpanda) after cooperative Browser.close.
 pub fn wait_child_or_kill(child: &mut std::process::Child, timeout: Duration) {
     let deadline = Instant::now() + timeout;
-    let poll = Duration::from_millis(crate::constants::PLATFORM_CHILD_POLL_MS);
+    let poll = Duration::from_millis(crate::xdg::policy::policy_u64(
+        crate::xdg::policy::key::PLATFORM_CHILD_POLL_MS,
+    ));
     loop {
         match child.try_wait() {
             Ok(Some(_)) => return,
@@ -166,10 +181,26 @@ mod tests {
         assert!(matches!(err, ProcessCaptureError::Timeout));
     }
 
+    /// A trivially-successful process, resolved rather than hardcoded.
+    ///
+    /// This used to be `/bin/true`, which exists on Linux and does NOT exist on
+    /// macOS — measured 2026-09-04, where the binary lives at `/usr/bin/true`
+    /// and `/bin/true` is absent. The test then failed with `Spawn(Os { code:
+    /// 2, kind: NotFound })`, blaming `run_capture_with_timeout` for a path the
+    /// test itself invented. The unit under test is the capture, not the
+    /// filesystem layout of the host, so the path is resolved the same way the
+    /// product resolves one.
     #[cfg(unix)]
     #[test]
     fn capture_true_succeeds() {
-        let mut cmd = Command::new("/bin/true");
+        let Some(program) = crate::platform::which_bin("true") else {
+            // Not a skip that hides a defect: a Unix host with no `true` on
+            // PATH cannot exercise this, and asserting anyway would report the
+            // host as a product failure.
+            eprintln!("SKIP capture_true_succeeds: no `true` on PATH");
+            return;
+        };
+        let mut cmd = Command::new(program);
         let out = run_capture_with_timeout(&mut cmd, Duration::from_secs(2)).expect("true");
         assert!(out.status.success());
     }

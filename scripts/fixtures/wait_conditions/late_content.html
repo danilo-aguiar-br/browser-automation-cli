@@ -25,6 +25,14 @@
         var q = new URLSearchParams(location.search);
         var delay = parseInt(q.get('delay') || '0', 10);
         var cards = parseInt(q.get('cards') || '3', 10);
+        // The ORIGIN a test may anchor a span to.
+        //
+        // A clock read by the harness AFTER `goto` races this timer: the timer
+        // is already running, so a loaded host moves that reading later and
+        // SHRINKS the span, which is how a lower bound stops being immune to
+        // load. Anchoring here removes the race, because the cards cannot exist
+        // before `__scheduledAt + delay` no matter how loaded the host is.
+        window.__scheduledAt = Date.now();
         setTimeout(function () {
           var list = document.getElementById('list');
           for (var i = 0; i < cards; i++) {

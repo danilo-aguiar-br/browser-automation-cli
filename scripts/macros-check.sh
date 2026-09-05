@@ -5,6 +5,12 @@
 # Usage:
 #   ./scripts/macros-check.sh
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -125,8 +131,34 @@ fi
 #   making this change: every panic! in those tolerated paths was a test panic,
 #   so the tolerance list is DELETED rather than extended. The gate is strictly
 #   stronger than the version it replaces, not merely quieter.
+#
+# WHY MODULE-LEVEL cfg(test) IS ALSO A BLOCK
+#   Block tracking reads the attribute where it is WRITTEN, and for a whole
+#   test-only module it is written at the declaration in lib.rs, not in the
+#   file. `#[cfg(test)] pub mod test_utils;` keeps every line of
+#   src/test_utils.rs out of a release binary, yet the file itself contains no
+#   `#[cfg(test)]` for the awk above to see, so its `panic!` was reported as
+#   production code.
+#
+#   The list is DERIVED from lib.rs rather than spelled here, for the same
+#   reason the path tolerance was deleted: a literal name would keep excusing
+#   the file after someone drops the attribute. Remove the attribute and the
+#   file is scanned again on the next run, with no edit to this script.
+test_only_mods=$(
+  rg -A1 '^#\[cfg\(test\)\]$' src/lib.rs 2>/dev/null |
+    rg -o '^\s*(?:pub )?mod ([a-z0-9_]+);' -r '$1' || true
+)
+test_only_paths='^$'
+if [ -n "$test_only_mods" ]; then
+  test_only_paths=$(
+    printf '%s\n' "$test_only_mods" |
+      sed 's#^#^src/#; s#$#(\\.rs$|/)#' |
+      tr '\n' '|' | sed 's/|$//'
+  )
+fi
 panic_prod=$(
   rg -l 'panic!\(' src/ --glob '*.rs' 2>/dev/null | rg -v 'tests?\.rs$' |
+    rg -v "$test_only_paths" |
     while IFS= read -r f; do
       awk -v F="$f" '
         BEGIN { intest = 0; pending = 0; depth = 0 }

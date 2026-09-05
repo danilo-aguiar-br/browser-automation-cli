@@ -18,6 +18,7 @@ pub const CONFIG_KEYS: &[&str] = &[
     "color",
     "log_level",
     "input_profile",
+    "input_timing_distribution",
     "browser_mode",
     "stealth",
     "stealth_profile",
@@ -27,6 +28,7 @@ pub const CONFIG_KEYS: &[&str] = &[
     "proxy_username",
     "proxy_password",
     "stealth_seed",
+    "screen",
     "http2_enabled",
     "http2_initial_stream_window_size",
     "http2_initial_connection_window_size",
@@ -48,6 +50,7 @@ pub const CONFIG_KEYS: &[&str] = &[
     "cache_backend",
     "cache_redis_url",
     "search_base_url",
+    "user_data_dir",
     "lightpanda_startup_timeout_secs",
     "lightpanda_session_timeout_secs",
     "max_json_file_bytes",
@@ -121,6 +124,11 @@ pub fn config_keys_description() -> String {
 }
 
 /// List supported XDG config keys (GAP-018 catalog + GAP-048 policy knobs).
+///
+/// # Errors
+///
+/// [`crate::error::ErrorKind::Io`] propagated from [`config_file`] when no home directory can
+/// be resolved. Building the key list itself is infallible.
 pub fn config_list_keys() -> Result<Value, CliError> {
     let mut keys: Vec<Value> = base_key_entries();
     keys.extend(crate::xdg::policy::policy_list_entries());

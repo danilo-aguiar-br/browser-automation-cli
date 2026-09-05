@@ -102,6 +102,21 @@ impl Identity {
         }
     }
 
+    /// This identity's User-Agent rebuilt around a different Chrome major.
+    ///
+    /// The platform token, the frozen WebKit tail and the `Safari/537.36`
+    /// suffix are preserved: only the version moves. Used by
+    /// `doctor --fingerprint --no-stealth`, which must describe the binary on
+    /// this host rather than the version the dependency happens to ship.
+    #[must_use]
+    pub fn user_agent_with_major(&self, major: &str) -> String {
+        let (platform_token, _, _) = platform_tokens(self.agent_os);
+        format!(
+            "Mozilla/5.0 ({platform_token}) AppleWebKit/537.36 (KHTML, like Gecko) \
+             Chrome/{major}.0.0.0 Safari/537.36"
+        )
+    }
+
     /// Whether the browser engine should override Chrome's own User-Agent.
     ///
     /// # The rule this used to get wrong
@@ -177,9 +192,87 @@ impl Identity {
     }
 }
 
+/// Chrome major version from a `--version` line, or `None` when it names none.
+///
+/// The line is vendor prose, not a contract: this host answers
+/// `Chromium 151.0.7922.137 Built from source for Fedora release 44`, upstream
+/// answers `Google Chrome 152.0.1`, and a wrapper may answer something else
+/// entirely. Rather than match a vendor name, take the first dotted numeric
+/// token — the one shape all of them share. An unparseable line returns `None`
+/// so the caller can fall back and SAY it fell back, instead of inventing a
+/// version out of a partial match.
+#[must_use]
+pub fn chrome_major_from_version_line(line: &str) -> Option<String> {
+    line.split_whitespace().find_map(|token| {
+        let (major, rest) = token.split_once('.')?;
+        if major.is_empty()
+            || !major.bytes().all(|b| b.is_ascii_digit())
+            || !rest.starts_with(|c: char| c.is_ascii_digit())
+        {
+            return None;
+        }
+        Some(major.to_string())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_line_major_survives_every_vendor_spelling() {
+        for (line, want) in [
+            (
+                "Chromium 151.0.7922.137 Built from source for Fedora release 44 (Forty Four)",
+                Some("151"),
+            ),
+            ("Google Chrome 152.0.1", Some("152")),
+            ("Chromium 151.0.7922.137", Some("151")),
+            ("Microsoft Edge 140.0.3485.14 stable", Some("140")),
+        ] {
+            assert_eq!(
+                chrome_major_from_version_line(line).as_deref(),
+                want,
+                "line: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unparseable_version_line_refuses_instead_of_guessing() {
+        for line in [
+            "",
+            "   ",
+            "Chromium",
+            "not a version at all",
+            "1.",
+            ".2",
+            "v.x",
+        ] {
+            assert_eq!(
+                chrome_major_from_version_line(line),
+                None,
+                "line: {line:?} must not yield a major"
+            );
+        }
+    }
+
+    #[test]
+    fn user_agent_with_major_moves_only_the_version() {
+        for profile in [
+            StealthProfile::ChromeLinux,
+            StealthProfile::ChromeWindows,
+            StealthProfile::ChromeMac,
+        ] {
+            let id = Identity::for_profile(profile);
+            let rebuilt = id.user_agent_with_major("151");
+            assert!(rebuilt.contains("Chrome/151.0.0.0"), "{rebuilt}");
+            assert!(rebuilt.ends_with("Safari/537.36"), "{rebuilt}");
+            // The platform token is what a mismatch would leak; it must survive.
+            let (token, _, _) = platform_tokens(id.agent_os);
+            assert!(rebuilt.contains(token), "{rebuilt} lost {token}");
+        }
+    }
 
     #[test]
     fn user_agent_and_platform_never_contradict() {

@@ -22,6 +22,175 @@ pub const DEFAULT_BROWSER_MODE: &str = "auto";
 /// than the honest platform ever was.
 pub const DEFAULT_STEALTH_PROFILE: &str = "auto";
 
+/// Profile tokens `--stealth-profile` accepts.
+///
+/// `list` is a clap discovery value (early-exit, no browser). It is not a
+/// profile and does not belong in this array.
+pub const STEALTH_PROFILE_TOKENS: &[&str] = &["auto", "chrome-linux", "chrome-win", "chrome-mac"];
+
+/// Signal name: WebGL vendor and renderer.
+pub const SIGNAL_GPU: &str = "gpu";
+/// Signal name: `AudioContext.sampleRate`.
+pub const SIGNAL_AUDIO_SAMPLE_RATE: &str = "audio.sampleRate";
+/// Signal name: `document.fonts.size`.
+pub const SIGNAL_FONT_COUNT: &str = "fonts.count";
+
+/// Signals the installed anti-detection patch actually rewrites.
+///
+/// This answers "does the patch touch it", which is NOT the question
+/// [`STEALTH_SEED_FIELDS`] answers. Keeping them apart matters: `userAgent`
+/// appears in [`STEALTH_SEED_DOES_NOT_VARY`] and is spoofed regardless, so
+/// deriving provenance from the seed list would mislabel it as host-backed.
+///
+/// Measured 2026-08-17 against `spider_fingerprint` 2.39.0 under
+/// `Tier::BasicWithConsole`: `unified_worker_override` rewrites WebGL
+/// `getParameter(37445/37446)`, and `spoof_gpu_adapter` rewrites the WebGPU
+/// adapter. Audio and fonts are absent from the generated script — the audio
+/// block lives inside `SPOOF_FINGERPRINT`, which `FP_JS_GPU_LINUX` replaces
+/// with an empty string, and no font surface is touched anywhere in the crate.
+pub const STEALTH_CONTROLLED_SIGNALS: &[&str] = &[
+    SIGNAL_GPU,
+    "userAgent",
+    "navigator.platform",
+    "navigator.webdriver",
+];
+
+/// True when the anti-detection patch rewrites `signal`.
+#[must_use]
+pub fn stealth_controls(signal: &str) -> bool {
+    STEALTH_CONTROLLED_SIGNALS.contains(&signal)
+}
+
+/// Fields `--stealth-seed` actually pins. Measured: the crate redraws these
+/// on every `emulate()` call, and the seed cache freezes the generated script.
+///
+/// "Pins" is memoisation, not determinism. The GPU profile is drawn by
+/// `rand::rng()` on every call; the seed freezes the GENERATED SCRIPT on disk
+/// under XDG state, so the same seed replays the same draw on the same machine
+/// and may draw differently on another one.
+pub const STEALTH_SEED_FIELDS: &[&str] = &[
+    "hardwareConcurrency",
+    "deviceMemory",
+    "gpu.vendor",
+    "gpu.renderer",
+    "history.length",
+    "chrome.build",
+];
+
+/// Fields `--stealth-seed` does **not** vary. They come from the profile or
+/// the host, not from the seed.
+pub const STEALTH_SEED_DOES_NOT_VARY: &[&str] = &[
+    "userAgent",
+    "navigator.platform",
+    "navigator.languages",
+    "timezone",
+    "screen.width",
+    "screen.height",
+    "plugins.length",
+];
+
+/// Live fingerprint evidence recorte for `doctor --fingerprint`.
+///
+/// Canvas / WebGL / audio probes have been scored on Linux headless + Xvfb.
+/// macOS and Windows compile the same types but have no live corpus here.
+pub const FINGERPRINT_MEASUREMENT_SCOPE: &str = "linux-headless-xvfb";
+
+/// Operating systems with no live fingerprint corpus in this product.
+pub const FINGERPRINT_UNMEASURED_OS: &[&str] = &["macos", "windows"];
+
+/// One-line envelope note. Types compile on every Tier-1 target; GPU live
+/// scoring is Linux-only until another host records a corpus.
+pub const FINGERPRINT_MEASUREMENT_NOTE: &str =
+    "types compile on macos/windows; live Canvas/WebGL/audio scored only on linux-headless-xvfb";
+
+/// Default shape of the temporal dispersion applied to every input delay.
+///
+/// # Why log-normal and not uniform
+///
+/// A detector measures the SECOND moment, because the first is trivial to
+/// imitate. Scaling a base delay by a uniform factor produces the right mean and
+/// a symmetric spread; measured 2026-08-31 on the final browser event, 20
+/// characters under `human`, the skewness came out at 0.036. Human inter-key
+/// intervals are asymmetric with a long right tail, skewness typically between 1
+/// and 3. Zero skewness is not "an unusual human"; it is no human at all.
+///
+/// `normal` and `uniform` stay reachable as escape hatches for a caller who is
+/// reproducing an older trace, not because either is a better model.
+pub const DEFAULT_INPUT_TIMING_DISTRIBUTION: &str = "lognormal";
+
+/// Distribution tokens `input_timing_distribution` accepts.
+pub const INPUT_TIMING_DISTRIBUTION_TOKENS: &[&str] = &["lognormal", "normal", "uniform"];
+
+/// Smallest dispersion any input delay may carry, as a fraction of its mean.
+///
+/// A DECLARED floor against variance zero. Zero dispersion is the single
+/// strongest automation signal there is: a wrong mean reads as an unusual
+/// human, and no variance reads as no human at all. Small enough that an
+/// operator who deliberately wants a tight rhythm still gets one, and non-zero
+/// so that "tight" can never become "constant".
+pub const TIMING_MIN_DISPERSION_RATIO: f64 = 0.05;
+
+/// Floor of a sampled delay, as a fraction of its mean.
+///
+/// A log-normal has unbounded support, so an unclamped draw can land arbitrarily
+/// close to zero. A delay of one millisecond between two keys is not a fast
+/// typist, it is a paste, and it reads as one.
+pub const TIMING_SAMPLE_FLOOR_RATIO: f64 = 0.25;
+
+/// Ceiling of a sampled delay, as a fraction of its mean.
+///
+/// The tail is the point of the model, so this is deliberately far out: four
+/// means keeps the long pauses that make the shape human while refusing the
+/// draw that would stall a one-shot process past its own timeout.
+pub const TIMING_SAMPLE_CEILING_RATIO: f64 = 4.0;
+
+/// Characters after which a typist may stop to think.
+///
+/// Sentence punctuation and the space that ends a word. The pause is what gives
+/// the interval distribution its right tail; widening the fast rhythm alone
+/// reproduces the width of human timing without its shape.
+pub const WORD_BOUNDARY_PAUSE_CHARS: &[char] = &['.', ',', ';', ':', '!', '?', ' '];
+
+/// Chance in a thousand that a word boundary earns a long pause.
+///
+/// # Why per mille and not a fraction
+///
+/// This is the ONE decision here that a later reader will mistake for a whim,
+/// so the reason is recorded rather than left to be re-derived.
+///
+/// A probability is naturally a float in `[0, 1]`. It is an integer here
+/// because the `policy_knobs!` macro in `src/xdg/policy/knobs/table.rs` is
+/// `u64`-only, and one line in that macro generates all six coupled surfaces:
+/// serde field, key constant, default, `config get`, `config set` and
+/// `config list-keys`. A fractional key does not fit it and would instead be
+/// hand-edited into SEVEN files -- `config_model.rs`, `config_io.rs`,
+/// `config_ops/set.rs`, `config_ops/get_table.rs`, `config_ops/keys.rs`,
+/// `config_ops/key_entries.rs` and `config_write.rs`.
+///
+/// One line against seven files, for the same amount of configuration. Per
+/// mille buys the whole knob for a line and costs the operator one unit
+/// conversion.
+///
+/// Do NOT "fix" this to a float for elegance: that reopens the seven files the
+/// unit exists to avoid, and a probability that cannot be configured the same
+/// way as its own magnitude ([`INPUT_WORD_PAUSE_MS`]) is a knob that only half
+/// exists.
+///
+/// [`INPUT_WORD_PAUSE_MS`]: crate::constants::INPUT_WORD_PAUSE_MS
+pub const INPUT_WORD_PAUSE_PERMILLE: u64 = 120;
+
+/// Chance in a thousand that a character is typed wrong and then corrected.
+///
+/// Zero by DEFAULT, and the only humanisation knob in this file that is. Every
+/// other one disperses TIMING, which no page can observe as a different value;
+/// this one changes the CHARACTER STREAM, so a field with an `input` listener
+/// sees the wrong prefix, sends it, and may autocomplete or navigate on it.
+/// That is a side effect on the target site, and the caller has to ask for it.
+///
+/// The final text is always correct: the wrong key is followed by `Backspace`
+/// and then by the intended character.
+pub const INPUT_TYPO_PERMILLE: u64 = 0;
+
 /// Width of the private virtual display, in pixels.
 ///
 /// Chosen to match a common real monitor. A virtual display at, say, 800x600

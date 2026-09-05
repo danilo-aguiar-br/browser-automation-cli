@@ -81,9 +81,12 @@ pub async fn crawl_http(
 
     let mut pages = Vec::new();
     use std::sync::Arc;
-    use tokio::sync::Semaphore;
+
     use tokio::task::JoinSet;
-    let sem = Arc::new(Semaphore::new(concurrency));
+    // `semaphore_with` clamps to the process bounds; constructing the Semaphore
+    // by hand here skipped that, so a caller-supplied permit count reached the
+    // pool unchecked.
+    let sem = crate::concurrency::semaphore_with(concurrency);
     let mut set: JoinSet<CrawlTaskOutput> = JoinSet::new();
     let mut in_flight = 0usize;
     let cancel = crate::lifecycle::current_cancel();
@@ -103,7 +106,22 @@ pub async fn crawl_http(
             // try_acquire_owned: if no permit, wait for a join_next (backpressure).
             let permit = match Arc::clone(&sem).try_acquire_owned() {
                 Ok(p) => p,
-                Err(_) => break,
+                Err(_) => {
+                    // Put it BACK. `pop_front` already removed it, so breaking
+                    // here dropped the URL silently: the crawl would return
+                    // fewer pages than it queued, with no error to explain the
+                    // difference.
+                    //
+                    // Unreachable today — the guard above keeps `in_flight <
+                    // concurrency` and the semaphore holds exactly
+                    // `concurrency` permits — but those are two separate facts
+                    // in two places, and nothing fails if a later edit changes
+                    // one and not the other. Restoring the URL costs nothing
+                    // and makes the backpressure path correct instead of
+                    // merely unreached.
+                    queue.push_front((url, depth));
+                    break;
+                }
             };
             let opts = opts.clone();
             let need_discovery = depth < max_depth && opts.format != ScrapeFormat::Links;

@@ -15,6 +15,14 @@ pub enum VideoAction {
         /// Materialize stdin to a capped temp file
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one video path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Emits one envelope holding a per-item result. A failing item is
+        /// reported and the run continues, so `ok: true` means the batch
+        /// produced SOMETHING, never that every item passed — read
+        /// `error_count`. If NO item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Project envelope fields (CSV): path,container,streams,duration_secs,sha256,…; aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs
         #[arg(long, value_name = "FIELDS")]
         select: Option<String>,
@@ -48,6 +56,16 @@ pub enum VideoAction {
         /// Materialize stdin to a capped temp file
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one video path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Each output is derived beside its input as `input.<target format>`;
+        /// `--out` is refused here because one destination cannot serve N
+        /// inputs. An item whose derived path already exists, or equals its own
+        /// input, fails and the batch continues, so `ok: true` means the batch
+        /// produced SOMETHING, never that every item passed — read
+        /// `error_count`. If NO item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Output container: mp4 | webm | mkv | mov | avi | m4v
         #[arg(long)]
         format: Option<String>,
@@ -84,6 +102,15 @@ pub enum VideoAction {
         /// Materialize stdin to a capped temp file
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one video path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Each output is derived beside its input as `input.mp3`; `--out` is
+        /// refused here because one destination cannot serve N inputs. An item
+        /// whose derived path already exists fails and the batch continues, so
+        /// `ok: true` means the batch produced SOMETHING, never that every item
+        /// passed — read `error_count`. If NO item succeeds, exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Output path (default under XDG cache)
         #[arg(long, short = 'o', value_hint = ValueHint::FilePath)]
         out: Option<std::path::PathBuf>,
@@ -105,6 +132,16 @@ pub enum VideoAction {
         /// Materialize stdin to a capped temp file
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one video path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Each output is derived beside its input as `input.<target container>`; `--out` is
+        /// refused here because one destination cannot serve N inputs. An item
+        /// whose derived path already exists, or equals its own input, fails and
+        /// the batch continues, so `ok: true` means the batch produced
+        /// SOMETHING, never that every item passed — read `error_count`. If NO
+        /// item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Start time in seconds
         #[arg(long)]
         start: f64,
@@ -138,6 +175,16 @@ pub enum VideoAction {
         /// Materialize stdin to a capped temp file
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one video path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Each output is derived beside its input as `input.png`; `--out` is
+        /// refused here because one destination cannot serve N inputs. An item
+        /// whose derived path already exists, or equals its own input, fails and
+        /// the batch continues, so `ok: true` means the batch produced
+        /// SOMETHING, never that every item passed — read `error_count`. If NO
+        /// item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Timestamp in seconds (default 0)
         #[arg(long)]
         at: Option<f64>,
@@ -161,6 +208,14 @@ pub enum VideoAction {
         /// Read the manifest body from stdin
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one manifest path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Emits one envelope holding a per-item result. A failing item is
+        /// reported and the run continues, so `ok: true` means the batch
+        /// produced SOMETHING, never that every item passed — read
+        /// `error_count`. If NO item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Manifest URL used to absolutise relative segment / representation URIs
         #[arg(long, value_name = "URL", value_hint = ValueHint::Url)]
         base_url: Option<String>,
@@ -181,6 +236,14 @@ pub enum AudioAction {
         /// Materialize stdin to a capped temp file
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one audio path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Emits one envelope holding a per-item result. A failing item is
+        /// reported and the run continues, so `ok: true` means the batch
+        /// produced SOMETHING, never that every item passed — read
+        /// `error_count`. If NO item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Project envelope fields (CSV): path,container,audio_codec,duration_secs,sha256,…; aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs, codec→audio_codec
         #[arg(long, value_name = "FIELDS")]
         select: Option<String>,
@@ -214,6 +277,16 @@ pub enum AudioAction {
         /// Materialize stdin to a capped temp file
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one audio path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Each output is derived beside its input as `input.<target format>`; `--out` is
+        /// refused here because one destination cannot serve N inputs. An item
+        /// whose derived path already exists, or equals its own input, fails and
+        /// the batch continues, so `ok: true` means the batch produced
+        /// SOMETHING, never that every item passed — read `error_count`. If NO
+        /// item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Output format: mp3 | m4a | aac | ogg | opus | flac | wav
         #[arg(long)]
         format: Option<String>,
@@ -250,6 +323,16 @@ pub enum AudioAction {
         /// Materialize stdin to a capped temp file
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one audio path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Each output is derived beside its input as `input.<target format>`; `--out` is
+        /// refused here because one destination cannot serve N inputs. An item
+        /// whose derived path already exists, or equals its own input, fails and
+        /// the batch continues, so `ok: true` means the batch produced
+        /// SOMETHING, never that every item passed — read `error_count`. If NO
+        /// item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Start time in seconds
         #[arg(long)]
         start: f64,

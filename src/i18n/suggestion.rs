@@ -38,46 +38,27 @@ pub fn localize_error_suggestion(err: &crate::error::CliError) -> crate::error::
         }
         return err.clone();
     }
-    let s = err.suggestion().unwrap_or("");
-    // Map common English suggestions to Portuguese via enum catalog.
-    let mapped = match s {
-        "Pass --experimental-vision on the same invocation" => {
-            UiMessage::VisionRequired.text(ui_locale)
-        }
-        "Pass both flags together when you intentionally skip robots.txt" => {
-            UiMessage::RobotsDual.text(ui_locale)
-        }
-        "Pass --category-memory (heap take/summary/close work without deep graph ops)" => {
-            UiMessage::CategoryMemory.text(ui_locale)
-        }
-        "Pass --category-extensions on the same invocation" => {
-            UiMessage::CategoryExtensions.text(ui_locale)
-        }
-        "Pass --experimental-screencast on the same invocation" => {
-            UiMessage::ScreencastFlag.text(ui_locale)
-        }
-        "Pass --category-webmcp on the same invocation" => UiMessage::WebmcpFlag.text(ui_locale),
-        "Pass --category-third-party on the same invocation" => {
-            UiMessage::ThirdPartyFlag.text(ui_locale)
-        }
-        "Pass --capture-network before run/net" => UiMessage::CaptureNetwork.text(ui_locale),
-        "Pass --capture-console before run/console" => UiMessage::CaptureConsole.text(ui_locale),
-        "Fix the failing step; subsequent steps were not executed" => {
-            UiMessage::RunFailFast.text(ui_locale)
-        }
-        other if other.contains("lighthouse") && other.contains("npm") => {
-            UiMessage::LighthouseMissing.text(ui_locale)
-        }
-        other if other.contains("lighthouse") && other.contains("config set") => {
-            UiMessage::LighthouseMissing.text(ui_locale)
-        }
-        _ => {
-            return err.clone();
-        }
-    };
-    let mut out = crate::error::CliError::with_suggestion(err.kind(), err.message(), mapped);
-    if let Some(d) = err.data() {
-        out = out.with_data(d.clone());
-    }
-    out
+    // The English suggestion is returned untouched, and that is now correct.
+    //
+    // # Why the string-keyed remap is gone
+    //
+    // This function used to end in a `match` over twelve LITERAL English
+    // suggestion strings, remapping each to a `UiMessage`. Measured 2026-08-31:
+    // every one of those twelve strings occurred exactly TWICE in the tree, and
+    // both occurrences were inside `src/i18n/` — the arm itself and the English
+    // text table. ZERO sites in the product emitted any of them, because all
+    // 346 call sites had already migrated to `suggestion_key`, which resolves
+    // by stable key and localizes at CONSTRUCTION time. The two
+    // `contains("lighthouse")` guards were dead for the same reason:
+    // `commands/ops/lighthouse/` passes `suggestion_key("lighthouse_missing")`.
+    //
+    // Dead code that appears to work is worse than an obvious gap: it reads as
+    // proof that passing a raw English string is safe, when such a string would
+    // in fact fall through the `_` arm and reach the user untranslated. Keeping
+    // the arm would also have coupled every translation to the exact wording of
+    // an English sentence, so editing one word silently dropped the locale.
+    //
+    // If a raw English suggestion ever needs localizing again, the fix is to
+    // give that site a `suggestion_key`, not to re-add a string match here.
+    err.clone()
 }

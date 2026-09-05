@@ -12,7 +12,9 @@
       "source": "parser",
       "step_key": "include_snapshot",
       "surfaces": [
-        "argv"
+        "argv",
+        "run_step",
+        "exec"
       ],
       "type": "boolean"
     },
@@ -23,7 +25,9 @@
       "source": "parser",
       "step_key": "target",
       "surfaces": [
-        "argv"
+        "argv",
+        "run_step",
+        "exec"
       ],
       "type": "string"
     },
@@ -34,7 +38,9 @@
       "source": "parser",
       "step_key": "timeout_ms",
       "surfaces": [
-        "argv"
+        "argv",
+        "run_step",
+        "exec"
       ],
       "type": "integer"
     }

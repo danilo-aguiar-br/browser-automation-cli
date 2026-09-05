@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # D-12 / D-16 / D-21: local CDP path profiling (no CI, no committed flamegraphs).
+# NOT a ci-check verifier: a MEASUREMENT tool with no pass/fail contract. Its
+# numbers depend on the host — cores, load, thermal state — so a bundle step
+# built on it would report the machine rather than the product, which is the
+# one thing a gate must never do.
 # Usage:
 #   ./scripts/profile-cdp.sh
 #   ./scripts/profile-cdp.sh --samply

@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! JSON views of nodes and edges for agent envelopes.
+//!
+//! Names and type names are `Arc<str>` and are written as `&*field` on
+//! purpose: `Arc<str>` only serialises under serde's `rc` feature, and
+//! enabling that crate-wide to print a handful of fields would be a large
+//! default for a small need.
 
 use serde_json::{json, Value};
 
@@ -12,8 +17,8 @@ impl SnapshotGraph {
         json!({
             "index": n.index,
             "id": n.id,
-            "name": n.name,
-            "type": n.type_name,
+            "name": &*n.name,
+            "type": &*n.type_name,
             "self_size": n.self_size,
             "edge_count": n.edge_count,
             "retainer_count": self.in_edges[idx].len(),
@@ -28,8 +33,8 @@ impl SnapshotGraph {
         json!({
             "index": n.index,
             "id": n.id,
-            "name": n.name,
-            "type": n.type_name,
+            "name": &*n.name,
+            "type": &*n.type_name,
             "self_size": n.self_size,
             "retained_size": retained[idx],
             "distance": distance,
@@ -43,12 +48,12 @@ impl SnapshotGraph {
         let from = &self.nodes[e.from];
         let to = &self.nodes[e.to];
         json!({
-            "type": e.type_name,
-            "name": e.name,
+            "type": &*e.type_name,
+            "name": &*e.name,
             "from_id": from.id,
-            "from_name": from.name,
+            "from_name": &*from.name,
             "to_id": to.id,
-            "to_name": to.name,
+            "to_name": &*to.name,
         })
     }
 }

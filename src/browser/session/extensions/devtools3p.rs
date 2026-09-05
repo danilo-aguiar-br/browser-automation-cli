@@ -9,6 +9,13 @@ use super::super::OneShotSession;
 
 impl OneShotSession {
     /// List third-party DevTools protocol endpoints/tools.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`eval`](Self::eval) of the discovery script: no active
+    /// page, a refused `Runtime.evaluate`, or a JavaScript exception. A page
+    /// that registers no tool group is not an error: the discovery event goes
+    /// unanswered and the envelope reports `count: 0`.
     pub async fn devtools3p_list(&mut self) -> Result<Value, CliError> {
         self.pump_events().await;
         let expr = r#"(() => {
@@ -85,6 +92,22 @@ impl OneShotSession {
     }
 
     /// Execute a third-party DevTools tool by id.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`devtools3p_list`](Self::devtools3p_list), which must run
+    /// first because it is what installs the discovery bridge on the page.
+    ///
+    /// Fails with [`ErrorKind::Usage`] when
+    /// `params_json` is not valid JSON or is not an OBJECT, and with
+    /// [`ErrorKind::NoInput`] —
+    /// `"devtools3p exec <name> failed"`, carrying the
+    /// `devtools3p_list_first` suggestion — when the page reports an
+    /// exception, which is also how "no tools discovered" and an unknown tool
+    /// name arrive.
+    ///
+    /// Propagates [`eval`](Self::eval) for the execution itself: a refused
+    /// `Runtime.evaluate`, or a rejected promise from the tool.
     pub async fn devtools3p_exec(
         &mut self,
         name: &str,

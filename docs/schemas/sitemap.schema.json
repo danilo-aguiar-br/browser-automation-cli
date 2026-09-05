@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/sitemap.schema.json",
+  "title": "sitemap command input",
+  "type": "object",
+  "description": "List URLs declared by a site's sitemap.xml (HTTP)",
+  "properties": {
+    "dedup_key": {
+      "argv": "--dedup-key",
+      "description": "Deduplicate urls key",
+      "required": false,
+      "source": "parser",
+      "step_key": "dedup_key",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "exclude_path": {
+      "argv": "--exclude-path",
+      "description": "Exclude path prefixes (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "exclude_path",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
+    "ignore_query_params": {
+      "argv": "--ignore-query-params",
+      "description": "Collapse query params when deduping URLs",
+      "required": false,
+      "source": "parser",
+      "step_key": "ignore_query_params",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
+    "include_path": {
+      "argv": "--include-path",
+      "description": "Include only path prefixes (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "include_path",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
+    "include_subdomains": {
+      "argv": "--include-subdomains",
+      "description": "Keep URLs on subdomains of the seed host, not just the seed host itself",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_subdomains",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
+    "limit": {
+      "argv": "--limit",
+      "default": 50,
+      "description": "Maximum number of URLs to return",
+      "required": false,
+      "source": "parser",
+      "step_key": "limit",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "integer"
+    },
+    "search": {
+      "argv": "--search",
+      "description": "Filter URLs by substring (case-insensitive)",
+      "required": false,
+      "source": "parser",
+      "step_key": "search",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "select": {
+      "argv": "--select",
+      "description": "Project data fields (CSV)",
+      "required": false,
+      "source": "parser",
+      "step_key": "select",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "sort": {
+      "argv": "--sort",
+      "description": "Sort urls",
+      "required": false,
+      "source": "parser",
+      "step_key": "sort",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "url": {
+      "argv": "<URL>",
+      "description": "Site URL whose sitemap should be read",
+      "required": true,
+      "source": "parser",
+      "step_key": "url",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "additionalProperties": false
+}

@@ -14,9 +14,25 @@ use crate::native::element::RefMap;
 
 /// Capture the page, or one element, and write it to disk.
 ///
-/// Honours [`ScreenshotOptions`](super::ScreenshotOptions) for clipping,
+/// Honours [`ScreenshotOptions`] for clipping,
 /// encoding and annotation; the returned result carries both the path and the
 /// image inline.
+///
+/// # Errors
+///
+/// Under `options.annotate`, fails when the target rect of
+/// `options.selector` cannot be read, when annotations cannot be collected,
+/// when the overlay cannot be injected, or when the scroll offsets needed to
+/// project a full-page capture cannot be read.
+///
+/// Then fails with the CDP error raised by `Page.captureScreenshot` — an
+/// element clip that resolves to nothing, or an unsupported format — and with
+/// the save error from
+/// [`save_screenshot_async`]:
+/// undecodable base64, or an unwritable destination.
+///
+/// The capture error is deliberately held until the overlay has been removed,
+/// so a failed screenshot never leaves the annotation overlay on the page.
 pub async fn take_screenshot(
     client: &CdpClient,
     session_id: &str,

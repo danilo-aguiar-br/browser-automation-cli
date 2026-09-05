@@ -140,4 +140,7 @@ pub struct EmulateArgs {
     /// Viewport `WxHxDPR` with optional `,mobile`, `,touch`, `,landscape` flags
     #[arg(long)]
     pub viewport: Option<String>,
+    /// Screen size `WxH`. Defaults to the viewport so screen cannot stay 800x600.
+    #[arg(long, value_name = "WxH")]
+    pub screen: Option<String>,
 }

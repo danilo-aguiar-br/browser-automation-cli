@@ -3,10 +3,10 @@
 //! Offline tools always run. Browser tools run when Chrome is available
 //! (same readiness idea as goto_smoke / doctor).
 
-use assert_cmd::cargo::cargo_bin_cmd;
 use serde_json::Value;
-use std::path::PathBuf;
-use std::process::Command;
+
+mod common;
+use common::chrome_ready_via_doctor_checks;
 
 fn parse_stdout(assert: &assert_cmd::assert::Assert) -> Value {
     let stdout = &assert.get_output().stdout;
@@ -24,25 +24,6 @@ fn assert_success_envelope(v: &Value) {
     assert!(v.get("data").is_some(), "data present");
 }
 
-fn chrome_ready() -> bool {
-    cargo_bin_cmd!("browser-automation-cli")
-        .args(["doctor", "--quick", "--json"])
-        .ok()
-        .map(|out| {
-            let v: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
-            v["ok"] == true
-                || v["data"]["ok"] == true
-                || v.pointer("/data/checks")
-                    .and_then(|c| c.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .any(|x| x["id"] == "chrome" && x["status"] == "pass")
-                    })
-                    .unwrap_or(false)
-        })
-        .unwrap_or(false)
-}
-
 #[test]
 fn offline_meta_envelopes() {
     for args in [
@@ -50,10 +31,7 @@ fn offline_meta_envelopes() {
         &["--json", "commands"][..],
         &["--json", "schema", "--cmd", "goto"][..],
     ] {
-        let assert = cargo_bin_cmd!("browser-automation-cli")
-            .args(args)
-            .assert()
-            .success();
+        let assert = common::assert_bin().args(args).assert().success();
         let v = parse_stdout(&assert);
         assert_success_envelope(&v);
     }
@@ -61,7 +39,7 @@ fn offline_meta_envelopes() {
 
 #[test]
 fn commands_map_covers_all_official_tools() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["commands", "--json"])
         .assert()
         .success();
@@ -88,13 +66,24 @@ fn commands_map_covers_all_official_tools() {
 
 #[test]
 fn goto_view_press_envelope_fields_when_chrome() {
-    if !chrome_ready() {
-        eprintln!("skip browser envelope: chrome not ready");
+    if !chrome_ready_via_doctor_checks() {
+        common::skip_with_remedy(
+            "devtools_envelope_behavior::browser_envelope",
+            "doctor reports no usable Chrome.",
+            "install a system Chrome/Chromium.",
+        );
+        return;
+    }
+    // This body navigates to `https://example.com` and then asserts that the
+    // capture buffer holds a request, so it depends on the network as much as on
+    // Chrome. Guarding only Chrome would turn a disconnected host into a failure
+    // report about the product.
+    if common::public_network_unreachable("devtools_envelope_behavior::browser_envelope") {
         return;
     }
 
     // goto
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["--json", "goto", "about:blank"])
         .assert()
         .success();
@@ -116,7 +105,7 @@ fn goto_view_press_envelope_fields_when_chrome() {
     )
     .unwrap();
 
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["--json", "run", "--script", script.to_str().unwrap()])
         .assert()
         .success();
@@ -148,7 +137,7 @@ fn goto_view_press_envelope_fields_when_chrome() {
 "#,
     )
     .unwrap();
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args([
             "--json",
             "--capture-network",
@@ -162,12 +151,43 @@ fn goto_view_press_envelope_fields_when_chrome() {
         .success();
     let v = parse_stdout(&assert);
     assert_success_envelope(&v);
+
+    // The envelope's SHAPE was the only thing asserted here, and shape is what a
+    // buffer that captured nothing also has: the defect this suite failed to
+    // catch answered `ok: true` with `count: 0` on every page. `net list` is the
+    // one step in this file that exists to prove traffic was recorded, so it has
+    // to require a record. `example.com` is one request, which is the floor, and
+    // the floor is what makes this assertion true or false rather than decorative.
+    let steps = v["data"]
+        .get("steps")
+        .or_else(|| v.get("steps"))
+        .and_then(|s| s.as_array())
+        .expect("run must emit steps");
+    let net = steps
+        .iter()
+        .find(|s| s["cmd"] == "net")
+        .expect("the net step must appear in the transcript");
+    let count = net
+        .pointer("/data/count")
+        .or_else(|| net.get("count"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_else(|| panic!("net step carries no count: {net}"));
+    assert!(
+        count >= 1,
+        "net list captured no request for a page that issues at least one; \
+         an empty capture buffer is indistinguishable from a page with no \
+         traffic, which is exactly the failure this gate exists to reject: {net}"
+    );
 }
 
 #[test]
 fn page_isolated_context_creates_context_id_when_chrome() {
-    if !chrome_ready() {
-        eprintln!("skip isolated_context: chrome not ready");
+    if !chrome_ready_via_doctor_checks() {
+        common::skip_with_remedy(
+            "devtools_envelope_behavior::isolated_context",
+            "doctor reports no usable Chrome.",
+            "install a system Chrome/Chromium.",
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -180,7 +200,7 @@ fn page_isolated_context_creates_context_id_when_chrome() {
 "#,
     )
     .unwrap();
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["--json", "run", "--script", script.to_str().unwrap()])
         .assert()
         .success();
@@ -198,30 +218,52 @@ fn page_isolated_context_creates_context_id_when_chrome() {
     );
 }
 
+/// The V8 heapsnapshot the offline `heap` verbs are exercised against.
+///
+/// # Why this test writes its own input
+///
+/// It used to scan `/tmp` for `ba-e2e-52-*/a.heapsnapshot` left behind by SOME
+/// EARLIER RUN and feed the most recent one to the CLI. That was non-hermetic
+/// in both directions: with the leftovers present it asserted against an input
+/// of uncontrolled provenance, and without them it declined — so it never once
+/// proved the offline heap verbs work on a clean machine.
+///
+/// The graph is the shape the parser's own unit fixture uses (see
+/// `src/native/heap_snapshot/tests.rs`): root(0) → A(1) → B(2), with root also
+/// retaining C(3). Node fields are `type, name, id, self_size, edge_count`, and
+/// `to_node` is a FLAT index — node_index * 5, not the node ordinal.
+const HEAP_FIXTURE: &str = r#"{
+    "snapshot": {
+        "meta": {
+            "node_fields": ["type","name","id","self_size","edge_count"],
+            "node_types": [["hidden","object","string","synthetic"]],
+            "edge_fields": ["type","name_or_index","to_node"],
+            "edge_types": [["context","element","property","internal","hidden","shortcut","weak"]]
+        },
+        "node_count": 4,
+        "edge_count": 3
+    },
+    "nodes": [
+        3, 0, 10, 0, 2,
+        1, 1, 11, 100, 1,
+        1, 2, 12, 50, 0,
+        1, 3, 13, 25, 0
+    ],
+    "edges": [
+        2, 4, 5,
+        2, 5, 15,
+        2, 6, 10
+    ],
+    "strings": ["(GC roots)", "A", "B", "C", "toA", "toC", "toB"]
+}"#;
+
 #[test]
-fn heap_offline_envelope_when_snapshot_available() {
-    // Prefer recent e2e snapshot if present
-    let candidates: Vec<PathBuf> = std::fs::read_dir("/tmp")
-        .into_iter()
-        .flatten()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().starts_with("ba-e2e-52-"))
-        .map(|e| e.path().join("a.heapsnapshot"))
-        .filter(|p| p.is_file())
-        .collect();
+fn heap_offline_envelopes_on_a_written_snapshot() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let snap = dir.path().join("a.heapsnapshot");
+    std::fs::write(&snap, HEAP_FIXTURE).expect("write heapsnapshot fixture");
 
-    let snap = match candidates
-        .into_iter()
-        .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
-    {
-        Some(p) => p,
-        None => {
-            eprintln!("skip heap offline: no e2e heapsnapshot in /tmp");
-            return;
-        }
-    };
-
-    let path = snap.to_str().unwrap();
+    let path = snap.to_str().expect("utf-8 tempdir path");
     for args in [
         vec![
             "--json",
@@ -256,10 +298,7 @@ fn heap_offline_envelope_when_snapshot_available() {
             path,
         ],
     ] {
-        let assert = cargo_bin_cmd!("browser-automation-cli")
-            .args(&args)
-            .assert()
-            .success();
+        let assert = common::assert_bin().args(&args).assert().success();
         let v = parse_stdout(&assert);
         assert_success_envelope(&v);
     }
@@ -271,7 +310,7 @@ fn schema_cmd_covers_devtools_surface_samples() {
         "goto", "view", "press", "write", "wait", "net", "console", "heap", "perf", "page", "text",
         "scroll", "cookie",
     ] {
-        let assert = cargo_bin_cmd!("browser-automation-cli")
+        let assert = common::assert_bin()
             .args(["--json", "schema", "--cmd", cmd])
             .assert()
             .success();
@@ -282,17 +321,14 @@ fn schema_cmd_covers_devtools_surface_samples() {
 
 #[test]
 fn binary_name_never_short_alias() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["--json", "version"])
         .assert()
         .success();
     let v = parse_stdout(&assert);
     assert_eq!(v["data"]["name"], "browser-automation-cli");
     // help must not advertise bac
-    let help = Command::new(assert_cmd::cargo::cargo_bin!("browser-automation-cli"))
-        .arg("--help")
-        .output()
-        .unwrap();
+    let help = common::cmd().arg("--help").output().unwrap();
     let s = String::from_utf8_lossy(&help.stdout);
     assert!(!s.contains(" bac "), "help must not document bac alias");
 }

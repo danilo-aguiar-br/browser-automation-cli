@@ -15,6 +15,16 @@ impl CdpClient {
     /// Send one CDP command and await its response.
     ///
     /// `session_id` routes to an attached target; `None` addresses the browser.
+    ///
+    /// # Errors
+    ///
+    /// Returns the message of `page_for_session` when `session_id` names a
+    /// target with no live chromiumoxide `Page`, or the
+    /// `format_cdp_err` rendering of the `CdpError` raised by
+    /// `Page::execute` / `Browser::execute` — a closed connection, a protocol
+    /// error reported by the browser, or a per-command timeout. Callers in
+    /// `src/browser` lift this `String` into
+    /// [`ErrorKind::Protocol`](crate::error::ErrorKind::Protocol).
     pub async fn send_command(
         &self,
         method: &str,
@@ -54,6 +64,13 @@ impl CdpClient {
     ///
     /// Preferred over the `Value` form: a shape mismatch surfaces here instead
     /// of as a `None` several layers away.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `params` does not serialize to JSON, when the underlying
+    /// [`send_command`](Self::send_command) fails, or when the CDP result does
+    /// not deserialize into `R` — the shape mismatch this wrapper exists to
+    /// surface.
     pub async fn send_command_typed<P: serde::Serialize, R: serde::de::DeserializeOwned>(
         &self,
         method: &str,
@@ -70,6 +87,11 @@ impl CdpClient {
     }
 
     /// [`send_command`](Self::send_command) for commands that take no arguments.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`send_command`](Self::send_command) unchanged: no live
+    /// `Page` for `session_id`, or a `CdpError` from the browser.
     pub async fn send_command_no_params(
         &self,
         method: &str,
@@ -79,6 +101,13 @@ impl CdpClient {
     }
 
     /// Best-effort command (still awaits oxide execute).
+    ///
+    /// # Errors
+    ///
+    /// Never returns `Err`. The inner
+    /// [`send_command`](Self::send_command) result is discarded on purpose so
+    /// a teardown or fire-and-forget command cannot fail the caller; the
+    /// `Result` is kept only so call sites read like the awaiting variants.
     pub async fn send_command_no_wait(
         &self,
         method: &str,

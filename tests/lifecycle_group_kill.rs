@@ -15,6 +15,8 @@ use browser_automation_cli::lifecycle::{
 use browser_automation_cli::native::cdp::spawn::{spawn_guarded, SpawnRequest};
 use browser_automation_cli::residual::{LiveProcessIndex, ProcessEntry};
 
+mod common;
+
 /// Poll interval while waiting for a signalled process to actually disappear.
 const REAP_POLL: Duration = Duration::from_millis(20);
 /// Upper bound on how long a reap may take before the test calls it a failure.
@@ -54,7 +56,11 @@ fn spawn_sleeper() -> Option<(u32, Option<i32>, std::process::Child)> {
 #[test]
 fn guarded_child_lands_in_its_own_process_group() {
     let Some((pid, pgid, mut child)) = spawn_sleeper() else {
-        eprintln!("skip: no /bin/sh on this host");
+        common::skip_with_remedy(
+            "lifecycle_group_kill",
+            "/bin/sh is absent on this host.",
+            "install a POSIX shell to exercise the group-kill escalation.",
+        );
         return;
     };
     let pgid = pgid.expect("unix hosts must report a process group");
@@ -74,7 +80,11 @@ fn guarded_child_lands_in_its_own_process_group() {
 #[test]
 fn group_kill_reaps_the_whole_group_not_just_the_leader() {
     let Some(sh) = browser_automation_cli::platform::which_bin("sh") else {
-        eprintln!("skip: no /bin/sh on this host");
+        common::skip_with_remedy(
+            "lifecycle_group_kill",
+            "/bin/sh is absent on this host.",
+            "install a POSIX shell to exercise the group-kill escalation.",
+        );
         return;
     };
     // The leader forks a grandchild and then waits: killing only the leader pid
@@ -173,7 +183,11 @@ fn tree_fallback_terminates_on_a_ppid_cycle() {
 #[test]
 fn tree_fallback_reaps_a_real_child_when_no_group_is_known() {
     let Some((pid, _pgid, mut child)) = spawn_sleeper() else {
-        eprintln!("skip: no /bin/sh on this host");
+        common::skip_with_remedy(
+            "lifecycle_group_kill",
+            "/bin/sh is absent on this host.",
+            "install a POSIX shell to exercise the group-kill escalation.",
+        );
         return;
     };
     assert!(pid_alive(pid), "sleeper must start alive");

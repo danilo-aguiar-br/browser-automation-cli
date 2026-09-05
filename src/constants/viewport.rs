@@ -3,12 +3,14 @@
 
 /// Default headless Chrome window width when launch options omit viewport.
 ///
-/// Named constant (anti-hardcode). Operators override per-command via
-/// `--viewport WxH…` / run JSON — not a product env var.
-pub const DEFAULT_VIEWPORT_WIDTH: u32 = 1280;
+/// Matches [`crate::constants::DEFAULT_XVFB_WIDTH`]: the process `--window-size`
+/// and the launch device-metrics default are the same desktop size. Operators
+/// override per-command via `--viewport WxH…` / run JSON — not a product env var.
+/// XDG `screen` is a separate knob (`screen.width`/`height`, never smaller).
+pub const DEFAULT_VIEWPORT_WIDTH: u32 = 1920;
 
 /// Default headless Chrome window height when launch options omit viewport.
-pub const DEFAULT_VIEWPORT_HEIGHT: u32 = 720;
+pub const DEFAULT_VIEWPORT_HEIGHT: u32 = 1080;
 
 /// Parsed viewport string: `WxHxDPR[,mobile][,touch][,landscape]`.
 #[derive(Debug, Clone, PartialEq)]

@@ -10,7 +10,16 @@
 //! Real Job Object APIs are compiled only on `cfg(windows)`. docs.rs multi-target
 //! builds label those items via `#[doc(cfg(windows))]` under `--cfg docsrs`.
 
-#![allow(dead_code)]
+// The blanket allow was unconditional, which meant it also silenced Windows —
+// the one target where these items are live code and a genuinely unused
+// function would be a real defect worth hearing about. Off Windows the same
+// items are a deliberate stub with no callers, so the lint there reports the
+// design rather than a mistake.
+//
+// NOT VERIFIED on a Windows toolchain: this host is macOS and cannot compile
+// the `cfg(windows)` branch. If the Windows build now reports a dead item, the
+// item is the bug, not this attribute.
+#![cfg_attr(not(windows), allow(dead_code))]
 
 /// True when this build can create real Job Objects (Windows only).
 pub fn platform_supports_job_objects() -> bool {

@@ -21,6 +21,19 @@ use serde_json::Value;
 ///
 /// This is the read half of every interaction: a ref only exists because a
 /// snapshot created it, and it is valid only within this process.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `DOM.enable` or `Accessibility.enable`
+/// on `session_id`, and then, when `options.selector` is set, with
+/// `"Invalid selector '<sel>': <detail>"` when the `Runtime.evaluate` throws —
+/// which is what passing a snapshot ref such as `@e1` where a CSS selector
+/// belongs produces — or `"Selector '<sel>' did not match any element"` when
+/// the evaluation yields anything that is not a DOM node.
+///
+/// Also propagates the `DOM.describeNode` / `Accessibility.getFullAXTree`
+/// refusals raised while walking the tree. An empty page is not an error: the
+/// snapshot comes back with no refs.
 pub async fn take_snapshot(
     client: &CdpClient,
     session_id: &str,

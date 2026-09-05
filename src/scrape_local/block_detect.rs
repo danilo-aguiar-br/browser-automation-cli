@@ -22,6 +22,10 @@
 
 use serde_json::{json, Value};
 
+mod signatures;
+
+use signatures::{BODY_SIGNATURES, MITIGATION_HEADERS, VENDOR_COOKIES, VENDOR_HEADERS};
+
 /// Where in the response the block signature was found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockPhase {
@@ -91,87 +95,24 @@ impl BlockDetection {
     /// agent reads them as fields. Interpolating them into prose duplicated
     /// machine-readable data as text and was the only reason a formatter was
     /// needed at all.
+    /// # Why attestation gets its own advice
+    ///
+    /// The default advice — swap engine, change egress, wait — is sound for a
+    /// challenge, and actively harmful for continuous attestation. There the
+    /// verdict does not depend on the fingerprint the caller can shape, so
+    /// every retry spends the same IP against a system that is watching it, and
+    /// the operator reads exit 6 as "one more patch to write". Naming the
+    /// ceiling is the only advice that saves time here.
     #[must_use]
     pub fn suggestion(&self) -> String {
-        crate::i18n::suggestion_key("blocked_by_waf", None).to_string()
+        let key = if self.waf == "searchguard" {
+            "blocked_by_attestation"
+        } else {
+            "blocked_by_waf"
+        };
+        crate::i18n::suggestion_key(key, None).to_string()
     }
 }
-
-/// Headers that assert an **active mitigation**, not merely a vendor.
-///
-/// # The distinction this table exists to enforce
-///
-/// Measured against `https://example.com`: it answers HTTP 200 with real content
-/// and carries `cf-cache-status`. Treating a vendor header as a block flagged a
-/// perfectly good page, which would have broken scraping for every site behind a
-/// CDN -- a large share of the web. Presence of a WAF is not action by a WAF.
-///
-/// Only headers whose *semantics* are "this request was mitigated" belong here.
-const MITIGATION_HEADERS: &[(&str, &str)] =
-    &[("cf-mitigated", "cloudflare"), ("x-px-block", "perimeterx")];
-
-/// Headers that merely name the vendor in front of the origin.
-///
-/// Never sufficient on their own. Used only to attribute a block that some other
-/// signal already proved, so the report says `cloudflare` instead of `generic`.
-const VENDOR_HEADERS: &[(&str, &str)] = &[
-    ("cf-ray", "cloudflare"),
-    ("cf-cache-status", "cloudflare"),
-    ("x-akamai-request-id", "akamai"),
-    ("x-akamai-transformed", "akamai"),
-    ("x-datadome", "datadome"),
-    ("x-iinfo", "imperva"),
-    ("x-kpsdk-ct", "kasada"),
-];
-
-/// Cookies that name the vendor in front of the origin.
-///
-/// Attribution only, for the same reason as [`VENDOR_HEADERS`], and with a
-/// sharper trap: `cf_clearance` is issued **after** a challenge is solved, so
-/// reading it as a block inverts its meaning entirely. `__cf_bm` and `datadome`
-/// ride along with ordinary traffic.
-///
-/// Matched as *substrings* because a `Set-Cookie` carries attributes after the
-/// value.
-const VENDOR_COOKIES: &[(&str, &str)] = &[
-    ("cf_clearance", "cloudflare"),
-    ("__cf_bm", "cloudflare"),
-    ("__cflb", "cloudflare"),
-    ("ak_bmsc", "akamai"),
-    ("datadome", "datadome"),
-    ("_px3", "perimeterx"),
-    ("_pxhd", "perimeterx"),
-    ("_pxvid", "perimeterx"),
-    ("incap_ses_", "imperva"),
-    ("visid_incap_", "imperva"),
-    ("___utmvc", "imperva"),
-];
-
-/// Challenge markers in the rendered body, lowercased.
-///
-/// Vendor-neutral on purpose: the phrasing is localized, and matching the vendor
-/// name in the body would fire on any page that merely mentions a CDN.
-const BODY_SIGNATURES: &[(&str, &str)] = &[
-    ("captcha-form", "generic"),
-    ("g-recaptcha", "generic"),
-    ("h-captcha", "generic"),
-    ("cf-challenge-running", "cloudflare"),
-    ("challenge-platform", "cloudflare"),
-    ("checking your browser before accessing", "cloudflare"),
-    ("unusual traffic", "generic"),
-    ("tráfego incomum", "generic"),
-    ("trafego incomum", "generic"),
-    ("enable javascript and cookies to continue", "generic"),
-    ("ative o javascript", "generic"),
-    ("verifying you are human", "generic"),
-    ("_imperva_", "imperva"),
-    ("/_incapsula_resource", "imperva"),
-    // Measured 2026-08-06 against google.com/search with `--engine http`: the
-    // response is HTTP 200 whose entire body is a meta-refresh to this endpoint
-    // and nothing else. Not a CAPTCHA -- a JS gate -- but the agent still
-    // received zero content with exit 0, which is the same defect.
-    ("/httpservice/retry/enablejs", "generic"),
-];
 
 /// Inspect headers, cookies, and body for evidence of an **active** block.
 ///
@@ -457,6 +398,38 @@ mod tests {
         assert_eq!(v["waf"], json!("cloudflare"));
         assert_eq!(v["signal"], json!("cf-mitigated"));
         assert_eq!(v["phase"], json!("header"));
+    }
+
+    /// Attestation is named as a CEILING, not as one more thing to tune.
+    ///
+    /// The default advice tells the operator to swap engine or change egress.
+    /// Against continuous attestation that advice is worse than silence: the
+    /// verdict does not depend on what the caller can shape, so each retry
+    /// spends the same IP against a system watching it, and the operator reads
+    /// exit 6 as "one more patch to write". This pins the two apart.
+    #[test]
+    fn attestation_gets_different_advice_from_a_challenge() {
+        let waf = detect_in_body("captcha-form").expect("challenge detected");
+        let att = detect_in_body("/sorry/index").expect("attestation detected");
+
+        assert_eq!(att.waf, "searchguard", "attestation must be attributed");
+        assert_ne!(
+            waf.suggestion(),
+            att.suggestion(),
+            "a ceiling and a challenge cannot share advice"
+        );
+
+        let s = att.suggestion().to_ascii_lowercase();
+        // The wrong loop must not be suggested at all.
+        assert!(
+            !s.contains("--engine browser") && !s.contains("--proxy"),
+            "attestation advice must not send the operator back to fingerprint tuning: {s}"
+        );
+        // And it must name a route that actually exists.
+        assert!(
+            s.contains("duckduckgo-search-cli") || s.contains("searxng"),
+            "attestation advice must name a different provider: {s}"
+        );
     }
 
     #[test]

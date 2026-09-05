@@ -53,6 +53,21 @@ fn cache_file(seed: &str, profile: &str) -> Result<PathBuf, CliError> {
     hasher.update(seed.as_bytes());
     hasher.update([0u8]);
     hasher.update(profile.as_bytes());
+    // The product VERSION is part of the key, and leaving it out was a defect.
+    //
+    // What this file stores is a generated patch script, so its content depends
+    // on the code that generated it and not only on (seed, profile). Without
+    // the version in the key, an operator who used a seed once keeps injecting
+    // the OLD script forever, and every later fix to the patch is invisible to
+    // exactly the identities that were pinned.
+    //
+    // Measured 2026-09-01 while adding `webgl_coherence_patch`: the same seed
+    // answered with the identical pre-fix renderer on the patched binary, and
+    // the patch looked broken until the cache was isolated. The cost of the key
+    // change is that an upgrade redraws a pinned identity ONCE; the cost of
+    // leaving it out is that it never redraws at all.
+    hasher.update([0u8]);
+    hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
     let digest = format!("{:x}", hasher.finalize());
     Ok(cache_root()?.join(format!("{}-{profile}.js", &digest[..16])))
 }
@@ -91,16 +106,17 @@ pub(super) fn store(seed: &str, profile: &str, script: &str) {
         return;
     }
     let tmp = path.with_extension("js.tmp");
-    if fs::write(&tmp, script).is_err() {
+    // Born `0600`. The file describes the identity a remote site will attribute
+    // to this host, so it is no more world-readable than a credential. Creating
+    // it private closes the window that `fs::write` plus a later chmod left
+    // open, and the mode survives the rename below.
+    let Ok(mut handle) = crate::platform::create_private_file(&tmp) else {
+        return;
+    };
+    if std::io::Write::write_all(&mut handle, script.as_bytes()).is_err() {
         return;
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // The file describes the identity a remote site will attribute to this
-        // host, so it is no more world-readable than a credential.
-        let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
-    }
+    drop(handle);
     if fs::rename(&tmp, &path).is_err() {
         let _ = fs::remove_file(&tmp);
     }
@@ -114,6 +130,32 @@ pub(super) fn store(seed: &str, profile: &str, script: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The product version must PARTICIPATE in the key.
+    ///
+    /// Recomputes the pre-fix formula and requires the two to differ. If they
+    /// ever agree again, the version was dropped from the key, and every
+    /// already-pinned identity would freeze on the patch script that happened
+    /// to be current the first time it was drawn — which is exactly the bug
+    /// this test exists to keep closed.
+    #[test]
+    fn the_product_version_participates_in_the_cache_key() {
+        let mut legacy = Sha256::new();
+        legacy.update(b"a-seed");
+        legacy.update([0u8]);
+        legacy.update(b"chrome-linux");
+        let legacy = format!("{:x}", legacy.finalize());
+        let path = cache_file("a-seed", "chrome-linux").expect("path");
+        let name = path
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .expect("file name");
+        assert!(
+            !name.starts_with(&legacy[..16]),
+            "the cache key stopped including the product version, so a pinned \
+             identity would keep injecting the script it was first drawn with"
+        );
+    }
 
     #[test]
     fn file_name_is_stable_for_the_same_pair() {

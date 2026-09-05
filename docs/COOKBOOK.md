@@ -196,10 +196,30 @@ browser-automation-cli --json config set stealth_profile chrome-linux
 ```
 - Stealth is ON by default and masks the automation markers a real Chrome never exposes
 - `--stealth-profile` accepts `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`, and `auto` follows the host
+- List the tokens from the binary: `browser-automation-cli --json --stealth-profile list version` or `commands --json`
 - Without `--stealth-seed` every run draws a fresh identity, so a 50-URL crawl presents 50 different machines
+- `--stealth-seed` pins `hardwareConcurrency`, `deviceMemory`, GPU vendor/renderer, `history.length` and the Chrome build. It does not vary User-Agent, `navigator.platform`, languages, timezone, screen or `plugins.length`
+- Launch applies 1920×1080 device metrics so `screen` is not the headless 800×600 default. `resize` / `emulate --viewport` also set `screen`; pass `--screen 1920x1080` or a `run` step `"screen":"2560x1440"` or `config set screen 2560x1440`
+- The envelope answers `screen_source` next to `screen`, and the tokens are `argv`, `step`, `xdg`, `derived` and `floor`
+- `floor` means an explicit override existed and the viewport floor was larger, so the number returned is the floor and not the one you asked for
+- Read `screen_source` before trusting `screen`: a caller reading only the number cannot tell a request that survived from one the floor overrode
+- `doctor --fingerprint` (no `--quick`) scores the live page and fails if it contradicts the plan. `--quick` scores only the planned identity
 - XDG keys are `stealth` (`true`), `stealth_profile` (`auto`), `stealth_seed` (no default)
 - `browser_mode` (`auto`) is `auto|headed|headless`; `auto` resolves to headless and `doctor` reports the effective mode
 - Turn the patches off for one run with `--no-stealth` when you are testing your own front end
+
+## How To Write a `run --script` File Agents Can Parse
+
+Each step is one complete JSON object on one physical line. A `printf` with single quotes smashes the JavaScript quotes inside `eval` and the page reports `SyntaxError: Invalid regular expression flags`. Breaking the expression across lines is invalid NDJSON (`EOF while parsing a string`).
+
+```bash
+SCRIPT="$(mktemp)"
+cat > "$SCRIPT" <<'EOF'
+{"cmd":"goto","url":"about:blank"}
+{"cmd":"eval","expression":"(/hello/i).test(\"hello\")"}
+EOF
+browser-automation-cli --json -q run --script "$SCRIPT"
+```
 
 
 ## How To Route Through an Egress Proxy
@@ -236,6 +256,9 @@ browser-automation-cli --json config set input_profile human
 ```
 - `human` is the default and interpolates pointer trajectories, dwells between press and release, and paces typing
 - `--input-seed` seeds the jitter so a `human` run reproduces exactly
+- Measured 2026-09-04 on this tree: the `human` pacing cost grows superlinearly with the typed length, at 2281 ms for 1 character, 14236 ms for 2 and 95781 ms for 4
+- A long `type` under `human` can therefore exhaust `--timeout` and return exit 124, which is why the `direct` recipe above is not only about determinism
+- This is an OPEN defect tracked in `gaps.md`, so reach for `--input-profile direct` on long fields rather than raising `--timeout` until it fits
 - Kinematics keys: `input_move_steps` (`24`), `input_move_gap_ms` (`12`), `input_click_dwell_ms` (`65`)
 - Kinematics keys: `input_key_dwell_ms` (`45`), `input_type_delay_ms` (`95`), `input_target_jitter_px` (`3`)
 - Scroll keys: `input_scroll_tick_px` (`100`), `input_scroll_max_ticks` (`40`), `input_scroll_settle_rounds` (`3`)
@@ -304,12 +327,15 @@ browser-automation-cli --timeout 60 --json run --script /tmp/goto-view.browser-a
 ```bash
 cat > /tmp/form.browser-automation.jsonl <<'JSONL'
 {"cmd":"goto","url":"https://example.com"}
+{"cmd":"eval","expression":"document.body.insertAdjacentHTML('beforeend','<form><input name=q><button type=button>Go</button></form>');'ok'"}
 {"cmd":"view"}
 {"cmd":"write","target":"input","value":"hello"}
 {"cmd":"press","target":"button"}
 JSONL
 browser-automation-cli --timeout 90 --json run --script /tmp/form.browser-automation.jsonl
 ```
+- The form is injected so the recipe is self-contained on a page that has none
+- On a real page that `eval` step does not exist
 - Keep click and fill in the same process so selectors and `@eN` refs stay valid
 - Separate launches cannot share accessibility refs
 
@@ -326,6 +352,8 @@ browser-automation-cli --timeout 60 --json run --script /tmp/scroll-assert.brows
 ```
 - `dy` / `dx` are aliases for `delta_y` / `delta_x`
 - `url_contains` / `text_contains` are assert aliases
+- `kind` is the second spelling of `action`, and `{"cmd":"assert","kind":"step",...}` asserts over an EARLIER step's envelope by JSON path
+- That form reads `path` plus one of `equals`, `contains` or `exists`: `{"cmd":"assert","kind":"step","path":"result","equals":"OK"}` and `{"cmd":"assert","kind":"step","path":"console_count","exists":true}`
 - On fail-fast, the error envelope may include partial `data.steps`
 
 
@@ -360,6 +388,9 @@ browser-automation-cli --timeout 60 --json run --script /tmp/pdf.run.json
 - Uses CDP `Page.printToPDF` in a one-shot process
 - Pass `--url` to navigate before print, or print the current page inside a `run` script after `goto`
 - Blank about:blank PDF is refused without navigated content or a step/CLI `url` (GAP-013); navigate with `goto` first (do not use view-only `allow_empty` here)
+- `landscape` is a step-only key: `{"cmd":"print-pdf","landscape":true}` reaches CDP `Page.printToPDF` and rotates the page, and the default is portrait
+- The `print-pdf` SUBCOMMAND has no `--landscape` flag, so the rotated print is reachable only from inside a `run` script
+- The step also accepts `init_script` and `navigation_timeout_ms`, which apply to the navigation it performs when `url` is present and are ignored when it prints the page already open
 
 
 ## How To Monitor Page Change Against a Baseline
@@ -479,6 +510,8 @@ JSON
 - Dialogs are keyed by CDP `session_id` (page forwarders stamp `Page::session_id`)
 - Answering a dialog on one tab does not steal the map entry of another tab
 - `tab_switch` domain enable is best-effort under a modal dialog budget
+- `page select` takes `index` (0-based, with `page_id` and `pageId` as aliases) or `tab_id`, which is 1-BASED because it is the number `page list` prints
+- `index` wins when both are given, and `tab_id: 0` is refused rather than silently read as the first tab
 
 
 ## How To Wait With wait_timeout_ms in Run
@@ -500,13 +533,15 @@ browser-automation-cli --timeout 60 --json run --script /tmp/wait-timeout.run.js
 ```bash
 cat > /tmp/scrape-text.run.json <<'JSON'
 [
-  {"cmd":"scrape","url":"https://example.com","format":"text","engine":"http"}
+  {"cmd":"scrape","url":"https://example.com","format":"text"}
 ]
 JSON
 browser-automation-cli --timeout 60 --json run --script /tmp/scrape-text.run.json
 ```
 - Run steps accept `format` / `formats` (GAP-057) with the same shape as top-level `scrape`
 - Requesting only `text` must not dump a large `html` field in the step result
+- A run step REFUSES `engine` with `kind: usage`: the session is already live, so the engine was fixed at launch and no step can move it
+- For a one-shot HTTP fetch with no session, use the top-level `scrape <url> --engine http` instead
 
 
 ## How To Grab webp (Not avif)
@@ -673,10 +708,14 @@ jaq -e 'type == "array"' /tmp/console.json
 cat > /tmp/nav.jsonl <<'JSONL'
 {"cmd":"goto","url":"https://example.com"}
 {"cmd":"wait","ms":400}
-{"cmd":"net","action":"list","resource_types":"Document,XHR"}
+{"cmd":"net","action":"list"}
 JSONL
 browser-automation-cli --capture-network --timeout 60 --json run --script /tmp/nav.jsonl
 ```
+- The capture buffer records `resourceType` next to `requestId`, `method` and `url`, so `resource_types` selects for real
+- A request the protocol sends without a type is stored as `Other`, a real CDP value, so it stays selectable instead of vanishing
+- A type outside the CDP vocabulary is refused with exit 2 before any browser starts, so an empty list means the page had no such resource
+- `dropped_oldest` counts entries the ring cap discarded, so a truncated answer says so instead of passing a subset off as the whole set; the cap is the XDG key `event_tracker_max_entries`
 - Create the script file in the recipe before `run`
 - Capture must be enabled on the same process that navigates
 - `net list` after a separate process sees no prior capture
@@ -705,7 +744,7 @@ cat > /tmp/emulate.browser-automation.jsonl <<'JSONL'
 {"cmd":"resize","width":390,"height":844}
 {"cmd":"view"}
 JSONL
-browser-automation-cli --timeout 90 --json run --script /tmp/emulate.browser-automation.jsonl
+browser-automation-cli --stealth-profile chrome-mac --timeout 90 --json run --script /tmp/emulate.browser-automation.jsonl
 
 # Standalone compose (no --device preset flag):
 # browser-automation-cli --json emulate \
@@ -713,6 +752,9 @@ browser-automation-cli --timeout 90 --json run --script /tmp/emulate.browser-aut
 #   --viewport "390x844x3,mobile,touch" \
 #   --network-conditions "Slow 3G"
 ```
+- Stealth is ON by default and refuses a `--user-agent` whose platform family contradicts the resolved profile
+- `--no-stealth` does NOT bypass that refusal, because it resolves the host profile instead of disabling the check
+- An iPhone user agent is the Apple family, so only `--stealth-profile chrome-mac` is coherent with it
 - There is no `--device` preset flag
 - Compose user agent, viewport, and network conditions yourself
 - Network presets include Offline, No throttling, Slow 3G, Fast 3G, Slow 4G, Fast 4G
@@ -742,6 +784,19 @@ browser-automation-cli --json crawl https://example.com --limit 10 --format mark
 - `--filter` is AND `key=value` / `key!=value` on batch/crawl pages
 - `--output-mode ndjson` streams one page object per stdout line
 
+
+
+## How To Read A Declared Sitemap Or A Feed
+```bash
+browser-automation-cli --json sitemap https://example.com --limit 200 \
+  --include-path /docs --exclude-path /admin --select urls,count
+browser-automation-cli --json feed https://example.com/feed.xml --select title,entries
+```
+- `sitemap` is `map --sitemap-only` with the flag fixed on: it reads the DECLARED document, the `robots.txt` `Sitemap:` hints and nested `sitemapindex`, and never walks the link graph
+- There is no `--depth` on `sitemap`, because a declared list is not a frontier and there is no link graph to bound
+- `feed` parses RSS, Atom and JSON Feed from the RAW body over the HTTP engine; it takes `--select`, `--header` and `--no-cache`
+- The HTML-shaping flags are absent from `feed` rather than ignored: a selector would destroy an XML or JSON document
+- Chrome is not offered for `feed`, because rendering a feed produces the browser XML viewer instead of the feed
 
 ## How To Scrape Multi-format
 ```bash
@@ -803,7 +858,9 @@ browser-automation-cli --json scrape https://example.com --format markdown --eng
   --webhook-url https://127.0.0.1:9000/hook
 ```
 - `--webhook-url` is a one-shot operator POST of the scrape result data
+- `crawl` and `batch-scrape` accept the same flag for the collection envelope
 - It is not product telemetry; the destination is under operator control
+- `crawl --include-regex` / `--exclude-regex` filter path or URL (invalid regex is usage, exit 2)
 
 
 ## How To Batch-scrape From a URLs File
@@ -888,7 +945,9 @@ browser-automation-cli --json qr decode --path /tmp/qr.png
 ## How To Process Images Locally (agent-native)
 ```bash
 # Download with SSRF + body cap + magic (no Chrome)
-browser-automation-cli --json image download 'https://example.com/a.png' -o /tmp/a.png
+# browser-automation-cli --json image download 'https://example.com/a.png' -o /tmp/a.png
+# Create the PNG locally so the recipe is self-contained (grab has no --url and needs a live page)
+printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"grab","format":"png","path":"/tmp/a.png"}' | browser-automation-cli --json run --script -
 # Compact envelope projection (anti-token)
 browser-automation-cli --json image info --path /tmp/a.png --select format,width,height,sha256
 # Convert (re-encode strips EXIF; local webp is lossless — quality applies to jpeg)
@@ -897,8 +956,12 @@ browser-automation-cli --json image convert --path /tmp/a.png --format webp -o /
 browser-automation-cli --json grab --format webp --path /tmp/g.webp
 # Upload converted file into a file input (Chrome one-shot / run)
 # --script takes a file path or `-` for NDJSON on stdin; inline JSON is not a form
-printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"upload","target":"input[type=file]","path":"/tmp/a.webp"}' | browser-automation-cli --json run --script -
+printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"eval","expression":"document.body.insertAdjacentHTML('"'"'beforeend'"'"','"'"'<input type=file>'"'"');'"'"'ok'"'"'"}' '{"cmd":"upload","target":"input[type=file]","path":"/tmp/a.webp"}' | browser-automation-cli --json run --script -
 ```
+- The file input is injected so the recipe is self-contained on a page that has none
+- On a real upload page that field already exists and the `eval` step does not
+- The commented `image download` line keeps the SSRF and body-cap teaching without depending on a URL that must exist
+- `grab` has no `--url`, so it runs inside `run` after a `goto` and shoots the live page
 - Never dumps pixel base64 by default (agent-native stdout)
 - Limits via XDG: `image_max_input_bytes`, `image_max_pixels`, `image_download_max_bytes`
 - Magic bytes decide format (extension is not trusted); AVIF/HEIC rejected; GIF `frame_count` is 1 (no multi-frame reassemble)
@@ -910,6 +973,9 @@ printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"upload","tar
 
 ## How To Process Videos Locally (agent-native)
 ```bash
+# Fabricate a deterministic input so the recipe is self-contained
+ffmpeg -nostdin -loglevel error -f lavfi -i testsrc=size=320x240:rate=10:duration=3 -f lavfi -i sine=frequency=440:duration=3 -c:v libx264 -c:a aac -shortest -y /tmp/in.mp4
+ffmpeg -nostdin -loglevel error -i /tmp/in.mp4 -c copy -f hls -hls_time 1 -hls_playlist_type vod -master_pl_name master.m3u8 -y /tmp/stream.m3u8
 # Probe magic + streams (ffprobe optional; JSON path/meta only — never raw media on stdout)
 browser-automation-cli --json video info --path /tmp/in.mp4 --select container,duration_secs,streams,sha256
 # agent aliases also work: --select format,bytes,path → container,size_bytes,path
@@ -926,8 +992,12 @@ browser-automation-cli --json video manifest --path /tmp/master.m3u8
 # browser-automation-cli --json video download 'https://example.com/clip.mp4' -o /tmp/in.bin
 # Upload into a form (reuse existing CDP upload)
 # --script takes a file path or `-` for NDJSON on stdin; inline JSON is not a form
-printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"upload","target":"input[type=file]","path":"/tmp/out.webm"}' | browser-automation-cli --json run --script -
+printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"eval","expression":"document.body.insertAdjacentHTML('"'"'beforeend'"'"','"'"'<input type=file>'"'"');'"'"'ok'"'"'"}' '{"cmd":"upload","target":"input[type=file]","path":"/tmp/out.webm"}' | browser-automation-cli --json run --script -
 ```
+- The file input is injected so the recipe is self-contained on a page that has none
+- On a real upload page that field already exists and the `eval` step does not
+- The two ffmpeg lines fabricate a deterministic input so the recipe is self-contained
+- In a real session the video comes from the user and those two lines do not exist
 - Requires optional OS `ffmpeg`/`ffprobe` (XDG `ffmpeg_path` / PATH); never links libav in the product crate
 - Limits via XDG: `video_max_input_bytes`, `video_download_max_bytes`, `video_default_container`, `video_default_crf`, `video_default_audio_bitrate`, `ffmpeg_timeout_secs`
 - Magic bytes decide container; extension is not trusted; path→path only (no full-file load in the CLI process)
@@ -982,7 +1052,7 @@ browser-automation-cli --json mitm start --seconds 30
 browser-automation-cli --json mitm status
 browser-automation-cli --json mitm list --limit 100
 browser-automation-cli --json mitm har --out /tmp/capture.har
-browser-automation-cli --json mitm redact --secrets
+browser-automation-cli --json mitm redact
 browser-automation-cli --json mitm domains
 browser-automation-cli --json mitm apis
 browser-automation-cli --json mitm graphql
@@ -1123,6 +1193,8 @@ browser-automation-cli --timeout 60 --json run --script /tmp/demo.array.json
 - Same process lifecycle: BORN EXECUTE FINALIZE DIE
 - Fail-fast errors may still include partial `data.steps`
 - Final envelope includes full `steps[].data` when `--json` is set
+- `{"cmd":"include","path":"other.ndjson"}` splices another script in at load time; it is expanded by preflight and never dispatched, so a typo in it fails before the browser starts
+- `include` reads `path` first, then `script`, then `file` — three spellings of one target, and the first present one wins
 
 
 ## How To Read Lighthouse binary_source
@@ -1152,10 +1224,10 @@ browser-automation-cli doctor --offline --quick --json
 # keys / type / hover / drag / upload (same process as navigation)
 cat > /tmp/interact.browser-automation.jsonl <<'JSONL'
 {"cmd":"goto","url":"https://example.com"}
-{"cmd":"keys","keys":"Tab"}
-{"cmd":"type","text":"hello"}
+{"cmd":"keys","key":"Tab"}
+{"cmd":"type","text":"hello","focus_only":true}
 {"cmd":"hover","target":"a"}
-{"cmd":"text"}
+{"cmd":"text","target":"h1"}
 {"cmd":"attr","selector":"a","name":"href"}
 {"cmd":"page","action":"list"}
 JSONL
@@ -1186,7 +1258,7 @@ browser-automation-cli --json perf --help >/dev/null
 browser-automation-cli --json resize --help >/dev/null
 browser-automation-cli completions bash >/dev/null
 ```
-- Every agent name appears in `commands --json` (**69**)
+- Every agent name appears in `commands --json` (**71**)
 - `select-option` / `pick` appear in inventory and run/schema only
 - Prefer `schema <name>` before inventing argv for gated surfaces
 
@@ -1215,7 +1287,7 @@ browser-automation-cli schema workflow --json
 browser-automation-cli schema locale --json
 browser-automation-cli schema man --json
 ```
-- `commands` lists the agent-facing surface (**69** names)
+- `commands` lists the agent-facing surface (**71** names)
 - `schema <cmd>` or `schema --cmd` prints a JSON Schema fragment for one command
 - Useful for tool registration in agent frameworks
 
@@ -1255,6 +1327,8 @@ browser-automation-cli --timeout 60 --json run --script /tmp/cookie.browser-auto
 ```
 - Cookie helpers operate on the active page in the same process
 - Optional URL filter exists on `cookie list --url`
+- `{"cmd":"cookie","action":"set","cookies":[...]}` takes objects whose accepted fields are those of the struct the product serialises cookies with, so what `cookie list` emits is exactly what `cookie set` accepts back
+- Those fields are `name`, `value`, `url`, `domain`, `path`, `expires`, `size`, `httpOnly`, `secure`, `session` and `sameSite`; CDP's `priority`, `partitionKey`, `sourceScheme`, `sourcePort` and `sameParty` are refused on purpose, because nothing else in the CLI models them
 
 
 ## How To List Console Messages
@@ -1286,11 +1360,163 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
 - URL assert supports exact match or contains semantics (`contains` or `url_contains`)
 - Text assert can target a selector via `target` or use `text_contains`
 
-## Full Command Inventory (69)
-- Live source of truth: `browser-automation-cli commands --json` (**69** agent-facing names)
-- Clap product surface is **66** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
+
+## How To Read One Attribute With attr
+```bash
+browser-automation-cli --json schema attr
+cat > /tmp/attr.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"attr","target":"a","name":"href"}
+JSONL
+browser-automation-cli --timeout 90 --json run --script /tmp/attr.browser-automation.jsonl
+```
+- `attr` takes two positional arguments, `<TARGET>` and `<NAME>`
+- The run step spells the same two arguments as `target` and `name`
+- The lookup falls back to the DOM property when the HTML attribute is absent
+- `attr` needs a live page, so a one-shot agent reaches it through `run --script`
+
+
+## How To Click an Element With press
+```bash
+browser-automation-cli --json schema press
+cat > /tmp/press.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"press","target":"a","include_snapshot":true}
+JSONL
+browser-automation-cli --timeout 120 --json run --script /tmp/press.browser-automation.jsonl
+```
+- `press` is the product name for the DevTools `click` action
+- Pass `--dblclick` on the CLI form or `"dblclick": true` in the run step for a double click
+- `include_snapshot` attaches a slim accessibility snapshot right after the click
+- The `@eN` refs of that snapshot live only inside this one process
+
+
+## How To Fill a Field With write
+```bash
+browser-automation-cli --json schema write
+cat > /tmp/write.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"eval","expression":"document.body.insertAdjacentHTML('beforeend','<input id=q>');'ok'"}
+{"cmd":"write","target":"#q","value":"example"}
+JSONL
+browser-automation-cli --timeout 120 --json run --script /tmp/write.browser-automation.jsonl
+```
+- `write` is a smart fill that covers text inputs, selects, checkboxes and radios
+- The CLI form is `write <TARGET> <VALUE>` with both arguments positional
+- Prefer `write` over `type` when you want the final value set in one shot
+- Every `eval` step invalidates the `@eN` refs, so re-run `view` after it
+
+
+## How To Send a Keyboard Key With keys
+```bash
+browser-automation-cli --json schema keys
+cat > /tmp/keys.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"keys","key":"Tab"}
+{"cmd":"keys","key":"Control+a"}
+JSONL
+browser-automation-cli --timeout 90 --json run --script /tmp/keys.browser-automation.jsonl
+```
+- The run step key is `key` in the singular, not `keys`
+- An unknown step key is accepted in silence with `ok` true, so confirm it against `schema keys`
+- Combinations use the `Control+a` shape with a plus sign
+- `keys` sends the key to whatever holds focus in the page right now
+
+
+## How To Hover an Element With hover
+```bash
+browser-automation-cli --json schema hover
+cat > /tmp/hover.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"hover","target":"a"}
+{"cmd":"view","detailed":true}
+JSONL
+browser-automation-cli --timeout 90 --json run --script /tmp/hover.browser-automation.jsonl
+```
+- `hover` moves the pointer over the target without clicking it
+- Use it to open a menu that only renders under the pointer
+- Follow it with `view` in the same process to read what the hover revealed
+- A missing target fails with `error.kind` browser and exit code 70
+
+
+## How To Drag Between Two Targets With drag
+```bash
+browser-automation-cli --json schema drag
+cat > /tmp/drag.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"eval","expression":"document.body.insertAdjacentHTML('beforeend','<div id=src draggable=true>s</div><div id=dst>d</div>');'ok'"}
+{"cmd":"drag","from":"#src","to":"#dst","synthetic_payload":{"items":[{"mimeType":"text/plain","data":"row-1"}],"dragOperationsMask":1}}
+JSONL
+browser-automation-cli --timeout 120 --json run --script /tmp/drag.browser-automation.jsonl
+```
+- `--from` is required and `--to` is optional only when you give `--to-x` and `--to-y`
+- `--anchor center|before|after` picks where inside the destination rect the drop lands
+- A page whose `dragstart` handler fills no `DataTransfer` item fails with `payload has no items array`
+- `synthetic_payload` bypasses that handler and MUST be a JSON object in the run step, never a string
+- The payload accepts `items`, `dragOperationsMask`, `files` and `data`, where `data` is the wrapper spelling for pages that emit the DragData fields one level down
+- Each object in `items` is CDP `DragDataItem` vocabulary: `mimeType` and `data` are required, `title` and `baseURL` are optional and accepted so a payload Chrome honours is never refused here
+
+
+## How To Walk History With back and forward
+```bash
+browser-automation-cli --json schema back
+browser-automation-cli --json schema forward
+cat > /tmp/history.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"press","target":"a"}
+{"cmd":"back"}
+{"cmd":"forward"}
+JSONL
+browser-automation-cli --timeout 120 --json run --script /tmp/history.browser-automation.jsonl
+browser-automation-cli --json back
+browser-automation-cli --json forward
+```
+- `back` and `forward` take no argument at all, on the CLI form and in the run step
+- Both answer with `data.navigation`, `data.title` and `data.url`
+- A standalone one-shot succeeds with exit code 0 and reports `about:blank`, because a fresh process has no history
+- Real history needs two navigations inside the SAME process, so use `run --script`
+
+
+## How To Page Captured Requests With net
+```bash
+browser-automation-cli --json schema net
+cat > /tmp/net.browser-automation.jsonl <<'JSONL'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"net","action":"list"}
+{"cmd":"net","action":"list","page_idx":0,"page_size":20}
+{"cmd":"net","action":"get","id":"0"}
+JSONL
+browser-automation-cli --capture-network --timeout 120 --json run --script /tmp/net.browser-automation.jsonl
+```
+- The capture buffer records `resourceType` next to `requestId`, `method` and `url`, so `resource_types` selects for real
+- A request the protocol sends without a type is stored as `Other`, a real CDP value, so it stays selectable instead of vanishing
+- A type outside the CDP vocabulary is refused with exit 2 before any browser starts, so an empty list means the page had no such resource
+- `dropped_oldest` counts entries the ring cap discarded, so a truncated answer says so instead of passing a subset off as the whole set; the cap is the XDG key `event_tracker_max_entries`
+- `net` only sees traffic when `--capture-network` rides on the SAME process
+- `net list` narrows with `--resource-types`, `--page-idx`, `--page-size` and `--include-preserved`
+- `net get <ID>` takes the 0-based index of `net list` or the CDP request id
+- `net get` writes bodies to disk with `--request-path` and `--response-path`
+- A process that never navigated answers `count` 0 with `ok` true, which is honest and not a failure
+
+
+## How To Record Replayable Steps With record
+```bash
+browser-automation-cli --json schema record
+browser-automation-cli --timeout 120 --json record --url https://example.com --path /tmp/rec.browser-automation.jsonl --seconds 3 --max-events 20
+browser-automation-cli --timeout 120 --json --json-steps run --script /tmp/rec.browser-automation.jsonl
+```
+- `record` is standalone and complete, because `--url` navigates for you
+- Both `--url` and `--path` are required
+- `--seconds` defaults to 30 and `--max-events` defaults to 200
+- The first ceiling reached wins, and `data.truncated` tells you which one did
+- The written file is `run --script` NDJSON, so the recording replays with no edit
+
+
+## Full Command Inventory (71)
+- Live source of truth: `browser-automation-cli commands --json` (**71** agent-facing names)
+- Clap product surface is **69** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53; lighthouse mock SKIP)
-- Full agent command list (all **69**):
+- Full agent command list (all **71**):
   - Meta / discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
@@ -1298,10 +1524,35 @@ browser-automation-cli --timeout 60 --json run --script /tmp/assert.browser-auto
   - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-step: `run`, `exec`, `record`
-  - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`
   - Local IO (no Chrome): `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
   - Emulation / perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
-- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
+- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
+- Twenty of the 71 root commands own subcommands, and the other 51 take their flags directly with no subcommand
+- Invoke a subcommand as family then verb, like `page close` or `heap take`
+- `assert url|text|console|console-empty|console-no-match`
+- `audio info|download|convert|trim`
+- `console list|get|clear|dump`
+- `cookie list|set|clear`
+- `devtools3p list|exec`
+- `dialog accept|dismiss`
+- `extension list|install|reload|trigger|uninstall`
+- `heap take|close|compare|summary|details|class-nodes|dominators|dup-strings|edges|retainers|paths|object-details`
+- `image info|convert|resize|download|exif`
+- `mitm status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|config|allow|redact`
+- `monitor check`
+- `net list|get`
+- `page info|list|new|select|close|tab-id`
+- `perf start|stop|insight`
+- `qr encode|decode`
+- `screencast start|stop`
+- `storage export|import`
+- `video info|download|convert|to-mp3|trim|thumbnail|manifest`
+- `webmcp list|exec`
+- `workflow run|resume|status`
+- Four families need a category flag: `heap` needs `--category-memory`, `extension` needs `--category-extensions`, `devtools3p` needs `--category-third-party` and `webmcp` needs `--category-webmcp`
+- `screencast` needs `--experimental-screencast`
+- `cookie clear` needs `--all`, and omitting that flag returns a usage error
 - Discover argv with `schema <name> --json` for any name above

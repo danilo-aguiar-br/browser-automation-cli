@@ -13,12 +13,12 @@
 - Superfície local de scrape / crawl / map / search / parse embarca como subcomandos de primeira classe
 - Helpers de artefato (`print-pdf`, `monitor`, `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) e chaves LLM XDG estendem fluxos de agente sem daemons
 - Defaults duráveis vivem em flags e XDG `config path|init|show|set|get`
-- v0.1.8 agent-first: família anti-detecção entregue; envelope de scrape unificado; inventário **69** vivo; **204** chaves XDG
+- v0.1.9 agent-first (família anti-detecção desde 0.1.8); envelope de scrape unificado; inventário **71** vivo; **217** chaves XDG; `doctor --fingerprint` nomeia `measurement_scope` e `unmeasured_os`
 - Herdado das versões anteriores: booleano `dialog_settled` após resposta real de diálogo; XDG `dialog_settle_ms`; grab só **png|jpeg|webp** (AVIF removido); run `wait_timeout_ms` + scrape `format`/`formats` (0.1.6 adicionou `submit`/`storage`; 0.1.7 adicionou `image`+`video`+`audio`+`record`)
 - Isolamento multi-aba de diálogo via `Page::session_id` / `dialog_map_key`; select nativo `via: native_select` (input e depois change)
 - Lei residual-zero de disco da v0.1.5 permanece corrente: GC Singleton em BORN + FINALIZE, doctor `residual_disk` / JSON `residual`, cmds meta `locale` e `man`
 - Config de produto: só flags + XDG (nunca env de produto); descubra chaves via `config list-keys --json`
-- GAP-021 parcial: fixtures unit LHR; e2e lighthouse mock **SKIP**. GAP-022 residual ~53 dups multi-versão aceitos. GAP-023/024 divergências intencionais de PRD em `parity_intentional_divergences.json`
+- GAP-021 parcial: fixtures unit LHR; e2e lighthouse mock **SKIP**. GAP-022 residual ~53 dups multi-versão aceitos. GAP-023/024 divergências intencionais de PRD
 - Carry-forward dos contratos de agente da v0.1.4: `--json-steps`, wait multi/url, pick/select-option, assert console, schema posicional, MITM capture-url, erros de usage clap em JSON
 
 
@@ -68,9 +68,9 @@
 - Passe sempre `--json` para parsing por máquina
 - Leia envelopes de sucesso e erro no stdout
 - Mantenha stderr só para logs humanos ou debug
-- Use `commands --json` para descobrir o inventário vivo (**69 nomes de agente**)
-- O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, submit, storage, select-option, pick, locale, man e tools de paridade DevTools (**69** no total, inclui `image`, `video`, `audio`; e2e 53 tools com lighthouse mock SKIP)
-- Nota: `select-option` e `pick` estão no inventário de agente **69** (`commands --json`) e usam-se via `run` / `exec` / `schema`; **não** são subcomandos clap standalone (superfície clap de produto é **67** nomes, excluindo `help`)
+- Use `commands --json` para descobrir o inventário vivo (**71 nomes de agente**)
+- O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, submit, storage, select-option, pick, locale, man e tools de paridade DevTools (**71** no total, inclui `image`, `video`, `audio`; e2e 53 tools com lighthouse mock SKIP)
+- Nota: `select-option` e `pick` estão no inventário de agente **71** (`commands --json`) e usam-se via `run` / `exec` / `schema`; **não** são subcomandos clap standalone (superfície clap de produto é **69** nomes, excluindo `help`)
 - Use `schema <name> --json` ou `schema --cmd <name> --json` antes de gerar argv de comandos pouco familiares
 - Prefira flags para controle pontual
 - Use `config init|set|get|path|show|list-keys` para defaults XDG duráveis
@@ -118,10 +118,16 @@
 - Localize sugestões humanas com `--lang pt-BR` ou `config set lang pt-BR` (só flags + XDG)
 - Inspecione locale resolvido com `locale --json`; gere man page com `man`
 - Após trabalho browser, espere residual-zero em disco quando sozinho: check do doctor `residual_disk` não `fail` e topo `residual` com zeros em `orphan_marker_dirs`, `ghost_marker_processes`, e (após DIE sozinho) `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes` é concorrência informativa; **não** exija zero `live_cli_marker_processes`
-- Erros de usage clap emitem JSON quando `--json` já está no argv
+- Erros de usage clap emitem JSON quando `--json` já está no argv (GAP-002)
 - Diálogo soft: `dialog accept --if-present` / `dialog dismiss --if-present`
-- Beforeunload: `goto` / `reload` com `--handle-before-unload accept|dismiss`
-- Página isolada: `page new --isolated-context` (contexto isolado nomeado/anon)
+- Beforeunload (GAP-003): `goto` / `reload` com `--handle-before-unload accept|dismiss`; campo run `handle_before_unload`
+- Contexto isolado (GAP-004): `page new --isolated-context [name]` (flag sozinha → `default-isolated`); run `isolated_context` string ou `true`
+- Install e uninstall de extension ficam intencionalmente fora do `run` (GAP-007); descubra por `schema` / `commands`
+- Superfície dupla de assert (GAP-014): CLI `assert url|text|console|console-empty|console-no-match` contra os kinds do run
+- `console dump` sempre grava um array JSON válido (`[]` quando vazio) (GAP-021)
+- Sucesso de wait multi-seletor pode incluir `matched_selector`; o `navigation` do run é booleano `true`
+- Alias multi-formato de scrape `--formats` onde houver suporte (GAP-018)
+- `print-pdf` recusa página em branco sem conteúdo navegado ou `url` (GAP-013)
 
 
 ## Integrações do Crate
@@ -150,14 +156,15 @@ fn main() {
 
 
 ## Descoberta de Superfície para Agentes
-- Inventário: `browser-automation-cli commands --json` (**69** nomes de agente)
+- Inventário: `browser-automation-cli commands --json` (**71** nomes de agente)
 - Fragments de input: `browser-automation-cli schema <name> --json` ou `schema --cmd <name> --json`
 - Paths de config: `browser-automation-cli config path --json`
 - Chaves de config: descubra com `config list-keys --json` (inclui `dialog_settle_ms`; nunca invente env de produto)
 - MITM: `mitm status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
 - Globais MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`, `--mitm-no-redact-secrets`
+- `--mitm-ws` reafirma o default: frames WebSocket são sempre capturados sob `--mitm`, então passar a flag não muda nada
 - Workflow: `workflow run|resume|status`
-- Superfície local de scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- Superfície local de scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`
 - Artefatos e IO local: `print-pdf`, `monitor check`, `qr encode|decode`, `image info|convert|resize|download|exif`, `video info|download|convert|to-mp3|trim|thumbnail|manifest`, `audio info|download|convert|trim`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
 - Forms / estado: `submit`, `storage export|import`, `select-option` / `pick` (inventário + run/exec; não clap standalone)
 - Meta: `locale` (diagnósticos de locale de UI), `man` (página man roff; sem Chrome)
@@ -168,11 +175,11 @@ fn main() {
 - Lighthouse: flag → XDG `lighthouse_path` → PATH; envelope `binary_source` é `real` ou `mock`; e2e mock é SKIP (nunca alegue PASS completo do parser lighthouse em e2e)
 
 
-## Inventário Completo de Comandos (69)
-- Fonte viva: `browser-automation-cli commands --json` (**69** nomes voltados a agentes)
-- Superfície clap de produto é **67** nomes (exclui `select-option` / `pick` de inventário de agente)
+## Inventário Completo de Comandos (71)
+- Fonte viva: `browser-automation-cli commands --json` (**71** nomes voltados a agentes)
+- Superfície clap de produto é **69** nomes (exclui `select-option` / `pick` de inventário de agente)
 - O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53; lighthouse mock SKIP)
-- Lista completa de comandos de agente (todos os **69**):
+- Lista completa de comandos de agente (todos os **71**):
   - Meta / descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
@@ -180,12 +187,12 @@ fn main() {
   - Observação: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Captura: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-passo: `run`, `exec`, `record`
-  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`
   - IO local (sem Chrome): `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
   - Emulação/perf: `emulate`, `resize`, `perf`, `heap`
   - Portões de categoria: `extension`, `devtools3p`, `webmcp`
-- Lista plana completa: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
+- Lista plana completa: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Descubra argv com `schema <name> --json` para qualquer nome acima
 
 ## Ciclo de Vida
@@ -199,7 +206,7 @@ fn main() {
 - Verifique com `doctor --offline --quick --json` → `residual` / check `residual_disk`
 
 
-## Contrato Técnico (v0.1.8)
+## Contrato Técnico (v0.1.9)
 ### REQUIRED
 - Passe `--json` para consumo programático
 - Trate um processo como um ciclo de vida de Chrome (BORN EXECUTE FINALIZE DIE)
@@ -218,7 +225,7 @@ fn main() {
 - Ramifique no campo `ok` do envelope
 - Mantenha gates de categoria e experimental explícitos quando necessários
 - Configure settings duráveis de produto só via `config` / flags (`--lang` + XDG para idioma)
-- Descubra comandos desconhecidos com `commands --json` (**69**) e `schema <cmd>` ou `schema --cmd`
+- Descubra comandos desconhecidos com `commands --json` (**71**) e `schema <cmd>` ou `schema --cmd`
 - Descubra chaves de config com `config list-keys --json` (nunca fixe contagem de chaves)
 - Após one-shots browser, trate residual-zero como parte do sucesso: inspecione `residual` do doctor ao diagnosticar leaks
 
@@ -229,7 +236,8 @@ fn main() {
 - Não parseie stderr como canal primário de sucesso
 - Não peça à CLI que mate ou apague residual de Chrome Flatpak do host
 - Não habilite bypass de robots sem a política dual-flag
-- Use só flags e `config` para settings de produto — **nunca** variáveis de ambiente de produto
+- Use só flags e `config` para settings de produto
+- Não invente variáveis de ambiente de produto para configuração (só flags + `config` XDG)
 - Não passe path posicional para `grab`; use `--path`
 - Não passe `grab --format avif` — encode AVIF foi removido (só png|jpeg|webp)
 - Não invente preset `--device` em `emulate`; use `--user-agent`, `--viewport`, `--network-conditions`
@@ -263,10 +271,12 @@ browser-automation-cli -q --json schema run
 browser-automation-cli -q --json --json-steps run --script '[{"cmd":"goto","url":"https://example.com"},{"cmd":"view"}]'
 browser-automation-cli -q --json mitm capture-url https://example.com --seconds 20
 browser-automation-cli -q --capture-console --json assert console-empty
+browser-automation-cli -q --timeout 60 --json goto https://example.com --handle-before-unload accept
+browser-automation-cli -q --json page new --isolated-context
 browser-automation-cli -q --json dialog accept --if-present
 browser-automation-cli -q --json config set dialog_settle_ms 2000
-browser-automation-cli -q --json goto https://example.com --handle-before-unload accept
-browser-automation-cli -q --json page new --isolated-context
+browser-automation-cli -q --capture-console --json console dump --path /tmp/console.json
+browser-automation-cli -q --json schema pick
 browser-automation-cli -q --json schema submit
 browser-automation-cli -q --json schema storage
 browser-automation-cli -q --json locale
@@ -286,8 +296,55 @@ browser-automation-cli -q --json doctor --offline --quick
 - Fragments vivos de input sempre vêm de `schema <cmd>` / `schema --cmd`; arquivos estáticos podem atrasar
 
 
+## Campos de Testemunho do Browser em Todo Envelope
+- Todo envelope de browser carrega cinco campos de testemunho, então um agente pode VERIFICAR o que o processo fez em vez de confiar na intenção que ele declarou
+- `browser_mode_requested` é o modo que foi pedido, antes da resolução
+- `browser_mode_effective` é o que o launch vai realmente fazer, `headless` ou `headed`
+- Ele difere do modo pedido exatamente sob `auto`, que é o caso que o chamador não enxerga de nenhuma outra forma
+- `browser_mode_source` nomeia o degrau de precedência que venceu, e vale `default`, `xdg` ou `flag`
+- Leia `browser_mode_source` primeiro quando o comportamento divergir do esperado, porque ele responde qual camada de configuração decidiu esta execução
+- `display_backend` é a superfície em que o browser desenha, e vale `headless`, `xvfb` ou `host`
+- `display_backend` NÃO se deduz de `browser_mode` sozinho, porque headed sobre display virtual privado não é a tela do operador
+- `runtime_enable_used` declara se este launch emitiu `Runtime.enable`
+- Compare duas execuções e o domínio aparece no instante em que você passa `--capture-console`, o que transforma "o caminho padrão não liga Runtime" em afirmação verificável em vez de prosa
+- `run` publica os cinco uma vez no topo de `data` e os remove de cada passo, porque eles são globais ao processo e não podem variar dentro de um processo
+
+
+## Modo Texto (sem `--json`)
+- Sem `--json` um comando responde UMA linha: `ok <verbo> chave=valor chave=valor`
+- Os nomes de campo são as chaves do próprio envelope, escritas de forma idêntica, então a linha e o JSON descrevem a mesma resposta
+- Arrays e objetos aparecem pela CARDINALIDADE, nunca pelo conteúdo: `keys=<217 items>`, `meta=<2 fields>`
+- Passe `--json` para obter os itens; o modo texto responde quantos, não quais
+- O `null` aparece como `chave=null` em vez de ser omitido, então campo vazio continua distinguível de campo ausente
+- Valor com espaço, aspas ou `=` é citado, então `title="Hello World"` não pode ser lido como dois campos
+- A ordem das chaves segue o envelope, então o mesmo comando responde a mesma linha todas as vezes
+- Este contrato é verificável por máquina: separe por espaços e depois no primeiro `=`
+- Até a 0.1.9 esses comandos imprimiam `ok <verbo> {json}` — o payload com um prefixo colado, ilegível para humano e para parser, e o `config list-keys` chegava a 23_248 bytes numa linha assim
+
+
+## O Que o `lang` Traduz, e o Que Não Traduz
+- A chave de config `lang` seleciona o idioma da `suggestion`, e NUNCA o da `message`
+- A `message` é o diagnóstico técnico e vem sempre em inglês, em qualquer locale
+- A `suggestion` é o remédio acionável e é a string que os catálogos carregam, em `en` e `pt-BR`
+- Medido em 2026-09-04: 439 sítios de `CliError::new` e 353 de `CliError::with_suggestion` nas fontes Rust, e nenhuma `message` passa pelo catálogo — o `tests/doc_measured_claims_gate.rs` remede os dois, porque número congelado em prosa envelhece sem avisar
+- É a mesma divisão que `rustc`, `git` e `docker` entregam, e é deliberada em vez de tradução inacabada
+- Diagnóstico é chave de busca: ele é colado numa issue, num grep de log e numa busca web, e traduzi-lo fragmenta cada uma dessas
+- Remédio é instrução para uma pessoa, então pertence ao idioma dessa pessoa
+- Parseie por `kind` e pelo código de saída, nunca pelo texto da `message`, que não carrega promessa de estabilidade em locale nenhum
+- Esta política vigorou sem ser declarada até a 0.1.9 — o comportamento já era este, e quem definia `lang` não tinha como distinguir divisão deliberada de tradução faltando
+
+
+## Chaves de Passo no `run --script`
+- Toda chave de passo OPCIONAL é lida em `snake_case` e em `camelCase`, e as duas grafias significam o mesmo
+- Os oito aliases são `includePreservedMessages`, `includePreservedRequests`, `serviceWorkerId`, `resourceTypes`, e `pageIdx` e `pageSize` nos passos `console` e `net`
+- O `docs/schemas/*.json` publica só a grafia `snake_case`, porque esses arquivos são gerados da superfície do `clap` e um passo de script nunca passa pelo `clap`
+- A tolerância existe porque um script é escrito à mão e por agentes que emitem JSON na caixa do próprio idioma, e passo ignorado em silêncio é pior que passo aceito duas vezes
+- Quem acrescentar chave opcional de passo acrescenta AS DUAS grafias ou NENHUMA, para isto seguir sendo uma regra em vez de uma lista de exceções
+- Medido em 2026-08-30: uma auditoria nomeou só `resourceTypes`, o que soava como um campo escapado; são oito, e corrigir só o nomeado teria deixado sete irmãos vivos sob um item marcado como fechado
+
+
 ## Reduzindo o Payload (nunca canalize por um processador JSON)
-- Estas flags são GLOBAIS e funcionam em todos os 69 comandos
+- Estas flags são GLOBAIS e funcionam em todos os 71 comandos
 - O binário as aplica sobre `data` antes de escrever, então o modelo nunca recebe o que descartaria
 - `--fields PATHS` projeta caminhos pontilhados (CSV) e mantém o aninhamento documentado
 - `--filter-rows EXPR` mantém linhas que casam `key=value`, `key!=value` ou `key~substring`; repetível e com AND
@@ -353,7 +410,7 @@ browser-automation-cli -q --json doctor --offline --quick
 
 
 ## Demais Flags Globais
-- Toda flag abaixo vale para os 69 comandos e é aceita antes ou depois do subcomando
+- Toda flag abaixo vale para os 71 comandos e é aceita antes ou depois do subcomando
 ### Saída e diagnóstico
 - `--json` emite o envelope de máquina; `--json-steps` acrescenta um envelope por passo dentro de `run`
 - `-q` / `--quiet` silencia a prosa no stderr; `--plain` remove ANSI da saída humana
@@ -365,6 +422,8 @@ browser-automation-cli -q --json doctor --offline --quick
 - `--timeout SEGS` limita a execução inteira; `--step-timeout SEGS` limita um passo de `run`
 - `--max-concurrency N` limita o fan-out dos comandos que têm algum
 ### Modo do browser e anti-detecção
+- `--browser-mode <auto|headless|headed>` é a grafia canônica, e `--headed` e `--headless` são atalhos para dois dos seus valores
+- `--headless` EXIGE execução headless e sobrepõe qualquer modo persistido, então "eu exijo headless" e "eu não disse nada" deixam de ser o mesmo argv
 - `--headed` renderiza uma janela real; no Linux ela vai para um display virtual privado quando há `Xvfb`
 - `--no-xvfb` mantém o lançamento headed no display do próprio operador
 - O `doctor` reporta `xvfb` com o comando de instalação da distribuição detectada; a CLI nunca instala nada
@@ -372,12 +431,25 @@ browser-automation-cli -q --json doctor --offline --quick
 - `auto` segue a plataforma do host, e um lançamento headless ainda recebe override de User-Agent para não anunciar `HeadlessChrome`
 - `--stealth-seed SEED` fixa a identidade para que ela seja estável entre processos
 - `--input-profile human|direct` e `--input-seed SEED` governam o ritmo de ponteiro e teclado
+- MEDIDO em 2026-09-04 nesta árvore: o custo do ritmo `human` cresce de forma superlinear com o tamanho digitado, 2281 ms para 1 caractere, 14236 ms para 2 e 95781 ms para 4, então cada dobra multiplica o custo por cerca de 6,5
+- Um `type` longo sob `human` esgota o `--timeout` e devolve exit 124
+- Contramedida para campos longos: passe `--input-profile direct` e reserve o `human` para entradas curtas
+- Este é um defeito ABERTO rastreado em `gaps.md`, e nunca um recurso de projeto
 - `--warmup` visita a raiz da origem antes; `--warmup-url URL` nomeia outra porta de entrada e implica `--warmup`
 - O cookie jar vive por um processo só; o envelope de scrape declara isso como `cookie_jar_persistent: false`
 - O `doctor` repete esse escopo no check `cookie_jar_scope`, então o limite é descoberto sem rodar scrape
+- `cookie clear` EXIGE `--all`, e um `cookie clear` sem a flag é erro de uso que o parser recusa com exit 2 antes de qualquer lançamento
+- O CDP não oferece limpeza parcial, então `--all` não restringe o escopo; ela obriga o chamador a DECLARAR o escopo
+- O `target_source` do envelope passa de `ambient` para `argv`, que é o que torna a escolha auditável depois do fato
+- Uma invocação de 0.1.8 que limpava o jar sem flag agora falha, porque um verbo irreversível não infere mais o próprio alvo
 - Use `storage export` e `storage import` para levar uma sessão entre invocações
 - O envelope reporta `profile_contradicts_host: true` quando o profile de stealth alega outra plataforma
 - Leia esse campo antes de culpar um bloqueio: TLS e HTTP/2 carregam a pilha real, diga o User-Agent o que disser
+- O envelope de `doctor --fingerprint` carrega `planned_version_source`, e o campo assume TRÊS valores: `null`, `chrome_binary` e `crate_table`
+- Ele é `null` sob stealth, que é o padrão, porque ali a tabela da crate É a identidade projetada e nada é sondado, então não há fonte a declarar
+- Ele é `chrome_binary` sob `--no-stealth` quando o major planejado foi lido do binário Chrome/Chromium que ESTE host lançaria
+- Ele é `crate_table` sob `--no-stealth` quando o binário NÃO pôde ser sondado e o plano caiu para a tabela da dependência
+- Leia `crate_table` como palpite e não como medição, ou você tratará um plano derivado da tabela como leitura do binário
 - Defaults da família anti-detecção, todos definidos por `config set` e nunca por variável de ambiente
 - `stealth` é `true`, `stealth_profile` é `auto` e `browser_mode` é `auto`
 - `stealth_seed` não tem default; defina só quando precisar de identidade estável
@@ -397,6 +469,9 @@ browser-automation-cli -q --json doctor --offline --quick
 ### Rede
 - `--proxy URL` roteia os dois motores; credenciais ficam no XDG por `config set proxy_url`, nunca no argv
 - `--proxy-bypass HOSTS` acrescenta hosts que pulam o proxy
+- `--min-delay-ms MS` define o piso de cortesia por origem apenas nesta invocação
+- A espera efetiva é o MÁXIMO entre a flag, o XDG `scrape_min_delay_ms` e o `Crawl-delay` do site
+- Tomar o máximo é deliberado: uma flag capaz de REDUZIR o `Crawl-delay` seria um jeito de ignorar o site
 - O loopback é ignorado automaticamente sob `--proxy`, porque o canal de controle CDP é loopback
 - Sem isso, uma falha de proxy aparece como timeout de inicialização do Chrome e culpa o componente errado
 - `config set cdp_proxy_bypass_loopback false` faz o opt-out
@@ -408,6 +483,13 @@ browser-automation-cli -q --json doctor --offline --quick
 - `--mitm-no-redact-secrets` é a única forma de desligar a mascaração
 - Pedir as duas ao mesmo tempo resolve para MASCARAR, porque a leitura segura de uma contradição sobre segredos é mascarar
 - `--mitm-max-body-bytes` limita o corpo capturado; o teto padrão é 65536 bytes
+- Esse teto corta o corpo RETIDO depois que ele já está residente, e um segundo teto, distinto, limita o corpo LIDO
+- Um corpo `chunked` acima de 8 MiB agora chega VAZIO, e `chunked` é todo corpo sem `content-length` declarado, que é a norma
+- Antes desse teto de leitura o par remoto decidia quanta memória este processo alocava
+- `mitm block` EXIGE o alvo no argv, seja `--host` ou `--path`
+- A requisição que casa uma regra é curto-circuitada com `204 No Content` antes de qualquer DNS ou conexão, e a recusa fica registrada na captura
+- O host casa sem diferenciar maiúsculas, o path casa por prefixo ancorado, e regra com os dois exige AMBOS
+- Antes da 0.1.9 a regra era escrita em `block_rules.json` atrás de um envelope `{"ok": true}` que nada relia, então o tráfego recusado passava intacto
 - `--mitm-no-media-bodies` descarta corpo de imagem, vídeo e áudio da captura
 - `--ignore-robots` exige também `--i-accept-robots-risk`; uma flag sozinha não contorna o robots
 ### Gates de recurso

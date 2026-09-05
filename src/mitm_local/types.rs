@@ -9,7 +9,8 @@ use serde_json::{json, Value};
 use crate::error::{CliError, ErrorKind};
 use crate::xdg;
 
-use super::util::{atomic_write, redact_headers};
+use super::redact::{redact_body, redact_headers, redact_url, redact_ws_preview};
+use super::util::atomic_write;
 
 /// Stable map type alias for headers.
 pub type BTreeMapString = std::collections::BTreeMap<String, String>;
@@ -57,6 +58,53 @@ pub struct CaptureError {
     pub detail: String,
     /// Wall-clock unix millis.
     pub ts_ms: u64,
+}
+
+/// One persisted `mitm block` rule: a host and/or a path prefix to refuse.
+///
+/// # Why this type exists now and not when `mitm block` shipped
+///
+/// `block_rule` wrote these objects to `block_rules.json` and answered
+/// `{"ok": true, "count": N}`, and nothing ever read the file back: no code
+/// path constructed `RequestOrResponse::Response`, so the short-circuit the
+/// `--help` text promised never happened. The command reported success for an
+/// effect it did not have, which is the same defect class this module's
+/// siblings already carry a note about — `--hosts` accepted and discarded,
+/// `--mitm-max-body-bytes` parsed and ignored. Reading the rules requires a
+/// shape to read them INTO, and that is this.
+///
+/// Both fields are optional, but `mitm block` refuses a rule with neither, so
+/// a persisted rule always constrains at least one dimension.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BlockRule {
+    /// Host to refuse, matched case-insensitively against the request host.
+    #[serde(default)]
+    pub host: Option<String>,
+    /// Path PREFIX to refuse, matched against the request path.
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+impl BlockRule {
+    /// True when this rule refuses the given request.
+    ///
+    /// A rule with both fields requires BOTH to match: an operator who names a
+    /// host and a path asked to block that path ON that host, and treating it
+    /// as an OR would silently widen the block to every host.
+    #[must_use]
+    pub fn matches(&self, host: Option<&str>, path: &str) -> bool {
+        let host_ok = match self.host.as_deref() {
+            None => true,
+            Some(h) => host.is_some_and(|got| got.eq_ignore_ascii_case(h)),
+        };
+        let path_ok = match self.path.as_deref() {
+            None => true,
+            Some(p) => path.starts_with(p),
+        };
+        // An empty rule would match everything; `mitm block` rejects one, and
+        // refusing it here too keeps a hand-edited file from blanking the proxy.
+        (self.host.is_some() || self.path.is_some()) && host_ok && path_ok
+    }
 }
 
 /// Ceiling on retained exchanges and errors.
@@ -113,11 +161,18 @@ impl MitmCapture {
         }
     }
 
-    /// Record a WebSocket frame (capped).
-    pub fn push_ws(&mut self, frame: CapturedWsFrame) {
+    /// Record a WebSocket frame (capped, secrets masked).
+    ///
+    /// This path had NO redaction gate at all until 2026-09-01, while `push` and
+    /// `complete` had one each. An authenticated socket sends its auth frame
+    /// first, so the token sat at the top of every capture of one.
+    pub fn push_ws(&mut self, mut frame: CapturedWsFrame) {
         if self.ws_frames.len()
             < crate::xdg::policy::policy_usize(crate::xdg::policy::key::MITM_WS_FRAMES_CAP)
         {
+            if self.redact {
+                redact_ws_preview(&mut frame.preview);
+            }
             self.ws_frames.push(frame);
         }
     }
@@ -142,6 +197,13 @@ impl MitmCapture {
         if self.redact {
             redact_headers(&mut ex.request_headers);
             redact_headers(&mut ex.response_headers);
+            // The gate covered headers only. A token in `?api_key=` or in a JSON
+            // body went to disk in the clear while the capture called itself
+            // redacted, so the operator's one signal that masking happened was
+            // true about one surface out of three.
+            redact_url(&mut ex.url);
+            redact_body(&mut ex.request_body);
+            redact_body(&mut ex.response_body);
         }
         ex.id = self.next_id;
         self.next_id += 1;
@@ -160,10 +222,14 @@ impl MitmCapture {
         status: u16,
         mut headers: BTreeMapString,
         content_type: Option<String>,
-        body: Option<String>,
+        mut body: Option<String>,
     ) {
         if self.redact {
             redact_headers(&mut headers);
+            // Same reason the headers are redacted twice: the response body is
+            // not known at insert time, so masking only in `push` would let
+            // every response payload through untouched.
+            redact_body(&mut body);
         }
         if let Some(ex) = self.items.get_mut(slot) {
             ex.status = Some(status);

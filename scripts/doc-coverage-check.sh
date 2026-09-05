@@ -23,6 +23,12 @@
 # CLEAN STDOUT: one status line per assertion on stdout; diagnostics on stderr.
 set -uo pipefail
 
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -56,12 +62,50 @@ bad() {
 
 echo "== doc coverage (live binary surface vs public prose) =="
 
+# NAME the binary this run measured, and say when it is not the one this tree
+# builds.
+#
+# Measured 2026-08-29: with no `target/release` present, resolution fell through
+# to `~/.cargo/bin/browser-automation-cli` and the gate reported "the live
+# command count is 69" against a tree whose binary carries 71 — `feed` and
+# `sitemap` were missing from the installed build. Eleven documents were then
+# "corrected" away from the truth, because the gate had measured a DIFFERENT
+# product and said so nowhere.
+#
+# A version check would not have caught it: both binaries print 0.1.9. Inside a
+# development cycle the version is a name, not a fingerprint, so the only honest
+# signal is the PATH the gate actually opened. Printing it costs one line and
+# turns a silent substitution into something a reader can see.
+# Normalise before comparing. `BIN=./target/release/...` is a path INSIDE this
+# tree that a literal prefix match against "$ROOT/target/" rejects, so the first
+# shape of this check warned about the correct binary — a false alarm on the
+# very gate written to catch a false measurement.
+BIN_ABS="$(cd "$(dirname "$BIN")" 2>/dev/null && pwd)/$(basename "$BIN")"
+echo "   binary: $BIN_ABS"
+case "$BIN_ABS" in
+  "$ROOT/target/"*) ;;
+  *)
+    # This compares a PATH, so say that and not more. A binary built with
+    # `cargo build --target-dir <elsewhere>` is current and still lands here,
+    # and claiming it "is not built from this tree" would be false. What the
+    # check actually knows is that it cannot vouch for the binary's age, which
+    # is the part worth telling.
+    echo "   NOTE: that binary is outside this tree's target/, so this check" >&2
+    echo "         cannot tell whether it was built from the sources being" >&2
+    echo "         audited. Confirm it is current, or set BIN= to one under" >&2
+    echo "         $ROOT/target/." >&2
+    ;;
+esac
+
 CONFIG_EN="docs/CONFIGURATION.md"
 CONFIG_PT="docs/CONFIGURATION.pt-BR.md"
 
 # ── 1. Every live XDG key must be documented, in both languages ──────────
 # Read from the binary, never from a transcribed list.
-mapfile -t LIVE_KEYS < <("$BIN" --json config list-keys 2>/dev/null | jaq -r '.data.keys[].key')
+# `mapfile` is a bash 4 builtin and macOS ships bash 3.2, so every array read
+# in this file uses the portable read loop below instead (2026-09-04).
+LIVE_KEYS=()
+while IFS= read -r __line; do LIVE_KEYS+=("$__line"); done < <("$BIN" --json config list-keys 2>/dev/null | jaq -r '.data.keys[].key')
 if [[ "${#LIVE_KEYS[@]}" -lt 2 ]]; then
   bad "could not read the live XDG key list from the binary"
 else
@@ -109,7 +153,8 @@ if [[ -f "$CONFIG_EN" && "${#LIVE_KEYS[@]}" -gt 1 ]]; then
 fi
 
 # ── 2. Every live command must be named in the entry-point documents ─────
-mapfile -t LIVE_CMDS < <("$BIN" --json commands 2>/dev/null | jaq -r '.data.commands[]')
+LIVE_CMDS=()
+while IFS= read -r __line; do LIVE_CMDS+=("$__line"); done < <("$BIN" --json commands 2>/dev/null | jaq -r '.data.commands[]')
 if [[ "${#LIVE_CMDS[@]}" -lt 2 ]]; then
   bad "could not read the live command list from the binary"
 else
@@ -202,8 +247,12 @@ while IFS= read -r hit; do
 # `CLAUDE.md` and `AGENTS.md` at the root are agent instruction files for OTHER
 # tools and are excluded from the tarball; they legitimately document a
 # `--select` belonging to a different binary.
+# `base_*/` holds gitignored reference material that `Cargo.toml` already
+# excludes from the package. The glob is generic on purpose: naming a single
+# vendor directory both left the sibling ones scanned and wrote a product name
+# this repository must not carry.
 done < <(rg -n -i --glob '*.md' --glob '*.txt' \
-  -g '!gaps.md' -g '!CLAUDE.md' -g '!AGENTS.md' -g '!MEMORY.md' -g '!base_firecrawl/**' \
+  -g '!gaps.md' -g '!CLAUDE.md' -g '!AGENTS.md' -g '!MEMORY.md' -g '!base_*/**' \
   'global|GLOBAIS|globais|every command|todos os .. comandos|all .. commands' . 2>/dev/null || true)
 if [[ "$scope_violations" -ne 0 ]]; then
   bad "$scope_violations documentation line(s) present a per-command flag as global"
@@ -363,7 +412,12 @@ else
       while IFS= read -r phrase; do
         [[ -z "$phrase" ]] && continue
         number="${phrase%%[![:digit:]]*}"
-        lowered="${phrase,,}"
+        # `${var,,}` is bash 4 case expansion and macOS ships bash 3.2, where it
+        # is a `bad substitution` at RUNTIME — measured 2026-09-04, printing the
+        # error and then falling through with `lowered` unset, so every phrase
+        # took the `*)` arm and was compared against the COMMAND count. The
+        # check reported nothing and looked green. `tr` is POSIX.
+        lowered="$(printf '%s' "$phrase" | tr '[:upper:]' '[:lower:]')"
         case "$lowered" in
           *keys | *chaves) expected="$LIVE_KEY_COUNT" noun="XDG key" ;;
           *) expected="$LIVE_CMD_COUNT" noun="command" ;;
@@ -454,7 +508,8 @@ fi
 # describes it. Measured on 2026-08-10: twelve globals shipped in 0.1.8 with no
 # mention in either embedded skill.
 skill_flag_gaps=0
-mapfile -t GLOBAL_FLAGS < <("$BIN" --help 2>&1 |
+GLOBAL_FLAGS=()
+while IFS= read -r __line; do GLOBAL_FLAGS+=("$__line"); done < <("$BIN" --help 2>&1 |
   rg -o -r '$1' '^\s+(?:-\w,\s+)?(--[a-z][a-z0-9-]*)' | sort -u)
 if [[ "${#GLOBAL_FLAGS[@]}" -lt 2 ]]; then
   bad "could not read the live global flag list from the binary"

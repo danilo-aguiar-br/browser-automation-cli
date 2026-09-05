@@ -24,6 +24,12 @@
 #
 # CLEAN STDOUT: one status line on stdout; diagnostics on stderr.
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -45,14 +51,25 @@ fi
 #   EXPECTED_CLAP  = EXPECTED minus the surfaces reachable only through `exec`
 #                    (`select-option`, `pick`), which is what docs call the
 #                    "clap product surface".
-#   STALE_COUNT    = EXPECTED - 1 (previous tip size the docs must not claim)
-EXPECTED=69
-EXPECTED_CLAP=67
-STALE_COUNT=$((EXPECTED - 1))
+#   STALE_COUNTS   = every previous tip size the docs must not claim
+#
+# WHY STALE_COUNTS IS A LIST AND NOT `EXPECTED - 1`
+#   That formula assumed the inventory grows one name at a time. On 2026-08-28
+#   it grew by TWO (`sitemap`, `feed`), so `EXPECTED - 1` became 70 — a size the
+#   product never had — while ~90 doc sites still claimed 69 and would have
+#   passed in silence. That is the exact false-green family this header already
+#   describes twice; the formula reproduced it the first time it was tested by
+#   a jump larger than one.
+EXPECTED=71
+EXPECTED_CLAP=69
+STALE_COUNTS=(69 70)
+# Interpolated ~35 times inside `stale_re`; a regex alternation keeps every one
+# of those call sites unchanged.
+STALE_COUNT="($(IFS='|'; printf '%s' "${STALE_COUNTS[*]}"))"
 fail=0
 
-if ! command -v jaq >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
-  echo "inventory-flat-check: FAIL (need jaq or python3)" >&2
+if ! command -v jaq >/dev/null 2>&1; then
+  echo "inventory-flat-check: FAIL (need jaq)" >&2
   echo "inventory-flat-check: FAIL"
   exit 1
 fi
@@ -64,15 +81,15 @@ if [[ -z "$json" ]]; then
   exit 1
 fi
 
-if command -v jaq >/dev/null 2>&1; then
-  count="$(printf '%s' "$json" | jaq -r '.data.commands | length' 2>/dev/null || echo 0)"
-  has_image="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="image")' 2>/dev/null || echo false)"
-  has_video="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="video")' 2>/dev/null || echo false)"
-  has_audio="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="audio")' 2>/dev/null || echo false)"
-  has_record="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="record")' 2>/dev/null || echo false)"
-else
-  eval "$(printf '%s' "$json" | python3 -c 'import sys,json; d=json.load(sys.stdin); cmds=d.get("data",{}).get("commands",[]); names=[c.get("name") if isinstance(c,dict) else c for c in cmds]; print(f"count={len(names)}"); print(f"has_image={\"true\" if \"image\" in names else \"false\"}"); print(f"has_video={\"true\" if \"video\" in names else \"false\"}"); print(f"has_audio={\"true\" if \"audio\" in names else \"false\"}"); print(f"has_record={\"true\" if \"record\" in names else \"false\"}")')"
-fi
+# `jaq` is the only JSON reader in this gate. The second branch that used to sit
+# here parsed the same envelope in another language; it went away with the rest
+# of the Python surface, because a gate that reaches for an interpreter the
+# product does not ship fails on any host without it.
+count="$(printf '%s' "$json" | jaq -r '.data.commands | length' 2>/dev/null || echo 0)"
+has_image="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="image")' 2>/dev/null || echo false)"
+has_video="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="video")' 2>/dev/null || echo false)"
+has_audio="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="audio")' 2>/dev/null || echo false)"
+has_record="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="record")' 2>/dev/null || echo false)"
 
 if [[ "${count}" != "$EXPECTED" ]]; then
   echo "inventory-flat-check: FAIL (commands count=${count} expected=${EXPECTED})" >&2
@@ -170,16 +187,79 @@ for doc in "${STALE_TARGETS[@]}"; do
   fi
 done
 
-# Clap product surface must not lag the inventory either (HOW_TO + ARCHITECTURE).
-for doc in docs/HOW_TO_USE.md docs/HOW_TO_USE.pt-BR.md docs/ARCHITECTURE.md docs/ARCHITECTURE.pt-BR.md; do
+# ── Structural sweep on the four tip-claim files ────────────────────────────
+#
+# WHY THIS EXISTS ALONGSIDE `stale_re`
+#   `stale_re` enumerates roughly thirty-five PHRASES, so it only catches a
+#   stale count written the way someone already wrote it once. On 2026-08-28
+#   `CONTRIBUTING.pt-BR.md` carried a bold **69** inside a parenthetical about
+#   0.1.7 history, in a sentence no phrase in that alternation describes, and
+#   the gate passed it while its English twin wrote the same 69 unbolded.
+#
+# WHY IT IS SCOPED TO FOUR FILES AND TO THE INVENTORY LINE
+#   The first cut swept every STALE_TARGET and produced fifteen false
+#   positives, because 69 is BOTH a stale inventory size and the CURRENT clap
+#   surface: `clap product surface is **69**` is correct and must stay. The
+#   number alone cannot say which quantity it counts, so the check is limited
+#   to the line that names the inventory, in the four files that already carry
+#   the tip-claim assertions above. Everything wider needs the two quantities
+#   to stop sharing a value, which is not something a gate can arrange.
+for doc in CONTRIBUTING.md CONTRIBUTING.pt-BR.md INTEGRATIONS.md INTEGRATIONS.pt-BR.md; do
   [[ -f "$doc" ]] || continue
-  if rg -qn "[Cc]lap product surface is \\*\\*(6[0-6]|[1-5][0-9])\\*\\*|superfície clap.*\\*\\*(6[0-6]|[1-5][0-9])\\*\\*|clap product surface is ${EXPECTED_CLAP}|subcommand count is 66|subcomandos clap de produto é \\*\\*66\\*\\*|product subcommand count is 66" "$doc" 2>/dev/null; then
-    echo "inventory-flat-check: FAIL (${doc} clap surface below ${EXPECTED_CLAP} or stale 66)" >&2
-    rg -n "[Cc]lap product surface is \\*\\*(6[0-6]|[1-5][0-9])\\*\\*|superfície clap.*\\*\\*(6[0-6]|[1-5][0-9])\\*\\*|subcommand count is 66|subcomandos clap de produto é \\*\\*66\\*\\*|product subcommand count is 66" "$doc" 2>/dev/null >&2 || true
+  if bold_stale="$(rg -n "^.*[Ii]nvent(ory|ário|ario).*\*\*${STALE_COUNT}\*\*.*$" "$doc" 2>/dev/null)"; then
+    echo "inventory-flat-check: FAIL (${doc} bolds a stale inventory size ${STALE_COUNT} on an inventory line)" >&2
+    printf '%s\n' "$bold_stale" | head -n 3 >&2
     fail=1
   fi
 done
 
+# ── Clap product surface must equal the live value, in every document ──────────
+#
+# REWRITTEN 2026-08-28. The rule used to ENUMERATE stale values; it now COMPARES
+# against `EXPECTED_CLAP`. Three defects drove that change, and each was
+# invisible for its own reason.
+#
+#   SCOPE — the loop visited four files, and the comment that stood here said so:
+#   "(HOW_TO + ARCHITECTURE)". `docs/COOKBOOK.md:1469` carried `Clap product
+#   surface is **66** names`, 66 being the very value the old alternation spelled
+#   out as stale in three places, and the gate reported OK because it never
+#   opened the file. `doc-coverage-check.sh` missed it too, so the line sat
+#   outside BOTH counting gates rather than only one.
+#
+#   RANGE BELOW — `6[0-6]` stops at 66, so **67** and **68** fell through even in
+#   a file that WAS in scope. `docs/MIGRATION.md:258` said `Tip clap product
+#   surface is **67** names` against a live 69: not a stale label but a FALSE
+#   number, in the only gap between the known-obsolete value and the right one.
+#
+#   RANGE ABOVE — an enumeration of values BELOW the target can never catch a
+#   claim above it. `clap product surface is **71**` is just as false as **66**,
+#   because 71 is the AGENT inventory and 69 is the clap surface, and the two
+#   sharing a document is exactly how they get swapped. Equality closes both
+#   directions at once and needs no maintenance when the number moves.
+#
+# THERE IS DELIBERATELY NO HISTORICAL EXEMPTION. An earlier cut skipped any line
+# carrying a `0.1.` marker, which would have skipped `Tip 0.1.9 clap product
+# surface is **69**` — the single most important line to check. Present tense is
+# the signal instead: a sentence that says the surface IS a number is claiming
+# the tip and must match it, while a historical note says "listed" or "was" and
+# never matches this phrase. Measured across twenty-five documents: twenty lines
+# match, all twenty say 69, zero exemptions needed.
+CLAP_PHRASE_RE="([Cc]lap product surface is"
+CLAP_PHRASE_RE+="|[Cc]lap product subcommand count is"
+CLAP_PHRASE_RE+="|[Ss]uperfície clap de produto[^*]{0,28}"
+CLAP_PHRASE_RE+="|subcomandos clap de produto é) ?\\*\\*([0-9]+)\\*\\*"
+for doc in "${STALE_TARGETS[@]}"; do
+  [[ -f "$doc" ]] || continue
+  while IFS= read -r hit; do
+    [[ -z "$hit" ]] && continue
+    claimed="$(printf '%s' "$hit" | rg -o "$CLAP_PHRASE_RE" -r '$2' | head -n 1)"
+    if [[ -n "$claimed" && "$claimed" != "$EXPECTED_CLAP" ]]; then
+      echo "inventory-flat-check: FAIL (${doc} claims clap surface ${claimed}, live value is ${EXPECTED_CLAP})" >&2
+      printf '%s\n' "$hit" >&2
+      fail=1
+    fi
+  done < <(rg -n "$CLAP_PHRASE_RE" "$doc" 2>/dev/null || true)
+done
 # ── Agent-facing surfaces must name record + live count (contrib/skills/integrations) ──
 # Phrase-family membership: gate scope must cover every tip claim surface, not only README.
 for doc in CONTRIBUTING.md CONTRIBUTING.pt-BR.md INTEGRATIONS.md INTEGRATIONS.pt-BR.md; do
@@ -206,122 +286,141 @@ for skill in skills/browser-automation-cli-en/SKILL.md skills/browser-automation
 done
 
 # ── Skills set-equality vs live commands (blocks CSV missing a name while count phrase stays) ──
-if command -v python3 >/dev/null 2>&1; then
-  set +e
-  skill_eq_out="$(
-    EXPECTED_N="$EXPECTED" BIN_PATH="$BIN" python3 - <<'PY'
-import json, os, re, subprocess, sys
-expected = int(os.environ["EXPECTED_N"])
-bin_path = os.environ["BIN_PATH"]
-raw = subprocess.check_output([bin_path, "--json", "commands"], text=True)
-data = json.loads(raw)
-cmds = data.get("data", {}).get("commands", [])
-live = []
-for c in cmds:
-    if isinstance(c, dict):
-        live.append(c.get("name") or "")
-    else:
-        live.append(str(c))
-live = [n for n in live if n]
-live_set = set(live)
-if len(live) != expected or len(live_set) != expected:
-    print(f"live_invalid n={len(live)} uniq={len(live_set)} expected={expected}")
-    sys.exit(2)
-skills = [
-    "skills/browser-automation-cli-en/SKILL.md",
-    "skills/browser-automation-cli-pt/SKILL.md",
-]
-pat = re.compile(
-    r"(?:MUST recognize all|DEVE conhecer estes)\s+(\d+)\s*[—\-]\s*(.+)$",
-    re.M,
+# Ported from Python to jaq + rg + bash on 2026-08-18. Same assertions, same
+# report shape: live inventory must be EXPECTED distinct names, each SKILL.md
+# must carry the claim line, and its CSV must be set-equal to the live names
+# with `record` present. The port removes the interpreter, not a single check.
+render_list() {
+  # Render a name list the way the old report did: [] or ['a', 'b'].
+  local out="" item
+  for item in "$@"; do
+    [[ -n "$out" ]] && out+=", "
+    out+="'${item}'"
+  done
+  printf '[%s]' "$out"
+}
+
+# `mapfile` is a bash 4 builtin and macOS ships bash 3.2, so every array read
+# in this file uses the portable read loop below instead. bash 3.2 also aborts
+# on "${arr[@]}" of an empty array under `set -u`, hence the `[@]+` guards on
+# every expansion that can legitimately see zero elements (2026-09-04).
+live_names=()
+while IFS= read -r __line; do live_names+=("$__line"); done < <(
+  printf '%s' "$json" |
+    jaq -r '.data.commands[] | (if type=="object" then (.name // "") else tostring end)' 2>/dev/null |
+    rg -v '^\s*$' || true
 )
-fail = 0
-for path in skills:
-    try:
-        text = open(path, encoding="utf-8", errors="replace").read()
-    except OSError as e:
-        print(f"{path}: read_error={e}")
-        fail = 1
-        continue
-    m = pat.search(text)
-    if not m:
-        print(f"{path}: NO_SKILL_LINE")
-        fail = 1
-        continue
-    claim = int(m.group(1))
-    names = [t.strip() for t in m.group(2).split(",") if t.strip()]
-    sset = set(names)
-    missing = sorted(live_set - sset)
-    extra = sorted(sset - live_set)
-    ok = (
-        claim == expected
-        and len(names) == expected
-        and len(sset) == expected
-        and not missing
-        and not extra
-        and "record" in sset
-    )
-    print(
-        f"{path}: claim={claim} n={len(names)} uniq={len(sset)} "
-        f"missing={missing} extra={extra} record={'record' in sset}"
-    )
-    if not ok:
-        fail = 1
-sys.exit(2 if fail else 0)
-PY
-  )"
-  skill_eq_ec=$?
-  set -e
-  if [[ "$skill_eq_ec" -ne 0 ]]; then
+live_uniq_n="$(printf '%s\n' "${live_names[@]+"${live_names[@]}"}" | LC_ALL=C sort -u | rg -c '^' || echo 0)"
+
+if [[ "${#live_names[@]}" -ne "$EXPECTED" || "$live_uniq_n" -ne "$EXPECTED" ]]; then
+  echo "inventory-flat-check: FAIL (skills set-eq vs live):" >&2
+  echo "live_invalid n=${#live_names[@]} uniq=${live_uniq_n} expected=${EXPECTED}" >&2
+  fail=1
+else
+  live_sorted="$(printf '%s\n' "${live_names[@]}" | LC_ALL=C sort -u)"
+  skill_eq_report=""
+  skill_eq_fail=0
+  for path in skills/browser-automation-cli-en/SKILL.md skills/browser-automation-cli-pt/SKILL.md; do
+    if [[ ! -f "$path" ]]; then
+      skill_eq_report+="${path}: read_error=no such file"$'\n'
+      skill_eq_fail=1
+      continue
+    fi
+    claim_line="$(
+      rg -N -o -m1 '(?:MUST recognize all|DEVE conhecer estes)\s+\d+\s*[—\-]\s*.+$' "$path" 2>/dev/null || true
+    )"
+    if [[ -z "$claim_line" ]]; then
+      skill_eq_report+="${path}: NO_SKILL_LINE"$'\n'
+      skill_eq_fail=1
+      continue
+    fi
+    # ALTERNATION, NOT A BRACKET (measured 2026-08-26)
+    #   This was `[—-]`, and a bracket expression matches BYTES. The em-dash is
+    #   three bytes (E2 80 94), so under the `LC_ALL=C` that ci-check.sh exports
+    #   the class consumed only the FIRST byte and the other two fell into the
+    #   capture: the pt-BR list came back as `\x80\x94 doctor, commands` and the
+    #   gate reported `missing=['doctor'] extra=['?? doctor']` against a
+    #   perfectly valid UTF-8 document.
+    #
+    #   The en file separates with an ASCII hyphen and the pt file with an
+    #   em-dash, so ONLY pt failed — and only inside ci-check. Run on its own,
+    #   under a UTF-8 locale, this verifier passed. A verdict that flips with
+    #   the caller's locale measures the caller, not the tree.
+    #
+    #   `(—|-)` matches the character as a unit in both locales; it costs one
+    #   capture group, so the CSV moved from index 3 to index 4.
+    if [[ ! "$claim_line" =~ (MUST\ recognize\ all|DEVE\ conhecer\ estes)[[:space:]]+([0-9]+)[[:space:]]*(—|-)[[:space:]]*(.+)$ ]]; then
+      skill_eq_report+="${path}: NO_SKILL_LINE"$'\n'
+      skill_eq_fail=1
+      continue
+    fi
+    claim="${BASH_REMATCH[2]}"
+    csv="${BASH_REMATCH[4]}"
+    names=()
+    IFS=',' read -r -a raw_names <<<"$csv"
+    for tok in "${raw_names[@]}"; do
+      tok="${tok#"${tok%%[![:space:]]*}"}"
+      tok="${tok%"${tok##*[![:space:]]}"}"
+      [[ -n "$tok" ]] && names+=("$tok")
+    done
+    skill_sorted="$(printf '%s\n' "${names[@]}" | LC_ALL=C sort -u)"
+    uniq_n="$(printf '%s\n' "$skill_sorted" | rg -c '^' || echo 0)"
+    missing=()
+    while IFS= read -r __line; do missing+=("$__line"); done < <(comm -23 <(printf '%s\n' "$live_sorted") <(printf '%s\n' "$skill_sorted"))
+    extra=()
+    while IFS= read -r __line; do extra+=("$__line"); done < <(comm -13 <(printf '%s\n' "$live_sorted") <(printf '%s\n' "$skill_sorted"))
+    has_rec=False
+    if printf '%s\n' "${names[@]}" | rg -qx 'record'; then has_rec=True; fi
+    skill_eq_report+="${path}: claim=${claim} n=${#names[@]} uniq=${uniq_n} missing=$(render_list "${missing[@]+"${missing[@]}"}") extra=$(render_list "${extra[@]+"${extra[@]}"}") record=${has_rec}"$'\n'
+    if [[ "$claim" -ne "$EXPECTED" || "${#names[@]}" -ne "$EXPECTED" || "$uniq_n" -ne "$EXPECTED" ||
+      "${#missing[@]}" -ne 0 || "${#extra[@]}" -ne 0 || "$has_rec" != "True" ]]; then
+      skill_eq_fail=1
+    fi
+  done
+  if [[ "$skill_eq_fail" -ne 0 ]]; then
     echo "inventory-flat-check: FAIL (skills set-eq vs live):" >&2
-    printf '%s\n' "$skill_eq_out" >&2
+    printf '%s' "$skill_eq_report" >&2
     fail=1
   fi
 fi
 
 # ── llms* flat list: cardinality + uniqueness (blocks record,record false-green) ──
-if command -v python3 >/dev/null 2>&1; then
-  for llms in llms.txt llms-full.txt llms.pt-BR.txt llms-full.pt-BR.txt; do
-    [[ -f "$llms" ]] || continue
-    set +e
-    py_out="$(
-      EXPECTED_N="$EXPECTED" LLMS_PATH="$llms" python3 - <<'PY'
-import os, re, sys
-from collections import Counter
-path = os.environ["LLMS_PATH"]
-expected = int(os.environ["EXPECTED_N"])
-text = open(path, encoding="utf-8", errors="replace").read()
-m = re.search(
-    r"(?:Full inventory|Inventário completo)[^\n]*?:\s*(.+)",
-    text,
-    re.I,
-)
-if not m:
-    print("NO_INVENTORY_LINE")
-    sys.exit(0)
-body = m.group(1).strip()
-tokens = [t.strip() for t in body.split(",") if t.strip()]
-if tokens:
-    tokens[-1] = tokens[-1].rstrip(".")
-c = Counter(tokens)
-dups = sorted([k for k, v in c.items() if v > 1])
-n = len(tokens)
-uniq = len(c)
-has_record = "record" in c
-print(f"n={n};uniq={uniq};dups={dups!r};record={has_record}")
-if n != expected or uniq != expected or not has_record or dups:
-    sys.exit(2)
-sys.exit(0)
-PY
-    )"
-    py_ec=$?
-    set -e
-    if [[ "$py_ec" -ne 0 ]]; then
-      echo "inventory-flat-check: FAIL (${llms} flat list invalid: ${py_out})" >&2
-      fail=1
-    fi
+# Ported from Python to rg + bash on 2026-08-18. Same four assertions on the
+# flat inventory line: EXPECTED tokens, EXPECTED distinct tokens, no duplicate,
+# `record` present. A file without the line still SKIPS, as before.
+for llms in llms.txt llms-full.txt llms.pt-BR.txt llms-full.pt-BR.txt; do
+  [[ -f "$llms" ]] || continue
+  body="$(
+    rg -N -o -i -m1 -r '$1' '(?:Full inventory|Inventário completo)[^\n]*?:\s*(.+)' "$llms" 2>/dev/null || true
+  )"
+  if [[ -z "$body" ]]; then
+    # NO_INVENTORY_LINE — the old comparator exited 0 here, and so does this one.
+    continue
+  fi
+  tokens=()
+  IFS=',' read -r -a raw_tokens <<<"$body"
+  for tok in "${raw_tokens[@]}"; do
+    tok="${tok#"${tok%%[![:space:]]*}"}"
+    tok="${tok%"${tok##*[![:space:]]}"}"
+    [[ -n "$tok" ]] && tokens+=("$tok")
   done
-fi
+  if [[ "${#tokens[@]}" -gt 0 ]]; then
+    last_idx=$((${#tokens[@]} - 1))
+    last_tok="${tokens[$last_idx]}"
+    while [[ "$last_tok" == *. ]]; do last_tok="${last_tok%.}"; done
+    tokens[$last_idx]="$last_tok"
+  fi
+  n="${#tokens[@]}"
+  uniq="$(printf '%s\n' "${tokens[@]}" | LC_ALL=C sort -u | rg -c '^' || echo 0)"
+  dups=()
+  while IFS= read -r __line; do dups+=("$__line"); done < <(printf '%s\n' "${tokens[@]}" | LC_ALL=C sort | uniq -d)
+  has_record=False
+  if printf '%s\n' "${tokens[@]}" | rg -qx 'record'; then has_record=True; fi
+  if [[ "$n" -ne "$EXPECTED" || "$uniq" -ne "$EXPECTED" || "$has_record" != "True" || "${#dups[@]}" -ne 0 ]]; then
+    echo "inventory-flat-check: FAIL (${llms} flat list invalid: n=${n};uniq=${uniq};dups=$(render_list "${dups[@]+"${dups[@]}"}");record=${has_record})" >&2
+    fail=1
+  fi
+done
 
 
 # ── Capability parity: what AGENTS teaches, HOW_TO_USE must also teach ──────
@@ -342,11 +441,12 @@ done
 
 # ── Negative sweep: the excised OCR surface must not be TAUGHT again ─────────
 EXCISED_RE='(image ocr|--engine +ocrs|--ocr-lang|config set +(ocr_engine|ocr_lang|tesseract_path)|`(ocr_engine|ocr_lang|tesseract_path)`)'
-mapfile -t doc_targets < <(
+doc_targets=()
+while IFS= read -r __line; do doc_targets+=("$__line"); done < <(
   fd -e md -e txt --max-depth 2 . README.md docs/ skills/ 2>/dev/null
   fd -e md -e txt --max-depth 1 . . 2>/dev/null
 )
-for doc in "${doc_targets[@]}"; do
+for doc in "${doc_targets[@]+"${doc_targets[@]}"}"; do
   [[ -f "$doc" ]] || continue
   case "$doc" in
     */CHANGELOG*.md | CHANGELOG*.md | ./CHANGELOG*.md) continue ;;

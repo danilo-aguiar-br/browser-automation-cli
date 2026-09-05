@@ -24,6 +24,12 @@ mod fields;
 mod forms;
 mod inspect;
 mod navigate;
+
+// Payload readers preflight shares with the dispatcher, so a missing
+// `expression` or `url` is a usage error decided from argv instead of after a
+// browser launch. Re-exported rather than duplicated: one definition.
+pub(crate) use inspect::{eval_expression, eval_expression_error};
+pub(crate) use navigate::{goto_url, goto_url_error};
 mod pointer;
 mod wait;
 

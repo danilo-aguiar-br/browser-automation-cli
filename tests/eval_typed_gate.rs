@@ -24,39 +24,17 @@
 //!
 //! No binary or no Chrome means SKIP LOUDLY.
 
-use std::path::PathBuf;
-use std::process::Command;
+mod common;
+use common::{binary, binary_or_skip, chrome_not_ready};
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn binary() -> Option<PathBuf> {
-    let p = root().join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
+const GATE: &str = "eval_typed_gate";
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    let Some(bin) = binary() else {
-        eprintln!(
-            "SKIP eval_typed_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    let Some(bin) = binary_or_skip(GATE) else {
         return true;
     };
-    let chrome_ok = Command::new(&bin)
-        .args(["-q", "--json", "doctor", "--offline", "--quick"])
-        .output()
-        .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if !chrome_ok {
-        eprintln!(
-            "SKIP eval_typed_gate: doctor reports the host is not ready for Chrome. \
-             This is NOT a pass."
-        );
+    if chrome_not_ready(GATE, &bin) {
         return true;
     }
     false
@@ -65,22 +43,27 @@ fn cannot_run() -> bool {
 /// Run a script and return the payload of every `eval` step, in order.
 fn eval_payloads(steps: &[&str]) -> Option<Vec<serde_json::Value>> {
     let bin = binary()?;
-    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("eval-typed-gate-{}-{n}", std::process::id()));
-    std::fs::create_dir_all(&dir).ok()?;
+    // A `TempDir` and not a pid+counter path: the counter only ever resolved
+    // COLLISION between the threads of this one binary, never cleanup, so an
+    // assertion that panicked left the directory behind for good. The guard is
+    // bound to a NAMED variable on purpose — `let _ = ...` drops it on the spot
+    // and deletes the script before the child process can read it.
+    let scratch = tempfile::Builder::new()
+        .prefix("bac-eval-typed-gate-")
+        .tempdir()
+        .ok()?;
+    let dir = scratch.path();
     let script = dir.join("steps.jsonl");
 
     let mut lines = vec![r#"{"cmd":"goto","url":"about:blank"}"#.to_string()];
     lines.extend(steps.iter().map(|s| (*s).to_string()));
     std::fs::write(&script, lines.join("\n")).ok()?;
 
-    let out = Command::new(&bin)
+    let out = common::isolated_cmd(&bin)
         .args(["-q", "--timeout", "90", "--json", "run", "--script"])
         .arg(&script)
         .output()
         .ok()?;
-    let _ = std::fs::remove_dir_all(&dir);
 
     let env: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
     Some(

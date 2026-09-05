@@ -28,6 +28,15 @@ const HTTP2_FRAME_SIZE_MAX: u32 = 16_777_215;
 ///
 /// Returns `Ok(false)` when `key` belongs to another family, so the caller
 /// falls through to its own match without treating it as an unknown key.
+///
+/// # Errors
+///
+/// [`ErrorKind::Usage`] when `proxy_url` carries a scheme other than
+/// `http`/`https`/`socks5`/`socks5h`, when an HTTP/2 window or header-list value
+/// fails its integer validator, when `http2_max_frame_size` falls outside
+/// `16384..=16777215` (RFC 9113 §6.5.2), or when a boolean knob carries a token
+/// outside [`BOOL_TOKENS`](super::validate::BOOL_TOKENS). Keys of another family
+/// return `Ok(false)` rather than an error.
 pub(super) fn apply_network_set(
     cfg: &mut ProductConfig,
     key: &str,

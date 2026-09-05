@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::cli::ConfigAction;
-use crate::commands::common::emit_ok;
+use crate::commands::common::emit_ok_summary;
 use crate::error::CliError;
 
 pub(crate) fn handle_config(action: ConfigAction, json: bool) -> Result<(), CliError> {
@@ -14,7 +14,5 @@ pub(crate) fn handle_config(action: ConfigAction, json: bool) -> Result<(), CliE
         ConfigAction::Get { key } => crate::xdg::config_get(key.as_deref())?,
         ConfigAction::ListKeys => crate::xdg::config_list_keys()?,
     };
-    emit_ok(data, json, |d| {
-        crate::output::writeln_stdout(format!("ok config {d}"))
-    })
+    emit_ok_summary(data, json, "config")
 }

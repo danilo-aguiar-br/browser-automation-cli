@@ -5,12 +5,45 @@
   "type": "object",
   "description": "Local search (HTTP SERP links or URL map)",
   "properties": {
+    "country": {
+      "argv": "--country",
+      "description": "Country code for the search region, e.g. `br` (endpoint-dependent)",
+      "required": false,
+      "source": "parser",
+      "step_key": "country",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
     "dedup_key": {
       "argv": "--dedup-key",
       "description": "Deduplicate results by field",
       "required": false,
       "source": "parser",
       "step_key": "dedup_key",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "exclude_domains": {
+      "argv": "--exclude-domains",
+      "description": "Drop results whose host matches one of these domains (CSV)",
+      "required": false,
+      "source": "parser",
+      "step_key": "exclude_domains",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "include_domains": {
+      "argv": "--include-domains",
+      "description": "Keep only results whose host matches one of these domains (CSV)",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_domains",
       "surfaces": [
         "argv"
       ],
@@ -39,6 +72,17 @@
       ],
       "type": "string"
     },
+    "search_lang": {
+      "argv": "--search-lang",
+      "description": "Language code for the search region, e.g. `pt` (endpoint-dependent)",
+      "required": false,
+      "source": "parser",
+      "step_key": "search_lang",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
     "select": {
       "argv": "--select",
       "description": "Project data fields (CSV)",
@@ -56,6 +100,23 @@
       "required": false,
       "source": "parser",
       "step_key": "sort",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "time_filter": {
+      "argv": "--time-filter",
+      "description": "Limit results to a recency window: d, w, m or y (endpoint-dependent)",
+      "enum": [
+        "d",
+        "w",
+        "m",
+        "y"
+      ],
+      "required": false,
+      "source": "parser",
+      "step_key": "time_filter",
       "surfaces": [
         "argv"
       ],

@@ -18,6 +18,22 @@ use super::fs_ops::{get_sessions_dir, is_encrypted_state};
 use super::types::StorageState;
 
 /// Capture cookies and web storage from the live browser into a state file.
+///
+/// # Errors
+///
+/// Fails with the cookie read error from
+/// [`get_all_cookies`](crate::native::cookies::get_all_cookies), with
+/// `"Failed to serialize state: …"`, with
+/// `"Failed to create state directory <dir>: …"` when `path` is `None` and the
+/// sessions directory cannot be made, with the session-name error when
+/// `session_name` is not a valid one, with the encryption error when
+/// `encryption_key` is configured, and with
+/// `"Failed to write state to <path>: …"` on the final disk write.
+///
+/// Storage collection is deliberately best-effort: a refused
+/// `Page.getFrameTree`, an origin whose storage cannot be read, and a failed
+/// temp-target sweep are all skipped, so the state file is written with fewer
+/// origins rather than not written at all.
 pub async fn save_state(
     client: &CdpClient,
     session_id: &str,
@@ -158,6 +174,21 @@ pub(crate) async fn read_state_json_async(path: &str) -> Result<String, String> 
 ///
 /// Storage is replayed per origin, which requires navigating to each one: the
 /// browser refuses writes to another origin's storage.
+///
+/// # Errors
+///
+/// Fails with the read error from the state file — including
+/// `"Encrypted state file requires config set encryption_key (XDG config)"`,
+/// a wrong key, and `"Decrypted state is not valid UTF-8: …"` — with
+/// `"Invalid state file: …"` when the JSON does not deserialize into a
+/// `StorageState`, with the cookie write error from
+/// [`set_cookies`](crate::native::cookies::set_cookies), and with the CDP
+/// error raised by the `Page.navigate` that visits each origin.
+///
+/// Individual `localStorage.setItem` / `sessionStorage.setItem` evaluations
+/// are best-effort: an origin that refuses storage — third-party cookies
+/// blocked, or a quota exceeded — is skipped silently, so restore can report
+/// success with less state than the file held.
 pub async fn load_state(client: &CdpClient, session_id: &str, path: &str) -> Result<(), String> {
     // PAR-77: never fs::read on async worker for state restore.
     let json_str = read_state_json_async(path).await?;

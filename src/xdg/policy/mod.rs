@@ -33,9 +33,7 @@ mod validate;
 #[cfg(test)]
 mod tests;
 
-pub use access::{
-    is_policy_key, policy_i32, policy_millis, policy_secs, policy_u32, policy_u64, policy_usize,
-};
+pub use access::{policy_millis, policy_secs, policy_u32, policy_u64, policy_usize};
 pub use knobs::{
     key, policy_apply_raw, policy_default, policy_list_entries, policy_pairs, policy_set,
     policy_stored, PolicyConfig, POLICY_KEYS,

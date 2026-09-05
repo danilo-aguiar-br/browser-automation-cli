@@ -6,6 +6,19 @@ use crate::native::cdp::client::CdpClient;
 use crate::native::element::{resolve_element_center, RefMap};
 
 /// Real mouse click at the element's centre, scrolling it into view first.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_center`]
+/// — unknown `@eN` ref, a selector matching nothing, or an overlay covering
+/// the computed centre — and the CDP error raised by any
+/// `Input.dispatchMouseEvent` in the move / press / release sequence.
+///
+/// A JavaScript dialog opening mid-click is **not** an error: it is reported
+/// through `ClickResult::dialog_opened`, together with the
+/// `pending_release` the caller needs to finish the gesture once the dialog is
+/// answered.
 pub async fn click(
     client: &CdpClient,
     session_id: &str,
@@ -39,6 +52,11 @@ pub async fn click(
 }
 
 /// Two clicks close enough in time and space to register as a double-click.
+///
+/// # Errors
+///
+/// Propagates [`click`] with `click_count: 2`: an element that does not
+/// resolve, a covered centre, or a refused `Input.dispatchMouseEvent`.
 pub async fn dblclick(
     client: &CdpClient,
     session_id: &str,
@@ -63,6 +81,14 @@ pub async fn dblclick(
 /// Under `human` the pointer travels there; a single jump to the centre reports
 /// the same final position but produces one `mousemove` where a hand produces a
 /// stream, and never crosses whatever lies between origin and target.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_center`]
+/// and the CDP error raised by any `Input.dispatchMouseEvent` along the path.
+/// A dialog opening mid-travel ends the move early and is reported as
+/// success, because a hover has no button to release.
 pub async fn hover(
     client: &CdpClient,
     session_id: &str,
@@ -91,6 +117,18 @@ pub async fn hover(
 }
 
 /// Drag from one element center to another via CDP mouse events.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_center`]
+/// for `from` and then for `to`, fails with
+/// `"drag endpoints must share the same frame/session"` when the two resolve
+/// in different sessions — input events are dispatched per session, so a
+/// cross-frame drag has no single coordinate space — and otherwise carries
+/// the CDP error raised by any `Input.dispatchMouseEvent` in the
+/// press / move / release sequence. A failure mid-sequence leaves the mouse
+/// button held.
 pub async fn drag(
     client: &CdpClient,
     session_id: &str,
@@ -128,6 +166,13 @@ pub async fn drag(
 }
 
 /// Click at page coordinates (vision / experimental path).
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by any `Input.dispatchMouseEvent` in the
+/// move / press / release sequence. Nothing is resolved first, so coordinates
+/// outside the viewport — or over no element at all — are not an error: the
+/// events are dispatched and the page ignores them.
 pub async fn click_at(
     client: &CdpClient,
     session_id: &str,
@@ -142,6 +187,14 @@ pub async fn click_at(
 /// Touch tap, for pages that listen for touch rather than mouse events.
 ///
 /// Requires touch emulation to be on; without it the page sees nothing.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_center`]
+/// and the CDP error raised by either `Input.dispatchTouchEvent` — which is
+/// what Chrome answers when touch emulation is off. A failure between
+/// `touchStart` and `touchEnd` leaves the touch point down.
 pub async fn tap_touch(
     client: &CdpClient,
     session_id: &str,

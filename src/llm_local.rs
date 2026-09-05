@@ -17,9 +17,10 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use zeroize::Zeroize;
 
-use crate::constants::{DEFAULT_LLM_HTTP_TIMEOUT_SECS, HTTP_REDIRECT_MAX, HTTP_USER_AGENT};
+use crate::constants::{DEFAULT_LLM_HTTP_TIMEOUT_SECS, HTTP_USER_AGENT};
 use crate::error::{CliError, ErrorKind};
 use crate::xdg;
+use crate::xdg::policy::{key, policy_usize};
 
 /// Wall-clock timeout for the process-wide LLM/webhook blocking HTTP client.
 ///
@@ -42,7 +43,9 @@ pub fn shared_blocking_http_client() -> Result<&'static reqwest::blocking::Clien
         .timeout(Duration::from_secs(total))
         .connect_timeout(Duration::from_secs(connect))
         .user_agent(HTTP_USER_AGENT)
-        .redirect(reqwest::redirect::Policy::limited(HTTP_REDIRECT_MAX))
+        .redirect(reqwest::redirect::Policy::limited(policy_usize(
+            key::HTTP_REDIRECT_MAX,
+        )))
         .tcp_nodelay(true)
         .no_proxy()
         .build()
@@ -80,7 +83,7 @@ fn require_api_key() -> Result<ApiKey, CliError> {
 }
 
 /// Base URL from XDG only (fail closed — no hardcoded third-party default).
-pub fn require_base_url() -> Result<String, CliError> {
+fn require_base_url() -> Result<String, CliError> {
     xdg::llm_base_url()
         .map(|s| s.trim().trim_end_matches('/').to_string())
         .filter(|s| !s.is_empty())
@@ -94,7 +97,7 @@ pub fn require_base_url() -> Result<String, CliError> {
 }
 
 /// Model from XDG only (fail closed — no hardcoded model default).
-pub fn require_model() -> Result<String, CliError> {
+fn require_model() -> Result<String, CliError> {
     xdg::llm_model()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -108,7 +111,7 @@ pub fn require_model() -> Result<String, CliError> {
 }
 
 /// Call chat completions with retry/backoff (one-shot; no daemon).
-pub fn chat_completion(
+pub(crate) fn chat_completion(
     system: &str,
     user: &str,
     schema_hint: Option<&str>,

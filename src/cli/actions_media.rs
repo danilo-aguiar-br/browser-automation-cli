@@ -26,6 +26,9 @@ pub enum PerfAction {
     },
     /// Analyze one insight from a stopped trace
     Insight {
+        /// Trace file to analyze offline, instead of the live session
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        path: Option<std::path::PathBuf>,
         /// Insight name (e.g. DocumentLatency, LCPBreakdown)
         #[arg(long)]
         name: Option<String>,
@@ -62,6 +65,13 @@ pub enum HeapAction {
         /// Heap snapshot file (`.heapsnapshot`)
         #[arg(long, value_hint = ValueHint::FilePath)]
         path: std::path::PathBuf,
+        /// Navigate here before capturing (default: `about:blank`)
+        ///
+        /// Without it the one-shot session snapshots a blank page, which is a
+        /// correct measurement of nothing. Robots policy applies to the
+        /// navigation exactly as it does for `goto`.
+        #[arg(long, value_hint = ValueHint::Url)]
+        url: Option<String>,
     },
     /// Release an open heap snapshot handle
     Close {
@@ -180,7 +190,7 @@ pub enum HeapAction {
         #[arg(long)]
         node: u64,
         /// Maximum path length walked back towards a GC root
-        #[arg(long, default_value_t = 8)]
+        #[arg(long, default_value_t = crate::constants::HEAP_RETAINERS_MAX_DEPTH)]
         max_depth: u64,
         /// Stop after visiting this many nodes (anti-pathological guard)
         #[arg(long)]

@@ -11,6 +11,13 @@ use super::super::OneShotSession;
 
 impl OneShotSession {
     /// Hover the pointer over a target (ref, selector, or role).
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when no page is active, and with `"hover failed: …"` — carrying the
+    /// `target_ref_from_view` suggestion — when `target` resolves to no
+    /// element, its centre is covered, or a pointer event is refused.
     pub async fn hover(&mut self, target: &str, include_snapshot: bool) -> Result<Value, CliError> {
         self.drain_events();
         let session_id = self
@@ -39,6 +46,12 @@ impl OneShotSession {
     }
 
     /// Drag from one target to another (HTML5 intercept when available).
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`drag_ex`](Self::drag_ex) with `to` as the destination: an
+    /// endpoint that resolves to no element, endpoints in different frames, or
+    /// a refused input event.
     pub async fn drag(
         &mut self,
         from: &str,
@@ -71,6 +84,26 @@ impl OneShotSession {
     ///
     /// The chosen route is always reported in `route`.
     /// Extended drag with explicit coordinates and synthetic payload options.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Usage`] when
+    /// `req` names no destination — neither `to` nor both `to_x` and `to_y` —
+    /// checked before any resolution so a missing destination is never
+    /// reported as "source element not found"; when the two endpoints resolve
+    /// in different frames or sessions, which have no common coordinate space;
+    /// and when `synthetic_payload` is not a valid CDP `DragData`.
+    ///
+    /// Fails with [`ErrorKind::Browser`] —
+    /// `"drag failed: …"` — when no page is active, when either endpoint
+    /// resolves to no element, when the mouse gesture is refused, and when an
+    /// intercepted payload cannot be normalized into a `DragData`.
+    ///
+    /// A browser without `Input.setInterceptDrags`, and an interception that
+    /// never fires, are **not** errors: both degrade to a synthetic mouse
+    /// gesture, reported through `route` plus a `warning` that says the page's
+    /// own drop handler was not proven to run. The half-open gesture is always
+    /// released and interception always disarmed before that fallback.
     pub async fn drag_ex(
         &mut self,
         req: DragRequest,

@@ -48,6 +48,24 @@ impl OneShotSession {
     /// Empty `formats` defaults to `text` (agent-first: no HTML dump). Multi-format
     /// requests share one CDP HTML fetch and [`crate::scrape_local::build_formats_map`].
     /// Scrape with optional settle wait after navigation (`wait_ms`).
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`goto`](Self::goto) for the target navigation: a robots
+    /// refusal, a `file:` URL outside the allowed roots, a navigation timeout,
+    /// or a browser-reported navigation error. The optional warm-up
+    /// navigation is deliberately exempt — it is a preparation, not a result,
+    /// and its failure is only traced.
+    ///
+    /// Fails with [`ErrorKind::Blocked`]
+    /// when the rendered page is a bot check, detected from the body, the
+    /// final URL and the title together. That is exit **6** and not a
+    /// success with a CAPTCHA as content: the remediation is another engine,
+    /// a proxy, or waiting — never a retry of the same request.
+    ///
+    /// Fails with [`ErrorKind::Usage`] for an
+    /// unknown format name, and propagates the multi-format builder when
+    /// several formats are requested.
     pub async fn scrape_with_wait(
         &mut self,
         url: &str,
@@ -75,6 +93,14 @@ impl OneShotSession {
     }
 
     /// Extract page content in the requested formats (empty formats → text).
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`scrape_with_wait`](Self::scrape_with_wait) with no settle
+    /// wait: a robots refusal, a navigation failure,
+    /// [`ErrorKind::Blocked`] for a bot
+    /// check, or [`ErrorKind::Usage`] for an
+    /// unknown format name.
     pub async fn scrape(
         &mut self,
         url: &str,
@@ -223,6 +249,19 @@ impl OneShotSession {
     }
 
     /// Accessibility tree with agent-facing `@eN` refs.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the session has no active page, and with
+    /// [`ErrorKind::Browser`] —
+    /// `"view/snapshot failed: …"`, carrying the `navigate_first` suggestion —
+    /// when `DOM.enable` / `Accessibility.enable` is refused or the tree walk
+    /// fails.
+    ///
+    /// A page with no interactive elements is not an error: the tree comes
+    /// back with `ref_count: 0`. The ref map is cleared BEFORE the walk, so a
+    /// failure here also invalidates every `@eN` minted earlier in this
+    /// process.
     pub async fn view(&mut self, verbose: bool) -> Result<Value, CliError> {
         self.drain_events();
         let session_id = self.session_id()?;

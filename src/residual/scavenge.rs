@@ -37,7 +37,7 @@ pub fn scavenge_stale_singleton_orphans() -> Vec<PathBuf> {
 
 /// Same as [`scavenge_stale_singleton_orphans`] with an explicit age floor.
 ///
-/// Production uses [`STALE_MIN_AGE_SECS`](super::constants::STALE_MIN_AGE_SECS).
+/// Production uses [`STALE_MIN_AGE_SECS`].
 /// Tests may pass `Duration::ZERO` to force immediate GC of fixture paths.
 pub fn scavenge_stale_singleton_orphans_with_min_age(min_age: Duration) -> Vec<PathBuf> {
     scavenge_stale_singleton_orphans_in_roots(&residual_scan_roots(), min_age)
@@ -46,7 +46,7 @@ pub fn scavenge_stale_singleton_orphans_with_min_age(min_age: Duration) -> Vec<P
 /// [`scavenge_stale_singleton_orphans_with_min_age`] over explicit roots.
 ///
 /// The age floor is what keeps the default roots safe: a profile younger than
-/// [`STALE_MIN_AGE_SECS`](super::constants::STALE_MIN_AGE_SECS) is never a
+/// [`STALE_MIN_AGE_SECS`] is never a
 /// candidate, so the gap between `create_dir_all` and Chrome appearing in the
 /// process table cannot be collected. A caller that lowers the floor to zero
 /// **removes that protection** and must therefore also narrow the roots to

@@ -32,7 +32,7 @@ pub(crate) async fn collect_annotations(
     }
 
     // Bounded concurrent CDP resolve (rules_rust_paralelismo: no unbounded join_all).
-    let cdp_limit = crate::concurrency::effective_limit_capped(32);
+    let cdp_limit = crate::concurrency::effective_limit_capped(crate::concurrency::CDP_FANOUT_CAP);
     let resolve_futures: Vec<_> = with_backend_ids
         .iter()
         .map(|(_, _, backend_node_id)| {

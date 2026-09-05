@@ -15,6 +15,7 @@
 
 mod browser;
 mod ctx;
+mod discovery;
 mod gates;
 mod meta;
 mod ops;
@@ -32,7 +33,7 @@ pub(crate) use ctx::{result_code, DispatchCtx};
 /// so dispatch never needlessly takes ownership of values it only reads.
 pub(crate) fn route(cmd: Commands, ctx: &DispatchCtx<'_>) -> i32 {
     match cmd {
-        Commands::Doctor(a) => meta::doctor(ctx, a.offline, a.quick, a.fix),
+        Commands::Doctor(a) => meta::doctor(ctx, a.offline, a.quick, a.fix, a.fingerprint),
         Commands::Commands { detail } => meta::commands(ctx, detail),
         Commands::Schema(a) => meta::schema(ctx, a.cmd.as_deref(), a.cmd_positional.as_deref()),
         Commands::Version => meta::version(ctx),
@@ -119,7 +120,7 @@ pub(crate) fn route(cmd: Commands, ctx: &DispatchCtx<'_>) -> i32 {
         Commands::Record(a) => ops::record(ctx, &a.url, &a.path, a.seconds, a.max_events),
         Commands::Extract(a) => browser::extract(
             ctx,
-            &a.target,
+            a.resolved_target(),
             a.attr.as_deref(),
             a.llm,
             a.question.as_deref(),
@@ -181,6 +182,7 @@ pub(crate) fn route(cmd: Commands, ctx: &DispatchCtx<'_>) -> i32 {
             &a.format,
             a.concurrency,
             &a.engine,
+            a.only_main_content,
             a.select.as_deref(),
             a.max_text_chars,
             a.filter.as_deref(),
@@ -192,59 +194,18 @@ pub(crate) fn route(cmd: Commands, ctx: &DispatchCtx<'_>) -> i32 {
             &a.exclude_selector,
             a.redact_pii,
             a.with_content_hash,
+            a.webhook_url.as_deref(),
         ),
-        Commands::Crawl(a) => scrape::crawl(
-            ctx,
-            &a.url,
-            a.limit,
-            a.max_depth,
-            &a.format,
-            a.same_host,
-            &a.engine,
-            a.select.as_deref(),
-            a.max_text_chars,
-            a.filter.as_deref(),
-            &a.output_mode,
-            &a.include_path,
-            &a.exclude_path,
-            a.use_sitemap,
-            a.ignore_query_params,
-            a.follow_rel_next,
-            a.dedup_similar,
-            a.sort.as_deref(),
-            a.dedup_key.as_deref(),
-            a.redact_pii,
-            a.with_content_hash,
-            &a.include_selector,
-            &a.exclude_selector,
-            a.dry_run,
-        ),
-        Commands::Map(a) => scrape::map(
-            ctx,
-            &a.url,
-            a.limit,
-            if a.sitemap_only { 0 } else { a.max_depth },
-            a.select.as_deref(),
-            &a.include_path,
-            &a.exclude_path,
-            if a.sitemap_only {
-                Some(true)
-            } else {
-                a.use_sitemap
-            },
-            a.search.as_deref(),
-            a.sort.as_deref(),
-            a.dedup_key.as_deref(),
-        ),
-        Commands::Search(a) => scrape::search(
-            ctx,
-            &a.query,
-            a.limit,
-            a.select.as_deref(),
-            a.sort.as_deref(),
-            a.dedup_key.as_deref(),
-        ),
-        Commands::Parse { path, redact_pii } => scrape::parse(ctx, &path, redact_pii),
+        Commands::Crawl(a) => scrape::crawl(ctx, &a),
+        Commands::Map(a) => scrape::map(ctx, &a),
+        Commands::Sitemap(a) => discovery::sitemap(ctx, &a),
+        Commands::Feed(a) => discovery::feed(ctx, &a),
+        Commands::Search(a) => scrape::search(ctx, &a),
+        Commands::Parse {
+            path,
+            redact_pii,
+            format,
+        } => scrape::parse(ctx, &path, redact_pii, &format),
         Commands::Qr { action } => scrape::qr(ctx, action),
         Commands::Image { action } => scrape::image(ctx, action),
         Commands::Video { action } => scrape::video(ctx, action),
@@ -263,7 +224,7 @@ pub(crate) fn route(cmd: Commands, ctx: &DispatchCtx<'_>) -> i32 {
         ),
         Commands::SgScan { paths, limit } => scrape::sg_scan(ctx, &paths, limit),
         Commands::SgRewrite { paths, apply } => scrape::sg_rewrite(ctx, &paths, apply),
-        Commands::SheetWrite(a) => scrape::sheet_write(ctx, &a.input, &a.out, &a.sheet),
+        Commands::SheetWrite(a) => scrape::sheet_write(ctx, &a.input, &a.out, &a.sheet, a.force),
         Commands::Mitm { action } => ops::mitm(ctx, action),
         Commands::Workflow { action } => ops::workflow(ctx, action),
         Commands::Config { action } => ops::config(ctx, action),
@@ -281,8 +242,16 @@ pub(crate) fn route(cmd: Commands, ctx: &DispatchCtx<'_>) -> i32 {
             a.color_scheme.as_deref(),
             a.extra_headers.as_deref(),
             a.viewport.as_deref(),
+            a.screen.as_deref(),
         ),
-        Commands::Resize(a) => browser::resize(ctx, a.width, a.height, a.scale, a.mobile),
+        Commands::Resize(a) => browser::resize(
+            ctx,
+            a.width,
+            a.height,
+            a.scale,
+            a.mobile,
+            a.screen.as_deref(),
+        ),
         Commands::Perf { action } => ops::perf(ctx, action),
         Commands::Lighthouse(a) => ops::lighthouse(
             ctx,

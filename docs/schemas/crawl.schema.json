@@ -64,6 +64,20 @@
       ],
       "type": "array"
     },
+    "exclude_regex": {
+      "argv": "--exclude-regex",
+      "description": "Exclude paths/URLs matching this regex (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "exclude_regex",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
     "exclude_selector": {
       "argv": "--exclude-selector",
       "description": "CSS exclude selectors",
@@ -140,6 +154,20 @@
       ],
       "type": "array"
     },
+    "include_regex": {
+      "argv": "--include-regex",
+      "description": "Include paths/URLs matching this regex (repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "include_regex",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
     "include_selector": {
       "argv": "--include-selector",
       "description": "CSS include selectors",
@@ -197,6 +225,28 @@
       ],
       "type": "integer"
     },
+    "no_same_host": {
+      "argv": "--no-same-host",
+      "description": "Follow links off the seed host, disabling `--same-host`",
+      "required": false,
+      "source": "parser",
+      "step_key": "no_same_host",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
+    "only_main_content": {
+      "argv": "--only-main-content",
+      "description": "Prefer main/article content heuristics",
+      "required": false,
+      "source": "parser",
+      "step_key": "only_main_content",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
     "output_mode": {
       "argv": "--output-mode",
       "default": "json",
@@ -223,7 +273,7 @@
     "same_host": {
       "argv": "--same-host",
       "default": true,
-      "description": "Stay on seed host",
+      "description": "Stay on seed host (default)",
       "required": false,
       "source": "parser",
       "step_key": "same_host",
@@ -242,6 +292,17 @@
         "argv"
       ],
       "type": "string"
+    },
+    "sitemap_only": {
+      "argv": "--sitemap-only",
+      "description": "Fetch only the sitemap.xml frontier (no HTML link BFS)",
+      "required": false,
+      "source": "parser",
+      "step_key": "sitemap_only",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
     },
     "sort": {
       "argv": "--sort",
@@ -275,6 +336,17 @@
         "argv"
       ],
       "type": "boolean"
+    },
+    "webhook_url": {
+      "argv": "--webhook-url",
+      "description": "Optional one-shot webhook POST of the collection envelope (operator URL)",
+      "required": false,
+      "source": "parser",
+      "step_key": "webhook_url",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
     },
     "with_content_hash": {
       "argv": "--with-content-hash",

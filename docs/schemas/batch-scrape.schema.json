@@ -116,6 +116,17 @@
       ],
       "type": "integer"
     },
+    "only_main_content": {
+      "argv": "--only-main-content",
+      "description": "Prefer main/article content heuristics",
+      "required": false,
+      "source": "parser",
+      "step_key": "only_main_content",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
     "output_mode": {
       "argv": "--output-mode",
       "default": "json",
@@ -167,6 +178,17 @@
       "required": true,
       "source": "parser",
       "step_key": "urls_file",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "webhook_url": {
+      "argv": "--webhook-url",
+      "description": "Optional one-shot webhook POST of the collection envelope (operator URL)",
+      "required": false,
+      "source": "parser",
+      "step_key": "webhook_url",
       "surfaces": [
         "argv"
       ],

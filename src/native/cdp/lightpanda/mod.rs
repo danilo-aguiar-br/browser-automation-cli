@@ -18,6 +18,6 @@ pub(crate) use crate::native::cdp::spawn::LaunchLogBuffer;
 
 #[cfg(test)]
 pub(crate) use launch::{
-    build_lightpanda_serve_args, lightpanda_launch_error, start_log_drainers,
+    build_lightpanda_serve_args_with, lightpanda_launch_error, start_log_drainers,
     wait_for_lightpanda_ready,
 };

@@ -134,6 +134,35 @@ pub struct ScrapeOpts {
     pub attribute_targets: Vec<(String, String)>,
 }
 
+impl ScrapeOpts {
+    /// The product defaults, resolved from named constants and NEVER from XDG.
+    ///
+    /// [`Default`] below layers the operator's configuration on top of these.
+    /// Tests want this one: through `Default` a fixture inherits about seven
+    /// knobs from whatever machine runs it, so an operator with
+    /// `scrape_honor_nofollow = false` silently changes what a link-extraction
+    /// assertion is even measuring.
+    pub fn product_defaults() -> Self {
+        Self {
+            format: ScrapeFormat::Text,
+            only_main_content: false,
+            engine: crate::constants::DEFAULT_SCRAPE_ENGINE.to_string(),
+            max_body_bytes: crate::constants::DEFAULT_SCRAPE_MAX_BODY_BYTES,
+            max_text_chars: crate::constants::DEFAULT_SCRAPE_MAX_TEXT_CHARS,
+            honor_meta_robots: crate::constants::DEFAULT_SCRAPE_HONOR_META_ROBOTS,
+            honor_nofollow: crate::constants::DEFAULT_SCRAPE_HONOR_NOFOLLOW,
+            follow_rel_next: crate::constants::DEFAULT_SCRAPE_FOLLOW_REL_NEXT,
+            include_selectors: Vec::new(),
+            exclude_selectors: Vec::new(),
+            redact_pii: false,
+            with_content_hash: false,
+            extra_headers: Vec::new(),
+            no_cache: crate::constants::DEFAULT_SCRAPE_NO_CACHE,
+            attribute_targets: Vec::new(),
+        }
+    }
+}
+
 impl Default for ScrapeOpts {
     fn default() -> Self {
         Self {

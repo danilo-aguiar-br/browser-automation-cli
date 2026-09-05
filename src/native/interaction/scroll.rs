@@ -149,6 +149,22 @@ fn metrics_envelope(before: &Value, after: &Value) -> Value {
 /// real `mouseWheel` events, so a page that listens for `wheel` -- lazy-load,
 /// infinite scroll, carousels -- actually reacts. Absolute requests and the
 /// `direct` profile keep the JavaScript path, which emits no `wheel` at all.
+///
+/// # Errors
+///
+/// With `req.target` set, propagates
+/// [`resolve_element_object_id`].
+/// Without it, fails with the CDP error raised by the `Runtime.evaluate` that
+/// resolves the scrolling element, or with
+/// `"scroll: no document scrolling element"` when that evaluation yields no
+/// object handle — a document with no `documentElement`.
+///
+/// Then fails with the CDP error raised by the measuring or scrolling
+/// `Runtime.callFunctionOn`, with `"scroll helper returned no value"` when the
+/// helper answers `undefined`, and on the human profile with any refused
+/// `Input.dispatchMouseEvent` wheel tick. A container that cannot scroll is
+/// **not** an error: it is reported as `scrollable: false` with equal
+/// before/after positions.
 pub async fn scroll(
     client: &CdpClient,
     session_id: &str,

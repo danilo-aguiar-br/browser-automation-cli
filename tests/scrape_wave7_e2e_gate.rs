@@ -24,22 +24,17 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::Path;
 use std::thread;
 
-fn binary() -> Option<PathBuf> {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
+mod common;
+use common::{binary, missing_binary};
+
+const GATE: &str = "scrape_wave7_e2e_gate";
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    if binary().is_none() {
-        eprintln!(
-            "SKIP scrape_wave7_e2e_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    if missing_binary(GATE) {
         return true;
     }
     false
@@ -144,15 +139,26 @@ fn serve_one(mut stream: TcpStream) {
 }
 
 /// An isolated XDG config dir so the gate never reads the developer's config.
-fn config_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("bac-wave7-{name}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create isolated config dir");
-    dir
+///
+/// The guard is returned, not the path: dropping it removes the directory, and a
+/// caller holding only the path would hand the CLI a config home that no longer
+/// exists. The old body used a pid-keyed name with no removal at all, which also
+/// let a second `config_dir(name)` call re-derive the SAME directory — an
+/// accidental channel this migration had to close by hand.
+fn config_dir(name: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("bac-wave7-{name}-"))
+        .tempdir()
+        .expect("create isolated config dir")
 }
 
 /// Run the CLI with an isolated config, returning parsed stdout JSON.
-fn run(cfg: &PathBuf, args: &[&str]) -> serde_json::Value {
-    let out = Command::new(binary().expect("binary"))
+fn run(cfg: &Path, args: &[&str]) -> serde_json::Value {
+    let out = common::isolated_cmd(&binary().expect("binary"))
+        // `HOME` is what isolates config on macOS: `directories` resolves to
+        // ~/Library/Application Support and never reads `XDG_CONFIG_HOME`.
+        // Full measurement (2026-09-04) lives in `tests/scrape_wave6_gate.rs`.
+        .env("HOME", cfg)
         .env("XDG_CONFIG_HOME", cfg)
         .args(args)
         .output()
@@ -167,18 +173,18 @@ fn run(cfg: &PathBuf, args: &[&str]) -> serde_json::Value {
     })
 }
 
-fn set(cfg: &PathBuf, key: &str, value: &str) {
+fn set(cfg: &Path, key: &str, value: &str) {
     let v = run(cfg, &["-q", "--json", "config", "set", key, value]);
     assert_eq!(v["ok"], serde_json::json!(true), "config set {key}={value}");
 }
 
 /// Loopback fixtures need an SSRF exemption; `robots_loopback_exempt` is left to
 /// the caller because one test deliberately keeps robots **enforced**.
-fn prepare(name: &str, robots_exempt: bool) -> PathBuf {
+fn prepare(name: &str, robots_exempt: bool) -> tempfile::TempDir {
     let cfg = config_dir(name);
-    set(&cfg, "http_ssrf_mode", "allow_loopback");
+    set(cfg.path(), "http_ssrf_mode", "allow_loopback");
     set(
-        &cfg,
+        cfg.path(),
         "robots_loopback_exempt",
         if robots_exempt { "true" } else { "false" },
     );
@@ -204,7 +210,8 @@ fn anchor_rel_next_follows_the_chain() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("anchornext", true);
+    let cfg_dir = prepare("anchornext", true);
+    let cfg = cfg_dir.path().to_path_buf();
     set(&cfg, "scrape_follow_rel_next", "true");
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/a1.html");
@@ -243,7 +250,8 @@ fn rel_next_cannot_outrank_robots_disallow() {
         return;
     }
     // robots stays ENFORCED on loopback: this is the whole point of the case.
-    let cfg = prepare("relnextrobots", false);
+    let cfg_dir = prepare("relnextrobots", false);
+    let cfg = cfg_dir.path().to_path_buf();
     set(&cfg, "scrape_follow_rel_next", "true");
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/p1.html");
@@ -301,7 +309,8 @@ fn json_feed_is_parsed_and_projected() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("jsonfeed", true);
+    let cfg_dir = prepare("jsonfeed", true);
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/feed.json");
     let v = run(&cfg, &["-q", "--json", "scrape", &url, "--format", "feed"]);
@@ -335,7 +344,8 @@ fn non_feed_body_reports_not_found_instead_of_failing() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("notfeed", true);
+    let cfg_dir = prepare("notfeed", true);
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/notfeed.html");
     let v = run(&cfg, &["-q", "--json", "scrape", &url, "--format", "feed"]);
@@ -358,10 +368,11 @@ fn batch_scrape_collapses_near_duplicates_and_reports_them() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("batchdedup", true);
+    let cfg_dir = prepare("batchdedup", true);
+    let cfg = cfg_dir.path().to_path_buf();
     set(&cfg, "scrape_dedup_similar_distance", "8");
     let port = start_fixture_server();
-    let urls = config_dir("batchdedup").join("urls.txt");
+    let urls = cfg_dir.path().join("urls.txt");
     std::fs::write(
         &urls,
         format!(

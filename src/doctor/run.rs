@@ -5,6 +5,7 @@ use super::probes::{
     cache_redis_check, cookie_jar_scope_check, jpeg_decoder_toolchain_check,
     resolve_lighthouse_for_doctor, virtual_display_check, which_bin, xvfb_check,
 };
+use super::residual_policy;
 use super::*;
 
 /// Run every host probe and emit one envelope; returns the process exit code.
@@ -98,7 +99,10 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
         match crate::browser::block_on_browser(async {
             let mut s = crate::browser::OneShotSession::launch_headless().await?;
             let _ = s
-                .goto("about:blank", crate::robots::RobotsPolicy::Ignore)
+                .goto(
+                    crate::constants::ABOUT_BLANK,
+                    crate::robots::RobotsPolicy::Ignore,
+                )
                 .await?;
             let _ = s.shutdown().await;
             Ok::<_, crate::error::CliError>(())
@@ -243,73 +247,12 @@ pub fn run_doctor(opts: DoctorOptions) -> i32 {
     // Lifecycle::new already ran BORN stale GC; report reflects post-BORN state
     // when doctor is invoked through the normal CLI entry (lib::run).
     let residual = crate::residual::residual_disk_report();
-    // GAP-002/GAP-006: a live sibling invocation is healthy and never fails the
-    // check. Fail only on proven defects: orphan marker dirs (dead owner past the
-    // age floor) or ghost holders (live CLI Chrome with missing marker profile
-    // dir). Keeping the old raw-marker rule made `doctor` report a false positive
-    // whenever two invocations overlapped.
-    let residual_status = if residual.orphan_marker_dirs > 0 || residual.ghost_marker_processes > 0
-    {
-        failed = true;
-        "fail"
-    } else if residual.cli_marker_dirs > 0 || residual.chromium_tmp_singleton_orphans > 0 {
-        "warn"
-    } else {
-        "pass"
-    };
-    checks.push(json!({
-        "id": "residual_disk",
-        "status": residual_status,
-        // The message names the VERDICT, not just the counters. A reader who sees
-        // `cli_markers=1` alone cannot tell a healthy concurrent invocation from
-        // abandoned residue; only `orphan_markers` separates the two, and that is
-        // exactly the distinction `status` encodes.
-        "message": format!(
-            "{} — cli_markers={} orphan_markers={} ghost_marker_procs={} chromium_singleton_orphans={} scavenge_safe={} sibling_live_procs={} foreign_root_orphans={} proc_table_unavailable={} scanned_roots={}",
-            match residual_status {
-                "fail" if residual.ghost_marker_processes > 0 =>
-                    "ghost holders: live CLI Chrome with missing marker profile dir",
-                "fail" => "abandoned residue: a marker dir past the age floor has a dead owner",
-                "warn" => "live siblings only: nothing is collectable, no action needed",
-                _ => "clean",
-            },
-            residual.cli_marker_dirs,
-            residual.orphan_marker_dirs,
-            residual.ghost_marker_processes,
-            residual.chromium_tmp_singleton_orphans,
-            residual.scavenge_safe_candidates,
-            residual.sibling_live_processes,
-            residual.foreign_root_orphans,
-            residual.process_table_unavailable,
-            residual.scanned_roots.len()
-        ),
-        "cli_marker_dirs": residual.cli_marker_dirs,
-        "chromium_tmp_singleton_orphans": residual.chromium_tmp_singleton_orphans,
-        "scavenge_safe_candidates": residual.scavenge_safe_candidates,
-        "live_cli_marker_processes": residual.live_cli_marker_processes,
-        "sibling_live_processes": residual.sibling_live_processes,
-        "orphan_marker_dirs": residual.orphan_marker_dirs,
-        // Present in `data.residual` since 0.1.7 but missing here, so the check
-        // and the report disagreed about what residual even consists of. Two
-        // views of one fact must carry the same fields or a consumer picks the
-        // wrong one and is right about nothing.
-        "foreign_root_orphans": residual.foreign_root_orphans,
-        "ghost_marker_processes": residual.ghost_marker_processes,
-        "scanned_roots": residual.scanned_roots,
-        "process_table_unavailable": residual.process_table_unavailable,
-    }));
-
-    // GAP-045: a host without a readable process table cannot prove liveness, so
-    // the collector refuses every wipe. Surface that as its own check instead of
-    // letting residue counts drift upward with no explanation.
-    if residual.process_table_unavailable {
-        checks.push(json!({
-            "id": "residual_process_table",
-            "status": "warn",
-            "message": "live process table unavailable: residual GC refuses wipes (fail-closed)",
-            "available": false,
-        }));
-    }
+    // Interpretation lives in `residual_policy`: which counter is a defect and
+    // which is healthy concurrency is a rule of its own, not part of assembling
+    // the checklist (GAP-002 / GAP-006 / GAP-045).
+    let verdict = residual_policy::residual_verdict(&residual);
+    failed |= verdict.failed;
+    checks.extend(verdict.checks);
 
     let data = json!({
         "schema_version": 1,

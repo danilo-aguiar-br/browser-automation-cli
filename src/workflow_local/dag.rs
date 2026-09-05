@@ -12,6 +12,8 @@ use crate::error::{CliError, ErrorKind};
 
 /// Load manifest from JSON path (BOM-aware, size-limited, typed).
 pub fn load_manifest(path: &Path) -> Result<WorkflowManifest, CliError> {
+    // GAP-026, read axis: the manifest path comes from argv.
+    crate::fs_roots::ensure_read_allowed(path)?;
     crate::json_util::read_json_file(path, crate::xdg::resolve_max_json_file_bytes()).map_err(|e| {
         if e.kind() == ErrorKind::Data && !e.message().contains("invalid workflow") {
             CliError::new(

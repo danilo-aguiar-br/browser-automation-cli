@@ -12,6 +12,12 @@
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-blue)](https://www.rust-lang.org)
 [![GitHub](https://img.shields.io/badge/github-browser--automation--cli-black.svg)](https://github.com/danilo-aguiar-br/browser-automation-cli)
 
+```bash
+cargo install browser-automation-cli
+```
+
+Agent discovery map: [llms.txt](llms.txt) (short) and [llms-full.txt](llms-full.txt) (expanded).
+
 ## What is it
 - Single-process browser automation CLI for AI agents
 - Talks to system Chrome or Chromium through chromiumoxide CDP
@@ -33,7 +39,7 @@
 - Accessibility snapshot refs `@eN` stay valid only inside that process
 - `--json` envelopes are stable for programmatic agents; clap usage errors also emit JSON when `--json` is on argv
 - Install path is pure Rust via cargo
-- v0.1.7 is current: keeps residual-zero disk hygiene (0.1.5 RES-01…12 still true) and closes dialog settle, multi-tab dialog isolation, native select pick events, run wait/scrape fields, grab format lock, and lighthouse unit fixtures; inventory **69** agent names via `commands --json`
+- v0.1.9 is current: residual-zero disk hygiene still holds; 0.1.9 closes stealth identity and adds `doctor --fingerprint` measurement_scope / unmeasured_os and live `chrome-mac` / eval-nav gates; inventory **71** agent names via `commands --json`; **217** XDG keys
 
 ## Superpowers
 - Navigation and page lifecycle: `goto` (init-script, beforeunload accept|dismiss), `back`, `forward`, `reload`, `page`
@@ -59,14 +65,22 @@
 - MITM one-shot: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact` (binds `127.0.0.1`; global `--mitm*`)
 - Workflow DAG: `workflow run|resume|status` with SQLite journal (resume skips ok)
 - XDG config: `config path|init|show|set|get|unset|list-keys` for config.toml (discover full keys via `config list-keys --json`)
-- Discovery: `doctor` (incl. `residual_disk`), `commands` (**69** agent names), `schema <cmd>` or `schema --cmd`, `version`, `locale`, `man`, `completions`
-- Global flags: the global help declares **43** long flags, **41** of them product flags plus `--help` and `--version`; `browser-automation-cli --help` is the source of truth
+- Discovery: `doctor` (incl. `residual_disk`), `commands` (**71** agent names), `schema <cmd>` or `schema --cmd`, `version`, `locale`, `man`, `completions`
+- Global flags: the global help declares **57** long flags, **55** of them product flags plus `--help` and `--version`; `browser-automation-cli --help` is the source of truth
 - Multi-step observability: `run --json` final envelope includes `ok` + full `steps[].data`; global `--json-steps` streams one NDJSON line per step
 - Fail-fast multi-step: `run` returns partial `data.steps` on error envelopes
 - Residual-zero disk (still true from 0.1.5 RES-01…12): BORN auto-GC of stale Singleton-only Chromium dirs under `/tmp` older than 60s; FINALIZE dual scavenge + re-scan; never kills host Flatpak Chrome; marker prefix `browser-automation-cli-chrome-`
 - Lifecycle: BORN + FINALIZE scavenge owned Chromium `/tmp` orphans; product law is residual-zero process + disk
 - Cache: XDG `cache_backend` (`sqlite|memory|redis`) and `cache_redis_url`; `rediss://` fail-closed
 - Intentional residual: GAP-022 ~53 transitive multi-version dups; GAP-023/024 PRD divergences registered
+
+## What's New in 0.1.9
+- `sitemap` and `feed` join the inventory, taking it to **71** names; neither adds capability, both add discoverability
+- `doctor --fingerprint` scores the live page and declares `measurement_scope`, so an unmeasured OS is stated instead of implied
+- `--min-delay-ms` makes the same-origin courtesy floor per invocation instead of per host
+- `cookie clear` requires `--all` and `mitm block` requires a target: an irreversible verb takes its scope from argv, never from a missing flag
+- Every side-effecting verb publishes `target_resolved` and `target_source`, making Explicit Target Designation auditable
+- Full history in [CHANGELOG.md](CHANGELOG.md)
 
 ## Quick Start
 ```bash
@@ -83,8 +97,7 @@ browser-automation-cli view --json
 - Local development install:
 ```bash
 git clone https://github.com/danilo-aguiar-br/browser-automation-cli
-cd browser-automation-cli
-cargo install --path . --locked
+cargo install --path browser-automation-cli --locked
 ```
 - From crates.io after the first publish:
 ```bash
@@ -113,10 +126,12 @@ browser-automation-cli --json wait --text Hello --text Welcome --ms 5000
 browser-automation-cli --json scrape https://example.com --format markdown --engine http
 browser-automation-cli --json scrape https://example.com --format markdown,html,links --engine browser
 browser-automation-cli --json scrape https://example.com --format markdown --engine http --webhook-url https://example.com/hook
+browser-automation-cli --json sitemap https://example.com --limit 200
+browser-automation-cli --json feed https://example.com/feed.xml
 browser-automation-cli --json extract --llm --question "What is the title?" https://example.com
-browser-automation-cli --capture-network --json net list --resource-types Document,XHR
 browser-automation-cli --category-memory heap summary --path snap.heapsnapshot --json
 browser-automation-cli --json mitm start --seconds 30
+browser-automation-cli --json mitm capture-url https://example.com --seconds 30
 browser-automation-cli --json mitm capture-url https://example.com --seconds 30 --har /tmp/browser-automation-cli-artifacts/cap.har
 browser-automation-cli --json mitm har --out /tmp/browser-automation-cli-artifacts/capture.har
 browser-automation-cli --json workflow resume --manifest workflow.toml
@@ -156,15 +171,15 @@ browser-automation-cli --capture-network --json run --script /tmp/net.jsonl
 ```
 
 ## Commands
-Full agent inventory (**69** names via `commands --json`, sorted):
-`assert`, `attr`, `audio`, `back`, `batch-scrape`, `click-at`, `commands`, `completions`, `config`, `console`, `cookie`, `crawl`, `devtools3p`, `dialog`, `doctor`, `drag`, `emulate`, `eval`, `exec`, `extension`, `extract`, `find-paths`, `fill-form`, `forward`, `goto`, `grab`, `heap`, `hover`, `image`, `keys`, `lighthouse`, `locale`, `man`, `map`, `mitm`, `monitor`, `net`, `page`, `parse`, `perf`, `pick`, `press`, `print-pdf`, `qr`, `record`, `reload`, `resize`, `run`, `schema`, `scrape`, `screencast`, `scroll`, `search`, `select-option`, `sg-rewrite`, `sg-scan`, `sheet-write`, `storage`, `submit`, `text`, `type`, `upload`, `video`, `version`, `view`, `wait`, `webmcp`, `workflow`, `write`
+Full agent inventory (**71** names via `commands --json`, sorted):
+`assert`, `attr`, `audio`, `back`, `batch-scrape`, `click-at`, `commands`, `completions`, `config`, `console`, `cookie`, `crawl`, `devtools3p`, `dialog`, `doctor`, `drag`, `emulate`, `eval`, `exec`, `extension`, `extract`, `feed`, `find-paths`, `fill-form`, `forward`, `goto`, `grab`, `heap`, `hover`, `image`, `keys`, `lighthouse`, `locale`, `man`, `map`, `mitm`, `monitor`, `net`, `page`, `parse`, `perf`, `pick`, `press`, `print-pdf`, `qr`, `record`, `reload`, `resize`, `run`, `schema`, `scrape`, `screencast`, `scroll`, `search`, `select-option`, `sg-rewrite`, `sg-scan`, `sheet-write`, `sitemap`, `storage`, `submit`, `text`, `type`, `upload`, `video`, `version`, `view`, `wait`, `webmcp`, `workflow`, `write`
 
 Grouped for humans:
 - Discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `man`, `completions`
 - Navigate: `goto`, `back`, `forward`, `reload`
 - Interact: `press`, `write`, `type`, `keys`, `wait`, `hover`, `drag`, `fill-form`, `select-option`, `pick`, `submit`, `upload`, `click-at`
 - Observe: `view`, `extract`, `text`, `scroll`, `attr`, `assert`, `grab`
-- Scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- Scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`
 - Capture: `console`, `net`, `print-pdf`, `monitor`, `screencast`
 - Tabs/Dialogs: `page`, `dialog`, `cookie`, `storage`
 - Utils: `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
@@ -173,12 +188,17 @@ Grouped for humans:
 - Multi-step: `run`, `exec`, `record`
 - Record teaching: `browser-automation-cli --json record --url https://example.com --path /tmp/steps.jsonl --seconds 30 --max-events 200` writes page interactions as replayable NDJSON, then `browser-automation-cli --json run --script /tmp/steps.jsonl` replays them in one process
 - Audio teaching: `browser-automation-cli --json audio info|download|convert|trim` runs the local audio pipeline without Chrome
-- Inventory note: **69** agent-facing names via `commands --json` (includes `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`); DevTools e2e covers 53 tools (lighthouse mock SKIP)
+- Sitemap teaching: `browser-automation-cli --json sitemap https://example.com --limit 200` reads the DECLARED sitemap — the `robots.txt` `Sitemap:` hints, the document itself, and nested `sitemapindex` descent — and never walks the link graph, so there is no `--depth` to pass
+- Feed teaching: `browser-automation-cli --json feed https://example.com/feed.xml` parses RSS, Atom and JSON Feed from the RAW body over the HTTP engine; the HTML-shaping flags are absent because a selector would destroy the document, and Chrome is not offered because it would render the browser's XML viewer instead of the feed
+- Inventory note: **71** agent-facing names via `commands --json` (includes `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`); DevTools e2e covers 53 tools (lighthouse mock SKIP)
 
 ## Anti-Detection, Proxy and Input Shaping
 - Stealth is ON by default and masks the automation markers a real Chrome never exposes
 - `--no-stealth` turns the anti-detection patches off for one run
-- `--stealth-profile <PROFILE>` picks the impersonated identity: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`
+- `--stealth-profile <PROFILE>` picks the impersonated identity: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac` (`list` prints the tokens)
+- `--stealth-seed <SEED>` pins `hardwareConcurrency`, `deviceMemory`, GPU vendor/renderer, `history.length` and Chrome build — not UA, platform, languages, timezone, screen or plugins
+- `doctor --fingerprint` compares webdriver, platform vs UA, and screen vs viewport; without `--quick` it scores the live page and fails if the page contradicts the plan
+- Launch applies 1920×1080 device metrics so `screen` is not the headless 800×600 default; `config set screen WxH` and run-step `screen` are the explicit knobs
 - `auto` follows the host and is almost always right
 - `--stealth-seed <SEED>` pins that identity across processes
 - Without a seed every run draws a fresh identity, so a 50-URL crawl of 50 one-shot processes presents 50 different machines
@@ -186,6 +206,8 @@ Grouped for humans:
 - `--proxy-bypass <HOSTS>` lists the hosts that skip the proxy, in Chrome's bypass-list syntax
 - `--input-profile <PROFILE>` is `human` (default) or `direct`
 - `human` interpolates pointer trajectories, dwells between press and release, and paces typing
+- Measured 2026-09-04 on this tree: the `human` pacing cost grows superlinearly with the typed length, at 2281 ms for 1 character, 14236 ms for 2 and 95781 ms for 4, so a long `type` can exhaust `--timeout` and return exit 124
+- Pass `--input-profile direct` when the field is long and the pacing does not matter; this is an OPEN defect, tracked in `gaps.md`, and the workaround is stated here rather than left for the operator to discover through a timeout
 - `--input-seed <SEED>` seeds the input jitter so a `human` run reproduces exactly
 - `--warmup` visits the origin root before the target URL, so the session already carries cookies and a referrer chain
 - `--warmup-url <URL>` warms that URL instead of the target's origin root
@@ -202,6 +224,13 @@ Grouped for humans:
 - HTTP/2 fingerprint keys: `http2_enabled` (`true`), `http2_initial_stream_window_size` (`6291456`), `http2_initial_connection_window_size` (`15663105`), `http2_max_header_list_size` (`262144`), `http2_max_frame_size` (`16384`), `http2_adaptive_window` (`false`)
 - `http2_adaptive_window` stays off so the fingerprint stays constant
 - Input kinematics keys: `input_move_steps` (`24`), `input_move_gap_ms` (`12`), `input_click_dwell_ms` (`65`), `input_key_dwell_ms` (`45`), `input_type_delay_ms` (`95`), `input_scroll_tick_px` (`100`), `input_scroll_max_ticks` (`40`), `input_target_jitter_px` (`3`), `input_scroll_settle_rounds` (`3`)
+- Input dispersion and rhythm keys: `input_timing_distribution` (`lognormal`), `input_move_steps_stddev` (`6`), `input_move_gap_stddev_ms` (`5`), `input_click_dwell_stddev_ms` (`26`), `input_key_dwell_stddev_ms` (`18`), `input_type_delay_stddev_ms` (`40`), `input_scroll_tick_stddev_px` (`25`), `input_word_pause_ms` (`320`), `input_word_pause_permille` (`120`), `input_typo_permille` (`0`)
+- `input_timing_distribution` is `lognormal|normal|uniform` and governs the fast rhythm only, because the long-pause tail is `input_word_pause_permille`
+- `input_word_pause_permille` accepts `0` as a legitimate value, which removes the long word-boundary pause tail entirely
+- `input_typo_permille` stays at `0` because a mistyped character corrected with Backspace changes what the page sees mid-word
+- `user_data_dir` has no default and stays absent, and that absence is what upholds the residual-zero disk guarantee
+- Turning `user_data_dir` on is opt-in and gives up that guarantee, because the Chrome profile then persists across runs
+- `capture_preserved_rings` (`3`) is the number of navigation boundaries kept for `console` and `net --include-preserved`
 
 ```bash
 browser-automation-cli --json --stealth-seed fleet-01 goto https://example.com
@@ -289,13 +318,13 @@ browser-automation-cli --json config unset stealth_seed
 - Exit 2 usage: re-check flags with `browser-automation-cli help <cmd>`; with `--json` on argv, clap usage errors emit JSON envelopes
 - `@eN` refs invalid across commands: keep steps inside one `run` process; refs do not span processes
 - Network empty: pass `--capture-network` on the same process that navigates
-- API payload read: `net get <IDX>` writes bodies with `--response-path` and `--request-path`, but `net list` and `net get` only see traffic captured in the same process, so a standalone `net get 0` after a separate `goto` returns exit 65 with `count=0`; put a `net` step next to the `goto` step in one script and run `browser-automation-cli --capture-network --json run --script /tmp/net.jsonl`
+- API payload read: `net get <IDX>` writes bodies with `--response-path` and `--request-path`, but `net list` and `net get` only see traffic captured in the same process, so a standalone `net get 0` after a separate `goto` refuses with exit 2; put a `net` step next to the `goto` step in one script and run `browser-automation-cli --capture-network --json run --script /tmp/net.jsonl`
 - Wait multi-text: repeat `--text` for OR semantics (any listed text unblocks)
 - Wait multi-selector / URL: CSS OR `#a, #b`; in `run` use `url` / `url_contains` / `navigation`
 - View empty blank: empty about:blank refuses silent success unless `--allow-empty` / `allow_empty:true`
 - MITM bind: `mitm start` and `mitm capture-url` listen on `127.0.0.1` only with an ephemeral port
 - MITM HAR: `mitm har --out <path>` (required); or global `--mitm-har` on FINALIZE; or `capture-url --har`
-- MITM redact: `mitm redact --secrets` and global `--mitm-redact-secrets`; CA under XDG data
+- MITM redact: `mitm redact` SHOWS the effective policy, `mitm redact --secrets true|false` persists a default, and the global `--mitm-redact-secrets` overrides both; CA under XDG data
 - Workflow resume: `workflow resume` skips steps already `ok` in the journal
 - Scrape multi-format: `--format markdown,html,links` (CSV or repeatable) returns per-format fields; 15 live formats are `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed`, `attributes` (`raw-html` remains an accepted alias of `rawHtml`)
 - Scrape browser formats: `--engine browser` applies `--format` via outerHTML
@@ -315,7 +344,7 @@ browser-automation-cli --json config unset stealth_seed
 - Assert aliases: `url_contains` / `text_contains`; `attr` uses DOM property fallback when HTML attribute is null
 - Pick / select-option: agent inventory names; native select dispatches input+change; HIG badge/popover / `role=option` via `pick`
 - Submit / storage: `submit` for form submit; `storage export|import` for cookies + per-origin state
-- Inventory size: `commands --json` lists **69** agent names (includes `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`)
+- Inventory size: `commands --json` lists **71** agent names (includes `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`)
 - Locale: `locale --json` diagnoses resolved language; set with `--lang pt-BR` or `config set lang pt-BR`
 - `file://` + `scrape --engine http`: Usage error — use browser engine or `parse` for local files
 - `reload --ignore-cache`: CDP `Page.reload` with `ignoreCache` (not a JS no-op)
@@ -355,6 +384,7 @@ browser-automation-cli --json config unset stealth_seed
 - [docs/COOKBOOK.md](docs/COOKBOOK.md) practical recipes
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) every XDG key, its default and its purpose
 - [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md) platform matrix
+- [docs/STEALTH_PARITY.md](docs/STEALTH_PARITY.md) anti-detection parity against the reference implementations
 - [docs/MIGRATION.md](docs/MIGRATION.md) version migration notes
 - [docs/TESTING.md](docs/TESTING.md) test categories
 - [docs/schemas/README.md](docs/schemas/README.md) JSON schema index
@@ -378,6 +408,13 @@ browser-automation-cli --json config unset stealth_seed
 
 ## Changelog
 - Version history lives only in [CHANGELOG.md](CHANGELOG.md)
+
+## Acknowledgments
+- The Chrome DevTools Protocol team, whose published contract is what makes a one-shot CDP client possible without a daemon
+- `chromiumoxide`, `hudsucker`, `clap`, `tokio`, `reqwest` and `feed-rs`, the crates this CLI is built on
+- The Rust project, for a toolchain where `clippy -D warnings` and `cargo deny` are cheap enough to run on every gate
+- Reporters of security issues are credited in [SECURITY.md](SECURITY.md) after coordinated disclosure; none yet
+- No external contributors to credit yet; [CONTRIBUTING.md](CONTRIBUTING.md) describes how that changes
 
 ## License
 - Dual licensed under MIT OR Apache-2.0

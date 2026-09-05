@@ -7,6 +7,7 @@ use crate::browser::{block_on_browser_timeout, CaptureOpts, OneShotSession};
 use crate::cli::GrabFormat;
 use crate::commands::common::emit_ok;
 use crate::error::{CliError, ErrorKind};
+use crate::etd::{with_target, TargetSource};
 use crate::lifecycle::Lifecycle;
 
 #[allow(clippy::too_many_arguments)]
@@ -52,13 +53,27 @@ pub(crate) fn handle_grab(
             }
         }
     }
+    // `--path` names the file; an `--artifacts-dir` derivation does not, because
+    // the caller never saw the timestamp that went into the name.
+    let etd = path.map_or_else(
+        || {
+            path_owned.as_ref().map_or_else(
+                || ("(in-memory)".to_string(), TargetSource::Ambient),
+                |p| (p.display().to_string(), TargetSource::Ambient),
+            )
+        },
+        |p| (p.display().to_string(), TargetSource::Argv),
+    );
     let element_owned = element.map(|s| s.to_string());
     let data = block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
             life.record_chrome(session.chrome_pid());
             let _ = session
-                .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+                .goto(
+                    crate::constants::ABOUT_BLANK,
+                    crate::robots::RobotsPolicy::Honor,
+                )
                 .await?;
             let r = session
                 .grab(
@@ -77,6 +92,7 @@ pub(crate) fn handle_grab(
         },
         timeout_secs,
     )?;
+    let data = with_target(data, &etd.0, etd.1);
     emit_ok(data, json, |d| {
         let p = d.get("path").and_then(|v| v.as_str()).unwrap_or("");
         crate::output::writeln_stdout(format!("ok grab path={p}"))?;

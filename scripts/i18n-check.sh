@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Local gate: en/pt-BR FTL parity + i18n unit surface (no GitHub Actions).
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -17,15 +23,21 @@ extract_keys() {
   grep -E '^[a-zA-Z0-9_-]+[[:space:]]*=' "$1" | sed -E 's/[[:space:]]*=.*//' | sort -u
 }
 
-mapfile -t EN_KEYS < <(extract_keys "$EN")
-mapfile -t PT_KEYS < <(extract_keys "$PT")
+# `mapfile` is a bash 4 builtin and macOS ships bash 3.2, so every array read
+# in this file uses the portable read loop below instead (2026-09-04).
+EN_KEYS=()
+while IFS= read -r __line; do EN_KEYS+=("$__line"); done < <(extract_keys "$EN")
+PT_KEYS=()
+while IFS= read -r __line; do PT_KEYS+=("$__line"); done < <(extract_keys "$PT")
 
 if [[ "${#EN_KEYS[@]}" -eq 0 ]]; then
   echo "FAIL: en.ftl has no keys" >&2
   exit 1
 fi
 
-DIFF="$(comm -3 <(printf '%s\n' "${EN_KEYS[@]}") <(printf '%s\n' "${PT_KEYS[@]}") || true)"
+# PT_KEYS can legitimately be empty and bash 3.2 aborts on "${arr[@]}" of an
+# empty array under `set -u`, so it is expanded defensively.
+DIFF="$(comm -3 <(printf '%s\n' "${EN_KEYS[@]}") <(printf '%s\n' "${PT_KEYS[@]+"${PT_KEYS[@]}"}") || true)"
 if [[ -n "${DIFF}" ]]; then
   echo "FAIL: FTL key parity en vs pt-BR:" >&2
   echo "$DIFF" >&2

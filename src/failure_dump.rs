@@ -47,7 +47,7 @@ pub fn enabled() -> bool {
 }
 
 /// Directory the dump is written into: `--artifacts-dir`, else XDG state.
-pub fn dump_dir() -> Option<PathBuf> {
+fn dump_dir() -> Option<PathBuf> {
     // Poison recovery: a poisoned lock must not silently redirect the dump to
     // the XDG fallback while an explicit --artifacts-dir is configured.
     let slot = artifacts_slot().lock().unwrap_or_else(|e| e.into_inner());
@@ -61,7 +61,7 @@ pub fn dump_dir() -> Option<PathBuf> {
 }
 
 /// Build the dump file path for this invocation (millisecond-stamped).
-pub fn dump_path() -> Option<PathBuf> {
+fn dump_path() -> Option<PathBuf> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -118,8 +118,11 @@ mod tests {
     #[test]
     fn dump_dir_prefers_configured_artifacts() {
         let _guard = config_guard();
-        let dir = std::env::temp_dir().join("bac-failure-dump-test");
-        std::fs::create_dir_all(&dir).expect("mkdir");
+        let tmp = tempfile::Builder::new()
+            .prefix("bac-failure-dump-")
+            .tempdir()
+            .expect("scratch dir");
+        let dir = tmp.path().to_path_buf();
         configure(true, Some(dir.clone()));
         assert_eq!(dump_dir(), Some(dir.clone()));
         assert!(enabled());
@@ -128,7 +131,6 @@ mod tests {
         let written = written.expect("dump written");
         assert!(written.starts_with(&dir), "{written:?}");
         assert!(written.exists());
-        let _ = std::fs::remove_file(&written);
 
         // Restore the default so other tests are unaffected.
         configure(false, None);

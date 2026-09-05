@@ -10,6 +10,18 @@ use serde_json::Value;
 /// Dispatches BOTH `input` and `change`: a reactive form listens for `input`,
 /// a plain handler listens for `change`, and sending only one leaves half the
 /// pages unresponsive.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`]
+/// and the CDP error raised by `Runtime.callFunctionOn` — which is what an
+/// element with no `options` collection raises.
+///
+/// Fails with `"No option matched […]. Available options: …"` when no entry in
+/// `values` matches an option value or trimmed label. That case is an error on
+/// purpose: a silent success would let an agent act on a form it never
+/// changed, so the message lists every option the `<select>` offered.
 pub async fn select_option(
     client: &CdpClient,
     session_id: &str,

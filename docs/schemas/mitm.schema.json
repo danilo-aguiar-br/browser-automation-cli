@@ -80,6 +80,17 @@
         "capture-url": {
           "description": "One-shot: proxy + Chrome + navigate URL + capture (GAP-011 / GAP-019)",
           "properties": {
+            "capture_hosts": {
+              "argv": "--capture-hosts",
+              "description": "Host allowlist for the CAPTURE RECORD (CSV). Exchanges off this list are forwarded but never written",
+              "required": false,
+              "source": "parser",
+              "step_key": "capture_hosts",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
             "har": {
               "argv": "--har",
               "description": "Optional HAR output path",
@@ -93,7 +104,7 @@
             },
             "hosts": {
               "argv": "--hosts",
-              "description": "Optional host allowlist for TLS intercept",
+              "description": "Host allowlist for TLS DECRYPTION (CSV). Decides what is intercepted, not what is kept",
               "required": false,
               "source": "parser",
               "step_key": "hosts",
@@ -308,12 +319,11 @@
           }
         },
         "redact": {
-          "description": "Show or set redact-secrets policy for exports",
+          "description": "Show or set the redact-secrets policy applied to captures",
           "properties": {
             "secrets": {
               "argv": "--secrets",
-              "default": true,
-              "description": "When true, redact Authorization/Cookie (default true)",
+              "description": "Set the policy: `--secrets false` stops masking, `--secrets true` restores it. Omit to SHOW the effective policy without writing anything",
               "required": false,
               "source": "parser",
               "step_key": "secrets",

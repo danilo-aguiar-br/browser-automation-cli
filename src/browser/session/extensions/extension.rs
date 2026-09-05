@@ -9,6 +9,12 @@ use super::super::OneShotSession;
 
 impl OneShotSession {
     /// List loaded Chrome extensions in this session.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Browser`] —
+    /// `"extension list: …"` — when `Target.getTargets` is refused. A session
+    /// with no extensions is not an error: it answers `count: 0`.
     pub async fn extension_list(&mut self) -> Result<Value, CliError> {
         self.pump_events().await;
         let targets = self
@@ -52,6 +58,18 @@ impl OneShotSession {
 
     /// Unload extension targets in this process (GAP-007).
     /// Uninstall a loaded extension by id.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`extension_list`](Self::extension_list): a refused
+    /// `Target.getTargets`.
+    ///
+    /// An `id` that matches no loaded extension is **not** an error: it is
+    /// dropped from this process's load list and reported as
+    /// `effect: "metadata_only"`, because there is nothing to unload and
+    /// failing would punish a caller who asked for a state that already holds.
+    /// The individual `Target.closeTarget` calls are best-effort too, so a
+    /// target that refuses to close still counts as closed.
     pub async fn extension_uninstall(&mut self, id: &str) -> Result<Value, CliError> {
         self.pump_events().await;
         let listed = self.extension_list().await?;
@@ -90,7 +108,8 @@ impl OneShotSession {
                     .map(|s| s.to_string())
             })
             .collect();
-        let cdp_limit = crate::concurrency::effective_limit_capped(8);
+        let cdp_limit =
+            crate::concurrency::effective_limit_capped(crate::concurrency::CDP_ATTACH_FANOUT_CAP);
         let client = self.manager.client.clone();
         let close_futs: Vec<_> = target_ids
             .into_iter()
@@ -122,6 +141,19 @@ impl OneShotSession {
 
     /// Reload extension service worker target by id prefix (one-shot CDP).
     /// Reload a loaded extension by id.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`extension_list`](Self::extension_list), then fails with
+    /// [`ErrorKind::NoInput`] —
+    /// `"extension id not found: <id>"`, carrying the `extension_list_first`
+    /// suggestion — when no loaded extension matches, and with
+    /// [`ErrorKind::Browser`] when the
+    /// matched entry carries no `targetId`.
+    ///
+    /// The `Target.closeTarget` itself is best-effort: the reload is a
+    /// close-and-let-Chrome-respawn, so a refusal is not reported and the
+    /// `after` listing is what shows whether the worker came back.
     pub async fn extension_reload(&mut self, id: &str) -> Result<Value, CliError> {
         self.pump_events().await;
         let listed = self.extension_list().await?;
@@ -174,6 +206,21 @@ impl OneShotSession {
     }
 
     /// Trigger an extension action/command by id.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`extension_list`](Self::extension_list), then fails with
+    /// [`ErrorKind::NoInput`] —
+    /// `"extension service_worker not found for id: <id>"` — when no target of
+    /// type `service_worker` matches, and with
+    /// [`ErrorKind::Browser`] when the entry
+    /// carries no `targetId` or `Target.attachToTarget` is refused
+    /// (`"attach extension SW: …"`).
+    ///
+    /// The `Runtime.evaluate` that probes `chrome.runtime` is best-effort: its
+    /// failure lands in the `evaluate` field as `null` rather than failing the
+    /// call, so "attached but the API was unavailable" stays distinguishable
+    /// from "could not attach".
     pub async fn extension_trigger(&mut self, id: &str) -> Result<Value, CliError> {
         self.pump_events().await;
         let listed = self.extension_list().await?;

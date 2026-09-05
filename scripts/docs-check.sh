@@ -2,6 +2,17 @@
 # Local docs.rs validation pipeline (rules_rust_docsrs_documentacao_automatica).
 #
 # Phases (sequential; abort on failure):
+#
+#   ABORT ON FAILURE MEANS EVERY PHASE BELOW THE FAILURE DOES NOT RUN.
+#   That is not a footnote, it is how this gate misreports. Measured
+#   2026-08-31: one broken rustdoc intra-doc link failed phase 2, so phase 5 —
+#   the aquamarine / feature-gating audit — never executed at all. The
+#   meta-gate `verifier-controls-check.sh` then removed the aquamarine gating
+#   and reported that THIS script "stayed silent", which reads as a defect in
+#   the meta-gate and was in fact this abort. A failure here is therefore TWO
+#   facts: the phase that failed, and every later phase that silently stopped
+#   protecting anything. Fix the first before believing anything about the rest.
+#
 #   1. cargo check
 #   2. cargo doc --no-deps --features docs-mermaid (stable; Mermaid opt-in)
 #   3. optional: cargo +nightly doc --no-deps --features docs-mermaid (doc_cfg)
@@ -21,6 +32,12 @@
 #   124 — external timeout wrapper (if caller uses `timeout`)
 set -euo pipefail
 
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -39,10 +56,10 @@ json_escape() {
   #
   # `jaq -R` reads the line as a raw string and `.` re-emits it as JSON, which is
   # the same escape table the previous `json.dumps` applied. The swap is not
-  # cosmetic: this gate runs inside `ci-check`, so a python3 dependency here made
-  # the product's own closure criterion fail on a host without python3 — under
-  # `set -euo pipefail`, with no guard. The tool must be Rust end to end, and
-  # `jaq` already is.
+  # cosmetic: this gate runs inside `ci-check`, so an interpreter dependency here
+  # made the product's own closure criterion fail on any host that lacks the
+  # interpreter — under `set -euo pipefail`, with no guard. The tool must be Rust
+  # end to end, and `jaq` already is.
   #
   # Newlines are folded to spaces first because `-R` is line-oriented and a
   # multi-line argument would otherwise emit several JSON strings, corrupting the
@@ -103,9 +120,15 @@ progress "1_check" "ok" "cargo check clean"
 # Do NOT pass --cfg docsrs on stable: `#![feature(doc_cfg)]` is nightly-only.
 # docs.rs always builds with nightly + rustdoc-args from Cargo.toml.
 # Enable docs-mermaid so aquamarine processes Mermaid (default build omits it).
+#
+# `-D warnings`, NOT `env -u RUSTDOCFLAGS`. Unsetting the variable made this
+# phase the one place in the project where rustdoc diagnostics were advisory:
+# `scripts/ci-check.sh` already builds docs with `-D warnings`, so a broken
+# intra-doc link failed there while passing here. A docs gate that cannot fail
+# on a documentation defect is not a gate.
 log "Phase 2 — cargo doc --no-deps --features docs-mermaid (stable/public API, no docsrs cfg)"
 progress "2_html" "start" "cargo doc --no-deps --features docs-mermaid"
-run_with_soft_timeout "cargo doc" env -u RUSTDOCFLAGS cargo doc --no-deps --features docs-mermaid
+run_with_soft_timeout "cargo doc" env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --features docs-mermaid
 progress "2_html" "ok" "HTML under ${DOCS_OUT}"
 
 # --- Phase 3: nightly docs.rs simulation (doc_cfg gate) ---

@@ -23,6 +23,14 @@ fn process_cache() -> Result<&'static Arc<dyn HttpCache>, CliError> {
 }
 
 /// Lookup cache key on the blocking pool.
+///
+/// # Errors
+///
+/// [`ErrorKind::Unavailable`] when the process-wide cache failed to build on
+/// first use — see [`default_cache`], whose failure is memoized for the whole
+/// process. [`ErrorKind::Software`] when the `spawn_blocking` task panics or the
+/// join fails. Any error raised by the backend's
+/// [`HttpCache::get`] is propagated unchanged.
 pub async fn get_async(key: &CacheKey) -> Result<Option<CacheEntry>, CliError> {
     let cache = process_cache()?.clone();
     let key = key.clone();
@@ -38,6 +46,14 @@ pub async fn get_async(key: &CacheKey) -> Result<Option<CacheEntry>, CliError> {
 }
 
 /// Store cache entry on the blocking pool.
+///
+/// # Errors
+///
+/// [`ErrorKind::Unavailable`] when the process-wide cache failed to build on
+/// first use — see [`default_cache`], whose failure is memoized for the whole
+/// process. [`ErrorKind::Software`] when the `spawn_blocking` task panics or the
+/// join fails. Any error raised by the backend's
+/// [`HttpCache::put`] is propagated unchanged.
 pub async fn put_async(key: &CacheKey, entry: CacheEntry) -> Result<(), CliError> {
     let cache = process_cache()?.clone();
     let key = key.clone();

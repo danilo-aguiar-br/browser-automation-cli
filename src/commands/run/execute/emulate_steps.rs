@@ -18,6 +18,7 @@ pub(super) async fn handle(
 ) -> Result<Value, CliError> {
     match cmd {
         "emulate" => {
+            apply_step_screen(step)?;
             let headers_owned = step.get("extra_headers").map(|v| {
                 if let Some(s) = v.as_str() {
                     s.to_string()
@@ -45,6 +46,7 @@ pub(super) async fn handle(
                 .await
         }
         "resize" => {
+            apply_step_screen(step)?;
             let width = step
                 .get("width")
                 .and_then(|v| v.as_i64())
@@ -67,4 +69,22 @@ pub(super) async fn handle(
             format!("internal: unexpected cmd in this family: {other}"),
         )),
     }
+}
+
+fn apply_step_screen(step: &Value) -> Result<(), CliError> {
+    let Some(raw) = step.get("screen").and_then(|v| v.as_str()) else {
+        return Ok(());
+    };
+    let size = crate::native::stealth::parse_screen_spec(raw).map_err(|e| {
+        CliError::with_suggestion(
+            ErrorKind::Usage,
+            e,
+            crate::i18n::suggestion_key("screen_spec_format", None),
+        )
+    })?;
+    crate::native::stealth::set_screen_override(
+        Some(size),
+        crate::native::stealth::ScreenSource::Step,
+    );
+    Ok(())
 }

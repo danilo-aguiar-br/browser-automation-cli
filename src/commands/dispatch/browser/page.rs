@@ -139,6 +139,7 @@ pub(crate) fn emulate(
     color_scheme: Option<&str>,
     extra_headers: Option<&str>,
     viewport: Option<&str>,
+    screen: Option<&str>,
 ) -> i32 {
     result_code(
         handle_emulate(
@@ -155,6 +156,7 @@ pub(crate) fn emulate(
             color_scheme,
             extra_headers,
             viewport,
+            screen,
             ctx.capture,
             ctx.timeout_secs,
             ctx.json,
@@ -169,6 +171,7 @@ pub(crate) fn resize(
     height: i32,
     scale: f64,
     mobile: bool,
+    screen: Option<&str>,
 ) -> i32 {
     result_code(
         handle_resize(
@@ -177,6 +180,7 @@ pub(crate) fn resize(
             height,
             scale,
             mobile,
+            screen,
             ctx.capture,
             ctx.timeout_secs,
             ctx.json,

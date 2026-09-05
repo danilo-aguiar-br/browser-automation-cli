@@ -9,6 +9,14 @@ use super::super::OneShotSession;
 
 impl OneShotSession {
     /// List WebMCP tools exposed by the active page/extension surface.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`eval`](Self::eval) of the discovery script: no active
+    /// page, a refused `Runtime.evaluate`, or a JavaScript exception. A page
+    /// exposing no tools is not an error, and neither is a Chrome without
+    /// WebMCP support: declarative `form[toolname]` tools are still listed,
+    /// and the envelope says which surface answered.
     pub async fn webmcp_list(&mut self) -> Result<Value, CliError> {
         self.pump_events().await;
         let expr = r#"(() => {
@@ -50,6 +58,21 @@ impl OneShotSession {
     }
 
     /// Execute a WebMCP tool by name with JSON arguments.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Usage`] when
+    /// `input_json` is not valid JSON, and with
+    /// [`ErrorKind::NoInput`] —
+    /// `"webmcp exec <name>: <detail>"` — when the page reports an exception,
+    /// which is how an unknown tool name and a page exposing no WebMCP surface
+    /// both arrive.
+    ///
+    /// Propagates [`eval`](Self::eval) for the execution itself: no active
+    /// page, a refused `Runtime.evaluate`, or a rejected promise from the
+    /// tool. Unlike [`devtools3p_exec`](Self::devtools3p_exec), no listing
+    /// runs first: the call is made directly against whatever the page
+    /// exposes.
     pub async fn webmcp_exec(
         &mut self,
         name: &str,
@@ -122,7 +145,7 @@ impl OneShotSession {
             return Err(CliError::with_suggestion(
                 ErrorKind::NoInput,
                 format!("webmcp exec {name}: {msg}"),
-                "List tools first; page must expose form[toolname] or __webmcpTools",
+                crate::i18n::suggestion_key("webmcp_list_first", None),
             ));
         }
         let value = result

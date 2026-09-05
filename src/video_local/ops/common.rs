@@ -42,7 +42,7 @@ pub(super) fn sha256_path_head(path: &Path, _max: u64) -> Result<(String, u64), 
     let mut f =
         std::fs::File::open(path).map_err(|e| crate::video_local::magic::io_open_err(path, &e))?;
     let mut hasher = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
+    let mut buf = vec![0u8; crate::constants::MEDIA_STREAM_CHUNK_BYTES];
     loop {
         let n = f
             .read(&mut buf)
@@ -62,6 +62,34 @@ pub(super) fn default_out_path(ext: &str) -> PathBuf {
         .map(|d| d.as_millis())
         .unwrap_or(0);
     dir.join(format!("video-{stamp}.{ext}"))
+}
+
+/// Resolve `--out`, bounding it to the allowed roots when the operator named it.
+///
+/// # Why this exists
+///
+/// GAP-026, write axis. The media write axis was closed in
+/// [`crate::image_local::write_bytes_atomic`], whose own comment calls it "the
+/// single funnel every media artifact reaches disk through". That was false the
+/// day it was written: it is the funnel of the DOWNLOADERS. The transform
+/// family hands `--out` to ffmpeg as argv and lets the subprocess write, so it
+/// never passed through any Rust write helper and `ensure_write_allowed` had
+/// zero occurrences under `video_local/` and `audio_local/`.
+///
+/// A path that becomes a subprocess argument is a write that no search for
+/// `File::create` or `fs::write` finds.
+///
+/// # Errors
+///
+/// [`crate::fs_roots::ensure_write_allowed`] when the operator named a path
+/// outside the allowed roots. The `None` arm cannot fail: it builds the path
+/// under `xdg::cache_dir()`, which is product-owned and inside the roots by
+/// construction, so checking it would only add a way to refuse ourselves.
+pub(super) fn resolve_out_path(out: Option<&Path>, ext: &str) -> Result<PathBuf, CliError> {
+    match out {
+        Some(p) => crate::fs_roots::ensure_write_allowed(p),
+        None => Ok(default_out_path(ext)),
+    }
 }
 
 pub(super) fn convert_envelope(

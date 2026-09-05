@@ -7,10 +7,12 @@
 //!
 //! # Workload (PAR-92 / PAR-101)
 //!
-//! **Subprocess + I/O:** temp profile path is allocated in `build_chrome_args`
+//! **Subprocess + I/O:** the profile path is allocated in `build_chrome_args`
 //! without `std::fs` on the async worker. Materialization uses
-//! [`crate::concurrency::create_dir_all_blocking`] from `oxide::launch_with_oxide`
-//! (async path). Tests may call `materialize_temp_user_data_dir_sync`.
+//! `materialize_profile_dir`, which wraps
+//! [`crate::concurrency::create_dir_all_blocking`], and covers BOTH the owned
+//! temp profile and an operator's explicit `--profile`. Tests may call
+//! `materialize_user_data_dir_sync`.
 //!
 //! ## Module map (componentization)
 //!
@@ -37,4 +39,4 @@ pub use options::LaunchOptions;
 pub use process::ChromeProcess;
 pub use spawn::{launch_self_spawned, ChromeLaunch};
 
-pub(crate) use args::build_chrome_args;
+pub(crate) use args::{build_chrome_args, launch_args, materialize_profile_dir};

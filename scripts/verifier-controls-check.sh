@@ -22,14 +22,98 @@
 # This is mutation testing scoped to the gates. It never touches the real tree.
 #
 # Usage: ./scripts/verifier-controls-check.sh
+#
+# # Cost, stated so a timeout is not read as a hang
+#
+# Every control copies the working tree into a throwaway sandbox and runs a
+# whole verifier there, so the wall clock is dominated by one tree copy PER
+# CONTROL rather than by any single gate. The count is not written here: it is
+# derived at runtime into `CONTROL_TOTAL` by counting `^run_control `, because
+# a number frozen in a comment goes stale the moment a control is added. This
+# comment said "30 tree copies" while the file defined 29.
+#
+# Measured 2026-08-26: 8 controls completed in the first 10 minutes. That is an
+# EXTRAPOLATION, not a total, and it is the only timing measurement this file
+# has; treat the budget as coming from it and NEVER wrap this script in a
+# ceiling below that.
+#
+# That measurement was taken because a 300-second ceiling returned exit 124 and
+# read as a broken verifier. The `[n/TOTAL]` prefix on every result line exists
+# so the difference is visible without waiting: a run that is merely slow keeps
+# advancing the counter, and a run that is stuck does not.
 set -uo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# DERIVED from the call sites below, never written by hand. A literal total
+# would drift the first time a control is added, and a progress counter that
+# lies about the denominator is worse than no counter at all.
+CONTROL_TOTAL="$(rg -c '^run_control ' "${BASH_SOURCE[0]}" 2>/dev/null || echo '?')"
+control_n=0
+
+# ── The sandbox that survives being killed ──────────────────────────────────
+# `run_control` removes `$work` on both of its RETURN paths, and neither runs
+# when the script is killed. This gate is long — see the single timing note in
+# the cost section above, which is the ONE place a duration is stated — and it
+# copies the whole tree per control, so being killed by an impatient ceiling is
+# its normal accident, not an exotic one.
+#
+# This sentence used to carry "roughly 45 minutes" while the cost section said
+# 40. Two durations for one script is one measurement too many: a reader picking
+# the smaller one sets a ceiling that kills the gate, which is the very accident
+# described here.
+#
+# Measured 2026-08-26: three `bac-verifier-control-*` directories sat in /tmp
+# from earlier interrupted runs, one of them 275 MiB. The project bans exactly
+# this leak in its test suite and the verifier of that ban was leaking.
+#
+# Same shape as the dialog pump fixed in 0.1.9: the explicit exits were covered
+# and the CANCELLED one was not.
+#
+# THE TRAP IS NOT ENOUGH, AND THAT WAS MEASURED (2026-08-26)
+#   bash does not run a trap while it is blocked on an external command in the
+#   FOREGROUND. Two minimal scripts, identical but for how the child is waited
+#   on, were killed at the same point:
+#     `sleep 30`          -> trap never ran, directory leaked
+#     `sleep 30 & wait $!` -> trap ran, directory removed
+#   This script spends essentially all of its time inside `cp` and
+#   `bash $script` in the foreground, so the leaking case IS the normal case.
+#
+#   The sweep below therefore does the real work and the trap is the cheap
+#   extra. The sweep needs no signal to be delivered and no handler to be
+#   reached; it only needs the next run to start. An age floor keeps it from
+#   deleting the sandbox of a CONCURRENT run, which a bare glob would do.
+CURRENT_WORK=""
+cleanup_current_work() {
+  [[ -n "$CURRENT_WORK" ]] && rm -rf "$CURRENT_WORK"
+  CURRENT_WORK=""
+}
+trap cleanup_current_work EXIT INT TERM
+
+sweep_stale_sandboxes() {
+  local base="${TMPDIR:-/tmp}" stale=0 d
+  while IFS= read -r d; do
+    [[ -z "$d" ]] && continue
+    rm -rf "$d"
+    stale=$((stale + 1))
+  done < <(fd -d 1 -H -g 'bac-verifier-control-*' . "$base" \
+    --changed-before 1h --absolute-path 2>/dev/null)
+  if [[ "$stale" -gt 0 ]]; then
+    printf 'swept %d sandbox(es) left by an interrupted run\n' "$stale" >&2
+  fi
+}
+sweep_stale_sandboxes
+
 fail=0
-pass() { printf 'PASS  %s\n' "$1"; }
-bad() { printf 'FAIL  %s\n' "$1"; fail=1; }
+pass() { printf 'PASS  [%s/%s] %s\n' "$control_n" "$CONTROL_TOTAL" "$1"; }
+bad() { printf 'FAIL  [%s/%s] %s\n' "$control_n" "$CONTROL_TOTAL" "$1"; fail=1; }
 
 echo "== verifier-controls (each gate must DETECT the property's absence) =="
 
@@ -42,8 +126,14 @@ echo "== verifier-controls (each gate must DETECT the property's absence) =="
 run_control() {
   local label="$1" script="$2" expected="$3"
   shift 3
+  control_n=$((control_n + 1))
+  # Announced BEFORE the tree copy, not after the result. A line printed only
+  # on completion cannot distinguish "still working on control 9" from "died
+  # during control 9", which is the exact ambiguity this counter exists to end.
+  printf '  ->  [%s/%s] %s\n' "$control_n" "$CONTROL_TOTAL" "$label" >&2
   local work
   work="$(mktemp -d "${TMPDIR:-/tmp}/bac-verifier-control-XXXXXX")"
+  CURRENT_WORK="$work"
   # Copy the whole working tree minus the heavy, irrelevant parts.
   #
   # A partial copy is a trap: a gate that aborts early because the sandbox lacks
@@ -51,14 +141,23 @@ run_control() {
   # control then reports the gate as blind when it is merely unreachable. That
   # false alarm cost two rounds here — the sandbox must be complete enough that
   # the gate fails for the reason the mutation created.
-  fd -H -d 1 . "$ROOT" \
+  #
+  # `-I` IS PART OF "COMPLETE ENOUGH"
+  #   Without it `fd` honours `.gitignore`, and the copy silently omitted
+  #   `docs_prd/`, `gaps.md`, `CLAUDE.md`, `.claude/`, `.atomwrite/` and
+  #   `.setting.cyber/` — so the warning written directly above described the
+  #   copy this line was making. No control under this gate reads those paths
+  #   today, which is why nothing failed; the exposure was latent, not active.
+  #   Measured 2026-08-28: the six add ~1 MiB, against a per-control copy that
+  #   already excludes `target/`, so completeness costs effectively nothing.
+  fd -H -I -d 1 . "$ROOT" \
     -E target -E .git -E '*.sqlite*' -E '*.7z' \
-    -E 'base_conhecimento*' -E 'docs_rules*' -E graphrag -E node_modules \
+    -E 'base_*' -E 'docs_rules*' -E graphrag -E node_modules \
     -x cp -r {} "$work/" \; 2>/dev/null
 
   (cd "$work" && "$@") || {
     bad "$label: mutation command failed, control is inconclusive"
-    rm -rf "$work"
+    cleanup_current_work
     return
   }
 
@@ -93,7 +192,7 @@ run_control() {
     bad "$label: gate stayed silent after the property was removed"
     printf '      expected to see: %s\n' "$expected"
   fi
-  rm -rf "$work"
+  cleanup_current_work
 }
 
 # 1) tracing-check must notice init_tracing_local disappearing.
@@ -274,7 +373,7 @@ run_control "doc-coverage-check detects a command that no entry-point document n
 run_control "doc-coverage-check detects a per-command flag presented as global" \
   "scripts/doc-coverage-check.sh" \
   "present a per-command flag as global" \
-  bash -c "printf '%s\n' '- These flags are GLOBAL on every one of the 69 commands: \`--select\`' >> docs/ROADMAP.md"
+  bash -c "printf '%s\n' '- These flags are GLOBAL on every one of the 71 commands: \`--select\`' >> docs/ROADMAP.md"
 
 # macros-check must notice a production panic! outside every test block.
 #

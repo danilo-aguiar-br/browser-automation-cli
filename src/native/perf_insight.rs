@@ -79,6 +79,12 @@ impl Acc {
 }
 
 /// Analyze a trace file written by `perf stop` (NDJSON of event arrays).
+///
+/// # Errors
+///
+/// Fails with `"trace read: …"` when `path` cannot be read or exceeds the
+/// `max_json_file_bytes` ceiling, and otherwise propagates [`analyze_text`]:
+/// an NDJSON line above the `max_ndjson_line_bytes` ceiling.
 pub fn analyze_file(path: &Path, name_filter: Option<&str>) -> Result<Value, String> {
     // Size-bounded + BOM-stripped read (rules_rust_json_e_ndjson / memory ceilings).
     let raw =
@@ -88,6 +94,14 @@ pub fn analyze_file(path: &Path, name_filter: Option<&str>) -> Result<Value, Str
 }
 
 /// Analyze in-memory NDJSON / JSON chunks joined with newlines.
+///
+/// # Errors
+///
+/// Fails only with `"NDJSON line N: line too large (B bytes > MAX)"` when a
+/// line exceeds the `max_ndjson_line_bytes` ceiling. Nothing else here
+/// rejects: an empty trace answers with `event_count: 0` and a note, and a
+/// line that does not parse as JSON is skipped rather than reported — so a
+/// truncated trace analyses as a shorter one.
 pub fn analyze_text(
     raw: &str,
     name_filter: Option<&str>,

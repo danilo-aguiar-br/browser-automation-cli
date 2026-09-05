@@ -9,6 +9,15 @@ use super::super::refs::RefMap;
 use super::call::call_on_element;
 
 /// Bounding rectangle of the element in CSS pixels, viewport-relative.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// and the CDP error raised by `Runtime.callFunctionOn`, then fails with
+/// `"Could not get bounding box for: <selector>"` when the call returned
+/// `undefined` — the node was detached between the resolve and the call.
+/// A `display: none` element is not an error: it has a rect of zeros.
 pub async fn get_element_bounding_box(
     client: &CdpClient,
     session_id: &str,
@@ -37,6 +46,15 @@ pub async fn get_element_bounding_box(
 ///
 /// `properties` narrows the result to the named ones; `None` returns the whole
 /// computed set, which is large enough to matter in an agent's token budget.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// and the CDP error raised by `Runtime.callFunctionOn`. A name in
+/// `properties` that is not a CSS property is not an error:
+/// `getPropertyValue` answers with the empty string. A call returning
+/// `undefined` yields JSON `null`.
 pub async fn get_element_styles(
     client: &CdpClient,
     session_id: &str,

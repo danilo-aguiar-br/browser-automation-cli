@@ -14,16 +14,51 @@ use super::super::{CaptureOpts, OneShotSession};
 
 impl OneShotSession {
     /// Launch a headless Chrome session with default capture off.
+    ///
+    /// # Errors
+    ///
+    /// Propagates
+    /// [`launch_headless_with_capture`](Self::launch_headless_with_capture):
+    /// [`ErrorKind::Unavailable`] when
+    /// Chrome cannot be launched, or a domain-enable failure.
     pub async fn launch_headless() -> Result<Self, CliError> {
         Self::launch_headless_with_capture(CaptureOpts::default()).await
     }
 
     /// Launch headless Chrome with the given console/network capture options.
+    ///
+    /// # Errors
+    ///
+    /// Fails with
+    /// [`ErrorKind::Unavailable`] —
+    /// `"Chrome launch failed: …"`, carrying the `external_binary_path`
+    /// suggestion — when no Chrome is found, the binary refuses to start, or
+    /// no DevTools endpoint appears in time.
+    ///
+    /// Then fails with
+    /// [`ErrorKind::Browser`] when the fresh
+    /// browser exposes no active page, and with
+    /// [`ErrorKind::Protocol`] when
+    /// `Runtime.enable` or `Network.enable` is refused — but only for the
+    /// captures `capture` actually asked for, since an unrequested domain is
+    /// never enabled.
     pub async fn launch_headless_with_capture(capture: CaptureOpts) -> Result<Self, CliError> {
         Self::launch_headless_with_options(capture, None).await
     }
 
     /// Launch headless Chrome optionally routed through a local MITM proxy (GAP-011).
+    ///
+    /// # Errors
+    ///
+    /// Same set as
+    /// [`launch_headless_with_capture`](Self::launch_headless_with_capture):
+    /// [`ErrorKind::Unavailable`] on a
+    /// failed Chrome launch — which is also how an unreachable
+    /// `proxy_server` surfaces, since Chrome is told about it at startup —
+    /// [`ErrorKind::Browser`] with no active
+    /// page, and
+    /// [`ErrorKind::Protocol`] on a refused
+    /// capture-domain enable.
     pub async fn launch_headless_with_proxy(
         capture: CaptureOpts,
         proxy_server: &str,
@@ -76,6 +111,11 @@ impl OneShotSession {
             event_rx,
             console_log: Vec::new(),
             network_log: Vec::new(),
+            console_dropped: 0,
+            network_dropped: 0,
+            trace_dropped: 0,
+            heap_bytes: 0,
+            heap_overflow: false,
             perf_active: false,
             screencast_active: false,
             heap_chunks: Vec::new(),
@@ -85,6 +125,7 @@ impl OneShotSession {
             screencast_frames: Vec::new(),
             screencast_dir: None,
             screencast_ack_ids: Vec::new(),
+            screencast_dropped: 0,
             dialog_open: FxHashMap::default(),
             dialog_suppress_open: FxHashMap::default(),
             heap_snapshot_finished: false,
@@ -97,12 +138,34 @@ impl OneShotSession {
             net_inflight: 0,
             net_started: 0,
             net_last_activity: None,
+            last_device_metrics: (
+                crate::constants::DEFAULT_XVFB_WIDTH as i32,
+                crate::constants::DEFAULT_XVFB_HEIGHT as i32,
+                1.0,
+                false,
+            ),
         };
         session.enable_capture_domains().await?;
         Ok(session)
     }
 
     /// Launch with Chrome extensions loaded (`--load-extension`).
+    ///
+    /// # Errors
+    ///
+    /// Fails with
+    /// [`ErrorKind::NoInput`] —
+    /// `"extension path not found: <p>"` — when any entry of `extensions` does
+    /// not exist on disk, checked before Chrome is started so a typo costs no
+    /// launch. Then with
+    /// [`ErrorKind::Unavailable`] on
+    /// `"Chrome launch with extensions failed: …"`, and with the same
+    /// capture-domain errors as
+    /// [`launch_headless_with_capture`](Self::launch_headless_with_capture).
+    ///
+    /// An empty `extensions` list is not an error: it falls through to the
+    /// plain headless launch. Enumerating the loaded extension ids afterwards
+    /// is best-effort and never fails the launch.
     pub async fn launch_with_extensions(
         capture: CaptureOpts,
         extensions: Vec<String>,
@@ -151,6 +214,11 @@ impl OneShotSession {
             event_rx,
             console_log: Vec::new(),
             network_log: Vec::new(),
+            console_dropped: 0,
+            network_dropped: 0,
+            trace_dropped: 0,
+            heap_bytes: 0,
+            heap_overflow: false,
             perf_active: false,
             screencast_active: false,
             heap_chunks: Vec::new(),
@@ -160,6 +228,7 @@ impl OneShotSession {
             screencast_frames: Vec::new(),
             screencast_dir: None,
             screencast_ack_ids: Vec::new(),
+            screencast_dropped: 0,
             dialog_open: FxHashMap::default(),
             dialog_suppress_open: FxHashMap::default(),
             heap_snapshot_finished: false,
@@ -172,6 +241,12 @@ impl OneShotSession {
             net_inflight: 0,
             net_started: 0,
             net_last_activity: None,
+            last_device_metrics: (
+                crate::constants::DEFAULT_XVFB_WIDTH as i32,
+                crate::constants::DEFAULT_XVFB_HEIGHT as i32,
+                1.0,
+                false,
+            ),
         };
         // Best-effort: record extension path basenames; real ids come from list after launch.
         session.loaded_extension_ids = extensions

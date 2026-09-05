@@ -58,6 +58,21 @@ impl Default for FindPathsOpts {
 }
 
 /// Walk roots and return matching paths (one-shot).
+///
+/// # Symlinks and `--type f`
+///
+/// The walk does not follow symlinks, so `entry.file_type()` reports the LINK,
+/// not its target, and a symlink pointing at a regular file does not satisfy
+/// `--type f`. That matches `find -type f`, which is the tool this command
+/// imitates and the behaviour an operator reaching for it expects: `find`
+/// answers about the entry, and `find -L` is the opt-in that answers about the
+/// target.
+///
+/// It is written down because the code alone reads like an oversight. Nothing
+/// at the call site says "the link, deliberately", and a future reader with a
+/// symlinked tree in front of them has no way to tell a decision from a bug.
+/// Following links would also open a cycle to walk into, which is the second
+/// reason `find` made the same choice.
 pub fn find_paths(opts: &FindPathsOpts) -> Result<Value, CliError> {
     crate::concurrency::install_rayon_pool_once();
     let roots = if opts.roots.is_empty() {

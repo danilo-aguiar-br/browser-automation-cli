@@ -246,10 +246,13 @@ pub fn build_payload(
     opts: &ScrapeOpts,
     robots: RobotsPolicy,
 ) -> Value {
-    let text = if opts.redact_pii {
-        super::html::redact_pii(&extracted.text)
+    // Borrow when nothing rewrites the body. `redact_pii` is off by default, so
+    // the old `extracted.text.clone()` copied the whole page on the common path
+    // just to hand it to the branch below, which copies again into the JSON.
+    let text: std::borrow::Cow<'_, str> = if opts.redact_pii {
+        std::borrow::Cow::Owned(super::html::redact_pii(&extracted.text))
     } else {
-        extracted.text.clone()
+        std::borrow::Cow::Borrowed(extracted.text.as_str())
     };
 
     let mut map = Map::new();
@@ -311,7 +314,7 @@ pub fn build_payload(
             let summary = if text.chars().count() > cap {
                 format!("{}…", text.chars().take(cap).collect::<String>())
             } else {
-                text.clone()
+                text.clone().into_owned()
             };
             map.insert("summary".into(), json!(summary));
             map.insert("text".into(), json!(text));

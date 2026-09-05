@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use crate::browser::{block_on_browser_timeout, CaptureOpts, OneShotSession};
-use crate::commands::common::emit_ok;
+use crate::commands::common::emit_ok_summary;
 use crate::error::{CliError, ErrorKind};
 use crate::lifecycle::Lifecycle;
 
@@ -79,7 +79,10 @@ pub(crate) fn handle_extract(
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
             life.record_chrome(session.chrome_pid());
             let _ = session
-                .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+                .goto(
+                    crate::constants::ABOUT_BLANK,
+                    crate::robots::RobotsPolicy::Honor,
+                )
                 .await?;
             let r = session.extract(&target, attr.as_deref()).await;
             let blank = session
@@ -89,7 +92,7 @@ pub(crate) fn handle_extract(
                 .and_then(|i| {
                     i.get("url")
                         .and_then(|v| v.as_str())
-                        .map(|u| u == "about:blank")
+                        .map(|u| u == crate::constants::ABOUT_BLANK)
                 })
                 .unwrap_or(false);
             let close = session.shutdown().await;
@@ -113,9 +116,7 @@ pub(crate) fn handle_extract(
             crate::i18n::suggestion_key("navigate_first", None),
         ));
     }
-    emit_ok(data, json, |d| {
-        crate::output::writeln_stdout(format!("ok extract {d}"))
-    })
+    emit_ok_summary(data, json, "extract")
 }
 
 pub(crate) fn handle_attr(

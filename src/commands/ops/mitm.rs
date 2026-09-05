@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::cli::MitmAction;
-use crate::commands::common::emit_ok;
+use crate::commands::common::emit_ok_summary;
 use crate::error::{CliError, ErrorKind};
+use crate::etd::{with_target, TargetSource};
 
 pub(crate) fn handle_mitm(action: MitmAction, json: bool) -> Result<(), CliError> {
+    let etd = mitm_target(&action);
     let data = match action {
         MitmAction::Status { capture_path } => crate::mitm_local::status(capture_path.as_deref())?,
         MitmAction::List {
@@ -28,7 +30,11 @@ pub(crate) fn handle_mitm(action: MitmAction, json: bool) -> Result<(), CliError
             } else {
                 let (path, explicit) =
                     crate::mitm_local::resolve_capture_path(capture_path.as_deref())?;
-                let cap = crate::mitm_local::MitmCapture::load_scoped(&path, true, explicit)?;
+                let cap = crate::mitm_local::MitmCapture::load_scoped(
+                    &path,
+                    crate::mitm_local::policy::redact_secrets(),
+                    explicit,
+                )?;
                 let body = serde_json::to_vec_pretty(&serde_json::json!({
                     "count": cap.items.len(),
                     "items": cap.items,
@@ -59,11 +65,13 @@ pub(crate) fn handle_mitm(action: MitmAction, json: bool) -> Result<(), CliError
             seconds,
             har,
             hosts,
+            capture_hosts,
         } => crate::browser::block_on_browser(crate::mitm_local::capture_url_oneshot(
             &url,
             seconds,
             har.as_deref(),
             hosts.as_deref(),
+            capture_hosts.as_deref(),
         ))?,
         MitmAction::Graphql {
             limit,
@@ -84,7 +92,27 @@ pub(crate) fn handle_mitm(action: MitmAction, json: bool) -> Result<(), CliError
         MitmAction::Allow { host } => crate::mitm_local::allow_host(&host)?,
         MitmAction::Redact { secrets } => crate::mitm_local::redact_policy(secrets)?,
     };
-    emit_ok(data, json, |d| {
-        crate::output::writeln_stdout(format!("ok mitm {d}"))
-    })
+    let data = match etd {
+        Some(resolved) => with_target(data, &resolved, TargetSource::Argv),
+        None => data,
+    };
+    emit_ok_summary(data, json, "mitm")
+}
+
+/// The rule a `mitm` action writes, or `None` for the read-only actions.
+///
+/// Both writers already refuse without a target — `block` needs `--host` and/or
+/// `--path`, `allow` takes `--host` as a required value — so the source is
+/// always argv. Publishing it is what lets a gate prove that, instead of the
+/// gate having to trust the help text.
+fn mitm_target(action: &MitmAction) -> Option<String> {
+    match action {
+        MitmAction::Block { host, path } => Some(format!(
+            "{}{}",
+            host.as_deref().unwrap_or("*"),
+            path.as_deref().unwrap_or("")
+        )),
+        MitmAction::Allow { host } => Some(host.clone()),
+        _ => None,
+    }
 }

@@ -8,7 +8,7 @@ use chromiumoxide::browser::Browser;
 use chromiumoxide::cdp::browser_protocol::fetch::EventRequestPaused;
 use chromiumoxide::cdp::browser_protocol::input::EventDragIntercepted;
 use chromiumoxide::cdp::browser_protocol::network::{
-    EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent,
+    EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent, EventResponseReceived,
 };
 use chromiumoxide::cdp::browser_protocol::page::{
     EventDomContentEventFired, EventJavascriptDialogClosed, EventJavascriptDialogOpening,
@@ -122,6 +122,19 @@ pub(crate) async fn spawn_event_forwarders(
         attach_browser_event_forwarder::<EventRequestWillBeSent>(
             &b,
             "Network.requestWillBeSent",
+            event_tx.clone(),
+        )
+        .await?,
+    );
+    // The top-level navigation request is answered on the BROWSER session, so
+    // the page-scoped forwarder never sees its response. Without this listener
+    // the document was the one record in a capture that carried no `status`,
+    // which is the worst possible shape: present for 24 of 25 rows and absent
+    // exactly for the row a caller checks first.
+    handles.push(
+        attach_browser_event_forwarder::<EventResponseReceived>(
+            &b,
+            "Network.responseReceived",
             event_tx.clone(),
         )
         .await?,

@@ -6,6 +6,13 @@
 //! Operator-facing wall timeouts remain XDG `timeout` / CLI `--timeout`.
 //! These values are process-infra only (probes, grace, I/O helpers).
 
+/// Redis port assumed when `cache_redis_url` names a host without one.
+///
+/// Used ONLY for the absent-port case. A port that is present but unparseable is
+/// an error, never this value: silently connecting to 6379 while the operator
+/// wrote something else is how a cache "works" against the wrong server.
+pub const REDIS_DEFAULT_PORT: u16 = 6379;
+
 /// Redis/RESP connect and stream I/O timeout (seconds).
 pub const REDIS_IO_TIMEOUT_SECS: u64 = 3;
 

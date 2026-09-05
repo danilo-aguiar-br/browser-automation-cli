@@ -30,6 +30,17 @@
       ],
       "type": "array"
     },
+    "ignore_query_params": {
+      "argv": "--ignore-query-params",
+      "description": "Collapse query params when deduping URLs",
+      "required": false,
+      "source": "parser",
+      "step_key": "ignore_query_params",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
     "include_path": {
       "argv": "--include-path",
       "description": "Include only path prefixes (repeatable)",
@@ -43,6 +54,17 @@
         "argv"
       ],
       "type": "array"
+    },
+    "include_subdomains": {
+      "argv": "--include-subdomains",
+      "description": "Keep URLs on subdomains of the seed host, not just the seed host itself",
+      "required": false,
+      "source": "parser",
+      "step_key": "include_subdomains",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
     },
     "limit": {
       "argv": "--limit",

@@ -14,35 +14,50 @@
 
 use std::path::Path;
 
-use assert_cmd::Command;
 use serde_json::Value;
+
+mod common;
+// `common::bin()` wraps `CARGO_BIN_EXE_`, and the gates below need exactly that
+// and NOT `Command::cargo_bin`.
+//
+// `cargo_bin` resolves to `target/debug/browser-automation-cli`, a path that
+// ANY build overwrites regardless of its feature set. A `cargo build` with
+// default features silently replaces the binary a later
+// `cargo test --all-features` is about to drive, and the feature-gated gates
+// below then fail with "requires the `image-avif` Cargo feature, which is off
+// in this build" — a true statement about the wrong binary.
+//
+// `CARGO_BIN_EXE_<name>` is set by cargo at test-COMPILE time and points at the
+// binary built with the SAME feature set as this test. Same defect class as a
+// schema gate comparing against a stale artifact: the test was right, the thing
+// it measured was not the thing it meant to measure.
+//
+// WHAT THAT DOES **NOT** FIX, measured 2026-08-31
+//
+// This note used to end "so the two can never disagree". That is false, and the
+// correction is worth more than the original claim.
+//
+// `CARGO_BIN_EXE_` fixes the feature set at compile time. It fixes the PATH at
+// compile time too — and that path is a single file another process can still
+// overwrite while these tests are running. Four gates here failed inside a full
+// `cargo test --all-features` that shared the tree with a concurrent `cargo
+// build`, and the same target passed 11/11 the moment it ran alone.
+//
+// So the variable closes "wrong feature set" and leaves "someone rebuilt the
+// binary underneath me" wide open. A claim of impossibility is worse than no
+// comment at all: when the suite did fail this way, the note sat here asserting
+// that it could not, which is exactly the wrong thing to read while debugging.
+//
+// Run this target without a concurrent cargo in the same tree. If these gates
+// ever fail again with a feature-related message, check for that FIRST.
 
 /// Run the built binary and return its parsed stdout envelope plus exit code.
 ///
 /// The envelope is the contract, so a non-zero exit is returned rather than
 /// asserted away: several gates below exist precisely to pin a *failure*
 /// envelope.
-/// # Why `CARGO_BIN_EXE_` and not `Command::cargo_bin`
-///
-/// `cargo_bin` resolves to `target/debug/browser-automation-cli`, a path that
-/// ANY build overwrites regardless of its feature set. A `cargo build` with
-/// default features silently replaces the binary a later
-/// `cargo test --all-features` is about to drive, and the feature-gated gates
-/// below then fail with "requires the `image-avif` Cargo feature, which is off
-/// in this build" — a true statement about the wrong binary.
-///
-/// `CARGO_BIN_EXE_<name>` is set by cargo at test-COMPILE time and points at the
-/// binary built with the SAME feature set as this test, so the two can never
-/// disagree. Same defect class as a schema gate comparing against a stale
-/// artifact: the test was right, the thing it measured was not the thing it
-/// meant to measure.
-const CLI_BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
-
 fn run(args: &[&str]) -> (Value, i32) {
-    let out = Command::new(CLI_BIN)
-        .args(args)
-        .output()
-        .expect("spawn cli");
+    let out = common::cmd().args(args).output().expect("spawn cli");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let value: Value = serde_json::from_str(stdout.trim())
         .unwrap_or_else(|e| panic!("stdout is not one JSON envelope ({e}): {stdout}"));

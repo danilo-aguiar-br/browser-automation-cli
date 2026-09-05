@@ -4,12 +4,45 @@
 //! process P50/P99** use `scripts/latency-baseline.sh` (rules_rust_latencia_reduzir).
 //! Never treat microbench alone as proof of end-to-end latency.
 
+// `criterion_group!` and `criterion_main!` expand to a public function and a
+// `main` this file neither names nor can document, and the expansion unwraps
+// internally. The package-wide policy in `[lints]` reaches benches too — which
+// is the point of moving it out of `src/lib.rs` — so the exemption is stated
+// here rather than left to a green gate that never saw the target. An attribute
+// on the macro invocation does NOT work: it applies to the invocation, not to
+// the items the expansion produces, and rustc rejects it as unused.
+#![allow(missing_docs, clippy::unwrap_used)]
+
 use browser_automation_cli::cli::Cli;
 use browser_automation_cli::envelope::{ErrorBody, ErrorEnvelope, SuccessEnvelope};
 use browser_automation_cli::json_util;
 use clap::{CommandFactory, Parser};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use serde_json::json;
+
+/// Cost of the per-step runtime that `batch`, `crawl` and `offline` pay.
+///
+/// # Why this benchmark exists
+///
+/// Those three loops call `block_on_io` once per item, and each call builds a
+/// runtime and tears it down. Hoisting a single runtime out of the loops was
+/// blocked by a real constraint — a detached signal task per call — which
+/// `AbortOnDrop` has since removed, so the change became POSSIBLE. Possible is
+/// not the same as worthwhile, and the open question was never answered with a
+/// number: is the runtime a meaningful share of a step, or noise next to the
+/// network I/O every one of those steps performs?
+///
+/// This measures the runtime alone, so that question stops being argued from
+/// intuition. Compare the result against the cost of one HTTP request before
+/// restructuring anything.
+fn io_runtime_lifecycle(c: &mut Criterion) {
+    c.bench_function("build_and_shutdown_io_runtime", |b| {
+        b.iter(|| {
+            let rt = browser_automation_cli::runtime_util::build_io_runtime().unwrap();
+            browser_automation_cli::runtime_util::shutdown_runtime(black_box(rt));
+        });
+    });
+}
 
 fn parse_doctor_json(c: &mut Criterion) {
     c.bench_function("parse_doctor_offline_quick_json", |b| {
@@ -72,6 +105,10 @@ fn envelope_error_compact(c: &mut Criterion) {
             kind: "software".into(),
             message: "example".into(),
             exit_code: 70,
+            // Serialised by this benchmark, so it belongs to the shape being
+            // measured: a field left out here would make the benchmark time an
+            // envelope the product never emits.
+            retryable: false,
             suggestion: Some("retry".into()),
         },
         data: None,
@@ -90,6 +127,7 @@ criterion_group!(
     command_factory_build,
     debug_assert_tree,
     envelope_success_compact,
-    envelope_error_compact
+    envelope_error_compact,
+    io_runtime_lifecycle
 );
 criterion_main!(benches);

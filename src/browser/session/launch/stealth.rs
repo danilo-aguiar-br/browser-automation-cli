@@ -34,12 +34,21 @@ impl OneShotSession {
         // hardening layer would turn a defence into an outage. The absence is
         // observable through `doctor`, not through a dead command.
         if let Some(script) = crate::native::stealth::script_for_process() {
-            if let Err(e) = self.manager.add_script_to_evaluate(script).await {
-                tracing::warn!(
-                    target: "browser_automation_cli::stealth",
-                    error = %e,
-                    "stealth patches were not installed; automation markers stay visible"
-                );
+            match self.manager.add_script_to_evaluate(script).await {
+                Ok(_) => crate::browser_policy::set_stealth_installed(true),
+                Err(e) => {
+                    // Publish the failure as STATE, not only as a log line. The
+                    // comment above promises `doctor` shows the absence, and a
+                    // `tracing::warn!` cannot keep that promise: `--json -q`
+                    // silences stderr, so the envelope used to say `stealth:
+                    // true` after the patch had failed to install.
+                    crate::browser_policy::set_stealth_installed(false);
+                    tracing::warn!(
+                        target: "browser_automation_cli::stealth",
+                        error = %e,
+                        "stealth patches were not installed; automation markers stay visible"
+                    );
+                }
             }
         }
 
@@ -60,6 +69,30 @@ impl OneShotSession {
                     "user agent override failed; the declared profile does not match what the page sees"
                 );
             }
+        }
+
+        // Headless Chrome reports screen 800×600 until device metrics land.
+        // Argv `--screen` / a prior run step may already have published an
+        // override; otherwise XDG `screen` is applied, then the viewport
+        // mirrors the private Xvfb (1920×1080) so screen cannot stay 800×600.
+        if crate::native::stealth::current_screen_override().is_none() {
+            if let Some(size) = crate::xdg::resolve_screen_spec() {
+                crate::native::stealth::set_screen_override(
+                    Some(size),
+                    crate::native::stealth::ScreenSource::Xdg,
+                );
+            }
+        }
+        let width = crate::constants::DEFAULT_XVFB_WIDTH as i32;
+        let height = crate::constants::DEFAULT_XVFB_HEIGHT as i32;
+        if let Err(e) = self.manager.set_viewport(width, height, 1.0, false).await {
+            tracing::warn!(
+                target: "browser_automation_cli::stealth",
+                error = %e,
+                "default device metrics were not applied; screen may stay 800x600"
+            );
+        } else {
+            self.last_device_metrics = (width, height, 1.0, false);
         }
     }
 }

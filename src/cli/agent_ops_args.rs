@@ -56,8 +56,15 @@ pub struct AgentOpsArgs {
     pub filter_rows: Vec<String>,
 
     /// Emit at most N rows (applied after filter, dedupe and sort)
+    ///
+    /// `--max-items` is an accepted alias and carries the agent contract's own
+    /// spelling. It could be added without the collision that forced the
+    /// `-rows` suffix on the other three, because no command declares it: this
+    /// flag limits what is EMITTED, while a command's `--limit` limits what is
+    /// FETCHED, and those two ceilings are genuinely different numbers.
     #[arg(
         long = "limit-rows",
+        alias = "max-items",
         global = true,
         value_name = "N",
         help_heading = "Agent output"

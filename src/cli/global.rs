@@ -3,6 +3,53 @@
 
 use clap::{ArgAction, Args, ValueHint};
 
+/// Parse a timeout expressed in seconds, with an OPTIONAL unit suffix.
+///
+/// # Why a suffix is accepted at all
+///
+/// The unit used to live only in the flag NAME, and `wait` and
+/// `navigation_timeout_ms` next to it take milliseconds. A caller who read
+/// `--step-timeout 150000` as milliseconds was asking for forty-one hours and
+/// had no way to say otherwise in the argv. `150s`, `5m` and `2h` let the
+/// caller state the unit, so the reading can no longer be silently wrong.
+///
+/// A bare number stays seconds, so every existing invocation keeps its meaning.
+///
+/// # Why the ceiling lives here and not in `range()`
+///
+/// `clap::value_parser!(u64).range(..)` cannot see the suffix, so `5m` would
+/// have to be rejected before it was understood. Doing both in one function is
+/// what keeps `2h` legal and `100h` refused with the reason.
+pub fn parse_timeout_secs(raw: &str) -> Result<u64, String> {
+    const MAX: u64 = crate::constants::MAX_GLOBAL_TIMEOUT_SECS;
+    let text = raw.trim();
+    if text.is_empty() {
+        return Err("empty timeout: write a whole number of seconds".to_string());
+    }
+    let (digits, multiplier) = match text.as_bytes().last() {
+        Some(b's' | b'S') => (&text[..text.len() - 1], 1_u64),
+        Some(b'm' | b'M') => (&text[..text.len() - 1], 60_u64),
+        Some(b'h' | b'H') => (&text[..text.len() - 1], 3_600_u64),
+        _ => (text, 1_u64),
+    };
+    let count: u64 = digits.trim().parse().map_err(|_| {
+        format!(
+            "`{text}` is not a timeout: write whole seconds, optionally suffixed \
+             with s, m or h (for example 90, 90s, 5m, 2h)"
+        )
+    })?;
+    let seconds = count
+        .checked_mul(multiplier)
+        .ok_or_else(|| format!("`{text}` overflows: the ceiling is {MAX} seconds (24h)"))?;
+    if seconds > MAX {
+        return Err(format!(
+            "`{text}` is {seconds} seconds and the ceiling is {MAX} (24h); a \
+             one-shot invocation cannot mean a longer budget"
+        ));
+    }
+    Ok(seconds)
+}
+
 /// Global options applied to every subcommand.
 ///
 /// Flattened into the root [`Cli`](crate::cli::Cli) via `#[command(flatten)]`.
@@ -62,12 +109,18 @@ pub struct GlobalOpts {
     )]
     pub plain: bool,
 
-    /// Global wall-clock timeout in seconds (0 = no override)
+    /// Global wall-clock timeout in seconds (0 = no override, max 86400)
+    ///
+    /// Bounded so a typo cannot ask a one-shot process to wait for years; see
+    /// [`crate::constants::MAX_GLOBAL_TIMEOUT_SECS`] for why the bound is not
+    /// configurable. `0` still means "no override", and the per-operation
+    /// budgets keep applying either way.
     #[arg(
         long,
         global = true,
         default_value_t = 0,
         value_name = "SECS",
+        value_parser = parse_timeout_secs,
         help_heading = "Timeouts"
     )]
     pub timeout: u64,
@@ -85,12 +138,28 @@ pub struct GlobalOpts {
     )]
     pub max_concurrency: usize,
 
-    /// Per-step timeout in seconds for `run` scripts (0 = inherit global timeout)
+    /// Per-step timeout in seconds for `run` scripts (0 = inherit global timeout, max 86400)
+    ///
+    /// # Why this carries the same bound as `--timeout`
+    ///
+    /// It did not until 0.1.9, and the asymmetry was the whole defect. Its
+    /// sibling above has had `range(0..=MAX_GLOBAL_TIMEOUT_SECS)` all along;
+    /// this one accepted any `u64`. A caller who read `150000` as milliseconds
+    /// — a reasonable misreading, since `wait` takes `ms` and
+    /// `navigation_timeout_ms` takes `ms` — was silently granted a ceiling of
+    /// forty-one HOURS, and the mistake surfaced later disguised as a different
+    /// problem.
+    ///
+    /// A value no one-shot invocation can mean is refused at the parser, which
+    /// costs an argv error instead of a browser launch. Since 0.1.9 the unit no
+    /// longer lives only in the name either: `--step-timeout 5m` says what it
+    /// means, and a caller who writes the unit cannot be misread.
     #[arg(
         long,
         global = true,
         default_value_t = 0,
         value_name = "SECS",
+        value_parser = parse_timeout_secs,
         help_heading = "Timeouts"
     )]
     pub step_timeout: u64,
@@ -100,7 +169,7 @@ pub struct GlobalOpts {
     /// The default `browser_mode = auto` currently launches headless. Stealth
     /// does not depend on that: the anti-detection patches, the launch switches
     /// and the identity all apply either way, and `navigator.webdriver` is
-    /// `undefined` in both. What headless still costs is the window itself —
+    /// present and `false` in both. What headless still costs is the window itself —
     /// `window.outerHeight` and `outerWidth` read 0 on a raw headless Chrome,
     /// which this product patches, and WebGL falls back to a software
     /// rasteriser. Persist a choice with `config set browser_mode headed`.
@@ -108,9 +177,49 @@ pub struct GlobalOpts {
         long,
         global = true,
         action = ArgAction::SetTrue,
+        conflicts_with_all = ["headless", "browser_mode"],
         help_heading = "Browser"
     )]
     pub headed: bool,
+
+    /// Require a headless browser for this run, overriding any persisted mode
+    ///
+    /// # Why the symmetric flag had to exist
+    ///
+    /// Until 0.1.9 only `--headed` existed, so headless was reachable ONLY by
+    /// not asking for anything. That makes "I require headless" and "I said
+    /// nothing" the same argv, and a requirement that cannot be expressed
+    /// cannot be verified. Worse, with no flag for it, a `config set
+    /// browser_mode headed` run for an unrelated debugging task silently won
+    /// for every automated caller on the machine.
+    ///
+    /// Callers worked around it by stripping `DISPLAY` from the environment.
+    /// That is a defence by absence: it protects only the paths someone
+    /// remembered to strip, and fails silently on the first new one.
+    #[arg(
+        long,
+        global = true,
+        action = ArgAction::SetTrue,
+        conflicts_with_all = ["headed", "browser_mode"],
+        help_heading = "Browser"
+    )]
+    pub headless: bool,
+
+    /// Window mode for this run: `auto`, `headless` or `headed`
+    ///
+    /// The canonical spelling; `--headed` and `--headless` are shorthands for
+    /// two of its values. Whichever is passed WINS over the XDG
+    /// `browser_mode`, and the envelope reports which step decided, so the
+    /// choice is provable after the fact rather than assumed.
+    #[arg(
+        long = "browser-mode",
+        global = true,
+        value_name = "MODE",
+        value_parser = ["auto", "headless", "headed"],
+        conflicts_with_all = ["headed", "headless"],
+        help_heading = "Browser"
+    )]
+    pub browser_mode: Option<String>,
 
     /// Skip the private virtual display on Linux (use the current display)
     ///
@@ -127,10 +236,10 @@ pub struct GlobalOpts {
 
     /// Turn off anti-detection patches for this run
     ///
-    /// Stealth is ON by default. It masks the automation markers a real Chrome
-    /// never exposes: `navigator.webdriver`, an empty plugin array, a missing
-    /// `chrome.runtime`, and a Canvas hash that changes on every read. Turn it
-    /// off when you are testing your OWN front end and want the browser
+    /// Stealth is ON by default. It keeps `navigator.webdriver` present with
+    /// value `false` (a real Chrome always defines the property), fills the
+    /// plugin array, restores `chrome.runtime`, and pins a Canvas hash. Turn
+    /// it off when you are testing your OWN front end and want the browser
     /// untouched. Persist the choice with `config set stealth false`.
     #[arg(
         long = "no-stealth",
@@ -150,7 +259,7 @@ pub struct GlobalOpts {
         long = "stealth-profile",
         global = true,
         value_name = "PROFILE",
-        value_parser = ["auto", "chrome-linux", "chrome-win", "chrome-mac"],
+        value_parser = ["auto", "chrome-linux", "chrome-win", "chrome-mac", "list"],
         help_heading = "Browser"
     )]
     pub stealth_profile: Option<String>,
@@ -162,7 +271,10 @@ pub struct GlobalOpts {
     /// No real user does that, and it is a stronger signal than any single
     /// marker this product masks. With a seed the generated patch script is
     /// cached under XDG state and reused, so the N runs look like one browser.
-    /// Persist it with `config set stealth_seed <value>`.
+    /// The seed varies `hardwareConcurrency`, `deviceMemory`, GPU vendor and
+    /// renderer, `history.length` and the Chrome build number. It does not
+    /// vary User-Agent, `navigator.platform`, languages, timezone, screen or
+    /// `plugins.length`. Persist it with `config set stealth_seed <value>`.
     #[arg(
         long = "stealth-seed",
         global = true,
@@ -194,6 +306,16 @@ pub struct GlobalOpts {
     /// Implies `--warmup`; passing it alone is enough.
     #[arg(long, global = true, value_name = "URL", help_heading = "Browser")]
     pub warmup_url: Option<String>,
+
+    /// Minimum delay between same-origin requests, in milliseconds.
+    ///
+    /// A per-invocation floor for the same courtesy budget XDG
+    /// `scrape_min_delay_ms` sets for the whole host. The effective wait is the
+    /// MAXIMUM of this, the XDG floor, and the site's own `Crawl-delay`: a flag
+    /// that could lower `Crawl-delay` would be a way to ignore the site rather
+    /// than a way to be polite to it.
+    #[arg(long, global = true, value_name = "MS", help_heading = "Scrape")]
+    pub min_delay_ms: Option<u64>,
 
     /// Egress proxy for Chrome and the HTTP engine (`http`, `https`, `socks5`)
     ///
@@ -371,86 +493,12 @@ pub struct GlobalOpts {
     )]
     pub experimental_vision: bool,
 
-    /// Enable one-shot local MITM proxy and route Chrome through it (PRD §5E / GAP-019)
-    #[arg(
-        long,
-        global = true,
-        action = ArgAction::SetTrue,
-        help_heading = "MITM"
-    )]
-    pub mitm: bool,
-
-    /// Directory for MITM CA key+cert PEM (default: XDG data)
-    #[arg(
-        long,
-        global = true,
-        value_name = "DIR",
-        value_hint = ValueHint::DirPath,
-        help_heading = "MITM"
-    )]
-    pub mitm_ca_dir: Option<std::path::PathBuf>,
-
-    /// Write HAR 1.2 to this path on FINALIZE when --mitm is active
-    #[arg(
-        long,
-        global = true,
-        value_name = "FILE",
-        value_hint = ValueHint::FilePath,
-        help_heading = "MITM"
-    )]
-    pub mitm_har: Option<std::path::PathBuf>,
-
-    /// Comma-separated hosts to decrypt (empty = all via proxy)
-    #[arg(long, global = true, value_name = "HOSTS", help_heading = "MITM")]
-    pub mitm_hosts: Option<String>,
-
-    /// Capture WebSocket frames in MITM handler
-    #[arg(
-        long,
-        global = true,
-        action = ArgAction::SetTrue,
-        help_heading = "MITM"
-    )]
-    pub mitm_ws: bool,
-
-    /// Max body bytes retained per exchange
-    #[arg(long, global = true, value_name = "BYTES", help_heading = "MITM")]
-    pub mitm_max_body_bytes: Option<usize>,
-
-    /// Drop image/video/audio bodies from MITM capture
-    #[arg(
-        long,
-        global = true,
-        action = ArgAction::SetTrue,
-        help_heading = "MITM"
-    )]
-    pub mitm_no_media_bodies: bool,
-
-    /// Redact Authorization/Cookie secrets in MITM captures (already the default)
+    /// One-shot local MITM proxy options.
     ///
-    /// Kept because it reads as an intent, and passing it changes nothing:
-    /// redaction is on unless `--mitm-no-redact-secrets` turns it off.
-    #[arg(
-        long,
-        global = true,
-        action = ArgAction::SetTrue,
-        help_heading = "MITM"
-    )]
-    pub mitm_redact_secrets: bool,
-
-    /// Keep Authorization/Cookie values readable in the MITM capture
-    ///
-    /// The capture is written to disk and read back by an agent, so masking is
-    /// the default: forgetting the flag costs a missing header, while the
-    /// opposite default would make forgetting it cost a leaked session cookie.
-    /// Turn it off only when the secret itself is what you are debugging.
-    #[arg(
-        long,
-        global = true,
-        action = ArgAction::SetTrue,
-        help_heading = "MITM"
-    )]
-    pub mitm_no_redact_secrets: bool,
+    /// Flattened, so every flag keeps its exact argv spelling; see
+    /// `super::mitm_args` for why the group lives in its own file.
+    #[command(flatten)]
+    pub mitm_args: super::mitm_args::MitmArgs,
 
     /// Universal data operations applied to `data` before it reaches stdout.
     ///

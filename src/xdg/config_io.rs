@@ -9,6 +9,17 @@ use super::paths::config_file;
 use crate::error::{CliError, ErrorKind};
 
 /// Load config from XDG path; missing file yields defaults.
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`config_file`] when no home directory
+/// resolves, or when the file exists but cannot be read.
+/// [`ErrorKind::Data`] when the path carries a `.json` extension and
+/// [`crate::json_util::read_json_file`] rejects the body (malformed JSON, or a
+/// payload above `DEFAULT_MAX_JSON_FILE_BYTES`).
+/// [`ErrorKind::Config`] propagated from `apply_toml_kv` when a known key on
+/// disk carries an unreadable value. A missing file is not an error: it yields
+/// [`ProductConfig::default`].
 pub fn load_config() -> Result<ProductConfig, CliError> {
     let path = config_file()?;
     if !path.exists() {
@@ -49,7 +60,30 @@ pub fn load_config() -> Result<ProductConfig, CliError> {
 /// among them. Silently reading `stealth = "banana"` as `false` turns off the
 /// anti-detection layer on every later run, with `ok: true` and exit 0 on each
 /// one. Refusing to load is loud, immediate, and costs one corrected line.
+///
+/// # Errors
+///
+/// [`ErrorKind::Config`] when a known boolean key carries a token outside
+/// [`BOOL_TOKENS`](super::config_ops::validate::BOOL_TOKENS). The underlying
+/// parser raises [`ErrorKind::Usage`]; `as_config_error` restates it as a config
+/// failure because the bad value came from the file, not from argv. Unknown keys
+/// are ignored and never fail.
 pub(crate) fn apply_toml_kv(cfg: &mut ProductConfig, k: &str, v: &str) -> Result<(), CliError> {
+    // An EMPTY value means ABSENT, and refusing it would refuse the product's own
+    // output. `config_write` emits every key on every save, filling unset ones
+    // with `""` — a freshly written file carries `lang = ""`, `namespace = ""`,
+    // `artifacts_dir = ""` and so on. Tightening the readers without this line
+    // made the loader reject files the writer had just produced.
+    //
+    // Two failures measured that, and the second is the instructive one: callers
+    // like `doctor` and the tracing init read through `load_config().ok()` or
+    // `.unwrap_or_default()`, so a load that fails does not surface there — it
+    // silently discards the WHOLE config. A namespaced state directory came back
+    // unnamespaced. Strictness on load is only safe where the writer can never
+    // emit a value the reader refuses.
+    if v.is_empty() {
+        return Ok(());
+    }
     apply_toml_kv_inner(cfg, k, v).map_err(|e| as_config_error(&e))
 }
 
@@ -66,15 +100,55 @@ fn as_config_error(err: &CliError) -> CliError {
     }
 }
 
+/// Parse a numeric config value, FAILING the load when it does not parse.
+///
+/// # Why this exists
+///
+/// The boolean keys were hardened first, with the reasoning above: a known key
+/// whose value is unreadable must not resolve to a default that is frequently
+/// the operator's opposite intent. That fix was applied by TYPE and not by
+/// SURFACE, so forty-eight numeric keys kept parsing with a discarded error and
+/// kept the exact defect the boolean note describes.
+///
+/// Measured: `timeout = "abc"` in `config.toml` produced `None`, which resolves
+/// to the compiled default, on every later run, with `ok: true` and exit 0. The
+/// operator names a knob this build owns, spells the value wrong, and the
+/// product answers by silently doing something else — which is the same shape as
+/// a key accepted and ignored, one layer down.
+///
+/// # Errors
+///
+/// [`ErrorKind::Usage`], restated as [`ErrorKind::Config`] by the caller through
+/// `as_config_error`, when `v` does not parse as `T`. The message names the key
+/// and echoes the offending value, because the operator has to find the line.
+fn parse_num<T: std::str::FromStr>(v: &str, k: &str) -> Result<Option<T>, CliError> {
+    v.parse::<T>().map(Some).map_err(|_| {
+        CliError::with_suggestion(
+            ErrorKind::Usage,
+            format!("config key `{k}` expects a number; found `{v}`"),
+            crate::i18n::suggestion_key("use_listed_value", None),
+        )
+    })
+}
+
 fn apply_toml_kv_inner(cfg: &mut ProductConfig, k: &str, v: &str) -> Result<(), CliError> {
     match k {
         "lang" => {
-            // Permissive load: invalid tokens dropped (strict reject is `config set`).
-            if crate::i18n::UiLocale::parse_token(v).is_some() {
-                cfg.lang = Some(v.to_string());
+            // Was a permissive load that dropped an invalid token in silence while
+            // `config set lang` rejected the very same token. That divergence let
+            // the file disagree with the command that writes it: an operator who
+            // hand-edited `lang = "xx"` got English back with exit 0 and no way to
+            // tell whether the key had been read at all. Now both surfaces refuse.
+            if crate::i18n::UiLocale::parse_token(v).is_none() {
+                return Err(CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    format!("config key `lang` expects `en` or `pt-BR`; found `{v}`"),
+                    crate::i18n::suggestion_key("use_listed_value", None),
+                ));
             }
+            cfg.lang = Some(v.to_string());
         }
-        "timeout" => cfg.timeout = v.parse().ok(),
+        "timeout" => cfg.timeout = parse_num(v, k)?,
         "artifacts_dir" => cfg.artifacts_dir = Some(v.to_string()),
         "ignore_robots" => cfg.ignore_robots = Some(parse_boolish(v, k)?),
         "namespace" => cfg.namespace = Some(v.to_string()),
@@ -87,52 +161,55 @@ fn apply_toml_kv_inner(cfg: &mut ProductConfig, k: &str, v: &str) -> Result<(), 
         "proxy_username" => cfg.proxy_username = Some(v.to_string()),
         "proxy_password" => cfg.proxy_password = Some(v.to_string()),
         "stealth_seed" => cfg.stealth_seed = Some(v.to_string()),
+        "screen" => cfg.screen = Some(v.to_string()),
         "robots_user_agent" => cfg.robots_user_agent = Some(v.to_string()),
         "color" => cfg.color = Some(parse_boolish(v, k)?),
         "log_level" => cfg.log_level = Some(v.to_string()),
         "input_profile" => cfg.input_profile = Some(v.to_string()),
+        "input_timing_distribution" => cfg.input_timing_distribution = Some(v.to_string()),
         "chrome_path" => cfg.chrome_path = Some(v.to_string()),
         "lighthouse_path" => cfg.lighthouse_path = Some(v.to_string()),
         "ffmpeg_path" => cfg.ffmpeg_path = Some(v.to_string()),
-        "lighthouse_timeout_secs" => cfg.lighthouse_timeout_secs = v.parse().ok(),
-        "ffmpeg_timeout_secs" => cfg.ffmpeg_timeout_secs = v.parse().ok(),
+        "lighthouse_timeout_secs" => cfg.lighthouse_timeout_secs = parse_num(v, k)?,
+        "ffmpeg_timeout_secs" => cfg.ffmpeg_timeout_secs = parse_num(v, k)?,
         "openrouter_api_key" => cfg.openrouter_api_key = Some(v.to_string()),
         "llm_base_url" => cfg.llm_base_url = Some(v.to_string()),
         "llm_model" => cfg.llm_model = Some(v.to_string()),
         "log_to_file" => cfg.log_to_file = Some(parse_boolish(v, k)?),
-        "max_log_files" => cfg.max_log_files = v.parse().ok(),
+        "max_log_files" => cfg.max_log_files = parse_num(v, k)?,
         "log_rotation" => cfg.log_rotation = Some(v.to_string()),
         "cache_backend" => cfg.cache_backend = Some(v.to_string()),
         "cache_redis_url" => cfg.cache_redis_url = Some(v.to_string()),
         "search_base_url" => cfg.search_base_url = Some(v.to_string()),
-        "lightpanda_startup_timeout_secs" => cfg.lightpanda_startup_timeout_secs = v.parse().ok(),
-        "lightpanda_session_timeout_secs" => cfg.lightpanda_session_timeout_secs = v.parse().ok(),
-        "max_json_file_bytes" => cfg.max_json_file_bytes = v.parse().ok(),
-        "max_ndjson_line_bytes" => cfg.max_ndjson_line_bytes = v.parse().ok(),
-        "max_cli_json_payload_bytes" => cfg.max_cli_json_payload_bytes = v.parse().ok(),
-        "default_jpeg_quality" => cfg.default_jpeg_quality = v.parse().ok(),
-        "event_pump_slice_ms" => cfg.event_pump_slice_ms = v.parse().ok(),
-        "screencast_jpeg_quality" => cfg.screencast_jpeg_quality = v.parse().ok(),
-        "interact_settle_ms" => cfg.interact_settle_ms = v.parse().ok(),
-        "dialog_settle_ms" => cfg.dialog_settle_ms = v.parse().ok(),
+        "user_data_dir" => cfg.user_data_dir = Some(v.to_string()),
+        "lightpanda_startup_timeout_secs" => cfg.lightpanda_startup_timeout_secs = parse_num(v, k)?,
+        "lightpanda_session_timeout_secs" => cfg.lightpanda_session_timeout_secs = parse_num(v, k)?,
+        "max_json_file_bytes" => cfg.max_json_file_bytes = parse_num(v, k)?,
+        "max_ndjson_line_bytes" => cfg.max_ndjson_line_bytes = parse_num(v, k)?,
+        "max_cli_json_payload_bytes" => cfg.max_cli_json_payload_bytes = parse_num(v, k)?,
+        "default_jpeg_quality" => cfg.default_jpeg_quality = parse_num(v, k)?,
+        "event_pump_slice_ms" => cfg.event_pump_slice_ms = parse_num(v, k)?,
+        "screencast_jpeg_quality" => cfg.screencast_jpeg_quality = parse_num(v, k)?,
+        "interact_settle_ms" => cfg.interact_settle_ms = parse_num(v, k)?,
+        "dialog_settle_ms" => cfg.dialog_settle_ms = parse_num(v, k)?,
         "cdp_connection_probe_timeout_secs" => {
-            cfg.cdp_connection_probe_timeout_secs = v.parse().ok()
+            cfg.cdp_connection_probe_timeout_secs = parse_num(v, k)?
         }
         "http_ssrf_mode" => cfg.http_ssrf_mode = Some(v.to_string()),
-        "http_timeout_secs" => cfg.http_timeout_secs = v.parse().ok(),
-        "http_connect_timeout_secs" => cfg.http_connect_timeout_secs = v.parse().ok(),
-        "scrape_max_body_bytes" => cfg.scrape_max_body_bytes = v.parse().ok(),
-        "scrape_max_text_chars" => cfg.scrape_max_text_chars = v.parse().ok(),
-        "scrape_min_delay_ms" => cfg.scrape_min_delay_ms = v.parse().ok(),
+        "http_timeout_secs" => cfg.http_timeout_secs = parse_num(v, k)?,
+        "http_connect_timeout_secs" => cfg.http_connect_timeout_secs = parse_num(v, k)?,
+        "scrape_max_body_bytes" => cfg.scrape_max_body_bytes = parse_num(v, k)?,
+        "scrape_max_text_chars" => cfg.scrape_max_text_chars = parse_num(v, k)?,
+        "scrape_min_delay_ms" => cfg.scrape_min_delay_ms = parse_num(v, k)?,
         "scrape_honor_meta_robots" => cfg.scrape_honor_meta_robots = Some(parse_boolish(v, k)?),
         "scrape_honor_nofollow" => cfg.scrape_honor_nofollow = Some(parse_boolish(v, k)?),
         "scrape_use_sitemap" => {
             cfg.scrape_use_sitemap = Some(parse_boolish(v, k)?);
         }
         "scrape_default_engine" => cfg.scrape_default_engine = Some(v.to_string()),
-        "scrape_delay_jitter_ratio" => cfg.scrape_delay_jitter_ratio = v.parse().ok(),
-        "scrape_summary_chars" => cfg.scrape_summary_chars = v.parse().ok(),
-        "scrape_feed_max_entries" => cfg.scrape_feed_max_entries = v.parse().ok(),
+        "scrape_delay_jitter_ratio" => cfg.scrape_delay_jitter_ratio = parse_num(v, k)?,
+        "scrape_summary_chars" => cfg.scrape_summary_chars = parse_num(v, k)?,
+        "scrape_feed_max_entries" => cfg.scrape_feed_max_entries = parse_num(v, k)?,
         "scrape_follow_rel_next" => cfg.scrape_follow_rel_next = Some(parse_boolish(v, k)?),
         "scrape_dedup_similar" => cfg.scrape_dedup_similar = Some(parse_boolish(v, k)?),
         "scrape_no_cache" => cfg.scrape_no_cache = Some(parse_boolish(v, k)?),
@@ -142,48 +219,50 @@ fn apply_toml_kv_inner(cfg: &mut ProductConfig, k: &str, v: &str) -> Result<(), 
         "cdp_proxy_bypass_loopback" => cfg.cdp_proxy_bypass_loopback = Some(parse_boolish(v, k)?),
         "http2_enabled" => cfg.http2_enabled = Some(parse_boolish(v, k)?),
         "http2_adaptive_window" => cfg.http2_adaptive_window = Some(parse_boolish(v, k)?),
-        "http2_initial_stream_window_size" => cfg.http2_initial_stream_window_size = v.parse().ok(),
-        "http2_initial_connection_window_size" => {
-            cfg.http2_initial_connection_window_size = v.parse().ok()
+        "http2_initial_stream_window_size" => {
+            cfg.http2_initial_stream_window_size = parse_num(v, k)?
         }
-        "http2_max_header_list_size" => cfg.http2_max_header_list_size = v.parse().ok(),
-        "http2_max_frame_size" => cfg.http2_max_frame_size = v.parse().ok(),
-        "image_avif_speed" => cfg.image_avif_speed = v.parse().ok(),
-        "svg_max_bytes" => cfg.svg_max_bytes = v.parse().ok(),
-        "svg_max_depth" => cfg.svg_max_depth = v.parse().ok(),
-        "svg_max_entities" => cfg.svg_max_entities = v.parse().ok(),
-        "gif_max_frames" => cfg.gif_max_frames = v.parse().ok(),
-        "manifest_max_bytes" => cfg.manifest_max_bytes = v.parse().ok(),
-        "manifest_max_variants" => cfg.manifest_max_variants = v.parse().ok(),
-        "scrape_dedup_similar_distance" => cfg.scrape_dedup_similar_distance = v.parse().ok(),
-        "scrape_sitemap_max_bytes" => cfg.scrape_sitemap_max_bytes = v.parse().ok(),
-        "scrape_charset_peek_bytes" => cfg.scrape_charset_peek_bytes = v.parse().ok(),
-        "llm_http_timeout_secs" => cfg.llm_http_timeout_secs = v.parse().ok(),
+        "http2_initial_connection_window_size" => {
+            cfg.http2_initial_connection_window_size = parse_num(v, k)?
+        }
+        "http2_max_header_list_size" => cfg.http2_max_header_list_size = parse_num(v, k)?,
+        "http2_max_frame_size" => cfg.http2_max_frame_size = parse_num(v, k)?,
+        "image_avif_speed" => cfg.image_avif_speed = parse_num(v, k)?,
+        "svg_max_bytes" => cfg.svg_max_bytes = parse_num(v, k)?,
+        "svg_max_depth" => cfg.svg_max_depth = parse_num(v, k)?,
+        "svg_max_entities" => cfg.svg_max_entities = parse_num(v, k)?,
+        "gif_max_frames" => cfg.gif_max_frames = parse_num(v, k)?,
+        "manifest_max_bytes" => cfg.manifest_max_bytes = parse_num(v, k)?,
+        "manifest_max_variants" => cfg.manifest_max_variants = parse_num(v, k)?,
+        "scrape_dedup_similar_distance" => cfg.scrape_dedup_similar_distance = parse_num(v, k)?,
+        "scrape_sitemap_max_bytes" => cfg.scrape_sitemap_max_bytes = parse_num(v, k)?,
+        "scrape_charset_peek_bytes" => cfg.scrape_charset_peek_bytes = parse_num(v, k)?,
+        "llm_http_timeout_secs" => cfg.llm_http_timeout_secs = parse_num(v, k)?,
         "redis_allow_remote" => cfg.redis_allow_remote = Some(parse_boolish(v, k)?),
         "chrome_legacy_oxide_launch" => {
             cfg.chrome_legacy_oxide_launch = Some(parse_boolish(v, k)?);
         }
         "robots_loopback_exempt" => cfg.robots_loopback_exempt = Some(parse_boolish(v, k)?),
-        "redis_connect_timeout_secs" => cfg.redis_connect_timeout_secs = v.parse().ok(),
+        "redis_connect_timeout_secs" => cfg.redis_connect_timeout_secs = parse_num(v, k)?,
         "chrome_search_paths" => cfg.chrome_search_paths = Some(split_path_list(v)),
         "allowed_roots" => cfg.allowed_roots = Some(split_path_list(v)),
-        "image_max_input_bytes" => cfg.image_max_input_bytes = v.parse().ok().filter(|&n| n > 0),
-        "image_max_pixels" => cfg.image_max_pixels = v.parse().ok().filter(|&n| n > 0),
+        "image_max_input_bytes" => cfg.image_max_input_bytes = parse_num(v, k)?.filter(|&n| n > 0),
+        "image_max_pixels" => cfg.image_max_pixels = parse_num(v, k)?.filter(|&n| n > 0),
         "image_default_format" => cfg.image_default_format = Some(v.to_string()),
-        "image_default_quality" => cfg.image_default_quality = v.parse().ok(),
+        "image_default_quality" => cfg.image_default_quality = parse_num(v, k)?,
         "image_download_max_bytes" => {
-            cfg.image_download_max_bytes = v.parse().ok().filter(|&n| n > 0)
+            cfg.image_download_max_bytes = parse_num(v, k)?.filter(|&n| n > 0)
         }
-        "video_max_input_bytes" => cfg.video_max_input_bytes = v.parse().ok().filter(|&n| n > 0),
+        "video_max_input_bytes" => cfg.video_max_input_bytes = parse_num(v, k)?.filter(|&n| n > 0),
         "video_download_max_bytes" => {
-            cfg.video_download_max_bytes = v.parse().ok().filter(|&n| n > 0)
+            cfg.video_download_max_bytes = parse_num(v, k)?.filter(|&n| n > 0)
         }
         "video_default_container" => cfg.video_default_container = Some(v.to_string()),
-        "video_default_crf" => cfg.video_default_crf = v.parse().ok(),
+        "video_default_crf" => cfg.video_default_crf = parse_num(v, k)?,
         "video_default_audio_bitrate" => cfg.video_default_audio_bitrate = Some(v.to_string()),
-        "audio_max_input_bytes" => cfg.audio_max_input_bytes = v.parse().ok().filter(|&n| n > 0),
+        "audio_max_input_bytes" => cfg.audio_max_input_bytes = parse_num(v, k)?.filter(|&n| n > 0),
         "audio_download_max_bytes" => {
-            cfg.audio_download_max_bytes = v.parse().ok().filter(|&n| n > 0)
+            cfg.audio_download_max_bytes = parse_num(v, k)?.filter(|&n| n > 0)
         }
         "audio_default_format" => cfg.audio_default_format = Some(v.to_string()),
         "audio_default_bitrate" => cfg.audio_default_bitrate = Some(v.to_string()),

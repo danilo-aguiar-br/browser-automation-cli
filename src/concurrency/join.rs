@@ -58,7 +58,7 @@ where
     stream::iter(gated).buffer_unordered(limit).collect().await
 }
 
-/// Like [`join_bounded`](crate::concurrency::join_bounded) but preserves input order via indexed futures.
+/// Like [`join_bounded`] but preserves input order via indexed futures.
 pub async fn join_bounded_ordered<F, T>(futures: Vec<F>, limit: usize) -> Vec<T>
 where
     F: Future<Output = T>,

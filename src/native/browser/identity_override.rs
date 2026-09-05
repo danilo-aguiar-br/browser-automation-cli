@@ -26,6 +26,13 @@ impl BrowserManager {
     /// than the untouched User-Agent would have been.
     ///
     /// `userAgentMetadata` is the field that moves the hints with the string.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Emulation.setUserAgentOverride`. A `user_agent` with
+    /// no parseable `Chrome/<major>` segment is **not** an error: the brand
+    /// versions go out empty, which is itself a detectable identity.
     pub async fn set_user_agent_with_client_hints(
         &self,
         identity: &crate::native::stealth::Identity,
@@ -45,22 +52,59 @@ impl BrowserManager {
         self.client
             .send_command(
                 "Emulation.setUserAgentOverride",
-                Some(json!({
-                    "userAgent": identity.user_agent,
-                    "userAgentMetadata": {
-                        "brands": brands,
-                        // Unquoted here: the quotes in `identity.platform` are
-                        // header syntax, and CDP takes the bare token.
-                        "platform": identity.platform.trim_matches('"'),
-                        "platformVersion": "",
-                        "architecture": "x86",
-                        "model": "",
-                        "mobile": identity.mobile == "?1",
-                    },
-                })),
+                Some(user_agent_override_params(identity, &brands)),
                 Some(session_id),
             )
             .await?;
         Ok(())
+    }
+}
+
+/// CDP params that move UA, `navigator.platform`, and Client Hints together.
+///
+/// `platform` (not `userAgentMetadata.platform`) is what Chrome writes to
+/// `navigator.platform`. Omitting it is how a Windows UA kept reporting
+/// `Linux x86_64` on this host.
+pub fn user_agent_override_params(
+    identity: &crate::native::stealth::Identity,
+    brands: &serde_json::Value,
+) -> serde_json::Value {
+    json!({
+        "userAgent": identity.user_agent,
+        "platform": identity.navigator_platform,
+        "userAgentMetadata": {
+            "brands": brands,
+            // Unquoted here: the quotes in `identity.platform` are
+            // header syntax, and CDP takes the bare token.
+            "platform": identity.platform.trim_matches('"'),
+            "platformVersion": "",
+            "architecture": "x86",
+            "model": "",
+            "mobile": identity.mobile == "?1",
+        },
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::browser_policy::StealthProfile;
+    use crate::native::stealth::Identity;
+
+    #[test]
+    fn chrome_win_override_drags_navigator_platform() {
+        let identity = Identity::for_profile(StealthProfile::ChromeWindows);
+        let params = user_agent_override_params(&identity, &json!([]));
+        assert_eq!(params["platform"], "Win32");
+        assert_eq!(params["userAgentMetadata"]["platform"], "Windows");
+        assert!(params["userAgent"].as_str().unwrap().contains("Windows NT"));
+    }
+
+    #[test]
+    fn chrome_mac_override_drags_navigator_platform() {
+        let identity = Identity::for_profile(StealthProfile::ChromeMac);
+        let params = user_agent_override_params(&identity, &json!([]));
+        assert_eq!(params["platform"], "MacIntel");
+        assert_eq!(params["userAgentMetadata"]["platform"], "macOS");
     }
 }

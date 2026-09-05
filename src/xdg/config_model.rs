@@ -35,6 +35,30 @@ pub struct ProductConfig {
     /// The flag still wins; this is what an operator sets once instead of
     /// repeating `--input-profile direct` on every invocation.
     pub input_profile: Option<String>,
+    /// Shape of the dispersion around every input delay: `lognormal` |
+    /// `normal` | `uniform`.
+    ///
+    /// A string key and not a `policy_knobs!` row because that macro is
+    /// `u64`-only. It earns the seven-file cost because the SHAPE is what a
+    /// detector reads: measured 2026-08-31 in the browser, the product's old
+    /// uniform noise produced a skewness of 0.036, and human inter-key
+    /// intervals sit between 1 and 3. Freezing the shape in a constant would be
+    /// the hardcode this key exists to remove.
+    ///
+    /// # `uniform` does NOT mean zero skewness
+    ///
+    /// This key governs the shape of the FAST rhythm only. The observable
+    /// asymmetry has a second source that this key does not touch: the long
+    /// pause at a word or sentence boundary, which is its own knob,
+    /// `input_word_pause_permille`.
+    ///
+    /// MEASURED 2026-08-31 on the final browser event, same seed, 56 inter-key
+    /// intervals: `lognormal` gave a skewness of 2.534 and `uniform` gave
+    /// 1.076 -- not the ~0.02 the same sampler produces in isolation. Setting
+    /// `uniform` reproduces the pre-0.1.9 SAMPLER, not the pre-0.1.9 TRACE.
+    /// To reproduce the old trace, set `input_word_pause_permille` to 0 as
+    /// well.
+    pub input_timing_distribution: Option<String>,
     /// Window mode when no flag decides: `auto` | `headed` | `headless`.
     ///
     /// `auto` is headed inside a private Xvfb on Linux and headed directly on
@@ -74,6 +98,12 @@ pub struct ProductConfig {
     /// state so N one-shot runs present one machine instead of N.
     #[serde(default)]
     pub stealth_seed: Option<String>,
+    /// Default screen size `WxH` for `Emulation.setDeviceMetricsOverride`.
+    ///
+    /// Absent means the screen mirrors the viewport. Never an environment
+    /// variable: screen is a fingerprint signal and belongs in the audited file.
+    #[serde(default)]
+    pub screen: Option<String>,
     /// Negotiate HTTP/2 on the shared HTTP client.
     ///
     /// On by default: Chrome always offers `h2` in ALPN, so an HTTP/1.1-only
@@ -144,6 +174,17 @@ pub struct ProductConfig {
     /// HTML search endpoint base URL (query appended as `?q=`). XDG only.
     #[serde(default)]
     pub search_base_url: Option<String>,
+    /// Persistent Chrome profile directory. XDG only, absent by default.
+    ///
+    /// # Why this key trades away a product invariant
+    ///
+    /// Residual-zero is the default contract: a run leaves nothing on disk.
+    /// Setting this key deliberately breaks it, because a detector that attests
+    /// SESSION cannot be satisfied by fifty one-shot processes that each
+    /// present as a different machine. The absent default is what keeps the
+    /// contract true for everyone who did not ask.
+    #[serde(default)]
+    pub user_data_dir: Option<String>,
     /// Lightpanda process startup wait (seconds).
     #[serde(default)]
     pub lightpanda_startup_timeout_secs: Option<u64>,

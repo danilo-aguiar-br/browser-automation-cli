@@ -19,6 +19,12 @@
 //! crates). Do **not** introduce `macro_rules!` or a workspace proc-macro just to
 //! emit these stubs.
 
+// A build script's stdout IS its API: Cargo parses `cargo:` directives from it,
+// and there is no other channel. The package-wide `print_stdout` / `print_stderr`
+// lints exist to keep agent-consumable output funnelled through `src/output.rs`,
+// which has no bearing on a process Cargo runs and reads itself.
+#![allow(clippy::print_stdout, clippy::print_stderr)]
+
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -31,7 +37,7 @@ fn main() {
     emit_source_hash();
 
     let protocol_dir = Path::new("cdp-protocol");
-    let out_dir = env::var("OUT_DIR").unwrap();
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR is set by cargo for every build script");
     let out_path = Path::new(&out_dir).join("cdp_generated.rs");
 
     let browser_path = protocol_dir.join("browser_protocol.json");
@@ -42,7 +48,7 @@ fn main() {
             &out_path,
             "// No protocol JSON files found in cdp-protocol/\n",
         )
-        .unwrap();
+        .unwrap_or_else(|e| panic!("write empty CDP stub to {}: {e}", out_path.display()));
         return;
     }
 
@@ -53,11 +59,16 @@ fn main() {
             continue;
         }
         println!("cargo:rerun-if-changed={}", path.display());
-        let content = fs::read_to_string(path).unwrap();
+        let content = fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("read CDP protocol {}: {e}", path.display()));
         let protocol: ProtocolSpec = match serde_json::from_str(&content) {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("cargo:warning=Failed to parse {}: {}", path.display(), e);
+                // `println!`, not `eprintln!`: Cargo parses `cargo:` directives
+                // from the build script's STDOUT. Emitted on stderr this warning
+                // reached nobody, so a malformed protocol snapshot degraded the
+                // generated stubs in silence.
+                println!("cargo:warning=Failed to parse {}: {}", path.display(), e);
                 continue;
             }
         };
@@ -111,7 +122,8 @@ fn main() {
         generate_domain(domain, &domain_types, &recursive_fields, &mut output);
     }
 
-    fs::write(&out_path, &output).unwrap();
+    fs::write(&out_path, &output)
+        .unwrap_or_else(|e| panic!("write generated CDP stubs to {}: {e}", out_path.display()));
 }
 
 #[allow(dead_code)]

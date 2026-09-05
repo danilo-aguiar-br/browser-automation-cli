@@ -41,6 +41,12 @@ pub enum DropAnchor {
 impl DropAnchor {
     /// Parse an anchor token, accepting the spatial synonyms an agent may use
     /// (`top`/`start` for `before`, `bottom`/`end` for `after`).
+    ///
+    /// # Errors
+    ///
+    /// Fails with ``"unknown drop anchor `<token>`; use center | before |
+    /// after"`` for anything outside the three anchors and their synonyms.
+    /// An empty token is **not** an error: it reads as `Center`, the default.
     pub fn parse(token: &str) -> Result<Self, String> {
         match token.trim().to_ascii_lowercase().as_str() {
             "center" | "middle" | "" => Ok(Self::Center),
@@ -126,6 +132,12 @@ fn drag_move_gap_ms() -> u64 {
 }
 
 /// Enable or disable drag interception. Errors when the browser lacks the command.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Input.setInterceptDrags` — the engine
+/// does not implement it, which is the signal callers use to fall back to the
+/// synthetic mouse drag.
 pub async fn set_intercept_drags(
     client: &CdpClient,
     session_id: &str,
@@ -168,6 +180,8 @@ pub(super) async fn mouse(
                 delta_x: None,
                 delta_y: None,
                 modifiers: None,
+                screen_x: None,
+                screen_y: None,
             },
             Some(session_id),
         )
@@ -177,6 +191,13 @@ pub(super) async fn mouse(
 
 /// Press at the source and move toward the destination so the page fires its own
 /// `dragstart`. Leaves the left button **down**; the caller must release it.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by any `Input.dispatchMouseEvent` in the
+/// move / press / interpolated-move sequence. A failure after the press leaves
+/// the left button held, and the caller must still call
+/// [`release_drag_gesture`] to recover.
 pub async fn start_drag_gesture(
     client: &CdpClient,
     session_id: &str,
@@ -222,6 +243,12 @@ pub async fn start_drag_gesture(
 }
 
 /// Release the left button at `at`.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by the `mouseReleased`
+/// `Input.dispatchMouseEvent`. A refusal here leaves the button held for the
+/// remainder of the session.
 pub async fn release_drag_gesture(
     client: &CdpClient,
     session_id: &str,
@@ -234,6 +261,13 @@ pub async fn release_drag_gesture(
 ///
 /// `event_type` must be one of `dragEnter`, `dragOver`, `drop`, `dragCancel` —
 /// the only values the protocol accepts.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Input.dispatchDragEvent`, which is what
+/// rejects an `event_type` outside the four accepted values and a `data`
+/// object that is not a valid `DragData` — in particular one with no `items`
+/// array.
 pub async fn dispatch_drag_event(
     client: &CdpClient,
     session_id: &str,
@@ -258,6 +292,13 @@ pub async fn dispatch_drag_event(
 }
 
 /// Complete a drop at `to` using `data` as the `DataTransfer` payload.
+///
+/// # Errors
+///
+/// Propagates [`dispatch_drag_event`] for `dragEnter`, `dragOver` and `drop`
+/// in that order. A refusal partway through leaves the page holding a drag it
+/// was never told ended; the caller still owes it a `dragCancel` or a mouse
+/// release.
 pub async fn complete_drop(
     client: &CdpClient,
     session_id: &str,
@@ -276,6 +317,13 @@ pub async fn complete_drop(
 /// have been seen emitting the `DragData` fields at the top level. `items` is
 /// mandatory on the way back in, so a payload without it is rejected rather than
 /// silently padded with an empty array (that would drop the page's real data).
+///
+/// # Errors
+///
+/// Fails with `"dragIntercepted payload has no `items` array"` when neither
+/// the `data` wrapper nor the top level carries `items`. A missing
+/// `dragOperationsMask` defaults to `1` and a missing `files` array is simply
+/// omitted, so neither is an error.
 pub fn normalize_drag_data(event_params: &Value) -> Result<Value, String> {
     let candidate = event_params
         .get("data")
@@ -299,6 +347,12 @@ pub fn normalize_drag_data(event_params: &Value) -> Result<Value, String> {
 }
 
 /// Validate a caller-supplied synthetic payload before it reaches the browser.
+///
+/// # Errors
+///
+/// Fails with `"synthetic drag payload must be a JSON object"` for any
+/// non-object, then propagates [`normalize_drag_data`] when the object carries
+/// no `items` array.
 pub fn validate_synthetic_payload(payload: &Value) -> Result<Value, String> {
     if !payload.is_object() {
         return Err("synthetic drag payload must be a JSON object".to_string());
@@ -344,6 +398,15 @@ impl ElementRect {
 }
 
 /// Read the viewport rect of a selector or `@eN` ref.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`]
+/// and the CDP error raised by `Runtime.callFunctionOn`, then fails with
+/// ``"could not read rect of `<selector>`"`` when the call returns no value —
+/// the node was detached between resolve and call. Individual missing rect
+/// fields are not an error; each defaults to `0.0`.
 pub async fn element_rect(
     client: &CdpClient,
     session_id: &str,
@@ -392,6 +455,13 @@ pub async fn element_rect(
 }
 
 /// Resolve the source point of a drag.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_center`]:
+/// `from` names an unknown `@eN` ref, matches no element, or has its centre
+/// covered by another element.
 pub async fn source_point(
     client: &CdpClient,
     session_id: &str,

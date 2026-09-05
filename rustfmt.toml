@@ -1,0 +1,20 @@
+# Formatting policy, written down instead of inherited.
+#
+# Every value here is the current rustfmt default, so this file reformats
+# nothing: `cargo fmt --check` was green before it existed and stays green after.
+# What it buys is a pin. `style_edition` is the knob that decides which set of
+# formatting rules rustfmt applies, and it defaults to whatever the crate edition
+# implies — so bumping the crate to edition 2024 would silently reformat the tree
+# in the same commit that changes the language semantics. Naming it here forces
+# that reformat to be its own deliberate change.
+edition = "2021"
+style_edition = "2021"
+
+# Line budget and indentation (rustfmt defaults, stated).
+max_width = 100
+tab_spaces = 4
+hard_tabs = false
+
+# LF endings on every platform. The crate ships Windows support and the working
+# tree is authored on Unix; `Auto` would let a CRLF checkout reformat the world.
+newline_style = "Unix"

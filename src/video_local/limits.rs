@@ -1,5 +1,25 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! XDG-backed ceilings for local video ops.
+//!
+//! # Why this is not shared with `audio_local::limits`
+//!
+//! The two modules look like copies and are deliberately kept apart. Audited on
+//! 2026-08-31: folding them into one type parameterised by a domain name would
+//! remove about a dozen lines and cost more than it saves.
+//!
+//! Nothing here is actually common. The two XDG keys differ, the error text
+//! names the key the operator has to change, and the i18n suggestion key differs
+//! — so the "shared" function would take the domain word, both resolvers and the
+//! suggestion key as arguments, which is more machinery at every call site than
+//! the duplication it replaces.
+//!
+//! The separate types also carry a guarantee: [`VideoLimits`] and
+//! `AudioLimits` cannot be substituted for one another, so a audio ceiling can
+//! never be applied to video input by a misplaced argument. A single
+//! `MediaLimits` would make that a runtime concern.
+//!
+//! Revisit only if a THIRD domain arrives, or if the two stop diverging in the
+//! keys they resolve.
 
 use crate::error::{CliError, ErrorKind};
 

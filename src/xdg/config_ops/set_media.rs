@@ -8,6 +8,14 @@ use super::validate::{
 use crate::error::{CliError, ErrorKind};
 
 /// Apply image/video keys. Returns `true` when `key` was handled.
+///
+/// # Errors
+///
+/// [`ErrorKind::Usage`] when a size, pixel, quality or CRF value fails its
+/// validator in [`super::validate`], or when `image_default_format`,
+/// `video_default_container` or `audio_default_format` names a codec/container
+/// outside the accepted set, or when a default bitrate is empty. Keys of another
+/// family return `Ok(false)` rather than an error.
 pub(super) fn apply_media_set(
     cfg: &mut ProductConfig,
     key: &str,

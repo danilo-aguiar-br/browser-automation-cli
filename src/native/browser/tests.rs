@@ -344,7 +344,7 @@ fn test_is_internal_chrome_target() {
     ));
     assert!(!is_internal_chrome_target("https://example.com"));
     assert!(!is_internal_chrome_target("http://localhost:3000"));
-    assert!(!is_internal_chrome_target("about:blank"));
+    assert!(!is_internal_chrome_target(crate::constants::ABOUT_BLANK));
 }
 
 // -----------------------------------------------------------------------

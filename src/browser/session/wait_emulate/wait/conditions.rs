@@ -21,6 +21,26 @@ impl OneShotSession {
     /// `min_count` is not a condition of its own — it raises the bar of the
     /// selector condition from "at least one node" to "at least N nodes".
     /// Callers that need AND semantics chain two `wait` steps.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when no page is active.
+    ///
+    /// Fails with [`ErrorKind::Usage`] —
+    /// `"wait selector invalid: <sel>: …"` — when the page rejects a selector
+    /// as syntactically invalid. That case is separated from a timeout on
+    /// purpose: a malformed selector can never match, so reporting it as
+    /// "condition not met" would send the caller to raise the budget instead
+    /// of fixing the selector.
+    ///
+    /// Fails with [`ErrorKind::Timeout`]
+    /// when the deadline passes with no condition satisfied; the message lists
+    /// every condition still pending. A navigation wait that times out is
+    /// reported the same way.
+    ///
+    /// A selector that simply matches nothing is not an error while the budget
+    /// lasts — that is what waiting means.
     pub async fn wait_for_conditions(
         &mut self,
         req: WaitRequest<'_>,
@@ -125,7 +145,16 @@ impl OneShotSession {
         }
 
         let started = std::time::Instant::now();
-        let deadline = started + std::time::Duration::from_millis(ms.unwrap_or(10_000).max(1));
+        // Named, because the timeout message reports it.
+        //
+        // `ok: false, kind: timeout` says A deadline passed and never says which
+        // one, so a caller cannot tell a budget it asked for from the built-in
+        // default that would replace a dropped key. Measured 2026-09-04: an
+        // unreachable wait takes ~2.8 s with `ms: 2500` and ~10.4 s with no key
+        // at all, and telling those apart cost a session of timing runs that a
+        // single number in the message would have answered outright.
+        let effective_ms = ms.unwrap_or(10_000).max(1);
+        let deadline = started + std::time::Duration::from_millis(effective_ms);
         // DOM-stability state: fingerprint of the last poll plus when it changed.
         let mut dom_signature: Option<String> = None;
         let mut dom_unchanged_since = started;
@@ -279,10 +308,10 @@ impl OneShotSession {
                 return Err(CliError::with_suggestion(
                     ErrorKind::Timeout,
                     format!(
-                        "wait condition not met before deadline: {}",
+                        "wait condition not met before deadline of {effective_ms}ms: {}",
                         pending.join(", ")
                     ),
-                    crate::i18n::suggestion_key("raise_timeout", None),
+                    crate::i18n::suggestion_key("raise_wait_timeout", None),
                 ));
             }
             tokio::time::sleep(std::time::Duration::from_millis(

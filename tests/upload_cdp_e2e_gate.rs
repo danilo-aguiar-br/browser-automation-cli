@@ -27,51 +27,33 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::process::Command;
 use std::thread;
 
-fn binary() -> Option<PathBuf> {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
+mod common;
+use common::{binary, chrome_mentioned_in_doctor_json, missing_binary};
+
+const GATE: &str = "upload_cdp_e2e_gate";
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    if binary().is_none() {
-        eprintln!(
-            "SKIP upload_cdp_e2e_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    if missing_binary(GATE) {
         return true;
     }
-    if !chrome_available() {
-        eprintln!(
-            "SKIP upload_cdp_e2e_gate: doctor reports no usable Chrome. \
-             This is NOT a pass; install a system Chrome/Chromium."
+    if !chrome_mentioned_in_doctor_json() {
+        common::skip_with_remedy(
+            "upload_cdp_e2e_gate",
+            "doctor reports no usable Chrome.",
+            "install a system Chrome/Chromium.",
         );
         return true;
     }
     false
 }
 
-/// Ask the product itself whether a browser is usable, rather than guessing paths.
-fn chrome_available() -> bool {
-    let Some(bin) = binary() else {
-        return false;
-    };
-    let out = Command::new(bin)
-        .args(["-q", "--json", "doctor", "--offline", "--quick"])
-        .output();
-    let Ok(out) = out else {
-        return false;
-    };
-    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
-        return false;
-    };
-    // `doctor` reports the resolved browser path when one was found.
-    let text = v.to_string();
-    text.contains("chrome") || text.contains("chromium")
-}
+// Ask the product itself whether a browser is usable, rather than guessing
+// paths. A plain comment, not a doc comment: the probe these words described
+// moved to `tests/common/mod.rs` in 0.1.9, and a `///` with no item under it
+// documents whatever happens to follow it.
 
 /// The page records name+size into `#out` when the input's `change` fires, so a
 /// successful upload is observable from the page's own point of view.
@@ -112,14 +94,23 @@ fn serve_one(mut stream: TcpStream) {
 }
 
 /// A scratch dir that doubles as the isolated XDG config home.
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("bac-upload-{name}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    dir
+///
+/// The guard is returned, not the path: dropping it removes the directory, and
+/// the upload fixtures written into it would go with it. The old body used a
+/// pid-keyed name with no removal at all.
+fn scratch(name: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("bac-upload-{name}-"))
+        .tempdir()
+        .expect("create scratch dir")
 }
 
 fn set(cfg: &PathBuf, key: &str, value: &str) {
-    let out = Command::new(binary().expect("binary"))
+    let out = common::isolated_cmd(&binary().expect("binary"))
+        // `HOME` is what isolates config on macOS: `directories` resolves to
+        // ~/Library/Application Support and never reads `XDG_CONFIG_HOME`.
+        // Full measurement (2026-09-04) lives in `tests/scrape_wave6_gate.rs`.
+        .env("HOME", cfg)
         .env("XDG_CONFIG_HOME", cfg)
         .args(["-q", "--json", "config", "set", key, value])
         .output()
@@ -132,7 +123,8 @@ fn upload_delivers_the_file_to_a_real_chrome() {
     if cannot_run() {
         return;
     }
-    let dir = scratch("e2e");
+    let scratch_dir = scratch("e2e");
+    let dir = scratch_dir.path().to_path_buf();
     set(&dir, "http_ssrf_mode", "allow_loopback");
     set(&dir, "robots_loopback_exempt", "true");
 
@@ -155,7 +147,8 @@ fn upload_delivers_the_file_to_a_real_chrome() {
     )
     .expect("write script");
 
-    let out = Command::new(binary().expect("binary"))
+    let out = common::isolated_cmd(&binary().expect("binary"))
+        .env("HOME", &dir)
         .env("XDG_CONFIG_HOME", &dir)
         .args([
             "-q",
@@ -207,7 +200,8 @@ fn upload_works_through_script_on_stdin() {
     if cannot_run() {
         return;
     }
-    let dir = scratch("stdin");
+    let scratch_dir = scratch("stdin");
+    let dir = scratch_dir.path().to_path_buf();
     set(&dir, "http_ssrf_mode", "allow_loopback");
     set(&dir, "robots_loopback_exempt", "true");
 
@@ -226,7 +220,8 @@ fn upload_works_through_script_on_stdin() {
     // `--script -` is the form the cookbook publishes, because it needs no temp
     // file. Process substitution is NOT an alternative: the path jail rejects
     // /proc/<pid>/fd/<n>, so stdin is the only file-free route.
-    let mut child = Command::new(binary().expect("binary"))
+    let mut child = common::isolated_cmd(&binary().expect("binary"))
+        .env("HOME", &dir)
         .env("XDG_CONFIG_HOME", &dir)
         .args(["-q", "--json", "--timeout", "90", "run", "--script", "-"])
         .stdin(std::process::Stdio::piped())
@@ -275,13 +270,19 @@ fn upload_works_through_script_on_stdin() {
 #[test]
 fn run_script_takes_a_path_not_inline_json() {
     if binary().is_none() {
-        eprintln!("SKIP upload_cdp_e2e_gate: binary absent. This is NOT a pass.");
+        common::skip_with_remedy(
+            "upload_cdp_e2e_gate",
+            "target/debug/browser-automation-cli absent.",
+            "run `cargo build` first.",
+        );
         return;
     }
     // No Chrome needed: the argument is rejected before any browser launch.
-    let dir = scratch("inline");
+    let scratch_dir = scratch("inline");
+    let dir = scratch_dir.path().to_path_buf();
     let inline = r#"[{"cmd":"goto","url":"https://example.com"}]"#;
-    let out = Command::new(binary().expect("binary"))
+    let out = common::isolated_cmd(&binary().expect("binary"))
+        .env("HOME", &dir)
         .env("XDG_CONFIG_HOME", &dir)
         .args(["-q", "--json", "run", "--script", inline])
         .output()

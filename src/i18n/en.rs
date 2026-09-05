@@ -29,6 +29,22 @@ pub fn text(msg: UiMessage) -> &'static str {
         UiMessage::WebmcpFlag => "Pass --category-webmcp on the same invocation",
         UiMessage::ThirdPartyFlag => "Pass --category-third-party on the same invocation",
         UiMessage::CaptureNetwork => "Pass --capture-network before run/net",
+        UiMessage::ResourceTypeVocabulary => {
+            "Use a CDP resource type such as Document, Script, XHR or Other"
+        }
+        UiMessage::CaptureNeedsRun => {
+            "Capture lives in one process: use run --script with the capture flag"
+        }
+        UiMessage::ConsoleNoWorkerAttribution => {
+            "Narrow with --types, or address the worker with eval --service-worker-id"
+        }
+        UiMessage::StepMissingArgument => {
+            "Add the missing key to the step object; commands --json names every step key"
+        }
+        UiMessage::UnknownStepAction => "Check the action name against commands --json",
+        UiMessage::InternalDefect => {
+            "This is a product defect and not a usage error; report the script that reached it"
+        }
         UiMessage::CaptureConsole => "Pass --capture-console before run/console",
         UiMessage::RunFailFast => "Fix the failing step; subsequent steps were not executed",
         UiMessage::LighthouseMissing => {
@@ -63,6 +79,11 @@ pub fn text(msg: UiMessage) -> &'static str {
             "A bot check answered instead of the page; see data.block_detection. \
              Retrying escalates toward a ban: use --engine browser, change egress with --proxy, or wait"
         }
+        UiMessage::BlockedByAttestation => {
+            "Continuous client attestation refused this request; no stealth patch clears it. \
+             More fingerprint tuning is the wrong loop: use a different provider, \
+             for example duckduckgo-search-cli, or a SearXNG instance"
+        }
         UiMessage::SsrfBlocked => {
             "Use a public http(s) URL, or: config set http_ssrf_mode allow_loopback|off"
         }
@@ -87,6 +108,18 @@ pub fn text(msg: UiMessage) -> &'static str {
         UiMessage::JsonObjectPayload => "Pass a single JSON object payload",
         UiMessage::RaiseSizeLimit => "Raise the byte ceiling via config set, or use a smaller input",
         UiMessage::RaiseTimeout => "Raise --timeout or --step-timeout, or reduce the work per step",
+        UiMessage::RaiseNavigationTimeout => {
+            "Raise --navigation-timeout-ms, or set navigation_timeout_ms on the goto step; \
+             --timeout and --step-timeout do NOT govern this ceiling"
+        }
+        UiMessage::RaiseSubmitTimeout => {
+            "Raise the submit budget, or verify the form navigates at all: a same-page submit \
+             completes without a navigation and is not a timeout"
+        }
+        UiMessage::RaiseWaitTimeout => {
+            "Raise ms on the wait step, or relax the condition: the listed names are the ones \
+             still unmet"
+        }
         UiMessage::AgentOpsFilterSyntax => {
             "Use key=value, key!=value or key~substring (dotted paths allowed)"
         }
@@ -124,9 +157,20 @@ pub fn text(msg: UiMessage) -> &'static str {
         UiMessage::PdfInputInvalid => "Provide a real PDF file; generate one with print-pdf if needed",
         UiMessage::SheetInputFormat => "Pass a .csv, .tsv, or .json file holding an array of objects",
         UiMessage::ViewportSpecFormat => "Format: WxHxDPR[,mobile][,touch][,landscape]",
+        UiMessage::ScreenSpecFormat => "Pass --screen WxH, for example 1920x1080",
+        UiMessage::StealthProfileUa => {
+            "Use a User-Agent that matches --stealth-profile, or change the profile first"
+        }
+        UiMessage::PathRegexInvalid => {
+            "Pass a valid regular expression to --include-regex / --exclude-regex"
+        }
+        UiMessage::EvalNavigated => {
+            "The inspected target navigated during this eval. Split into eval / wait / eval so the read runs after the new document is ready."
+        }
         UiMessage::CommandsDiscovery => "Run: browser-automation-cli commands --json to list the live surface",
         UiMessage::SchemaCommandRequired => "Use: browser-automation-cli schema <cmd> or schema --cmd <cmd>",
         UiMessage::ScrapeEngineChoice => "Use --engine http for one-shot baselines, or --engine browser / parse for local files",
+        UiMessage::ScrapeLlmExtractScope => "Use --engine http with a single --format json; the LLM extract branch is the only consumer of --schema-json and --question",
         UiMessage::ScrapeOpaqueContent => "Download the file first, then read it with parse; or use image / video / audio for that media type",
         UiMessage::ChromeLaunchFailed => "Check the Chrome install and Xvfb availability on Linux headed launches",
         UiMessage::StepFieldUnknown => "Check the allowed fields for this step cmd in schema run",
@@ -209,5 +253,34 @@ pub fn text(msg: UiMessage) -> &'static str {
         UiMessage::AudioLossyTranscode => {
             "Lossy→lossy recompress degrades quality; prefer lossless source or stream copy when possible"
         }
+        UiMessage::AssertUrlNavigateFirst => "Navigate first with goto in the same run",
+        UiMessage::AssertTextSubstring => "Check view/extract in the same run; text match is substring",
+        UiMessage::ConsoleListIds => "Use console list to inspect ids (0-based index)",
+        UiMessage::NetGetIndexOrRequestId => "Use net list; pass 0-based index or requestId string",
+        UiMessage::NetGetExactRequestId => "Use net list; pass 0-based index or exact requestId",
+        UiMessage::BrowserCloseReaped => "Process reaped by chromiumoxide finalize or Lightpanda process Drop",
+        UiMessage::WebmcpListFirst => "List tools first; page must expose form[toolname] or __webmcpTools",
+        UiMessage::NavigationFailedCheck => "Check URL scheme and network; try about:blank for smoke",
+        UiMessage::PickOptionTarget => "Pass option text visible in the popover, a CSS selector, or role=option label",
+        UiMessage::ExecGotoExample => "browser-automation-cli exec goto about:blank",
+        UiMessage::PathNoParentComponents => "Pass a path without `..` components",
+        UiMessage::LighthouseRunFailed => "Check URL and lighthouse install",
+        UiMessage::AssertUrlExample => "Use {\"cmd\":\"assert\",\"kind\":\"url\",\"value\":\"example.com\"} or url_contains",
+        UiMessage::AssertTextExample => "Use {\"cmd\":\"assert\",\"kind\":\"text\",\"value\":\"Hello\"}",
+        UiMessage::AssertConsoleNoMatchExample => "Use {\"cmd\":\"assert\",\"kind\":\"console_no_match\",\"pattern\":\"TypeError\"}",
+        UiMessage::AssertStepExample => "Example: {\"cmd\":\"assert\",\"kind\":\"step\",\"path\":\"result\",\"equals\":\"OK\"}",
+        UiMessage::PrintPdfNeedsNavigation => "Add {\"cmd\":\"goto\",\"url\":\"…\"} before print-pdf, or pass \"url\" on the step, or allow_empty:true",
+        UiMessage::RunScriptArrayShape => "Use [{\"cmd\":\"goto\",\"url\":\"…\"}, …] or NDJSON one object per line",
+        UiMessage::RunArrayElementObject => "Each array element must be an object with \"cmd\" or \"action\"",
+        UiMessage::RunNdjsonLineObject => "Each non-empty line must be one JSON object with \"cmd\", or use a JSON array file",
+        UiMessage::RunScriptArrayOrNdjson => "Use either one JSON array for the whole file, or one object per line",
+        UiMessage::RunStepObjectExample => "Example: {\"cmd\":\"goto\",\"url\":\"https://example.com\"}",
+        UiMessage::RunScriptEmpty => "Add at least one NDJSON line or a JSON array of objects with a cmd field",
+        UiMessage::LangTokenValues => "Use: config set lang en   or   config set lang pt-BR   or   --lang pt-BR",
+        UiMessage::CliJsonPayloadTooLarge => "Pass a smaller payload, a file path when supported, or raise via: config set max_cli_json_payload_bytes <n>",
+        UiMessage::SplitInputOrRaiseLimit => "Split the input or raise the product limit only after measuring need",
+        UiMessage::FileNotUtf8 => "Re-save the file as UTF-8; invalid bytes are input data, not an I/O fault, so retrying reads the same bytes",
+        UiMessage::NdjsonLineTooLarge => "Split the record, use a whole-file JSON array, or raise via: config set max_ndjson_line_bytes <n>",
+        UiMessage::SheetJsonRowsExample => "Example: [{\"a\":1,\"b\":2},{\"a\":3,\"b\":4}]",
     }
 }

@@ -153,9 +153,9 @@ fn wait_until_group_gone(pgid: i32, grace: Duration) -> bool {
         if !alive {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(
-            crate::constants::PLATFORM_CHILD_POLL_MS,
-        ));
+        std::thread::sleep(Duration::from_millis(crate::xdg::policy::policy_u64(
+            crate::xdg::policy::key::PLATFORM_CHILD_POLL_MS,
+        )));
     }
     false
 }
@@ -184,9 +184,9 @@ pub fn kill_unix_graceful(pid: u32, grace: Duration) {
             return;
         }
         // Poll slice shares the platform child-wait budget (DRY with PLATFORM_CHILD_POLL_MS).
-        std::thread::sleep(Duration::from_millis(
-            crate::constants::PLATFORM_CHILD_POLL_MS,
-        ));
+        std::thread::sleep(Duration::from_millis(crate::xdg::policy::policy_u64(
+            crate::xdg::policy::key::PLATFORM_CHILD_POLL_MS,
+        )));
     }
 
     // SAFETY: same pid ownership as SIGTERM; escalate to SIGKILL if still alive.

@@ -31,13 +31,15 @@ pub const CHROME_STARTUP_TIMEOUT_SECS: u64 = 20;
 pub const RESIDUAL_ORPHAN_MIN_AGE_SECS: u64 = 60;
 
 /// Platform child wait poll interval (milliseconds).
+///
+/// Default for `config set platform_child_poll_ms`. This is the interval that
+/// actually runs during FINALIZE, while the process tree is reaped: a slow host
+/// wants a longer slice, a fast one a shorter. Read it through
+/// `policy_u64(key::PLATFORM_CHILD_POLL_MS)`, never as a bare constant.
 pub const PLATFORM_CHILD_POLL_MS: u64 = 50;
 
 /// Platform child wait deadline (seconds).
 pub const PLATFORM_CHILD_WAIT_SECS: u64 = 5;
-
-/// Shutdown cooperative poll interval (milliseconds).
-pub const DEFAULT_SHUTDOWN_POLL_MS: u64 = 5;
 
 /// Shutdown hard deadline (seconds) waiting for browser exit.
 pub const DEFAULT_SHUTDOWN_DEADLINE_SECS: u64 = 30;

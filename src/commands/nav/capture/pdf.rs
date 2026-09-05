@@ -6,6 +6,7 @@ use std::path::Path;
 use crate::browser::{block_on_browser_timeout, CaptureOpts};
 use crate::commands::common::emit_ok;
 use crate::error::{CliError, ErrorKind};
+use crate::etd::{with_target, TargetSource};
 use crate::lifecycle::Lifecycle;
 use crate::robots::RobotsPolicy;
 
@@ -26,6 +27,12 @@ pub(crate) fn handle_print_pdf(
             crate::i18n::suggestion_key("navigate_first", None),
         ));
     }
+    // Without `--path` the PDF lands wherever the session decides, which argv
+    // never named.
+    let etd = path.map_or_else(
+        || ("(session default)".to_string(), TargetSource::Ambient),
+        |p| (p.display().to_string(), TargetSource::Argv),
+    );
     let path = path.map(|p| p.to_path_buf());
     let url = url.map(|s| s.to_string());
     let data = block_on_browser_timeout(
@@ -36,13 +43,14 @@ pub(crate) fn handle_print_pdf(
             if let Some(u) = url.as_deref() {
                 let _ = session.goto(u, robots).await?;
             }
-            let out = session.print_pdf(path.as_deref()).await;
+            let out = session.print_pdf(path.as_deref(), false).await;
             let _ = session.shutdown().await;
             life.clear_chrome();
             out
         },
         timeout_secs,
     )?;
+    let data = with_target(data, &etd.0, etd.1);
     emit_ok(data, json, |d| {
         let p = d.get("path").and_then(|v| v.as_str()).unwrap_or("");
         crate::output::writeln_stdout(format!("ok print-pdf path={p}"))?;

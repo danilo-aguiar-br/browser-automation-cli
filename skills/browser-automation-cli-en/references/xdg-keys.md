@@ -20,7 +20,7 @@
 - `lang` — Message locale override (en|pt-BR; bare pt rejected). Default: none
 - `timeout` — Global timeout seconds. Default: `0`
 - `artifacts_dir` — Artifacts output directory. Default: none
-- `ignore_robots` — Default robots ignore (flags still required). Default: none
+- `ignore_robots` — Default robots ignore (flags still required). Default: `false`
 - `namespace` — Isolated state namespace. Default: none
 - `encryption_key` — Session encryption key material. Default: none
 - `color` — ANSI colors on human stderr. Default: none
@@ -30,12 +30,13 @@
 - `stealth` — Anti-detection patches before first navigation (--no-stealth opts out). Default: `true`
 - `stealth_profile` — Impersonated identity: auto|chrome-linux|chrome-win|chrome-mac. Default: `auto`
 - `stealth_seed` — Pin the stealth identity across processes (absent = redrawn per process). Default: none
+- `screen` — Default screen `WxH` for device metrics (absent = mirror the viewport). Default: none
 - `browser_mode` — Window mode: auto|headed|headless (auto resolves to headless; doctor reports it). Default: `auto`
 
 
 ## Local Logging
 - `log_level` — Tracing EnvFilter when argv flags quiet (no RUST_LOG). Default: `error`
-- `log_to_file` — Rotated local JSON logs under XDG state (never remote). Default: none
+- `log_to_file` — Rotated local JSON logs under XDG state (never remote). Default: `false`
 - `max_log_files` — Retained rotated log files (1..=90). Default: `14`
 - `log_rotation` — Rolling policy: daily|hourly|never. Default: `daily`
 
@@ -59,7 +60,7 @@
 ## Cache and Redis
 - `cache_backend` — sqlite|memory|redis. Default: `sqlite`
 - `cache_redis_url` — Redis URL when backend=redis. Default: none
-- `redis_allow_remote` — Allow non-loopback Redis hosts (default false). Default: none
+- `redis_allow_remote` — Allow non-loopback Redis hosts (default false). Default: `false`
 - `redis_connect_timeout_secs` — Redis TCP connect timeout (seconds). Default: `2`
 - `redis_io_timeout_secs` — Redis/RESP stream I/O timeout (seconds). Default: `3`
 - `cache_max_resp_bulk_bytes` — Redis RESP bulk string size ceiling (bytes). Default: `16777216`
@@ -70,6 +71,7 @@
 
 ## Web Search
 - `search_base_url` — HTML search endpoint base (?q= appended). Default: `https://html.duckduckgo.com/html/`
+- `user_data_dir` — persistent Chrome profile dir, opt-in; unset keeps residual-zero. Mode 0700 on Unix; `--profile` wins. Default: unset
 
 
 ## Payload Limits and Roots
@@ -114,6 +116,16 @@
 - `input_scroll_max_ticks` — Ceiling on wheel ticks per scroll gesture (one CDP round trip each). Default: `40`
 - `input_target_jitter_px` — Radius of the random offset applied to a click target (CSS pixels). Default: `3`
 - `input_scroll_settle_rounds` — Extra rounds allowed to deliver a wheel delta the renderer dropped. Default: `3`
+- `input_timing_distribution` — Shape of the dispersion around input delays: lognormal|normal|uniform; governs the fast rhythm only, and the long-pause tail is `input_word_pause_permille`. Default: `lognormal`
+- `input_move_steps_stddev` — Standard deviation of the per-gesture pointer sample budget. Default: `6`
+- `input_move_gap_stddev_ms` — Standard deviation of the delay between pointer positions (milliseconds). Default: `5`
+- `input_click_dwell_stddev_ms` — Standard deviation of the press-to-release hold (milliseconds). Default: `26`
+- `input_key_dwell_stddev_ms` — Standard deviation of the keyDown-to-keyUp hold (milliseconds). Default: `18`
+- `input_type_delay_stddev_ms` — Standard deviation of the delay between characters (milliseconds). Default: `40`
+- `input_scroll_tick_stddev_px` — Standard deviation of the distance one wheel tick carries (CSS pixels). Default: `25`
+- `input_word_pause_ms` — Mean of the extra pause taken at a word or sentence boundary (milliseconds). Default: `320`
+- `input_word_pause_permille` — Chance in a thousand that a word boundary earns a long pause. Default: `120`
+- `input_typo_permille` — Chance in a thousand that a character is mistyped, erased with `Backspace` and retyped; the field still ends up holding the requested text. `0` by default because this one changes the CHARACTER STREAM the page reads, not just the timing. Default: `0`
 
 
 ## CDP and Chrome Session
@@ -125,8 +137,10 @@
 - `cdp_target_event_wait_ms` — CDP target event short wait (milliseconds). Default: `600`
 - `cdp_discovery_timeout_secs` — CDP HTTP discovery timeout for /json/version probes (seconds). Default: `2`
 - `event_tracker_max_entries` — In-memory console/network tracker ring size per page session. Default: `1000`
+- `capture_preserved_rings` — Navigation boundaries kept for console/net --include-preserved. Default: `3`
 - `chrome_default_timeout_ms` — Default per-operation timeout for the Chrome engine (milliseconds). Default: `25000`
 - `extension_attach_poll_ms` — Extension attach poll slice (milliseconds). Default: `150`
+- `extension_attach_poll_iters` — Extension attach poll iterations; slice x iterations is the total wait. Default: `20`
 
 
 ## HTTP and Network Security
@@ -157,9 +171,8 @@
 ## Robots
 - `robots_loopback_exempt` — Loopback hosts skip robots.txt (set false to enforce against localhost). Default: `true`
 - `robots_user_agent` — User-agent token robots.txt rules are matched against. Default: none
-- `robots_probe_timeout_secs` — robots.txt HEAD/probe timeout (seconds). Default: `5`
+- `robots_probe_timeout_secs` — robots.txt request timeout (seconds). Default: `5`
 - `robots_max_body_bytes` — Max robots.txt body bytes (anti-OOM). Default: `524288`
-- `robots_fetch_timeout_secs` — Timeout for fetching robots.txt (seconds). Default: `30`
 
 
 ## Image and SVG
@@ -204,10 +217,10 @@
 - `scrape_delay_jitter_ratio` — Politeness delay jitter ratio 0.0..=1.0 (0=off). Default: `0.2`
 - `scrape_summary_chars` — Max chars for scrape format summary. Default: `400`
 - `scrape_feed_max_entries` — Max entries kept by scrape format feed (RSS/Atom/JSON Feed). Default: `50`
-- `scrape_follow_rel_next` — Follow rel=next pagination links during crawl. Default: none
-- `scrape_dedup_similar` — Collapse near-duplicate pages by content similarity in crawl/batch-scrape. Default: none
+- `scrape_follow_rel_next` — Follow rel=next pagination links during crawl. Default: `false`
+- `scrape_dedup_similar` — Collapse near-duplicate pages by content similarity in crawl/batch-scrape. Default: `false`
 - `scrape_dedup_similar_distance` — SimHash Hamming distance (0..=64) under which pages are near-duplicates. Default: `3`
-- `scrape_sitemap_max_bytes` — Max sitemap body bytes. Default: `524288`
+- `scrape_sitemap_max_bytes` — Max sitemap body bytes. Default: `2000000`
 - `scrape_charset_peek_bytes` — Charset sniffing peek window (bytes). Default: `4096`
 - `scrape_crawl_limit_max` — Max crawl page budget (anti-DoS clamp for --limit). Default: `500`
 - `scrape_crawl_max_depth` — Max BFS depth for crawl/map. Default: `10`
@@ -241,11 +254,11 @@
 - `chrome_startup_timeout_secs` — Chrome self-spawn CDP readiness wait (seconds). Default: `20`
 - `residual_orphan_min_age_secs` — Age floor before a dead-owner marker profile is collectable (seconds). Default: `60`
 - `platform_child_wait_secs` — Platform child wait deadline (seconds). Default: `5`
-- `shutdown_poll_ms` — Shutdown cooperative poll interval (milliseconds). Default: `5`
+- `platform_child_poll_ms` — Child-process exit poll interval during FINALIZE (milliseconds). Default: `50`
 - `shutdown_deadline_secs` — Shutdown hard deadline waiting for browser exit (seconds). Default: `30`
-- `chrome_legacy_oxide_launch` — Launch Chrome via chromiumoxide instead of the self-spawn path (stabilization fallback; loses the residual kill target). Default: none
-- `default_viewport_width` — Default headless Chrome window width when launch options omit viewport. Default: `1280`
-- `default_viewport_height` — Default headless Chrome window height when launch options omit viewport. Default: `720`
+- `chrome_legacy_oxide_launch` — Launch Chrome via chromiumoxide instead of the self-spawn path (stabilization fallback; loses the residual kill target). Default: `false`
+- `default_viewport_width` — Default headless Chrome window width (`--window-size`) when launch options omit viewport. Default: `1920`
+- `default_viewport_height` — Default headless Chrome window height (`--window-size`) when launch options omit viewport. Default: `1080`
 
 
 ## Lightpanda
@@ -306,4 +319,5 @@
 
 ## Canonical Reference
 - MUST treat `docs/CONFIGURATION.md` in the repository as the canonical product reference for these keys
+- MUST use this file as the operational index of the skill and the canonical document for normative detail
 - MUST re-check `docs/CONFIGURATION.md` and `config list-keys --json` when a key here disagrees with the live binary

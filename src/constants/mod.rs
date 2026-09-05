@@ -14,6 +14,7 @@
 //! | Module | Responsibility |
 //! |--------|----------------|
 //! | identity | User agent, temp prefixes, endpoints, wire version, loopback host |
+//! | navigation | Navigation targets named in more than one place |
 //! | network_presets | DevTools network throttling table and lookups |
 //! | viewport | Viewport defaults and `WxHxDPR` spec parser |
 //! | http | HTTP client, robots, and webhook budgets |
@@ -38,6 +39,7 @@
 mod cache;
 mod cdp;
 mod chrome_paths;
+mod cli_defaults;
 mod external_tools;
 mod heap;
 mod http;
@@ -47,6 +49,7 @@ mod lightpanda;
 mod logging;
 mod media;
 mod mitm;
+mod navigation;
 mod network_presets;
 mod payload_limits;
 mod record;
@@ -58,6 +61,7 @@ mod viewport;
 pub use cache::*;
 pub use cdp::*;
 pub use chrome_paths::*;
+pub use cli_defaults::*;
 pub use external_tools::*;
 pub use heap::*;
 pub use http::*;
@@ -67,6 +71,7 @@ pub use lightpanda::*;
 pub use logging::*;
 pub use media::*;
 pub use mitm::*;
+pub use navigation::*;
 pub use network_presets::*;
 pub use payload_limits::*;
 pub use record::*;
@@ -82,11 +87,11 @@ const _: () = assert!(MITM_CA_CACHE_SIZE > 0);
 const _: () = assert!(!MITM_REDACTED_PLACEHOLDER.is_empty());
 const _: () = assert!(!MITM_BIND_HOST.is_empty());
 const _: () = assert!(MAX_SG_FILE_BYTES > 0);
-const _: () = assert!(DEFAULT_VIEWPORT_WIDTH > 0);
-const _: () = assert!(DEFAULT_VIEWPORT_HEIGHT > 0);
+const _: () = assert!(DEFAULT_VIEWPORT_WIDTH == DEFAULT_XVFB_WIDTH);
+const _: () = assert!(DEFAULT_VIEWPORT_HEIGHT == DEFAULT_XVFB_HEIGHT);
+const _: () = assert!(REDIS_DEFAULT_PORT > 0);
 const _: () = assert!(REDIS_IO_TIMEOUT_SECS > 0);
 const _: () = assert!(REDIS_CONNECT_TIMEOUT_SECS > 0);
-const _: () = assert!(ROBOTS_FETCH_TIMEOUT_SECS > 0);
 const _: () = assert!(DEFAULT_HTTP_CONNECT_TIMEOUT_SECS > 0);
 const _: () = assert!(ROBOTS_PROBE_TIMEOUT_SECS > 0);
 const _: () = assert!(ROBOTS_MAX_BODY_BYTES > 0);

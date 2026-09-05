@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Local residual stress (PRD §5N stress of N one-shot invocations).
+# NOT a ci-check verifier: a MEASUREMENT tool with no pass/fail contract. Its
+# numbers depend on the host — cores, load, thermal state — so a bundle step
+# built on it would report the machine rather than the product, which is the
+# one thing a gate must never do.
 # Default N=20 for fast local gate; set N=100 for full PRD proof.
 # PROIBIDO wire this into GitHub Actions.
 set -euo pipefail

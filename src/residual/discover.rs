@@ -62,10 +62,61 @@ pub fn owned_chromium_tmp_dir_via_profile(profile: &Path) -> Option<PathBuf> {
     Some(dir.to_path_buf())
 }
 
+/// True when a marker profile really belongs to THIS invocation.
+///
+/// # The defect this closes
+///
+/// The FINALIZE scan used to accept any marker directory that was recent and
+/// owned by this uid, under the comment "always ours when marker + recent + our
+/// uid". None of those three is an identity. The prefix is shared by EVERY
+/// invocation of the product, the uid is shared by every process this user
+/// runs, and "recent" only means "created after I started" — which is exactly
+/// what a profile belonging to a LATER, still-running invocation looks like.
+///
+/// So a finishing one-shot collected a live sibling's profile and
+/// `lifecycle::kill::wipe_owned_path` deleted it, with no age floor and no
+/// liveness check, while its Chrome was still booting. Measured 2026-08-18
+/// during `cargo test --tests`: Chrome exited 21 with
+/// `Failed to create <profile>/SingletonLock: No such file or directory`, and
+/// the launch post-mortem reported `exists: false, recreated_before_fork: 0` —
+/// the directory was there right up to the fork and gone milliseconds later.
+/// It never reproduced alone because it needs a second invocation to exist.
+///
+/// The owner-pid marker was written for precisely this question and simply was
+/// not consulted here. It is now:
+///
+/// - our own profile path is ours by definition;
+/// - a marker naming a DIFFERENT pid is somebody else's, live or not — the
+///   BORN sweep collects genuinely abandoned profiles under an age floor, and
+///   that is the right place for it;
+/// - no marker at all falls back to the process table, so a directory nobody
+///   holds is still collectable.
+///
+/// Leaving a directory behind is a smaller harm than deleting one that belongs
+/// to somebody else, which is the same rule
+/// [`owned_chromium_tmp_dir_via_profile`] already states.
+fn cli_marker_is_ours(path: &Path, profile: Option<&Path>) -> bool {
+    if profile == Some(path) {
+        return true;
+    }
+    match super::owner::read_owner_pid(path) {
+        Some(pid) => pid == std::process::id(),
+        // No marker: fall back to the process table. When that table cannot be
+        // read at all the answer is NO — an unreadable process list is not
+        // evidence that nobody holds the directory, and this function feeds a
+        // recursive delete.
+        None => super::proc::index_live_processes()
+            .is_some_and(|index| !super::proc::path_has_live_process(path, &index)),
+    }
+}
+
 /// Discover Chromium side-channel paths that belong to this launch (GAP-020).
 ///
 /// Scans OS temp (Chromium side-channels) and XDG chrome-profiles (product
 /// ephemeral profiles after Tier-4 path migration).
+///
+/// A marker profile is only claimed when `cli_marker_is_ours` agrees; see
+/// there for why prefix, uid and recency together are not ownership.
 pub fn discover_owned_chromium_tmp_side_channels(
     profile: Option<&Path>,
     chrome_pid: Option<u32>,
@@ -96,7 +147,9 @@ pub fn discover_owned_chromium_tmp_side_channels(
                 continue;
             }
             if is_cli_marker {
-                // Always ours when marker + recent + our uid.
+                if !cli_marker_is_ours(&path, profile) {
+                    continue;
+                }
                 out.push(path);
                 continue;
             }

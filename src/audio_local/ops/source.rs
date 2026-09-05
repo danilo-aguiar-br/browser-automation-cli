@@ -22,6 +22,8 @@ impl AudioSource {
     pub fn resolve_path(&self, limits: AudioLimits) -> Result<(PathBuf, bool), CliError> {
         match self {
             Self::Path(p) => {
+                // GAP-026: bound the operator-supplied source path.
+                crate::fs_roots::ensure_read_allowed(p)?;
                 let meta = std::fs::metadata(p)
                     .map_err(|e| crate::audio_local::magic::io_open_err(p, &e))?;
                 limits.check_input_len(meta.len())?;
@@ -38,7 +40,7 @@ impl AudioSource {
                     .map_err(|e| crate::audio_local::magic::io_path_err(&path, "create", &e))?;
                 let stdin = std::io::stdin();
                 let mut handle = stdin.lock();
-                let mut chunk = [0u8; 64 * 1024];
+                let mut chunk = vec![0u8; crate::constants::MEDIA_STREAM_CHUNK_BYTES];
                 let mut total = 0usize;
                 loop {
                     let n = handle.read(&mut chunk).map_err(|e| {

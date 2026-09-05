@@ -25,7 +25,8 @@ pub(super) async fn attach_link_urls(
         // CDP has no batch resolve API, so we parallelize individual calls.
         // Phase 1: resolve all backend node IDs to JS object IDs in parallel.
         // Bounded CDP fan-out (rules_rust_paralelismo: never unbounded join_all).
-        let cdp_limit = crate::concurrency::effective_limit_capped(32);
+        let cdp_limit =
+            crate::concurrency::effective_limit_capped(crate::concurrency::CDP_FANOUT_CAP);
         let resolve_futs: Vec<_> = link_nodes
             .iter()
             .map(|&(idx, bid)| async move {

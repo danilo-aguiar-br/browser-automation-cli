@@ -30,7 +30,7 @@ pub fn parse_run_script(text: &str) -> Result<Vec<Value>, CliError> {
                 return Err(CliError::with_suggestion(
                     ErrorKind::Data,
                     "script starts with '[' but is not a JSON array of step objects",
-                    "Use [{\"cmd\":\"goto\",\"url\":\"…\"}, …] or NDJSON one object per line",
+                    crate::i18n::suggestion_key("run_script_array_shape", None),
                 ));
             }
             Err(e) => {
@@ -40,7 +40,7 @@ pub fn parse_run_script(text: &str) -> Result<Vec<Value>, CliError> {
                     return Err(CliError::with_suggestion(
                         ErrorKind::Data,
                         format!("invalid JSON array script: {e}"),
-                        "Each array element must be an object with \"cmd\" or \"action\"",
+                        crate::i18n::suggestion_key("run_array_element_object", None),
                     ));
                 }
             }
@@ -58,7 +58,7 @@ pub fn parse_run_script(text: &str) -> Result<Vec<Value>, CliError> {
             CliError::with_suggestion(
                 ErrorKind::Data,
                 format!("script line {}: invalid JSON: {e}", lineno + 1),
-                "Each non-empty line must be one JSON object with \"cmd\", or use a JSON array file",
+                crate::i18n::suggestion_key("run_ndjson_line_object", None),
             )
         })?;
         match v {
@@ -73,7 +73,7 @@ pub fn parse_run_script(text: &str) -> Result<Vec<Value>, CliError> {
                         "script line {}: nested JSON array not allowed in NDJSON mode",
                         lineno + 1
                     ),
-                    "Use either one JSON array for the whole file, or one object per line",
+                    crate::i18n::suggestion_key("run_script_array_or_ndjson", None),
                 ));
             }
             other => steps.push(other),
@@ -89,7 +89,7 @@ fn normalize_step_values(items: Vec<Value>, ctx: &str) -> Result<Vec<Value>, Cli
             return Err(CliError::with_suggestion(
                 ErrorKind::Data,
                 format!("{ctx} step {i}: expected object with \"cmd\""),
-                "Example: {\"cmd\":\"goto\",\"url\":\"https://example.com\"}",
+                crate::i18n::suggestion_key("run_step_object_example", None),
             ));
         }
         out.push(v);
@@ -147,5 +147,23 @@ mod parse_script_tests {
             "x".repeat(crate::json_util::MAX_NDJSON_LINE_BYTES)
         );
         assert!(parse_run_script(&huge).is_err());
+    }
+
+    #[test]
+    fn quoted_one_line_eval_keeps_js_regex_and_quotes() {
+        let text = "{\"cmd\":\"eval\",\"expression\":\"(/hello/i).test(\\\"hello\\\")\"}\n";
+        let steps = parse_run_script(text).unwrap();
+        assert_eq!(steps[0]["expression"], "(/hello/i).test(\"hello\")");
+    }
+
+    #[test]
+    fn a_split_json_string_is_invalid_ndjson() {
+        let text = "{\"cmd\":\"eval\",\"expression\":\"(/hello/i).test(\n\\\"hello\\\")\"}\n";
+        let err = parse_run_script(text).unwrap_err();
+        assert!(
+            err.message().contains("invalid JSON") || err.message().contains("EOF"),
+            "{}",
+            err.message()
+        );
     }
 }

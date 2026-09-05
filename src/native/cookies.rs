@@ -54,6 +54,14 @@ pub struct Cookie {
 ///
 /// Not limited to the current page: use [`get_cookies`] when the caller only
 /// cares about the site it is on.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Network.getAllCookies` on
+/// `session_id` — the `Network` domain was never enabled, or the session is
+/// gone. A response whose `cookies` array is missing or does not deserialize
+/// is **not** an error: it yields an empty vector, so a shape change in the
+/// protocol reads as "no cookies" rather than as a failure.
 pub async fn get_all_cookies(client: &CdpClient, session_id: &str) -> Result<Vec<Cookie>, String> {
     let result = client
         .send_command_no_params("Network.getAllCookies", Some(session_id))
@@ -71,6 +79,14 @@ pub async fn get_all_cookies(client: &CdpClient, session_id: &str) -> Result<Vec
 ///
 /// `None` or an empty list falls back to the current page's URL, which is what
 /// makes the no-argument form useful.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Network.getCookies` on `session_id` —
+/// the `Network` domain was never enabled, the session is gone, or an entry in
+/// `urls` is not a valid URL. As in [`get_all_cookies`], a `cookies` array
+/// that is missing or does not deserialize yields an empty vector instead of
+/// an error.
 pub async fn get_cookies(
     client: &CdpClient,
     session_id: &str,
@@ -97,6 +113,14 @@ pub async fn get_cookies(
 ///
 /// Batched on purpose: `Network.setCookies` takes the whole vector, so a
 /// per-cookie loop would pay a round-trip each and still not be atomic.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Network.setCookies`, which rejects the
+/// **whole batch** when any entry is malformed — no `name`, or neither `url`
+/// nor `domain` once the `current_url` auto-fill has run. A cookie that
+/// carries neither and arrives with `current_url` as `None` therefore fails
+/// here rather than being silently dropped.
 pub async fn set_cookies(
     client: &CdpClient,
     session_id: &str,
@@ -130,6 +154,12 @@ pub async fn set_cookies(
 }
 
 /// Remove every cookie from the browser profile.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Network.clearBrowserCookies` on
+/// `session_id` — the `Network` domain was never enabled, or the session is
+/// gone.
 pub async fn clear_cookies(client: &CdpClient, session_id: &str) -> Result<(), String> {
     client
         .send_command_no_params("Network.clearBrowserCookies", Some(session_id))

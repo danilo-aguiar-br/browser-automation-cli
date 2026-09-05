@@ -14,6 +14,22 @@ impl OneShotSession {
     ///
     /// Requires `--capture-network` on this same process; capture does not
     /// survive the end of the invocation that enabled it.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Usage`] when
+    /// `--capture-network` was not given on this invocation.
+    ///
+    /// Also fails with [`ErrorKind::Usage`] when `resource_types` names a token
+    /// outside the CDP resource-type vocabulary. That refusal is what makes an
+    /// empty answer readable: it means the page had no such resource, and no
+    /// longer doubles as the reply to a typo.
+    ///
+    /// Nothing else fails. A valid filter selecting nothing, and a `page_idx`
+    /// past the end, both answer with an empty `requests` array. `total` counts
+    /// the FILTERED set rather than the buffer, because it is the denominator
+    /// for paging within this answer: paging past the end leaves it untouched,
+    /// while a narrowing filter lowers it.
     pub fn net_list(
         &mut self,
         page_idx: Option<usize>,
@@ -29,46 +45,50 @@ impl OneShotSession {
             ));
         }
         self.drain_events();
-        let mut requests: Vec<Value> = Vec::new();
-        let mut include_mode = "current_navigation";
-        if include_preserved {
-            for ring in &self.network_preserved {
-                requests.extend(ring.iter().cloned());
-            }
-            requests.extend(self.network_log.iter().cloned());
-            include_mode = if self.network_preserved.is_empty() {
-                "process_local_only"
-            } else {
-                "preserved_ring"
-            };
-        } else {
-            requests.extend(self.network_log.iter().cloned());
-        }
+        let (mut requests, include_mode) = super::buffers::compose_view(
+            &self.network_preserved,
+            &self.network_log,
+            include_preserved,
+        );
         if let Some(types_csv) = resource_types {
-            let wanted: Vec<String> = types_csv
-                .split(',')
-                .map(|s| s.trim().to_ascii_lowercase())
-                .filter(|s| !s.is_empty())
-                .collect();
+            // One reader for both surfaces: argv reaches it through clap's
+            // value_parser, and `run --script` reaches it here, because a step
+            // key never passes through clap. A second reader would drift and
+            // start rejecting steps that argv still accepts.
+            let wanted =
+                crate::net::resource_type::parse_resource_types(types_csv).map_err(|message| {
+                    CliError::with_suggestion(
+                        ErrorKind::Usage,
+                        message,
+                        crate::i18n::suggestion_key("resource_type_vocabulary", None),
+                    )
+                })?;
             if !wanted.is_empty() {
-                // PAR-74/84: filter_cpu when buffer large.
+                // Single key, not three. The old triple lookup read
+                // `resource_type`, `type` and `resourceType`, and the capture
+                // log wrote none of them, so the tolerance looked like
+                // robustness while hiding that no producer existed at all.
+                //
+                // PAR-74/84: filter_cpu parallelises above CPU_MAP_THRESHOLD,
+                // which is 32 in `src/concurrency/pool.rs`. No CLI invocation
+                // reaches that branch: `net list` at the top level now refuses,
+                // so the only caller is `run --script`, whose buffer is whatever
+                // one scripted page produced — measured 25 on `rust-lang.org`.
+                // The parallel path is kept because a long-running script can
+                // exceed the threshold, not because the CLI ever does.
                 requests = crate::concurrency::filter_cpu(requests, |r| {
                     let rt = r
-                        .get("resource_type")
-                        .or_else(|| r.get("type"))
-                        .or_else(|| r.get("resourceType"))
+                        .get("resourceType")
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_ascii_lowercase();
-                    wanted.iter().any(|w| rt.contains(w))
+                    wanted.contains(&rt)
                 });
             }
         }
         let total = requests.len();
-        let page = page_idx.unwrap_or(0);
-        let size = page_size.unwrap_or(total.max(1));
-        let start = page.saturating_mul(size).min(total);
-        let end = (start + size).min(total);
+        let pg = super::buffers::page_bounds(total, page_idx, page_size);
+        let (page, size, start, end) = (pg.index, pg.size, pg.start, pg.end);
         let page_reqs = requests[start..end].to_vec();
         Ok(json!({
             "requests": page_reqs,
@@ -78,18 +98,43 @@ impl OneShotSession {
             "page_size": size,
             "include_preserved": include_preserved,
             "include_preserved_mode": include_mode,
+            // Truncation is DECLARED. A ring that silently forgets its oldest
+            // rows answers with a subset and calls it the whole set.
+            "dropped_oldest": self.network_dropped,
         }))
     }
 
     /// Resolve a network entry by 0-based index or CDP `requestId` string.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`net_list`](Self::net_list) for the capture gate —
+    /// [`ErrorKind::Usage`] without
+    /// `--capture-network` — and fails with
+    /// [`ErrorKind::Data`] when a numeric `id`
+    /// is out of range or a `requestId` string matches no entry.
+    ///
+    /// Fails with [`ErrorKind::Io`] when
+    /// `request_path` or `response_path` cannot be serialized or written. Both
+    /// dumps currently write the same request record; the response body is not
+    /// fetched here.
     pub async fn net_get(
         &mut self,
         id: &str,
         request_path: Option<&Path>,
         response_path: Option<&Path>,
+        include_preserved: bool,
     ) -> Result<Value, CliError> {
-        let _ = self.net_list(None, None, None, true)?;
-        let requests = self.network_log.clone();
+        // Index over the SAME composition `net_list` answers with, under the
+        // same flag. Reading `self.network_log` directly made `net get 0`
+        // resolve a different record than index 0 of
+        // `net list --include-preserved`, and both replied ok:true.
+        let listed = self.net_list(None, None, None, include_preserved)?;
+        let requests: Vec<Value> = listed
+            .get("requests")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
         let (index, req) = if let Ok(idx) = id.parse::<usize>() {
             let req = requests.get(idx).cloned().ok_or_else(|| {
                 CliError::with_suggestion(
@@ -98,7 +143,7 @@ impl OneShotSession {
                         "network request index {idx} not found (count={})",
                         requests.len()
                     ),
-                    "Use net list; pass 0-based index or requestId string",
+                    crate::i18n::suggestion_key("net_get_index_or_request_id", None),
                 )
             })?;
             (idx, req)
@@ -120,7 +165,7 @@ impl OneShotSession {
                             "network requestId {id} not found (count={})",
                             requests.len()
                         ),
-                        "Use net list; pass 0-based index or exact requestId",
+                        crate::i18n::suggestion_key("net_get_exact_request_id", None),
                     )
                 })?;
             (idx, req)

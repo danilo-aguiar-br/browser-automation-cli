@@ -98,6 +98,14 @@ impl TabRef {
     /// Parse a user-supplied string tab reference. Rejects bare integers
     /// with a teaching error so agents and scripts don't silently confuse
     /// stable ids with positional indices.
+    ///
+    /// # Errors
+    ///
+    /// Fails on an empty or whitespace-only `input`, on a `t<N>` whose digits
+    /// overflow `u32`, on `t0` (ids start at `t1`), on a bare integer — which
+    /// is refused rather than read as a position — and on a label that does
+    /// not start with a letter or carries anything outside letters, digits,
+    /// `-` and `_`. Every message names the accepted form.
     pub fn parse(input: &str) -> Result<Self, String> {
         let input = input.trim();
         if input.is_empty() {

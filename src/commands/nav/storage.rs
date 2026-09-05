@@ -9,6 +9,7 @@ use crate::browser::CaptureOpts;
 use crate::cli::StorageAction;
 use crate::commands::common::emit_ok;
 use crate::error::CliError;
+use crate::etd::{with_target, TargetSource};
 use crate::lifecycle::Lifecycle;
 use crate::robots::RobotsPolicy;
 
@@ -22,6 +23,12 @@ pub(crate) fn handle_storage(
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
+    // Both actions require `--path`, so the file they touch is always argv.
+    let resolved = match &action {
+        StorageAction::Export { path, .. } | StorageAction::Import { path, .. } => {
+            path.display().to_string()
+        }
+    };
     let data = match action {
         StorageAction::Export { path, url } => {
             with_session_blank(life, capture, timeout_secs, move |mut session| async move {
@@ -50,6 +57,7 @@ pub(crate) fn handle_storage(
             })?
         }
     };
+    let data = with_target(data, &resolved, TargetSource::Argv);
     emit_ok(data, json, |d| {
         let cookies = d.get("cookies").and_then(|v| v.as_u64()).unwrap_or(0);
         let origins = d.get("origins").and_then(|v| v.as_u64()).unwrap_or(0);

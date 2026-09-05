@@ -108,7 +108,7 @@ pub fn parse_crawl_delay_secs(robots_body: &str, user_agent: &str) -> Option<f64
 }
 
 /// Origin key for politeness maps (`scheme://host[:port]`).
-pub fn origin_key(url: &str) -> Option<String> {
+pub(crate) fn origin_key(url: &str) -> Option<String> {
     let u = Url::parse(url).ok()?;
     if u.scheme() != "http" && u.scheme() != "https" {
         return None;
@@ -126,8 +126,25 @@ pub fn remember_crawl_delay(origin: &str, delay_secs: f64) {
     map.insert(origin.to_string(), delay_secs);
 }
 
-/// Effective delay seconds: max(robots delay, XDG scrape_min_delay_ms/1000).
-pub fn effective_delay_secs(origin: &str) -> f64 {
+/// Per-invocation floor from `--min-delay-ms`, when the caller named one.
+static DELAY_OVERRIDE_MS: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+
+/// Publish the `--min-delay-ms` floor for this process. Called once from dispatch.
+///
+/// Politeness was configurable only through XDG `scrape_min_delay_ms`, which is
+/// a HOST setting: slowing down for one fragile site meant slowing every other
+/// project on the machine, so the honest choice was usually not to slow down at
+/// all. This is the per-invocation spelling of the same floor.
+pub fn set_min_delay_override_ms(ms: Option<u64>) {
+    let _ = DELAY_OVERRIDE_MS.set(ms);
+}
+
+/// Effective delay seconds: max(robots delay, flag floor, XDG floor).
+///
+/// The maximum, never the override, because `Crawl-delay` is the site asking
+/// and a flag that could LOWER it would turn a courtesy knob into a way to
+/// ignore the site's own request.
+pub(crate) fn effective_delay_secs(origin: &str) -> f64 {
     let robots = {
         let guard = DELAYS.lock().unwrap_or_else(|e| e.into_inner());
         guard
@@ -135,15 +152,16 @@ pub fn effective_delay_secs(origin: &str) -> f64 {
             .and_then(|m| m.get(origin).copied())
             .unwrap_or(0.0)
     };
-    let floor_ms = crate::xdg::resolve_scrape_min_delay_ms();
-    let floor = (floor_ms as f64) / 1000.0;
+    let xdg_floor = crate::xdg::resolve_scrape_min_delay_ms();
+    let flag_floor = DELAY_OVERRIDE_MS.get().copied().flatten().unwrap_or(0);
+    let floor = (xdg_floor.max(flag_floor) as f64) / 1000.0;
     robots.max(floor)
 }
 
 /// Apply XDG jitter ratio to a base delay (ratio 0 = identity).
 ///
 /// Uses a cheap thread-local LCG so tests stay deterministic when ratio is 0.
-pub fn apply_jitter(delay_secs: f64, ratio: f64) -> f64 {
+pub(crate) fn apply_jitter(delay_secs: f64, ratio: f64) -> f64 {
     if delay_secs <= 0.0 || !(ratio.is_finite()) || ratio <= 0.0 {
         return delay_secs.max(0.0);
     }
@@ -217,13 +235,6 @@ fn mark_hit(origin: &str) {
     let mut guard = LAST_HIT.lock().unwrap_or_else(|e| e.into_inner());
     let map = guard.get_or_insert_with(HashMap::new);
     map.insert(origin.to_string(), Instant::now());
-}
-
-/// Snapshot remembered delay for envelope diagnostics.
-pub fn remembered_delay_secs(url: &str) -> Option<f64> {
-    let origin = origin_key(url)?;
-    let guard = DELAYS.lock().unwrap_or_else(|e| e.into_inner());
-    guard.as_ref().and_then(|m| m.get(&origin).copied())
 }
 
 #[cfg(test)]

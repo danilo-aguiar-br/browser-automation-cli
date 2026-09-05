@@ -12,6 +12,23 @@ use crate::browser::helpers::normalize_eval_expression;
 
 impl OneShotSession {
     /// Evaluate JavaScript inside an extension service worker.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`extension_list`](Self::extension_list), then fails with
+    /// [`ErrorKind::NoInput`] —
+    /// `"service_worker not found for id: …"` — when no listed target of type
+    /// `service_worker` has an id equal to, or prefixed by,
+    /// `service_worker_id`.
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when the matched target carries no `targetId`, when
+    /// `Target.attachToTarget` is refused (`"attach SW: …"`), and when
+    /// `Runtime.evaluate` is refused (`"SW evaluate: …"`).
+    ///
+    /// A JavaScript exception inside the worker is **not** an error here:
+    /// `exceptionDetails` is not inspected on this path, so a throwing
+    /// expression comes back inside `result`.
     pub async fn eval_service_worker(
         &mut self,
         service_worker_id: &str,
@@ -82,6 +99,12 @@ impl OneShotSession {
     ///
     /// Structured returns come back as structure, not as text to parse twice
     /// (GAP-035); `typed` additionally reports the JS type.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`eval_ex`](Self::eval_ex) with `typed = false`: no active
+    /// page, a malformed `args_json`, a JavaScript exception, or a failed
+    /// write to `file_path`.
     pub async fn eval(
         &mut self,
         expression: &str,
@@ -100,6 +123,26 @@ impl OneShotSession {
     /// plus `value_type` / `subtype` / `class_name` exactly as the page's
     /// `RemoteObject` reported them, so a caller can tell `null` apart from
     /// `undefined`, and an array apart from a plain object, without re-probing.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the session has no active page, and when
+    /// `normalize_eval_expression` rejects `args_json` — the usual cause is a
+    /// payload that is not a JSON array.
+    ///
+    /// Fails with [`ErrorKind::Browser`] —
+    /// `"eval failed: …"` — when `Runtime.evaluate` is refused, and for a
+    /// JavaScript exception, INCLUDING a rejected promise, since
+    /// `awaitPromise` is set. An expression that navigates the page reports
+    /// `"Inspected target navigated or closed"`; the suggestion then tells the
+    /// caller to split it into eval / wait / eval rather than to rewrite the
+    /// JavaScript.
+    ///
+    /// Fails with [`ErrorKind::Io`] when
+    /// `file_path` is given and the envelope cannot be serialized or written.
+    ///
+    /// A JavaScript dialog opening mid-evaluation is not an error: it is
+    /// answered according to `dialog_action` and the evaluation continues.
     pub async fn eval_ex(
         &mut self,
         expression: &str,
@@ -153,7 +196,7 @@ impl OneShotSession {
                         CliError::with_suggestion(
                             ErrorKind::Browser,
                             format!("eval failed: {e}"),
-                            "Check the JS expression; use return-by-value expressions",
+                            eval_failure_suggestion(&e),
                         )
                     })?;
                 }
@@ -211,6 +254,13 @@ impl OneShotSession {
     ///
     /// A fixed sleep is the last resort: prefer a `wait` on a condition, which
     /// returns as soon as it holds instead of always paying the full delay.
+    ///
+    /// # Errors
+    ///
+    /// Never returns `Err`. The sleep is split into pump slices so screencast
+    /// frame acks keep flowing, and neither the sleep nor the event drain can
+    /// fail. The `Result` is kept so this composes with the other step
+    /// methods.
     pub async fn wait_ms(&mut self, ms: u64) -> Result<Value, CliError> {
         // Pump in slices so screencast FrameAck keeps frames flowing during waits.
         let mut remaining = ms;
@@ -225,5 +275,26 @@ impl OneShotSession {
             }
         }
         Ok(json!({ "waited_ms": ms }))
+    }
+}
+
+/// Suggestion for an eval that failed. Navigation-in-the-same-expression is
+/// honest (exit 70) but the caller needs the split, not a JS rewrite.
+fn eval_failure_suggestion(err: &str) -> String {
+    if err.contains("navigated or closed") || err.contains("Inspected target") {
+        crate::i18n::suggestion_key("eval_navigated", None).to_string()
+    } else {
+        "Check the JS expression; use return-by-value expressions".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::eval_failure_suggestion;
+
+    #[test]
+    fn navigation_error_suggests_splitting_the_eval() {
+        let hint = eval_failure_suggestion("Inspected target navigated or closed");
+        assert!(hint.contains("eval / wait / eval"), "{hint}");
     }
 }

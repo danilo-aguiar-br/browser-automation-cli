@@ -30,9 +30,29 @@ if [[ ! -x "$ROOT/scripts/generate_command_schemas.sh" ]] &&
   exit 1
 fi
 
-if bash "$ROOT/scripts/generate_command_schemas.sh" --check >&2; then
+# The generator separates its two failure kinds and this gate used to collapse
+# them: exit 1 means the schemas DRIFTED, exit 2 means a PRECONDITION failed
+# (no binary to interrogate, bad arguments). Both printed "regenerate with ...",
+# which sends the operator to fix the wrong problem — and regenerating without a
+# binary cannot work at all, so the advice was not merely useless.
+#
+# Measured 2026-09-01: a release build interrupted by cargo lock contention left
+# no release binary, the generator answered exit 2 with "binary not found", and
+# this gate still advised regeneration on the very next line.
+set +e
+bash "$ROOT/scripts/generate_command_schemas.sh" --check >&2
+generator_rc=$?
+set -e
+
+if [[ "$generator_rc" -eq 0 ]]; then
   echo "schema-drift-check: OK (docs/schemas matches the live binary)"
   exit 0
+fi
+
+if [[ "$generator_rc" -eq 2 ]]; then
+  echo "schema-drift-check: FAIL (precondition, NOT drift: read the generator error above)" >&2
+  echo "schema-drift-check: FAIL"
+  exit 2
 fi
 
 echo "schema-drift-check: FAIL (regenerate with: bash scripts/generate_command_schemas.sh)" >&2

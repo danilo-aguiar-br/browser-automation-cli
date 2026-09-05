@@ -31,12 +31,23 @@ pub fn find_chrome() -> Option<PathBuf> {
 
     let cache_dir = crate::install::get_browsers_dir();
     if cache_dir.exists() {
-        let _ = writeln!(
-            std::io::stderr(),
-            "Warning: Chrome cache directory exists ({}) but no Chrome binary found inside. \
-             Falling back to system Chrome (product browsers cache empty).",
-            cache_dir.display()
-        );
+        let has_entries = std::fs::read_dir(&cache_dir)
+            .map(|it| it.filter_map(Result::ok).next().is_some())
+            .unwrap_or(false);
+        if has_entries {
+            let _ = writeln!(
+                std::io::stderr(),
+                "Warning: Chrome cache directory exists ({}) but no Chrome binary found inside. \
+                 Falling back to system Chrome (product browsers cache empty).",
+                cache_dir.display()
+            );
+        } else {
+            tracing::debug!(
+                target: "browser_automation_cli::native::cdp::chrome",
+                path = %cache_dir.display(),
+                "product browsers cache empty; falling back to system Chrome"
+            );
+        }
     }
 
     if let Some(p) = find_chrome_registry() {

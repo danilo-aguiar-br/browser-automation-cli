@@ -78,46 +78,10 @@ pub fn red(text: &str) -> String {
     }
 }
 
-/// Format text in green (success)
-pub fn green(text: &str) -> String {
-    if is_enabled() {
-        format!("\x1b[32m{text}\x1b[0m")
-    } else {
-        text.to_string()
-    }
-}
-
-/// Format text in yellow (warnings)
-pub fn yellow(text: &str) -> String {
-    if is_enabled() {
-        format!("\x1b[33m{text}\x1b[0m")
-    } else {
-        text.to_string()
-    }
-}
-
-/// Format text in cyan (info)
-pub fn cyan(text: &str) -> String {
-    if is_enabled() {
-        format!("\x1b[36m{text}\x1b[0m")
-    } else {
-        text.to_string()
-    }
-}
-
 /// Format text in bold
 pub fn bold(text: &str) -> String {
     if is_enabled() {
         format!("\x1b[1m{text}\x1b[0m")
-    } else {
-        text.to_string()
-    }
-}
-
-/// Format text dimmed
-pub fn dim(text: &str) -> String {
-    if is_enabled() {
-        format!("\x1b[2m{text}\x1b[0m")
     } else {
         text.to_string()
     }

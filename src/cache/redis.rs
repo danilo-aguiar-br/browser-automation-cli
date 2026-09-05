@@ -13,6 +13,16 @@ pub struct RedisCache {
 
 impl RedisCache {
     /// Connect and PING. URL form: `redis://127.0.0.1:6379` or `redis://host:port/db`.
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::Usage`] when `url` is empty, which is what
+    /// `cache_backend = redis` without `cache_redis_url` produces; it carries the
+    /// `redis_config_required` suggestion.
+    /// [`ErrorKind::Unavailable`] when the `PING` round-trip fails — a
+    /// `rediss://` URL (TLS is not supported by this plain-TCP client), a remote
+    /// host refused by `redis_allow_remote`, DNS resolution failure, connect or
+    /// I/O timeout, or a Redis that answers with an error.
     pub fn connect(url: &str) -> Result<Self, CliError> {
         let url = url.trim();
         if url.is_empty() {
@@ -35,6 +45,22 @@ impl RedisCache {
         Ok(c)
     }
 
+    /// Split a `redis://host:port[/db]` URL into its addressing parts.
+    ///
+    /// # Errors
+    ///
+    /// A plain `String` (this parser sits below the typed-error boundary; the
+    /// caller restates it as [`ErrorKind::Unavailable`]) for a `rediss://` URL,
+    /// which fails closed because the built-in client is plain TCP; for an empty
+    /// host; and for a host rejected by
+    /// [`crate::net::assert_redis_host_allowed`], which refuses non-loopback
+    /// hosts unless `redis_allow_remote` is set; and for a port or db segment
+    /// that is PRESENT but does not parse.
+    ///
+    /// An ABSENT port resolves to [`crate::constants::REDIS_DEFAULT_PORT`] and an
+    /// absent db to `0`, which is the documented shorthand. A present-but-bad one
+    /// used to fall back to those same values, so `redis://host:99999/x` connected
+    /// to the default port and database while the operator believed otherwise.
     pub(crate) fn parse_host_port_db(url: &str) -> Result<(String, u16, i64), String> {
         // GAP-A007: rediss:// implies TLS; this client is plain TCP only — fail closed.
         if url.trim().to_ascii_lowercase().starts_with("rediss://") {
@@ -46,14 +72,30 @@ impl RedisCache {
         // Minimal parser: redis://host:port[/db]
         let rest = url.strip_prefix("redis://").unwrap_or(url);
         let rest = rest.split('@').next_back().unwrap_or(rest);
+        // A malformed port or db used to fall back to 6379 / 0, so
+        // `redis://host:99999/x` connected to the DEFAULT port and the DEFAULT
+        // database while the operator believed they had named both. Failing here
+        // costs one corrected character; succeeding against the wrong database is
+        // discovered later, by a cache that never hits.
         let (hostport, db) = match rest.split_once('/') {
-            Some((hp, d)) => (hp, d.parse::<i64>().unwrap_or(0)),
+            // `redis://host:6379/` — a trailing slash with no db is the absent
+            // case, not a malformed one.
+            Some((hp, "")) => (hp, 0),
+            Some((hp, d)) => (
+                hp,
+                d.parse::<i64>()
+                    .map_err(|_| format!("redis url db segment is not a number: `{d}`"))?,
+            ),
             None => (rest, 0),
         };
         let (host, port) = if let Some((h, p)) = hostport.rsplit_once(':') {
-            (h.to_string(), p.parse::<u16>().unwrap_or(6379))
+            (
+                h.to_string(),
+                p.parse::<u16>()
+                    .map_err(|_| format!("redis url port is not a valid port: `{p}`"))?,
+            )
         } else {
-            (hostport.to_string(), 6379)
+            (hostport.to_string(), crate::constants::REDIS_DEFAULT_PORT)
         };
         if host.is_empty() {
             return Err("empty redis host".into());
@@ -138,7 +180,11 @@ impl HttpCache for RedisCache {
         if raw == "$-1" || raw.is_empty() || raw == "(nil)" {
             return Ok(None);
         }
-        // Payload is JSON: {body_b64, content_type, expires_unix}
+        // Payload is JSON: {body_b64, content_type, expires_unix, final_url}.
+        // A payload written before `final_url` existed simply lacks the key, and
+        // the read below turns that absence into `None` — the same meaning the
+        // field carries for a pre-migration entry — so no migration is needed
+        // on this backend.
         let v: serde_json::Value = crate::json_util::from_str(&raw)
             .map_err(|e| CliError::new(ErrorKind::Data, format!("redis cache decode: {e}")))?;
         let body_b64 = v
@@ -156,6 +202,10 @@ impl HttpCache for RedisCache {
                 .and_then(|x| x.as_str())
                 .map(|s| s.to_string()),
             expires_unix: v.get("expires_unix").and_then(|x| x.as_u64()).unwrap_or(0),
+            final_url: v
+                .get("final_url")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string()),
         };
         if entry.is_fresh() {
             Ok(Some(entry))
@@ -173,6 +223,7 @@ impl HttpCache for RedisCache {
             "body_b64": body_b64,
             "content_type": entry.content_type,
             "expires_unix": entry.expires_unix,
+            "final_url": entry.final_url,
         })
         .to_string();
         let ttl = if entry.expires_unix > 0 {
@@ -191,6 +242,12 @@ impl HttpCache for RedisCache {
     }
 }
 
+/// Serialise one RESP command array and write it to `stream`.
+///
+/// # Errors
+///
+/// A plain `String` when `write_all` fails — a closed or reset connection, or a
+/// write timeout on the socket.
 pub(crate) fn write_resp_array(
     stream: &mut impl std::io::Write,
     parts: &[&str],
@@ -204,6 +261,14 @@ pub(crate) fn write_resp_array(
         .map_err(|e| format!("redis write: {e}"))
 }
 
+/// Validate an untrusted RESP bulk length before it becomes an allocation.
+///
+/// # Errors
+///
+/// A plain `String` when `n` is negative, and when it exceeds the
+/// `cache_max_resp_bulk_bytes` policy knob. This is the allocation budget: a
+/// hostile or corrupt server announcing a huge bulk must be refused before
+/// `try_reserve_exact` is reached.
 pub(crate) fn checked_resp_bulk_len(n: i64) -> Result<usize, String> {
     if n < 0 {
         return Err("negative bulk length".into());
@@ -220,6 +285,13 @@ pub(crate) fn checked_resp_bulk_len(n: i64) -> Result<usize, String> {
     Ok(n as usize)
 }
 
+/// Read one CRLF-terminated RESP line from `stream`.
+///
+/// # Errors
+///
+/// A plain `String` when the socket read fails, when the accumulated line
+/// exceeds the `cache_max_resp_line_bytes` policy knob, or when the bytes are
+/// not valid UTF-8. A clean EOF ends the line instead of failing.
 pub(crate) fn read_resp_line(stream: &mut impl std::io::Read) -> Result<String, String> {
     let mut line = Vec::new();
     let mut byte = [0u8; 1];
@@ -245,6 +317,17 @@ pub(crate) fn read_resp_line(stream: &mut impl std::io::Read) -> Result<String, 
     String::from_utf8(line).map_err(|e| format!("redis utf8: {e}"))
 }
 
+/// Read one RESP value (simple string, integer, error, or bulk) from `stream`.
+///
+/// # Errors
+///
+/// A plain `String` propagated from [`read_resp_line`] (socket read, oversized
+/// line, invalid UTF-8); when the response is empty; when a `$` bulk header does
+/// not carry an integer length; from [`checked_resp_bulk_len`] when that length
+/// is negative or over budget; when `try_reserve_exact` cannot obtain the
+/// validated allocation; and when `read_exact` cannot fill the announced body.
+/// A negative bulk length is the RESP nil and yields an empty string, not an
+/// error.
 pub(crate) fn read_resp_value(stream: &mut impl std::io::Read) -> Result<String, String> {
     let line = read_resp_line(stream)?;
     if line.is_empty() {

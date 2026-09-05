@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# NOT a ci-check verifier, on purpose. Do NOT add `# ci-check: verifier` here.
+#   This file `exec`s `inventory-flat-check.sh`, which the gate already runs by
+#   its own name. Marking it made the gate run the SAME check twice. Measured
+#   2026-08-26, by the author of that mistake: the mark was injected after
+#   reading only the shebang, without reading line 9 of this very header, which
+#   says DEPRECATED SHIM. Deciding by filename was the defect being fixed.
 # DEPRECATED SHIM — the real gate is `scripts/inventory-flat-check.sh`.
 #
 # WHY THE RENAME
@@ -12,6 +18,12 @@
 #   entries point at this path by name. It delegates so there is exactly one
 #   implementation and no second source of truth.
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -38,8 +50,8 @@ fi
 EXPECTED=68
 fail=0
 
-if ! command -v jaq >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
-  echo "verify-inventory-flat: FAIL (need jaq or python3)" >&2
+if ! command -v jaq >/dev/null 2>&1; then
+  echo "verify-inventory-flat: FAIL (need jaq)" >&2
   echo "verify-inventory-flat: FAIL"
   exit 1
 fi
@@ -51,14 +63,14 @@ if [[ -z "$json" ]]; then
   exit 1
 fi
 
-if command -v jaq >/dev/null 2>&1; then
-  count="$(printf '%s' "$json" | jaq -r '.data.commands | length' 2>/dev/null || echo 0)"
-  has_image="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="image")' 2>/dev/null || echo false)"
-  has_video="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="video")' 2>/dev/null || echo false)"
-  has_audio="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="audio")' 2>/dev/null || echo false)"
-else
-  eval "$(printf '%s' "$json" | python3 -c 'import sys,json; d=json.load(sys.stdin); cmds=d.get("data",{}).get("commands",[]); names=[c.get("name") if isinstance(c,dict) else c for c in cmds]; print(f"count={len(names)}"); print(f"has_image={\"true\" if \"image\" in names else \"false\"}"); print(f"has_video={\"true\" if \"video\" in names else \"false\"}"); print(f"has_audio={\"true\" if \"audio\" in names else \"false\"}")')"
-fi
+# `jaq` is the only JSON reader. The historical second branch here parsed the
+# same envelope in another language; it was removed with the rest of the
+# Python surface, because a gate that reaches for an interpreter the product
+# does not ship fails on any host without it.
+count="$(printf '%s' "$json" | jaq -r '.data.commands | length' 2>/dev/null || echo 0)"
+has_image="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="image")' 2>/dev/null || echo false)"
+has_video="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="video")' 2>/dev/null || echo false)"
+has_audio="$(printf '%s' "$json" | jaq -r '[.data.commands[] | (if type=="object" then .name else . end)] | any(.=="audio")' 2>/dev/null || echo false)"
 
 if [[ "${count}" != "$EXPECTED" ]]; then
   echo "verify-inventory-flat: FAIL (commands count=${count} expected=${EXPECTED})" >&2

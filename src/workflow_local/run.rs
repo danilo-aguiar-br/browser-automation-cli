@@ -48,57 +48,78 @@ pub fn workflow_run(manifest_path: &Path, journal: Option<&Path>) -> Result<Valu
     }
 
     let mut results = Vec::new();
-    let mut failed: Option<String> = None;
-    for sid in &order {
-        let step = &by_id[sid];
-        // Fail-fast if dependency failed (tracked only in this run).
-        if let Some(ref f) = failed {
-            conn.execute(
-                "UPDATE steps SET status='skipped', error=?2, updated_at=?3 WHERE step_id=?1",
-                params![sid, format!("skipped after failure of {f}"), now_rfc3339()],
-            )
-            .ok();
-            results.push(json!({
-                "id": sid,
-                "cmd": step.cmd,
-                "ok": false,
-                "skipped": true,
-            }));
-            continue;
-        }
-
-        match execute_offline_step(step) {
-            Ok(data) => {
-                let body = serde_json::to_string(&data).unwrap_or_else(|_| "{}".into());
+    // The failing step's id, kind and message, kept together because all three
+    // reach the envelope: the id names WHERE, the kind decides the process exit
+    // code, and the message says what to change.
+    let mut failed: Option<(String, ErrorKind, String)> = None;
+    // ONE runtime for the whole manifest, born OUTSIDE the loop.
+    //
+    // Measured 2026-09-04: every step reached `execute_offline_step`, whose
+    // `scrape` / `batch-scrape` arms called `block_on_io` — a helper that builds
+    // AND tears down a Tokio runtime on each call — so an N-step manifest paid
+    // for N runtimes. Sharing one is safe only because the signal task inside
+    // `block_on_with_shutdown` is bound to an `AbortOnDrop` guard and dies with
+    // the call; without that guard, N calls would leave N tasks parked in
+    // `shutdown_signal()`, which is what blocked this hoist until now.
+    let rt = crate::runtime_util::build_io_runtime()?;
+    // The loop is wrapped so no `?` inside it can jump over `shutdown_runtime`:
+    // a journal write that fails mid-run must still tear the runtime down under
+    // its deadline instead of leaking it into an unbounded `Drop`.
+    let stepped = (|| -> Result<(), CliError> {
+        for sid in &order {
+            let step = &by_id[sid];
+            // Fail-fast if dependency failed (tracked only in this run).
+            if let Some((ref f, _, _)) = failed {
                 conn.execute(
-                    "UPDATE steps SET status='ok', result_json=?2, error=NULL, updated_at=?3 WHERE step_id=?1",
-                    params![sid, body, now_rfc3339()],
-                )
-                .map_err(|e| CliError::new(ErrorKind::Software, format!("update step: {e}")))?;
-                results.push(json!({
-                    "id": sid,
-                    "cmd": step.cmd,
-                    "ok": true,
-                    "data": data,
-                }));
-            }
-            Err(e) => {
-                let msg = e.to_string();
-                conn.execute(
-                    "UPDATE steps SET status='error', error=?2, updated_at=?3 WHERE step_id=?1",
-                    params![sid, msg, now_rfc3339()],
+                    "UPDATE steps SET status='skipped', error=?2, updated_at=?3 WHERE step_id=?1",
+                    params![sid, format!("skipped after failure of {f}"), now_rfc3339()],
                 )
                 .ok();
                 results.push(json!({
                     "id": sid,
                     "cmd": step.cmd,
                     "ok": false,
-                    "error": msg,
+                    "skipped": true,
                 }));
-                failed = Some(sid.clone());
+                continue;
+            }
+
+            match execute_offline_step(&rt, step) {
+                Ok(data) => {
+                    let body = serde_json::to_string(&data).unwrap_or_else(|_| "{}".into());
+                    conn.execute(
+                        "UPDATE steps SET status='ok', result_json=?2, error=NULL, updated_at=?3 WHERE step_id=?1",
+                        params![sid, body, now_rfc3339()],
+                    )
+                    .map_err(|e| CliError::new(ErrorKind::Software, format!("update step: {e}")))?;
+                    results.push(json!({
+                        "id": sid,
+                        "cmd": step.cmd,
+                        "ok": true,
+                        "data": data,
+                    }));
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    conn.execute(
+                        "UPDATE steps SET status='error', error=?2, updated_at=?3 WHERE step_id=?1",
+                        params![sid, msg, now_rfc3339()],
+                    )
+                    .ok();
+                    results.push(json!({
+                        "id": sid,
+                        "cmd": step.cmd,
+                        "ok": false,
+                        "error": msg,
+                    }));
+                    failed = Some((sid.clone(), e.kind(), msg));
+                }
             }
         }
-    }
+        Ok(())
+    })();
+    crate::runtime_util::shutdown_runtime(rt);
+    stepped?;
 
     let status = if failed.is_some() { "failed" } else { "ok" };
     conn.execute(
@@ -107,7 +128,7 @@ pub fn workflow_run(manifest_path: &Path, journal: Option<&Path>) -> Result<Valu
     )
     .ok();
 
-    Ok(json!({
+    let payload = json!({
         "run_id": run_id,
         "correlation_id": correlation,
         "status": status,
@@ -115,7 +136,31 @@ pub fn workflow_run(manifest_path: &Path, journal: Option<&Path>) -> Result<Valu
         "order": order,
         "steps": results,
         "note": "offline/data steps executed in-process; browser @eN multi-step remains in `run --script`",
-    }))
+    });
+
+    // A failed run is reported as a FAILURE, not as a successful report about a
+    // failure.
+    //
+    // Measured 2026-08-31: a manifest whose only step was refused answered
+    // `ok: true` at the top of the envelope with `"status": "failed"` nested
+    // inside it, and exit 0. An agent branches on the exit code before it
+    // parses anything, so the one field it reads said the workflow worked. The
+    // truth was present and unreachable, which is worse than absent: absent
+    // prompts a second look.
+    //
+    // The payload rides along on the error so the journal path, the step order
+    // and every step result stay available — a caller debugging a failure needs
+    // MORE of that, not less. The kind is the failing step's own, so a manifest
+    // rejected for a bad key exits 2 like any other usage error rather than
+    // being flattened into one generic workflow code.
+    match failed {
+        Some((sid, kind, msg)) => Err(CliError::new(
+            kind,
+            format!("workflow step `{sid}` failed: {msg}"),
+        )
+        .with_data(payload)),
+        None => Ok(payload),
+    }
 }
 
 /// Resume: skip steps already `ok` in journal; re-execute pending/error only.
@@ -167,7 +212,12 @@ pub fn workflow_resume(manifest_path: &Path, journal: Option<&Path>) -> Result<V
     }
 
     let mut results = Vec::new();
-    let mut failed: Option<String> = None;
+    // Same triple as `workflow_run`, for the same reason: a resumed run that
+    // fails must fail, not report success about a failure.
+    let mut failed: Option<(String, ErrorKind, String)> = None;
+    // Same single-runtime hoist as `workflow_run`, for the same reason; no `?`
+    // runs inside this loop, so the teardown below is reached on every path.
+    let rt = crate::runtime_util::build_io_runtime()?;
     for sid in &order {
         let step = &by_id[sid];
         if done.get(sid).map(|s| s.as_str()) == Some("ok") {
@@ -180,7 +230,7 @@ pub fn workflow_resume(manifest_path: &Path, journal: Option<&Path>) -> Result<V
             }));
             continue;
         }
-        if let Some(ref f) = failed {
+        if let Some((ref f, _, _)) = failed {
             results.push(json!({
                 "id": sid,
                 "cmd": step.cmd,
@@ -190,7 +240,7 @@ pub fn workflow_resume(manifest_path: &Path, journal: Option<&Path>) -> Result<V
             }));
             continue;
         }
-        match execute_offline_step(step) {
+        match execute_offline_step(&rt, step) {
             Ok(data) => {
                 let body = serde_json::to_string(&data).unwrap_or_else(|_| "{}".into());
                 conn.execute(
@@ -220,17 +270,18 @@ pub fn workflow_resume(manifest_path: &Path, journal: Option<&Path>) -> Result<V
                     "error": msg,
                     "resumed": true,
                 }));
-                failed = Some(sid.clone());
+                failed = Some((sid.clone(), e.kind(), msg));
             }
         }
     }
+    crate::runtime_util::shutdown_runtime(rt);
     let status = if failed.is_some() { "failed" } else { "ok" };
     conn.execute(
         "UPDATE runs SET status=?2, finished_at=?3 WHERE run_id=?1",
         params![run_id, status, now_rfc3339()],
     )
     .ok();
-    Ok(json!({
+    let payload = json!({
         "run_id": run_id,
         "correlation_id": correlation,
         "status": status,
@@ -238,7 +289,15 @@ pub fn workflow_resume(manifest_path: &Path, journal: Option<&Path>) -> Result<V
         "order": order,
         "steps": results,
         "resume": true,
-    }))
+    });
+    match failed {
+        Some((sid, kind, msg)) => Err(CliError::new(
+            kind,
+            format!("workflow step `{sid}` failed on resume: {msg}"),
+        )
+        .with_data(payload)),
+        None => Ok(payload),
+    }
 }
 
 /// Status of journal steps.

@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas/feed.schema.json",
+  "title": "feed command input",
+  "type": "object",
+  "description": "Read an RSS / Atom / JSON Feed document (HTTP)",
+  "properties": {
+    "header": {
+      "argv": "--header",
+      "description": "Extra request header (repeatable, `Name: value`)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "header",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
+    "no_cache": {
+      "argv": "--no-cache",
+      "description": "Bypass the local response cache",
+      "required": false,
+      "source": "parser",
+      "step_key": "no_cache",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
+    "select": {
+      "argv": "--select",
+      "description": "Project data fields (CSV)",
+      "required": false,
+      "source": "parser",
+      "step_key": "select",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    },
+    "url": {
+      "argv": "<URL>",
+      "description": "Feed URL (RSS, Atom or JSON Feed)",
+      "required": true,
+      "source": "parser",
+      "step_key": "url",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "additionalProperties": false
+}

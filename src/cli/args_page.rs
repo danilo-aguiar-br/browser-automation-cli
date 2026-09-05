@@ -147,11 +147,44 @@ pub struct RecordArgs {
     pub max_events: u64,
 }
 
+impl ExtractArgs {
+    /// The target, whichever spelling the caller used.
+    ///
+    /// Infallible by construction: clap rejects both-absent through
+    /// `required_unless_present` and both-present through `conflicts_with`.
+    #[must_use]
+    pub fn resolved_target(&self) -> &str {
+        match (self.url.as_deref(), self.target.as_deref()) {
+            (Some(u), _) => u,
+            (None, Some(t)) => t,
+            // Unreachable while the two clap attributes above stay in place.
+            // Returning empty beats panicking in a one-shot: the handler
+            // already refuses an empty target with a usage error.
+            (None, None) => "",
+        }
+    }
+}
+
 /// Extract text/attribute from a target, or LLM extract with --llm
 #[derive(Debug, Clone, Args)]
 pub struct ExtractArgs {
+    // NOTE: `target` and `url` are two spellings of one value. clap guarantees
+    // exactly one is present — `required_unless_present` forbids neither,
+    // `conflicts_with` forbids both — so `resolved_target` cannot fail.
     /// Selector, @eN ref, about:blank target, or http(s) URL for LLM/text path
-    pub target: String,
+    ///
+    /// Accepted positionally or as `--url`. The positional form is the older
+    /// one and stays the documented default; the flag exists because the rest
+    /// of the surface takes `--url`, so anyone who generalises from `goto`
+    /// reaches for it here too. Before 0.1.9 that first attempt exited 2 with
+    /// clap's generic `tip: to pass '--url' as a value, use '-- --url'`, which
+    /// answers the syntax question and ignores the intent: it teaches the
+    /// caller to pass the literal string `--url` as the target.
+    #[arg(value_name = "TARGET", required_unless_present = "url")]
+    pub target: Option<String>,
+    /// Alias for the positional `<TARGET>`; pass one form or the other
+    #[arg(long, conflicts_with = "target")]
+    pub url: Option<String>,
     /// Read this attribute instead of the element text
     #[arg(long)]
     pub attr: Option<String>,

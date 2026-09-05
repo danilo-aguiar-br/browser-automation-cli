@@ -28,6 +28,20 @@ pub struct LightpandaLaunchOptions {
 }
 
 pub(crate) fn build_lightpanda_serve_args(port: u16, proxy: Option<&str>) -> Vec<String> {
+    build_lightpanda_serve_args_with(port, proxy, resolve_lightpanda_session_timeout_secs())
+}
+
+/// Parameterized core: the same argv against an explicit session timeout.
+///
+/// Exists so a test can assert a LITERAL. Asserting the facade forced the test
+/// to spell the expected timeout as `resolve_lightpanda_session_timeout_secs()`
+/// — the very call the function under test makes — so the two sides moved
+/// together and the assertion held for any value, including a wrong one.
+pub(crate) fn build_lightpanda_serve_args_with(
+    port: u16,
+    proxy: Option<&str>,
+    timeout_secs: u64,
+) -> Vec<String> {
     let mut args = vec![
         "serve".to_string(),
         "--host".to_string(),
@@ -35,7 +49,7 @@ pub(crate) fn build_lightpanda_serve_args(port: u16, proxy: Option<&str>) -> Vec
         "--port".to_string(),
         port.to_string(),
         "--timeout".to_string(),
-        resolve_lightpanda_session_timeout_secs().to_string(),
+        timeout_secs.to_string(),
     ];
 
     if let Some(proxy) = proxy {
@@ -72,6 +86,17 @@ pub fn find_lightpanda() -> Option<PathBuf> {
 ///
 /// Readiness is polled rather than assumed: the process exists before it can
 /// serve, and connecting too early fails in a way that looks like "no engine".
+///
+/// # Errors
+///
+/// Returns a human-readable reason when `options.executable_path` is `None`
+/// and [`find_lightpanda`] finds nothing, when the resolved path is not a
+/// spawn-safe binary (`.bat` / `.cmd` / `.ps1` or missing), when no loopback
+/// port can be reserved, when the `serve` process cannot be spawned, when the
+/// stdout/stderr drainers cannot be started, or when the DevTools endpoint
+/// does not answer before `lightpanda_startup_timeout` — the last case carries
+/// the last probe error plus the captured process output. Every failure after
+/// the spawn reaps the child before returning.
 pub async fn launch_lightpanda(
     options: &LightpandaLaunchOptions,
 ) -> Result<LightpandaProcess, String> {

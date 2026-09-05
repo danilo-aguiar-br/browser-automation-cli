@@ -46,6 +46,10 @@ pub(super) fn config_entries(cfg: &ProductConfig) -> Vec<(&'static str, Value)> 
         ("color", json!(cfg.color)),
         ("log_level", json!(cfg.log_level)),
         ("input_profile", json!(cfg.input_profile)),
+        (
+            "input_timing_distribution",
+            json!(cfg.input_timing_distribution),
+        ),
         ("browser_mode", json!(cfg.browser_mode)),
         ("stealth", json!(cfg.stealth)),
         ("stealth_profile", json!(cfg.stealth_profile)),
@@ -64,6 +68,7 @@ pub(super) fn config_entries(cfg: &ProductConfig) -> Vec<(&'static str, Value)> 
             json!(redacted_secret(&cfg.proxy_password)),
         ),
         ("stealth_seed", json!(cfg.stealth_seed)),
+        ("screen", json!(cfg.screen)),
         ("http2_enabled", json!(cfg.http2_enabled)),
         (
             "http2_initial_stream_window_size",
@@ -103,6 +108,7 @@ pub(super) fn config_entries(cfg: &ProductConfig) -> Vec<(&'static str, Value)> 
             json!(redacted_secret(&cfg.cache_redis_url)),
         ),
         ("search_base_url", json!(cfg.search_base_url)),
+        ("user_data_dir", json!(cfg.user_data_dir)),
         (
             "lightpanda_startup_timeout_secs",
             json!(cfg.lightpanda_startup_timeout_secs),

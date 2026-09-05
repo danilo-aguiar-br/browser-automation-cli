@@ -22,6 +22,8 @@ pub struct DecodedImage {
 
 /// Load and decode from a filesystem path (magic-first; extension ignored).
 pub fn decode_path(path: &Path, limits: ImageLimits) -> Result<DecodedImage, CliError> {
+    // GAP-026: bound the operator-supplied path before touching it.
+    crate::fs_roots::ensure_read_allowed(path)?;
     let meta =
         std::fs::metadata(path).map_err(|e| crate::image_local::magic::io_open_err(path, &e))?;
     let len = meta.len() as usize;

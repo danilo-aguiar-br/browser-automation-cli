@@ -21,15 +21,15 @@ mod tests;
 pub use fetch::enforce_robots;
 pub use policy::*;
 pub use politeness::{
-    effective_delay_secs, origin_key, parse_crawl_delay_secs, remember_crawl_delay,
-    remembered_delay_secs, wait_origin,
+    parse_crawl_delay_secs, remember_crawl_delay, set_min_delay_override_ms, wait_origin,
 };
 
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use crate::constants::{HTTP_POOL_MAX_IDLE_PER_HOST, HTTP_REDIRECT_MAX, HTTP_USER_AGENT};
+use crate::constants::HTTP_USER_AGENT;
 use crate::error::{CliError, ErrorKind};
+use crate::xdg::policy::{key, policy_usize};
 
 /// The user-agent token `robots.txt` rules are matched against.
 ///
@@ -73,6 +73,15 @@ pub fn robots_user_agent() -> String {
 ///
 /// Uses `get_or_init` (stable). `get_or_try_init` is still unstable (`once_cell_try`);
 /// on first failure we surface the error without poisoning the lock.
+///
+/// # Errors
+///
+/// [`ErrorKind::Usage`] when `--proxy` / XDG `proxy_url` does not parse as a
+/// `reqwest::Proxy`, carrying the `proxy_url_invalid` suggestion.
+/// [`ErrorKind::Software`] when `ClientBuilder::build` fails — a TLS backend
+/// that cannot be initialised, or a rejected combination of the HTTP/2 and
+/// header settings applied above. The failure is surfaced without poisoning the
+/// `OnceLock`, so a later call may still succeed.
 pub fn shared_http_client() -> Result<&'static reqwest::Client, CliError> {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     if let Some(c) = CLIENT.get() {
@@ -84,8 +93,10 @@ pub fn shared_http_client() -> Result<&'static reqwest::Client, CliError> {
         .user_agent(HTTP_USER_AGENT)
         .timeout(Duration::from_secs(total))
         .connect_timeout(Duration::from_secs(connect))
-        .redirect(reqwest::redirect::Policy::limited(HTTP_REDIRECT_MAX))
-        .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
+        .redirect(reqwest::redirect::Policy::limited(policy_usize(
+            key::HTTP_REDIRECT_MAX,
+        )))
+        .pool_max_idle_per_host(policy_usize(key::HTTP_POOL_MAX_IDLE_PER_HOST))
         // Explicit TCP_NODELAY: reduce small-response latency on robots/scrape
         // (rules_rust_latencia_reduzir — socket options on owned HTTP path).
         // CDP WebSocket is owned by chromiumoxide; not configurable here.

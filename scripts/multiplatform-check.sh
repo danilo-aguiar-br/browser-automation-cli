@@ -2,6 +2,12 @@
 # multiplatform-check.sh — local gates for multiplatform rules (no GHA).
 # Usage: from repo root: bash scripts/multiplatform-check.sh
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -44,6 +50,27 @@ if rg -n 'DEFAULT_VIEWPORT_WIDTH|DEFAULT_VIEWPORT_HEIGHT' src/constants/ src/nat
   pass "DEFAULT_VIEWPORT_* named constants wired"
 else
   bad "DEFAULT_VIEWPORT_* missing"
+fi
+
+# 3d) Absolute POSIX program paths that are not POSIX-guaranteed.
+#
+# MEASURED 2026-09-04: `src/platform/process_util.rs` spawned `/bin/true`,
+# which exists on Linux and does NOT exist on macOS — the binary there lives at
+# `/usr/bin/true`. The test failed with `Spawn(Os { code: 2, kind: NotFound })`
+# and blamed the capture helper for a path the test itself invented. Every
+# other gate, this one included, stayed green.
+#
+# `/bin/sh` is exempt because POSIX mandates it at that exact path, and
+# `/bin/sleep` is exempt because it was measured present on both hosts. Anything
+# else must be resolved with `crate::platform::which_bin`, which is what the
+# product does everywhere outside tests.
+HARDCODED="$(rg -n 'Command::new\("/(bin|usr)/' --type rust src/ tests/ \
+  | rg -v '/bin/sh"' | rg -v '/bin/sleep"' || true)"
+if [ -z "$HARDCODED" ]; then
+  pass "no unguaranteed absolute program path is spawned"
+else
+  printf '%s\n' "$HARDCODED"
+  bad "spawn uses an absolute path that is not POSIX-guaranteed; use platform::which_bin"
 fi
 
 # 4) Windows reserved names + console VT wiring.

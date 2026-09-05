@@ -2,7 +2,7 @@
 
 use crate::browser::{block_on_browser_timeout, CaptureOpts, OneShotSession};
 use crate::cli::{AssertKind, DialogAction};
-use crate::commands::common::emit_ok;
+use crate::commands::common::{emit_ok, emit_ok_summary};
 use crate::error::CliError;
 use crate::lifecycle::Lifecycle;
 
@@ -75,10 +75,7 @@ pub(crate) fn handle_wait(
         },
         timeout_secs,
     )?;
-    emit_ok(data, json, |d| {
-        crate::output::writeln_stdout(format!("ok wait {d}"))?;
-        Ok(())
-    })
+    emit_ok_summary(data, json, "wait")
 }
 
 pub(crate) fn handle_assert(
@@ -93,7 +90,10 @@ pub(crate) fn handle_assert(
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
             life.record_chrome(session.chrome_pid());
             let _ = session
-                .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+                .goto(
+                    crate::constants::ABOUT_BLANK,
+                    crate::robots::RobotsPolicy::Honor,
+                )
                 .await?;
             let r = match kind {
                 AssertKind::Url { value, contains } => session.assert_url(&value, contains).await,
@@ -128,7 +128,10 @@ pub(crate) fn handle_dialog(
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
             life.record_chrome(session.chrome_pid());
             let _ = session
-                .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+                .goto(
+                    crate::constants::ABOUT_BLANK,
+                    crate::robots::RobotsPolicy::Honor,
+                )
                 .await?;
             let (r, if_present) = match action {
                 DialogAction::Accept { text, if_present } => {

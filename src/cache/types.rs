@@ -106,6 +106,20 @@ pub struct CacheEntry {
     pub content_type: Option<String>,
     /// Expiry as unix seconds (0 = no expiry).
     pub expires_unix: u64,
+    /// URL the response actually came from, after redirects.
+    ///
+    /// # Why the cache has to carry this
+    ///
+    /// A fresh fetch reports `source_url` from `final_url`, which is where the
+    /// body was really served; a cache hit had no such field and could only
+    /// echo the URL that was ASKED for. Following a redirect therefore changed
+    /// the reported origin between the first collection and every later one,
+    /// for a body that never changed.
+    ///
+    /// `None` means an entry written before this field existed. It keeps the
+    /// old behaviour exactly — fall back to the requested URL — so a populated
+    /// cache stays usable instead of being silently invalidated.
+    pub final_url: Option<String>,
 }
 
 impl CacheEntry {

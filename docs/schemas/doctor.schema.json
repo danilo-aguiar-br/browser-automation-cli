@@ -5,6 +5,17 @@
   "type": "object",
   "description": "Diagnose Chrome install and one-shot readiness",
   "properties": {
+    "fingerprint": {
+      "argv": "--fingerprint",
+      "description": "Compare identity signals (webdriver, platform vs UA, screen vs viewport)",
+      "required": false,
+      "source": "parser",
+      "step_key": "fingerprint",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "boolean"
+    },
     "fix": {
       "argv": "--fix",
       "description": "Attach a suggested repair command to each failing check",

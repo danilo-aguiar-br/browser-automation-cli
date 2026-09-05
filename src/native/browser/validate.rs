@@ -5,6 +5,16 @@ use crate::native::cdp::chrome::LaunchOptions;
 
 /// Validates launch/connect options for incompatible combinations.
 /// Returns `Ok(())` if valid, or `Err(msg)` with a user-friendly error.
+///
+/// # Errors
+///
+/// Fails on the five combinations that cannot be honoured at once: extensions
+/// or a `profile` alongside `has_cdp` (both require a browser this process
+/// launched), `storage_state` alongside `profile` or extensions (two sources
+/// for the same cookie jar), and `allow_file_access` with an
+/// `executable_path` that names a non-Chromium browser. Each message states
+/// which pair to drop; callers map it to
+/// [`ErrorKind::Usage`](crate::error::ErrorKind::Usage).
 pub fn validate_launch_options(
     extensions: Option<&[String]>,
     has_cdp: bool,

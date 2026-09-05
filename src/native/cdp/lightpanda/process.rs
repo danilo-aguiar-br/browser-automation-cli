@@ -3,9 +3,7 @@
 use std::process::Child;
 use std::time::Duration;
 
-use crate::constants::{
-    LIGHTPANDA_DISCOVERY_TIMEOUT_MS, LIGHTPANDA_POLL_INTERVAL_MS, LIGHTPANDA_READY_SLICE_MS,
-};
+use crate::constants::LIGHTPANDA_POLL_INTERVAL_MS;
 use crate::xdg::resolve_lightpanda_startup_timeout_secs;
 
 pub(crate) fn lightpanda_startup_timeout() -> Duration {
@@ -17,11 +15,15 @@ pub(crate) fn lightpanda_poll_interval() -> Duration {
 }
 
 pub(crate) fn lightpanda_discovery_timeout() -> Duration {
-    Duration::from_millis(LIGHTPANDA_DISCOVERY_TIMEOUT_MS)
+    Duration::from_millis(crate::xdg::policy::policy_u64(
+        crate::xdg::policy::key::LIGHTPANDA_DISCOVERY_TIMEOUT_MS,
+    ))
 }
 
 pub(crate) fn lightpanda_ready_slice() -> Duration {
-    Duration::from_millis(LIGHTPANDA_READY_SLICE_MS)
+    Duration::from_millis(crate::xdg::policy::policy_u64(
+        crate::xdg::policy::key::LIGHTPANDA_READY_SLICE_MS,
+    ))
 }
 
 /// Owned Lightpanda child process (RAII: kill + `wait` on Drop).

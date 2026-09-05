@@ -10,6 +10,14 @@ use super::request::WaitRequest;
 
 impl OneShotSession {
     /// Wait for a single text/selector condition with a millisecond budget.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`wait_for_any`](Self::wait_for_any) with `text` as a
+    /// one-element OR set: no active page,
+    /// [`ErrorKind::Usage`](crate::error::ErrorKind::Usage) for an invalid
+    /// selector, or [`ErrorKind::Timeout`](crate::error::ErrorKind::Timeout)
+    /// when the budget elapses first.
     pub async fn wait_for(
         &mut self,
         ms: Option<u64>,
@@ -30,6 +38,14 @@ impl OneShotSession {
     /// GAP-024: optional `url` (exact) / `url_contains` / `navigation` (load lifecycle).
     #[allow(clippy::too_many_arguments)]
     /// Wait until any of the listed texts/selectors is satisfied.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`wait_for_any_ex`](Self::wait_for_any_ex) with no URL,
+    /// network-quiet or DOM-stability condition: no active page,
+    /// [`ErrorKind::Usage`](crate::error::ErrorKind::Usage) for an invalid
+    /// selector, or [`ErrorKind::Timeout`](crate::error::ErrorKind::Timeout)
+    /// when no listed condition holds before the deadline.
     pub async fn wait_for_any(
         &mut self,
         ms: Option<u64>,
@@ -55,6 +71,16 @@ impl OneShotSession {
     /// Full wait surface used by multi-step `run` (GAP-019/024).
     #[allow(clippy::too_many_arguments)]
     /// Full wait entry: text, selectors, URL, network-idle, DOM-stable (GAP-032).
+    ///
+    /// # Errors
+    ///
+    /// Propagates
+    /// [`wait_for_conditions`](Self::wait_for_conditions): no active page,
+    /// [`ErrorKind::Usage`](crate::error::ErrorKind::Usage) for a selector the
+    /// page rejects as invalid, and
+    /// [`ErrorKind::Timeout`](crate::error::ErrorKind::Timeout) when none of
+    /// the OR-ed conditions holds before the deadline, with every pending
+    /// condition named in the message.
     pub async fn wait_for_any_ex(
         &mut self,
         ms: Option<u64>,

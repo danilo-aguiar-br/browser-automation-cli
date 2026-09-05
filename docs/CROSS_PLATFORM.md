@@ -80,7 +80,7 @@ Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `p
 - On Alpine or other musl hosts, cross-compile or build natively for the musl target
 - Provide a real Chrome or Chromium binary; the CLI does not bundle a browser
 - Containers auto-add Chrome `--no-sandbox` and `--disable-dev-shm-usage` when root or docker/podman/k8s markers are present
-- Residual disk hygiene (v0.1.5 law still current in 0.1.8): BORN + FINALIZE scavenge owned Singleton-only Chromium tmp under process temp (commonly `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*`)
+- Residual disk hygiene (v0.1.5 law still current in 0.1.9): BORN + FINALIZE scavenge owned Singleton-only Chromium tmp under process temp (commonly `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*`)
 - Stale Singleton GC age floor is **60s**; only same-uid Singleton-only (or empty) dirs with no live `/proc` holder are wiped
 - CLI markers use prefix `browser-automation-cli-chrome-*` under the process temp dir
 - Host Flatpak Chrome temp prefixes are **never** deleted by product residual GC
@@ -105,6 +105,21 @@ Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `p
 - Path basenames reserved on Windows (`CON`, `NUL`, `COM1`, …) are rejected on **all** hosts for portable scripts
 - Residual **process** hygiene uses Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) so Chrome trees die with the CLI process
 - Disk residual report fields (`residual` / `residual_disk`) remain available via doctor for marker and temp hygiene diagnostics
+
+
+## Windows File-Permission Residual (declared, not fixed)
+- Five files are created with restrictive POSIX modes on Unix and inherit the parent directory ACL on Windows
+- `mitm_local/ca.rs` writes the MITM certificate authority PRIVATE KEY with `0o600`
+- `xdg/config_write.rs` writes `config.toml` with `0o600`, and it holds `encryption_key`, `openrouter_api_key` and `proxy_password`
+- `mitm_local/util.rs` writes captured request and response bodies with `0o600`
+- `xdg/paths.rs` creates the XDG state directory with `0o700`
+- `native/stealth/seed_cache.rs` writes the stealth identity seed with `0o600`
+- Nothing BREAKS on Windows: the writes succeed and no code path panics
+- What differs is the security POSTURE, and only for these five paths
+- On Windows the effective protection is whatever the parent directory grants
+- Store the product in a directory whose ACL you control when the host is shared
+- This is a declared residual, not an oversight: an untested ACL implementation would be a worse answer than a measured statement of the gap
+- Closing it needs a Windows host to verify against, which the measurement above did not have
 
 
 ## Anti-Detection Across Platforms
@@ -188,12 +203,12 @@ browser-automation-cli completions powershell
 - Product settings are flags and XDG `config` only — never product environment variables
 - Product settings use flags and XDG CLI only (`config path|init|show|set|get|list-keys`)
 - Language for human suggestions: `--lang` or XDG `lang` only
-- Full command inventory (**69** agent names) and agent patterns: [docs/HOW_TO_USE.md](HOW_TO_USE.md)
+- Full command inventory (**71** agent names) and agent patterns: [docs/HOW_TO_USE.md](HOW_TO_USE.md)
 - Redis cache: `cache_backend redis` + `cache_redis_url redis://…` only (`rediss://` fail-closed)
 - Product logging: `--verbose` / `--debug` / `-q` or XDG `log_level`
 - Color: `config set color`; Chrome path: `config set chrome_path`
 
-## v0.1.8 agent surface (compact)
+## v0.1.9 agent surface (compact)
 
 - Anti-detection family is live: `stealth`, `stealth_profile`, `stealth_seed`, `browser_mode`, `input_profile`
 - Same family adds proxy keys, HTTP/2 `SETTINGS` keys and the ten `input_*` timing keys
@@ -207,29 +222,29 @@ browser-automation-cli completions powershell
 - **`wait_timeout_ms`** public key on run wait steps (GAP-053)
 - Scrape `format`/`formats` in run without HTML monster (GAP-057)
 - Native select `pick`/`select-option` dispatches `input` then `change`, `via: native_select` (GAP-055)
-- **Universal envelope flags:** `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes` on all 69 commands, identical on every platform
+- **Universal envelope flags:** `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes` on all 71 commands, identical on every platform
 - **`agent_ops`** appears in the success envelope only when one of those flags ran; `unresolved_paths` names a path no row carried
 - **`agent_ops` is omitted when there is nothing to report:** a flag that ran and resolved cleanly leaves the envelope shape untouched, on every platform
 - **`--select`/`--filter`/`--limit`/`--sort` are NOT global:** they are per-command flags on scrape, crawl, map, search, batch-scrape and the media `info` verbs
-- **XDG keys:** 204 documented in [CONFIGURATION.md](CONFIGURATION.md); discover live with `config list-keys --json`
+- **XDG keys:** 206 documented in [CONFIGURATION.md](CONFIGURATION.md); discover live with `config list-keys --json`
 - **`grab` encode:** png|jpeg|webp only; AVIF removed (breaking)
-- Inventory **69** includes `submit` + `storage` + `image`+`video`+`audio`+`record`; residual-zero disk law from 0.1.5 still current
-- GAP-021 partial (unit LHR fixtures; e2e lighthouse mock SKIP); GAP-022 residual ~53 dups accepted; GAP-023/024 intentional in `parity_intentional_divergences.json`
+- Inventory **71** includes `submit` + `storage` + `image`+`video`+`audio`+`record`; residual-zero disk law from 0.1.5 still current
+- GAP-021 partial (unit LHR fixtures; e2e lighthouse mock SKIP); GAP-022 residual ~53 dups accepted; GAP-023/024 intentional divergences
 
-## Full agent inventory (69)
+## Full agent inventory (71)
 
 Discover live: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
-crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
 net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
-scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **67** (69 agent names − 2 run-only).
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **69** (71 agent names − 2 run-only).
 
 ## Performance by Target
 - Linux desktop and servers are the primary optimization target

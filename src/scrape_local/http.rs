@@ -18,6 +18,10 @@ use super::payload::build_scrape_payload_blocking;
 use super::scheme::reject_non_http_scheme_for_http_engine;
 use super::types::ScrapeOpts;
 
+mod request_url;
+
+use request_url::canonical_request_url;
+
 /// HTTP static scrape (no Chrome).
 pub async fn scrape_http(
     url: &str,
@@ -26,6 +30,10 @@ pub async fn scrape_http(
 ) -> Result<Value, CliError> {
     // GAP-A004: reject non-HTTP(S) schemes early with an agent-usable suggestion.
     reject_non_http_scheme_for_http_engine(url)?;
+    // One spelling of the URL, chosen BEFORE the cache/network branch. See
+    // `canonical_request_url` for the defect this closes.
+    let canonical = canonical_request_url(url);
+    let url: &str = &canonical;
     // Pass N: SSRF policy (XDG http_ssrf_mode; default strict).
     crate::net::assert_safe_http_url(url)?;
 
@@ -50,7 +58,7 @@ pub async fn scrape_http(
         // `resolved()` and not the raw profile: `auto` means a different
         // identity on a different host, and it is the identity that decides
         // which headers went out.
-        stealth_profile: crate::browser_policy::stealth_profile().resolved().as_str(),
+        stealth_profile: crate::browser_policy::stealth_cache_token(),
         extra_headers: &opts.extra_headers,
     };
     let cache_key = cache::CacheKey::http_get(url, &cache_ctx);
@@ -71,6 +79,11 @@ pub async fn scrape_http(
         cache::get_async(&cache_key).await.ok().flatten()
     };
     if let Some(entry) = cached {
+        // Report where the body actually came from, exactly as the fresh path
+        // does from `final_url`. An entry written before the field existed has
+        // `None` and falls back to the requested URL, which is precisely the
+        // behaviour every cache hit had until now.
+        let reported_url = entry.final_url.as_deref().unwrap_or(url);
         // Same G12 branch as the network path, plus one thing the network path
         // does not need: the damage G12 already did is PERSISTENT.
         //
@@ -92,7 +105,7 @@ pub async fn scrape_http(
             match super::content_kind::extract(cached_kind, &entry.body) {
                 Ok(extracted) => {
                     let mut payload = super::content_kind::build_payload(
-                        url,
+                        reported_url,
                         200,
                         cached_kind,
                         entry.content_type.as_deref(),
@@ -146,7 +159,7 @@ pub async fn scrape_http(
                 .with_data(json!({ "block_detection": hit.to_json() })));
             }
             let mut payload = build_scrape_payload_blocking(
-                url.to_string(),
+                reported_url.to_string(),
                 200,
                 decoded.text,
                 opts.clone(),
@@ -355,6 +368,9 @@ pub async fn scrape_http(
                         crate::xdg::policy::key::SCRAPE_HTTP_CACHE_TTL_SECS,
                     ),
                 )),
+                // Store where the body was really served from, so a later hit
+                // reports the same origin this fetch is about to report.
+                final_url: Some(final_url.clone()),
             },
         )
         .await;

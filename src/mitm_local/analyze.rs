@@ -11,7 +11,7 @@ use super::types::MitmCapture;
 /// List unique hosts.
 pub fn domains(capture_path: Option<&str>) -> Result<Value, CliError> {
     let (path, explicit) = resolve_capture_path(capture_path)?;
-    let cap = MitmCapture::load_scoped(&path, true, explicit)?;
+    let cap = MitmCapture::load_scoped(&path, super::policy::redact_secrets(), explicit)?;
     // PAR-56: host extract is pure CPU over items → map_cpu when large.
     let hosts_list = crate::concurrency::map_cpu(&cap.items, |e| e.host.clone());
     let mut hosts = std::collections::BTreeSet::new();
@@ -26,7 +26,7 @@ pub fn domains(capture_path: Option<&str>) -> Result<Value, CliError> {
 /// Discover REST/GraphQL-ish endpoints from capture.
 pub fn apis(kind: Option<&str>, capture_path: Option<&str>) -> Result<Value, CliError> {
     let (path, explicit) = resolve_capture_path(capture_path)?;
-    let cap = MitmCapture::load_scoped(&path, true, explicit)?;
+    let cap = MitmCapture::load_scoped(&path, super::policy::redact_secrets(), explicit)?;
     let kind_owned = kind.map(|s| s.to_string());
     // PAR-56: classify endpoints in parallel when capture is large.
     let mut out: Vec<Value> = crate::concurrency::map_cpu(&cap.items, |e| {

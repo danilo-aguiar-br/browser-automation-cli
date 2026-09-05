@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 
 use super::magic::{detect_container, DetectedAudio};
 use crate::error::{CliError, ErrorKind};
+use crate::retry::Attempt;
 use crate::robots::shared_http_client;
 use crate::xdg;
 
@@ -21,44 +22,40 @@ pub async fn download_audio(
     crate::net::assert_safe_http_url(url)?;
     let max = max_bytes.unwrap_or_else(xdg::resolve_audio_download_max_bytes);
     let client = shared_http_client()?;
-    let cfg = crate::retry::RetryConfig::http();
-    let mut attempt = 0u32;
-    let (final_url, bytes) = loop {
-        attempt += 1;
-        match client.get(url).send().await {
-            Ok(resp) => {
-                let status = resp.status();
-                let final_url = resp.url().to_string();
-                crate::net::assert_safe_http_url(&final_url)?;
-                if !status.is_success() {
-                    let err = format!("audio download HTTP {status} for {url}");
-                    if attempt >= cfg.max_attempts || !crate::retry::is_retryable_message(&err) {
-                        return Err(CliError::new(ErrorKind::Io, err));
+    // The retry loop itself lives in `crate::retry`: image, video and audio all
+    // download the same way, and three copies of one loop drift apart silently.
+    let (final_url, bytes) =
+        crate::retry::retry_http_async(crate::retry::RetryConfig::http(), || async {
+            match client.get(url).send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let final_url = resp.url().to_string();
+                    if let Err(e) = crate::net::assert_safe_http_url(&final_url) {
+                        return Attempt::Fatal(e);
                     }
-                } else {
+                    if !status.is_success() {
+                        return Attempt::Failed(CliError::new(
+                            ErrorKind::Io,
+                            format!("audio download HTTP {status} for {url}"),
+                        ));
+                    }
                     match crate::net::read_body_limited(resp, max).await {
-                        Ok(bytes) => break (final_url, bytes),
-                        Err(e) if e.kind() == ErrorKind::Data => return Err(e),
+                        Ok(bytes) => Attempt::Done((final_url, bytes)),
+                        // Over the body ceiling: another round trip downloads the
+                        // same oversized body to the same refusal.
+                        Err(e) if e.kind() == ErrorKind::Data => Attempt::Fatal(e),
                         Err(e) => {
-                            let err = e.message().to_string();
-                            if attempt >= cfg.max_attempts
-                                || !crate::retry::is_retryable_message(&err)
-                            {
-                                return Err(CliError::new(ErrorKind::Io, err));
-                            }
+                            Attempt::Failed(CliError::new(ErrorKind::Io, e.message().to_string()))
                         }
                     }
                 }
+                Err(e) => Attempt::Failed(CliError::new(
+                    ErrorKind::Unavailable,
+                    format!("GET {url}: {e}"),
+                )),
             }
-            Err(e) => {
-                let err = format!("GET {url}: {e}");
-                if attempt >= cfg.max_attempts || !crate::retry::is_retryable_message(&err) {
-                    return Err(CliError::new(ErrorKind::Unavailable, err));
-                }
-            }
-        }
-        tokio::time::sleep(cfg.delay_for_attempt(attempt.saturating_sub(1))).await;
-    };
+        })
+        .await?;
 
     let detected = match detect_container(&bytes) {
         Ok(f) => Some(f),

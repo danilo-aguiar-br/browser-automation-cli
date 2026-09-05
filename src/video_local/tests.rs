@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use super::magic::{detect_container, DetectedContainer};
-use super::validate::{
-    parse_output_container, resolve_effective_codecs, validate_codec_for_container, OutputContainer,
+use super::container_matrix::{
+    parse_output_container, validate_codec_for_container, OutputContainer,
 };
+use super::encoder_policy::resolve_effective_codecs;
+use super::magic::{detect_container, DetectedContainer};
 
 #[test]
 fn magic_ftyp_mp4() {
@@ -183,7 +184,14 @@ fn smart_copy_webm_without_probe_reencodes() {
 #[test]
 fn ssrf_loopback_rejected_on_download() {
     // Policy is enforced before network I/O; block_on not required for URL check path.
-    let err = crate::net::assert_safe_http_url("http://127.0.0.1/x.mp4").unwrap_err();
+    // Parameterized core, never the XDG-resolving facade: `assert_safe_http_url`
+    // reads the operator's real `http_ssrf_mode`, so this assertion inverted on
+    // any host configured with `allow_loopback`.
+    let err = crate::net::assert_safe_http_url_mode(
+        "http://127.0.0.1/x.mp4",
+        crate::net::SsrfMode::Strict,
+    )
+    .unwrap_err();
     let msg = err.message().to_ascii_lowercase();
     assert!(msg.contains("ssrf") || msg.contains("blocked") || msg.contains("127.0.0.1"));
 }

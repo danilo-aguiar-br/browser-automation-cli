@@ -41,16 +41,18 @@ Ordem de resolução (sem variáveis de ambiente de produto — lei do produto �
 6. Caches locais Puppeteer / Playwright em `~/.cache/`
 
 Override: `browser-automation-cli config set chrome_path /path/to/chrome`  
-Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `executable`, `version` (smoke `--version`), `windows_job_object` e `host_environment`.
+Diagnóstico: `browser-automation-cli doctor --offline --quick --json` reporta `path`, `sandbox`, `executable`, `version` (smoke `--version`), `windows_job_object` e `host_environment`.
 
 ### Paths conhecidos Linux
 - `/usr/bin/google-chrome`, variantes beta/unstable, `chromium`, `chromium-browser`
-- `/opt/google/chrome/chrome`, Edge em `/opt/microsoft/msedge/msedge`
+- `/opt/google/chrome/chrome`, `/opt/google/chrome/google-chrome`
+- `/usr/bin/microsoft-edge`, `/opt/microsoft/msedge/msedge`
 - Snap: `/snap/bin/chromium` (emite **warn** de sandbox — prefira APT/RPM)
 - Flatpak: `/var/lib/flatpak/exports/bin/com.google.Chrome` e user `~/.local/share/flatpak/…`
 
 ### Paths conhecidos macOS
-- `/Applications/Google Chrome.app/…`, Beta, Canary, Chromium, Edge, Brave
+- `/Applications/Google Chrome.app/…`, Beta, Canary
+- `/Applications/Chromium.app/…`, `Microsoft Edge.app`, `Brave Browser.app`
 - `~/Applications/Google Chrome.app/…` (install por usuário)
 
 ### Paths conhecidos Windows
@@ -63,6 +65,7 @@ Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `exec
 ### Sandboxes Snap / Flatpak
 - Detectados por prefixo de path e `$SNAP` / `$FLATPAK_ID`
 - Doctor marca **warn** quando o sandbox restringe automação CDP
+- Prefira pacotes do sistema; CDP + user-data-dir temporário quebram com frequência sob confinamento
 
 
 ## Notas Linux
@@ -73,7 +76,7 @@ Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `exec
 - Em Alpine ou outros hosts musl, faça cross-compile ou build nativo para o target musl
 - Forneça um binário real de Chrome ou Chromium; a CLI não embute browser
 - Containers adicionam `--no-sandbox` e `--disable-dev-shm-usage` quando root ou marcadores docker/podman/k8s estão presentes
-- Higiene residual de disco (lei v0.1.5 ainda corrente na 0.1.8): BORN + FINALIZE scavenge Chromium tmp Singleton-only owned sob o temp do processo (comumente `/tmp/org.chromium.Chromium.*` e `/tmp/.org.chromium.Chromium.*`)
+- Higiene residual de disco (lei v0.1.5 ainda corrente na 0.1.9): BORN + FINALIZE scavenge Chromium tmp Singleton-only owned sob o temp do processo (comumente `/tmp/org.chromium.Chromium.*` e `/tmp/.org.chromium.Chromium.*`)
 - Age floor do GC Singleton stale é **60s**; só dirs same-uid Singleton-only (ou vazios) sem holder vivo em `/proc` são apagados
 - Markers CLI usam prefixo `browser-automation-cli-chrome-*` sob o temp do processo
 - Prefixos temp de Chrome Flatpak do host **nunca** são apagados pelo GC residual do produto
@@ -94,9 +97,25 @@ Diagnóstico: `doctor --offline --quick --json` reporta `path`, `sandbox`, `exec
 - Mantenha argv UTF-8 limpo; evite mojibake ao pipear por code pages legadas
 - Quote paths com espaços: `"C:\Users\me\out.png"`
 - Prefira `grab --path` com path completo em vez de depender do cwd
+- Basenames de path reservados no Windows (`CON`, `NUL`, `COM1`, …) são rejeitados em **todos** os hosts para scripts portáveis
 - Helpers de processo Windows ficam atrás de `cfg(windows)` e não mudam o contrato JSON
 - Higiene residual de **processo** usa Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) para árvores Chrome morrerem com o processo da CLI
 - Campos de relatório residual de disco (`residual` / `residual_disk`) permanecem disponíveis via doctor para diagnósticos de marker e temp
+
+
+## Residual de Permissão de Arquivo no Windows (declarado, não corrigido)
+- Cinco arquivos nascem com modo POSIX restritivo no Unix e herdam a ACL do diretório pai no Windows
+- `mitm_local/ca.rs` grava a CHAVE PRIVADA da autoridade certificadora do MITM com `0o600`
+- `xdg/config_write.rs` grava o `config.toml` com `0o600`, e ele guarda `encryption_key`, `openrouter_api_key` e `proxy_password`
+- `mitm_local/util.rs` grava os corpos capturados de requisição e resposta com `0o600`
+- `xdg/paths.rs` cria o diretório de estado XDG com `0o700`
+- `native/stealth/seed_cache.rs` grava o seed de identidade do stealth com `0o600`
+- Nada QUEBRA no Windows: as escritas funcionam e nenhum caminho entra em pânico
+- O que difere é a POSTURA de segurança, e só nesses cinco caminhos
+- No Windows a proteção efetiva é a que o diretório pai conceder
+- Guarde o produto num diretório cuja ACL você controla quando o host for compartilhado
+- Isto é residual declarado, não descuido: uma implementação de ACL não testada seria resposta pior que a medição honesta da lacuna
+- Fechar exige um host Windows para verificar, que a medição acima não teve
 
 
 ## Anti-Detecção Entre Plataformas
@@ -177,14 +196,15 @@ browser-automation-cli completions powershell
 - Journals de workflow ficam sob XDG state (`workflows`)
 - Chave de cifragem é definida com `config set encryption_key <value>`
 - Descubra chaves vivas de config com `config list-keys --json` (inclui `dialog_settle_ms`; não fixe contagem como “16 chaves”)
-- Settings de produto usam só flags e CLI XDG (`config path|init|show|set|get|list-keys`) — nunca variáveis de ambiente de produto
+- Settings de produto são só flags e `config` XDG — nunca variáveis de ambiente de produto
+- Settings de produto usam só flags e CLI XDG (`config path|init|show|set|get|list-keys`)
 - Idioma das sugestões humanas: só `--lang` ou XDG `lang`
-- Inventário completo de comandos (**69**) e padrões de agente: [docs/HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
+- Inventário completo de comandos (**71**) e padrões de agente: [docs/HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
 - Cache Redis: `cache_backend redis` + `cache_redis_url redis://…` apenas (`rediss://` fail-closed)
 - Logging de produto: `--verbose` / `--debug` / `-q` ou XDG `log_level`
 - Cor: `config set color`; path do Chrome: `config set chrome_path`
 
-## Superfície de agente v0.1.8 (compacta)
+## Superfície de agente v0.1.9 (compacta)
 
 - Família anti-detecção está viva: `stealth`, `stealth_profile`, `stealth_seed`, `browser_mode`, `input_profile`
 - A mesma família soma chaves de proxy, de `SETTINGS` HTTP/2 e as dez chaves `input_*`
@@ -198,29 +218,29 @@ browser-automation-cli completions powershell
 - Chave pública **`wait_timeout_ms`** nos passos wait de run (GAP-053)
 - Scrape `format`/`formats` em run sem monstro HTML (GAP-057)
 - Select nativo `pick`/`select-option` despacha `input` e depois `change`, `via: native_select` (GAP-055)
-- **Flags universais de envelope:** `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes` nos 69 comandos, idênticas em toda plataforma
+- **Flags universais de envelope:** `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes` nos 71 comandos, idênticas em toda plataforma
 - **`agent_ops`** aparece no envelope de sucesso somente quando uma dessas flags roda; `unresolved_paths` nomeia caminho que nenhuma linha carregava
 - **`agent_ops` é omitido quando não há o que reportar:** flag que rodou e resolveu limpo deixa a forma do envelope intacta, em toda plataforma
 - **`--select`/`--filter`/`--limit`/`--sort` NÃO são globais:** são flags por comando em scrape, crawl, map, search, batch-scrape e verbos `info` de mídia
-- **Chaves XDG:** 204 documentadas em [CONFIGURATION.pt-BR.md](CONFIGURATION.pt-BR.md); descubra ao vivo com `config list-keys --json`
+- **Chaves XDG:** 206 documentadas em [CONFIGURATION.pt-BR.md](CONFIGURATION.pt-BR.md); descubra ao vivo com `config list-keys --json`
 - **Encode do `grab`:** só png|jpeg|webp; AVIF removido (breaking)
-- Inventário **69** inclui `submit` + `storage` + `image`+`video`+`audio`+`record`; lei residual-zero de disco da 0.1.5 ainda corrente
-- GAP-021 parcial (fixtures unit LHR; e2e lighthouse mock SKIP); GAP-022 residual ~53 dups aceitos; GAP-023/024 intencionais em `parity_intentional_divergences.json`
+- Inventário **71** inclui `submit` + `storage` + `image`+`video`+`audio`+`record`; lei residual-zero de disco da 0.1.5 ainda corrente
+- GAP-021 parcial (fixtures unit LHR; e2e lighthouse mock SKIP); GAP-022 residual ~53 dups aceitos; GAP-023/024 divergências intencionais
 
-## Inventário completo de agente (69)
+## Inventário completo de agente (71)
 
 Descubra ao vivo: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
-crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
 net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
-scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **67** (69 nomes de agente − 2 só-run).
+Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **69** (71 nomes de agente − 2 só-run).
 
 ## Performance por Target
 - Desktop e servidores Linux são o alvo primário de otimização

@@ -86,7 +86,7 @@
     "format": {
       "argv": "--format",
       "default": "text",
-      "description": "text | markdown | html | rawHtml | links | metadata | screenshot | summary | product | branding | images | jsonld | json | feed (CSV or repeatable)",
+      "description": "text | markdown | html | rawHtml | links | metadata | screenshot | summary | product | branding | images | jsonld | json | feed | attributes (CSV or repeatable)",
       "items": {
         "type": "string"
       },

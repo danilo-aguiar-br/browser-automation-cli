@@ -91,6 +91,20 @@ pub fn split_csv(raw: &str) -> Vec<String> {
         .collect()
 }
 
+/// [`split_csv`] with ASCII case folding, for matching against fixed tokens.
+///
+/// Callers that compare a CSV against a closed vocabulary — console levels,
+/// CDP resource types, host allowlists — all want the same fold. Six of them
+/// had written it inline, and two of those were byte-for-byte identical, so a
+/// change to the trimming rule had six places to be remembered in.
+#[must_use]
+pub fn split_csv_lower(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

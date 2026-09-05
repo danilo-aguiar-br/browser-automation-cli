@@ -7,10 +7,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::constants::MITM_REDACTED_PLACEHOLDER;
 use crate::error::{CliError, ErrorKind};
 
-use super::types::{BTreeMapString, MitmCapture};
+use super::types::MitmCapture;
 
 /// Shared capture for optional in-process proxy (thread-safe).
 ///
@@ -21,27 +20,31 @@ use super::types::{BTreeMapString, MitmCapture};
 /// `lock_capture` so a panic in one handler cannot drop later captures.
 pub type SharedCapture = Arc<Mutex<MitmCapture>>;
 
-/// Redact sensitive header values in place.
-pub(super) fn redact_headers(h: &mut BTreeMapString) {
-    const SENSITIVE: &[&str] = &[
-        "authorization",
-        "cookie",
-        "set-cookie",
-        "proxy-authorization",
-        "x-api-key",
-    ];
-    for (k, v) in h.iter_mut() {
-        if SENSITIVE.iter().any(|s| k.eq_ignore_ascii_case(s)) {
-            *v = MITM_REDACTED_PLACEHOLDER.into();
-        }
-    }
-}
-
 /// Atomic write via tmp + rename (sync; callers are sync CLI or off-async).
 pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
+    // The parent is created HERE, not at each call site, because "an atomic
+    // write needs somewhere to write" is a property of this function and not of
+    // whoever calls it. Measured 2026-09-04: `mitm redact` created the state
+    // directory before calling in (store.rs), `mitm allow` and `mitm block` did
+    // not, and on a host whose state directory did not exist yet the second
+    // pair failed with `mitm tmp: No such file or directory (os error 2)` and
+    // exit 74 — an IO error that names the temp file and not the missing
+    // directory, which is the least useful place to read the cause.
+    //
+    // This is deliberately NOT where the allowed-roots check lives; `har.rs`
+    // records why that one belongs at its own call site. Creating a directory
+    // and deciding whether a path may be written are different questions.
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("mitm state dir: {e}")))?;
+    }
     let tmp = path.with_extension("tmp");
     {
-        let mut f = fs::File::create(&tmp)
+        // Born `0600`. `File::create` honours the umask, so the tmp file — which
+        // may hold the CA private key or a captured body — existed world-readable
+        // from creation until the chmod after the rename. Creating it private
+        // removes that window rather than shortening it.
+        let mut f = crate::platform::create_private_file(&tmp)
             .map_err(|e| CliError::new(ErrorKind::Io, format!("mitm tmp: {e}")))?;
         f.write_all(bytes)
             .map_err(|e| CliError::new(ErrorKind::Io, format!("mitm write: {e}")))?;
@@ -51,11 +54,14 @@ pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
     fs::rename(&tmp, path)
         .map_err(|e| CliError::new(ErrorKind::Io, format!("mitm rename: {e}")))?;
     // GAP-009: captured bodies may carry secrets; never world-readable.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-    }
+    //
+    // The mode is already `0600` from creation and survives the rename; this
+    // call covers a path that existed with looser permissions. It PROPAGATES
+    // failure: this same function writes the MITM root CA private key, and a
+    // chmod that failed silently left that key readable by every local user,
+    // which is interception of the whole machine's TLS rather than a local bug.
+    crate::platform::restrict_to_owner(path, 0o600)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("mitm restrict perms: {e}")))?;
     Ok(())
 }
 
@@ -86,8 +92,8 @@ pub(super) fn lock_capture(cap: &SharedCapture) -> std::sync::MutexGuard<'_, Mit
 /// Create shared capture bound to default path.
 pub fn shared_capture() -> Result<SharedCapture, CliError> {
     let path = super::store::default_capture_path()?;
-    Ok(Arc::new(Mutex::new(MitmCapture::new(Some(path), true))))
+    Ok(Arc::new(Mutex::new(MitmCapture::new(
+        Some(path),
+        super::policy::redact_secrets(),
+    ))))
 }
-
-#[cfg(test)]
-pub(super) use redact_headers as redact_headers_for_test;

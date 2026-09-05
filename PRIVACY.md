@@ -19,21 +19,18 @@ This CLI is **local-first** and **agent-first**. It does **not** implement remot
 | LLM keys | XDG only (`openrouter_api_key`, `llm_base_url`, `llm_model`) — never hardcoded |
 
 ## What we never do
-
 - No automatic upload of browsing data, screenshots, HAR, or heap snapshots
 - No phone-home for version checks
 - No advertising identifiers
 - No mixing of secrets into stdout JSON envelopes beyond what you pass as arguments
 
 ## Configuration is XDG, never an environment variable
-
 - The product reads no product environment variable for durable configuration
 - Every setting lives in `config.toml` under the XDG configuration directory
 - Secrets such as `openrouter_api_key` and `encryption_key` are written with mode 0600
 - See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the complete key reference
 
 ## Operator responsibility
-
 - You control which URLs and pages the tool opens
 - You control whether MITM / network capture is enabled
 - You are responsible for compliance when automating third-party sites (robots, ToS, personal data)

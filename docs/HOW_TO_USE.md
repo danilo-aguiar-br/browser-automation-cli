@@ -35,6 +35,8 @@ browser-automation-cli --json view
 - Capture a screenshot with `grab --path /tmp/page.png` (flag, not a positional path; encode **png|jpeg|webp** only — **AVIF removed** in v0.1.6)
 - Submit a form with `submit <target>` (form or any field inside it; waits for navigation/request outcome)
 - Export/import portable auth state with `storage export|import --path <file>` (cookies + localStorage + sessionStorage)
+- Clear the whole cookie jar with `cookie clear --all`, where the flag is REQUIRED and a bare `cookie clear` is a usage error with exit 2 before anything launches
+- The envelope then reports `target_source` as `argv`, because CDP has no partial clear and the caller states the scope instead of inheriting it
 - Print the page to PDF with `print-pdf --url <url> --path /tmp/page.pdf` (also valid inside `run`)
 - Scrape page content with multi-format `scrape --format markdown,html,links` when you need several shapes at once
 - Parse local files with `parse` (html/md/txt/pdf/docx/xlsx/ods; optional `--redact-pii`)
@@ -48,7 +50,7 @@ browser-automation-cli --json view
 - Write XLSX from CSV/JSON with `sheet-write <input> -o <out.xlsx>` (no Chrome)
 - Structural lint with `sg-scan [paths…]` and dry-run rewrite with `sg-rewrite [paths…]` (`--apply` to write)
 - Check page change against a baseline with `monitor check`
-- List the live inventory (**69** agent names) with `commands --json`
+- List the live inventory (**71** agent names) with `commands --json`
 - Discover argv shapes with `schema <name> --json` or `schema --cmd <name> --json`
 - Print the product version with `version`
 - Inspect resolved UI locale with `locale --json` (human suggestions only)
@@ -123,6 +125,8 @@ printf '%s\n' \
 - Submit form in run: `{"cmd":"submit","target":"form"}` (or a field inside the form)
 - Beforeunload in run: `handle_before_unload` on `goto` / `reload`; isolated page: `{"cmd":"page","action":"new","isolated_context":true}`
 - Dialog accept/dismiss data envelope includes **`dialog_settled`** (boolean). On happy path `true` after `Page.javascriptDialogClosed`; **do not invent an artificial wait** before the next page step when settled is true (GAP-054)
+- `view --allow-empty` / `allow_empty:true` only when an empty about:blank is intentional
+- Note: `pick` / `select-option` are **not** standalone clap subcommands
 - Global flags such as `--timeout` and `--step-timeout` apply to the whole script
 - Prefer HTTP scrape paths when you only need content and not live refs
 
@@ -148,6 +152,11 @@ printf '%s\n' \
 - MITM HAR export: `mitm har --out /tmp/capture.har` (required `--out`)
 - MITM full surface: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
 - Global MITM flags: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`, `--mitm-no-redact-secrets`
+- `--mitm-ws` restates the default: WebSocket frames are always captured under `--mitm`, so passing it changes nothing
+- MITM block rule: `mitm block --host example.com --path /ads` requires the target in argv, either `--host` or `--path`
+- A request matching a rule is short-circuited with `204 No Content` before any DNS or connection, and the refusal is recorded in the capture
+- Host matching is case-insensitive, path matching is an anchored prefix, and a rule carrying both requires BOTH
+- `--mitm-max-body-bytes` trims the body RETAINED, while a distinct 8 MiB ceiling bounds the body READ, so a `chunked` body above it arrives EMPTY
 - Workflow DAG journal: `workflow run|resume|status` (SQLite under XDG state)
 - Deep heap tools require `--category-memory`
 - Extension tools require `--category-extensions`
@@ -186,14 +195,28 @@ printf '%s\n' \
 - `auto` follows the host and is almost always right
 - `--stealth-seed <SEED>` pins that identity across processes
 - Without a seed every run draws a fresh identity, so a 50-URL crawl of 50 one-shot processes presents 50 different machines
+- `doctor --fingerprint` reports `planned_version_source` with three values: `null`, `chrome_binary` and `crate_table`
+- It is `null` under stealth, the default, because there the crate table IS the projected identity and nothing is probed
+- It is `chrome_binary` under `--no-stealth` when the planned major was read from the Chrome/Chromium binary this host would launch
+- It is `crate_table` under `--no-stealth` when the binary could not be probed, so the plan is a guess and not a measurement
 - `--proxy <URL>` sets the egress proxy for Chrome and for the HTTP engine, accepting `http`, `https`, and `socks5`
 - `--proxy-bypass <HOSTS>` lists the hosts that skip the proxy, in Chrome's bypass-list syntax
 - `--input-profile <PROFILE>` is `human` (default) or `direct`
+- MEASURED on 2026-09-04 and tracked as an OPEN defect in `gaps.md`: the cost of the `human` cadence grows superlinearly with the typed length
+- One character costs 2281 ms, two characters cost 14236 ms and four characters cost 95781 ms, so each doubling multiplies the cost by roughly 6.5
+- A long `type` therefore drains `--timeout` and returns exit `124` with `kind: timeout`, and the envelope gives the operator no clue why
+- Counter-measure for long fields: pass `--input-profile direct` and keep `human` for short interactions only
 - `human` interpolates pointer trajectories, dwells between press and release, and paces typing
 - `--input-seed <SEED>` seeds the input jitter so a `human` run reproduces exactly
 - `--warmup` visits the origin root before the target URL, so the session already carries cookies and a referrer chain
 - `--warmup-url <URL>` warms that URL instead of the target's origin root
 - `--no-xvfb` skips the private virtual display on Linux and uses the current one; it is only meaningful headed on Linux
+- Every browser envelope publishes a witness group of five keys, and four of them are documented here while `runtime_enable_used` lives in `docs/STEALTH_PARITY.md`
+- `browser_mode_requested` is the mode that was asked for, exactly as `mode().as_str()` spells it
+- `browser_mode_effective` is what the launch will really do, either `headless` or `headed`, and it differs from `browser_mode_requested` exactly under `auto`, the case the caller cannot see any other way
+- `browser_mode_source` is the precedence step that won, either `default`, `xdg` or `flag`
+- `display_backend` is the surface the browser draws on, either `headless`, `xvfb` or `host`, and it is not derived from the browser mode alone, because headed on a private virtual display is not the operator screen
+- `host` is the only backend that reaches the operator compositor, and it requires headed with the virtual display refused
 - `--expect <EXPR>` asserts the emitted payload matches `key=value`, `key!=value`, or `key~substring`; it repeats and every expression is ANDed
 - `--expect-exit-code` exits `65` when an expectation is unmet, instead of only reporting it
 - It stays off by default because changing an exit code on data content would silently break callers that already branch on it
@@ -404,7 +427,7 @@ browser-automation-cli --json --count-only map https://example.com --limit 5
 - Resolve live config/data/state paths with `config path --json`
 - Product logging is controlled by `--verbose` / `--debug` / `-q` and XDG `log_level`
 - Language for human suggestions: `--lang` or XDG `lang` only (no product env catalogs)
-- Read the full XDG key reference in `docs/CONFIGURATION.md`, which documents all 204 keys
+- Read the full XDG key reference in `docs/CONFIGURATION.md`, which documents all 217 keys
 - Confirm the live key set with `config list-keys --json` before writing an unknown key
 - Never hard-code a fixed key count, because the set grows across releases
 - Common keys include: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`, `dialog_settle_ms`
@@ -496,6 +519,10 @@ browser-automation-cli --json sg-rewrite .
 - `batch-scrape` defaults to HTTP engine; pass `--engine browser` for CDP per URL
 - `crawl` defaults to HTTP BFS; pass `--engine browser` when JS rendering is required
 - `crawl` stays on the seed host when you pass `--same-host`
+- `--no-same-host` disables it, so the crawl follows links off the seed host; passing `--same-host false` is rejected, because clap derives the positive flag as a switch
+- `search` publishes `serp_endpoint` as `known` when the configured `search_base_url` is an endpoint the product knows how to interpret, and as `unknown` otherwise
+- Read `serp_endpoint` when you point `search_base_url` at your own endpoint, so you learn you are off the known path instead of silently getting a worse result
+- The failure envelope carries `serp_endpoint` and `search_base_url` under `data` as well, so an unknown endpoint and a genuinely empty web are two different diagnoses instead of one `kind: data`
 - `parse` extracts text from local `html`, `md`, `txt`, `pdf`, `docx`, `xlsx`, and `ods` paths
 - `--redact-pii` redacts common PII patterns in parse output
 - `--webhook-url` on `scrape` POSTs the result data once to an operator URL (not product telemetry)
@@ -539,7 +566,7 @@ browser-automation-cli --json mitm status
 browser-automation-cli --json mitm list
 browser-automation-cli --json mitm har --out /tmp/capture.har
 browser-automation-cli --json mitm capture-url https://example.com --seconds 30 --har /tmp/cap.har
-browser-automation-cli --json mitm redact --secrets
+browser-automation-cli --json mitm redact
 browser-automation-cli --json mitm graphql
 browser-automation-cli --json mitm ws
 
@@ -617,6 +644,7 @@ browser-automation-cli --json workflow status --name demo
 - Cause: typo or invented subcommand / schema name
 - Fix: run `commands --json`, then `schema <name> --json` with a listed name
 - Note: `select-option` and `pick` are run/schema inventory only (not clap standalone)
+- With `--json` in argv, clap usage errors emit a JSON error envelope (GAP-002)
 
 ### Grab path mistaken as positional
 - Symptom: clap usage error around unexpected arguments
@@ -735,7 +763,7 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 - Pass `--json` on every programmatic call
 - Parse only stdout envelopes; treat stderr as diagnostics
 - Branch on envelope field `ok` and process exit code
-- Discover inventory with `commands --json` (**69** agent names)
+- Discover inventory with `commands --json` (**71** agent names)
 - Discover argv with `schema <name> --json` or `schema --cmd <name> --json`
 - After browser work, confirm residual hygiene with `doctor --json` → `residual` / check `residual_disk`
 - Collapse multi-step browser work into one `run --script` process when refs matter
@@ -790,11 +818,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - See crate-oriented notes in [docs/AGENTS.md](AGENTS.md) and [INTEGRATIONS.md](../INTEGRATIONS.md)
 
 
-## Full Command Inventory (69)
-- Live source of truth: `browser-automation-cli commands --json` (**69** agent-facing names)
-- Clap product surface is **67** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
+## Full Command Inventory (71)
+- Live source of truth: `browser-automation-cli commands --json` (**71** agent-facing names)
+- Clap product surface is **69** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53; lighthouse mock = **SKIP**, not PASS)
-- Full agent command list (all **69** names):
+- Full agent command list (all **71** names):
   - Meta / discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
@@ -802,12 +830,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-step: `run`, `exec`, `record`
-  - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`
   - Local IO (no Chrome): `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
   - Emulation / perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
-- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
+- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Discover argv with `schema <name> --json` for any name above
 
 ## Next Steps

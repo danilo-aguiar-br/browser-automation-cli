@@ -26,8 +26,22 @@ impl RespMockServer {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_t = Arc::clone(&stop);
         let store: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+        // Accept BLOCKS, and `Drop` wakes it by connecting to its own port.
+        //
+        // The self-connect in `Drop` only ever made sense for a blocking accept;
+        // pairing it with a non-blocking listener left both shutdown mechanisms
+        // half-applied and bought nothing but a latency floor. Every `get` and
+        // every `put` opens a FRESH connection through `RedisCache::with_stream`,
+        // so each one needs its own `accept`, and the client gives up after
+        // `REDIS_SHORT_IO_TIMEOUT_SECS` (2 s) of silence.
+        //
+        // Measured 2026-09-04: with a 5 ms poll between `WouldBlock` returns,
+        // `redis_roundtrip_via_resp_mock` failed 1 run in 10 under load 116 on a
+        // 10-core host, reporting `redis GET: empty redis response`. The poll
+        // thread was simply not scheduled soon enough, and a sleep-based poll
+        // turns scheduler pressure into a missed deadline. Blocking accept has
+        // no such floor: the kernel wakes the thread when the connection lands.
         let join = thread::spawn(move || {
-            let _ = listener.set_nonblocking(true);
             while !stop_t.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, _)) => {
@@ -35,9 +49,6 @@ impl RespMockServer {
                         thread::spawn(move || {
                             let _ = handle_resp_client(stream, store);
                         });
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(std::time::Duration::from_millis(5));
                     }
                     Err(_) => break,
                 }
@@ -207,6 +218,7 @@ fn memory_hit_miss() {
             body: b"hi".to_vec(),
             content_type: Some("text/html".into()),
             expires_unix: 0,
+            final_url: None,
         },
     )
     .unwrap();
@@ -241,6 +253,27 @@ fn a_different_egress_route_is_a_different_question() {
         },
     );
     assert_ne!(direct.as_str(), proxied.as_str());
+}
+
+#[test]
+fn stealth_off_is_not_the_host_profile() {
+    // The defect: `stealth_profile()` resolves `auto` against the host even
+    // when stealth is OFF, so both runs produced the same token and shared one
+    // entry. Measured 2026-09-04 against a loopback header echo, a
+    // `--no-stealth` scrape came back carrying a full Chrome User-Agent and the
+    // three `sec-ch-ua` hints, with `cache_hit: true` next to `stealth: false`.
+    //
+    // Written against the TOKEN and not against `stealth_cache_token()`, because
+    // that function reads process-wide policy and a unit test that set it would
+    // decide the value for every other test in the binary.
+    let impersonating = CacheKey::http_get("https://a/", &CacheContext::direct("chrome-mac"));
+    let honest = CacheKey::http_get("https://a/", &CacheContext::direct("off"));
+    assert_ne!(
+        impersonating.as_str(),
+        honest.as_str(),
+        "a body fetched under impersonation must not answer a request that sent \
+         the product's own User-Agent"
+    );
 }
 
 #[test]
@@ -359,6 +392,7 @@ fn redis_roundtrip_via_resp_mock() {
             body: b"live-mock".to_vec(),
             content_type: Some("text/plain".into()),
             expires_unix: 0,
+            final_url: None,
         },
     )
     .expect("put");
@@ -368,11 +402,18 @@ fn redis_roundtrip_via_resp_mock() {
 }
 
 /// When `redis-server` is on PATH, spawn ephemeral instance and roundtrip (R-LIVE-4).
-/// Skips cleanly (pass) when the binary is absent — no product env.
+///
+/// Declines through [`crate::test_utils::skip_unit_test`] when the binary is
+/// absent, so the decline is a FAILURE under `--features strict-gates` rather
+/// than a silent libtest PASS. A missing tool is fixable by installing it,
+/// which is exactly the shape strict gates exist to refuse.
 #[test]
 fn redis_real_server_if_present() {
     let Some(bin) = which_bin("redis-server") else {
-        eprintln!("skip redis_real_server_if_present: redis-server not on PATH");
+        crate::test_utils::skip_unit_test(
+            "redis_real_server_if_present",
+            "redis-server not on PATH.",
+        );
         return;
     };
     let dir = tempfile::tempdir().expect("tmp");
@@ -420,6 +461,7 @@ fn redis_real_server_if_present() {
             body: b"live-real".to_vec(),
             content_type: Some("text/plain".into()),
             expires_unix: 0,
+            final_url: None,
         },
     )
     .expect("put");
@@ -442,9 +484,164 @@ fn default_cache_sqlite_works() {
             body: b"ok".to_vec(),
             content_type: Some("text/plain".into()),
             expires_unix: 0,
+            final_url: None,
         },
     )
     .unwrap();
     let e = c.get(&k).unwrap().unwrap();
     assert_eq!(e.body, b"ok");
+}
+
+/// The memory backend carries `final_url` through a round-trip.
+#[test]
+fn memory_round_trips_the_final_url() {
+    let c = MemoryCache::default();
+    let k = CacheKey::http_get(
+        "https://example.com/asked",
+        &CacheContext::direct("chrome-linux"),
+    );
+    c.put(
+        &k,
+        CacheEntry {
+            body: b"x".to_vec(),
+            content_type: Some("text/html".into()),
+            expires_unix: 0,
+            final_url: Some("https://example.com/served".into()),
+        },
+    )
+    .unwrap();
+    let e = c.get(&k).unwrap().unwrap();
+    assert_eq!(e.final_url.as_deref(), Some("https://example.com/served"));
+}
+
+/// The sqlite backend persists `final_url` across separate connections.
+#[test]
+fn sqlite_persists_the_final_url() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let path = tmp.path().join("cache.sqlite");
+    let k = CacheKey::http_get(
+        "https://example.com/asked",
+        &CacheContext::direct("chrome-linux"),
+    );
+
+    let writer = SqliteCache::open_at(path.clone()).expect("open");
+    writer
+        .put(
+            &k,
+            CacheEntry {
+                body: b"x".to_vec(),
+                content_type: Some("text/html".into()),
+                expires_unix: 0,
+                final_url: Some("https://example.com/served".into()),
+            },
+        )
+        .expect("put");
+
+    // A separate handle, because the value has to survive the process, not the
+    // in-memory struct.
+    let reader = SqliteCache::open_at(path).expect("reopen");
+    let e = reader.get(&k).expect("get").expect("hit");
+    assert_eq!(e.final_url.as_deref(), Some("https://example.com/served"));
+}
+
+/// A cache written before `final_url` existed migrates without losing entries.
+///
+/// This is the case `CREATE TABLE IF NOT EXISTS` does NOT handle: the table is
+/// already there, so the new column is only added by the `ALTER TABLE`. Without
+/// it every `SELECT` naming the column would fail against a real user's cache.
+#[test]
+fn a_pre_migration_sqlite_cache_is_upgraded_in_place() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let path = tmp.path().join("legacy.sqlite");
+
+    // Build the OLD four-column shape by hand and seed a row.
+    {
+        let conn = rusqlite::Connection::open(&path).expect("open legacy");
+        conn.execute_batch(
+            "CREATE TABLE entries (
+                key TEXT PRIMARY KEY,
+                body BLOB NOT NULL,
+                content_type TEXT,
+                expires_unix INTEGER NOT NULL
+            );",
+        )
+        .expect("legacy schema");
+        conn.execute(
+            "INSERT INTO entries (key, body, content_type, expires_unix) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["legacy-key", b"old-body".to_vec(), "text/html", 0i64],
+        )
+        .expect("seed");
+    }
+
+    let cache = SqliteCache::open_at(path.clone()).expect("migrate on open");
+
+    // The seeded row survives, and reads as the `None` a legacy entry means.
+    let conn = rusqlite::Connection::open(&path).expect("verify");
+    let (body, final_url): (Vec<u8>, Option<String>) = conn
+        .query_row(
+            "SELECT body, final_url FROM entries WHERE key = 'legacy-key'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("legacy row must survive the migration");
+    assert_eq!(body, b"old-body");
+    assert_eq!(
+        final_url, None,
+        "a legacy entry asserts nothing about origin"
+    );
+
+    // And the migrated cache accepts the new field from here on.
+    let k = CacheKey::http_get(
+        "https://example.com/",
+        &CacheContext::direct("chrome-linux"),
+    );
+    cache
+        .put(
+            &k,
+            CacheEntry {
+                body: b"new".to_vec(),
+                content_type: None,
+                expires_unix: 0,
+                final_url: Some("https://example.com/served".into()),
+            },
+        )
+        .expect("put after migration");
+    let e = cache.get(&k).expect("get").expect("hit");
+    assert_eq!(e.final_url.as_deref(), Some("https://example.com/served"));
+
+    // Re-opening runs the ALTER again; the duplicate-column error is the normal
+    // answer and must not be treated as a fault.
+    SqliteCache::open_at(path).expect("second open must be idempotent");
+}
+
+/// The redis backend carries `final_url` through the JSON payload.
+///
+/// A payload written before the field existed simply lacks the key, and the
+/// reader turns that absence into `None` — the same meaning a legacy entry
+/// carries — so this backend needs no migration at all.
+#[test]
+fn redis_round_trips_the_final_url_via_resp_mock() {
+    let mock = RespMockServer::spawn().expect("mock listen");
+    let url = format!("redis://127.0.0.1:{}/0", mock.port);
+    let c = RedisCache::connect(&url).expect("connect mock redis");
+    let k = CacheKey::http_get(
+        "https://redis-mock.example/asked",
+        &CacheContext::direct("chrome-linux"),
+    );
+    c.put(
+        &k,
+        CacheEntry {
+            body: b"x".to_vec(),
+            content_type: Some("text/plain".into()),
+            expires_unix: 0,
+            final_url: Some("https://redis-mock.example/served".into()),
+        },
+    )
+    .expect("put");
+    let e = c.get(&k).expect("get").expect("hit");
+    assert_eq!(
+        e.final_url.as_deref(),
+        Some("https://redis-mock.example/served")
+    );
+    drop(mock);
 }

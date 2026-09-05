@@ -11,6 +11,14 @@ use super::call::call_on_element;
 /// Checks geometry AND style: a node with zero area, `visibility: hidden`,
 /// `display: none` or zero opacity is not visible even though it exists in the
 /// DOM. Anything that cannot be resolved counts as NOT visible.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// and the CDP error raised by `Runtime.callFunctionOn`. A call that returns
+/// no boolean is not an error: it answers `false`, which is the safe reading
+/// of "we could not prove this is visible".
 pub async fn is_element_visible(
     client: &CdpClient,
     session_id: &str,
@@ -40,6 +48,14 @@ pub async fn is_element_visible(
 }
 
 /// Whether the element accepts interaction (not `disabled`).
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// and the CDP error raised by `Runtime.callFunctionOn`. A call that returns
+/// no boolean answers `true`: an element with no `disabled` property — a
+/// `div`, say — is enabled.
 pub async fn is_element_enabled(
     client: &CdpClient,
     session_id: &str,
@@ -61,6 +77,14 @@ pub async fn is_element_enabled(
 }
 
 /// Checked state of a checkbox or radio input.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// and the CDP error raised by `Runtime.callFunctionOn`. An element that is
+/// neither a native checkbox/radio, nor ARIA-checkable, nor a label or
+/// wrapper around one is not an error: every branch falls through to `false`.
 pub async fn is_element_checked(
     client: &CdpClient,
     session_id: &str,

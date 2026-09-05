@@ -15,6 +15,15 @@ use super::call::call_on_element;
 /// for the attribute alone would report stale data for exactly the fields an
 /// agent most often reads, so the property is consulted when the attribute is
 /// absent. Returns JSON `null` when neither exists.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// — unknown `@eN` ref, unresolvable durable locator, or a selector matching
+/// nothing — and the CDP error raised by `Runtime.callFunctionOn`. Neither a
+/// missing attribute nor a missing property is an error: both yield JSON
+/// `null`.
 pub async fn get_element_attribute(
     client: &CdpClient,
     session_id: &str,
@@ -50,6 +59,14 @@ pub async fn get_element_attribute(
 ///
 /// Non-string values (a `number` input's `valueAsNumber`, for instance) yield
 /// an empty string rather than a coerced one.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// and the CDP error raised by `Runtime.callFunctionOn`. An element with no
+/// `value` property — anything that is not a form control — is not an error;
+/// it yields the empty string.
 pub async fn get_element_input_value(
     client: &CdpClient,
     session_id: &str,
@@ -77,6 +94,15 @@ pub async fn get_element_input_value(
 /// Setting the property alone is invisible to a framework listening for events,
 /// which is why both are dispatched with `bubbles: true`. This is the
 /// programmatic path; `type` synthesises real key events instead.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// and the CDP error raised by `Runtime.callFunctionOn` — which is also where
+/// a throwing setter or a read-only `value` surfaces. Assigning to an element
+/// that has no `value` property succeeds silently: the JS creates the property
+/// and the page ignores it.
 pub async fn set_element_value(
     client: &CdpClient,
     session_id: &str,

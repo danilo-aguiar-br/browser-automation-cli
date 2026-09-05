@@ -5,9 +5,9 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+use super::super::encoder_policy::resolve_effective_codecs;
 use super::super::ffmpeg_bin::require_ffmpeg;
 use super::super::probe::{duration_secs, primary_audio_codec, primary_video_codec, probe_path};
-use super::super::validate::resolve_effective_codecs;
 use super::atomic::{
     cleanup_partials, ensure_parent, ffmpeg_fail, finalize_partial, map_spawn_err, partial_path,
     sha256_file,

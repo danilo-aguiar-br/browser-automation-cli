@@ -1,7 +1,30 @@
 #!/usr/bin/env bash
-# E2E: exercise each of the 52 official Chrome DevTools agent tools on a real page.
+# E2E: exercise each of the official Chrome DevTools agent tools on a real page.
 # Usage: bash scripts/e2e_all_52_tools.sh
+#
+# WHY THIS IS NOT A ci-check VERIFIER (stated, not left to the naming accident)
+#   `ci-check.sh` discovers verifiers by the `scripts/*-check.sh` glob, and this
+#   file does not match it. That is the right outcome, but until now it was only
+#   an outcome: nothing here said the exclusion was INTENDED, so the file was
+#   indistinguishable from a verifier someone forgot to rename.
+#
+#   It is excluded because it needs a real Chrome and real network egress. A
+#   bundle step that fails on a host without a browser reports the host, not the
+#   product, and the whole point of the gate is that a red result means a defect.
+#   This runs by name, on a host that has what it needs.
+#
+# WHY THE NAME SAYS 52 AND THE RUN SAYS 53
+#   The count in the filename is frozen; the count in the output is not. `TOTAL`
+#   is computed at the end as PASS + FAIL + SKIP, so it follows the tool list.
+#   Renaming the file would break `docs/TESTING.md` and audit entries that cite
+#   this path, so the number stays in the name and the truth stays in the run.
 set -uo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${BIN:-$ROOT/target/release/browser-automation-cli}"
@@ -272,11 +295,18 @@ check_a "close_page" "close" "page"
 # ============================================================
 # Wave B — network capture on real https page
 # ============================================================
+# Fixture is rust-lang.org, not example.com. Measured 2026-08-28: it produces
+# 25 requests spanning SIX CDP resource types (Document, Stylesheet, Script,
+# Image, Font, Manifest), against example.com's single Document. A fixture with
+# one request and one type cannot tell a working resource-type filter from a
+# filter that matches nothing, and for the whole life of `--resource-types` it
+# did not.
 SCRIPT_B="$WORKDIR/wave_b.ndjson"
 cat >"$SCRIPT_B" <<EOF
-{"cmd":"goto","url":"https://example.com"}
-{"cmd":"wait","ms":400}
+{"cmd":"goto","url":"https://www.rust-lang.org"}
+{"cmd":"wait","ms":2500}
 {"cmd":"net","action":"list"}
+{"cmd":"net","action":"list","resource_types":"Document"}
 {"cmd":"net","action":"get","id":0}
 EOF
 set +e
@@ -284,24 +314,46 @@ OUT_B="$(timeout 180 "$BIN" run --script "$SCRIPT_B" --json --capture-network --
 RC_B=$?
 set -e
 printf '%s\n' "$OUT_B" >"$WORKDIR/logs/wave_b.json"
-if [[ $RC_B -eq 0 ]] && require_envelope "wave_b" "$OUT_B"; then
-  if printf '%s' "$OUT_B" | jaq -e '
-    (.data.steps // .steps // [])
-    | map(select(.cmd == "net" and .ok == true))
-    | length >= 1
-  ' >/dev/null 2>&1; then
-    record "list_network_requests" PASS "wave_b envelope+net step"
-    record "get_network_request" PASS "wave_b envelope+net step"
-  else
-    record "list_network_requests" PASS "wave_b envelope ok"
-    record "get_network_request" PASS "wave_b envelope ok"
-  fi
-elif printf '%s' "$OUT_B" | rg -q 'request|url|net|example'; then
-  record "list_network_requests" PASS "wave_b match"
-  record "get_network_request" PASS "wave_b match"
+# Negative proof, in a separate invocation: a resource type outside the CDP
+# vocabulary must be REFUSED by the parser, not answered with an empty list.
+# Without this the suite cannot distinguish "page has no such resource" from
+# "the filter is broken", which is exactly how the defect survived.
+set +e
+OUT_B_TYPO="$(timeout 60 "$BIN" --json net list --resource-types Documnet --capture-network 2>>"${E2E_STDERR_LOG}")"
+RC_B_TYPO=$?
+set -e
+# Exit 2 alone is no longer enough to prove the parser refused the token: the
+# top-level capture surface also refuses with 2, so both paths share a code.
+# The message is what separates them, and it must NAME the offending token.
+if printf %s "$OUT_B_TYPO" | rg -q "Documnet"; then TYPO_NAMED=1; else TYPO_NAMED=0; fi
+# Every branch below can FAIL. The previous version recorded PASS in three of
+# its four branches, one of them matching the literal word "net" in output that
+# always contains it, so these two tools were structurally incapable of
+# reporting a defect — and reported none while the filter returned zero always.
+if [[ $RC_B -ne 0 ]] || ! require_envelope "wave_b" "$OUT_B"; then
+  record "list_network_requests" FAIL "wave_b exit=$RC_B or malformed envelope"
+  record "get_network_request" FAIL "wave_b exit=$RC_B or malformed envelope"
 else
-  record "list_network_requests" FAIL "exit=$RC_B"
-  record "get_network_request" FAIL "exit=$RC_B"
+  if printf '%s' "$OUT_B" | jaq -e '
+    (.data.steps // .steps // []) | map(select(.cmd == "net")) as $n
+    | ($n | map(.ok) | all)
+      and (($n[0].data.count // 0) >= 1)
+      and ($n[0].data.requests | map((.resourceType // "") != "") | all)
+      and (($n[1].data.count // 0) >= 1)
+  '>/dev/null 2>&1 && [[ $RC_B_TYPO -eq 2 && $TYPO_NAMED -eq 1 ]]; then
+    record "list_network_requests" PASS "wave_b count>=1, resourceType on every record, filter selects, typo exits 2"
+  else
+    record "list_network_requests" FAIL "wave_b empty list, missing resourceType, filter selected nothing, or typo exit=$RC_B_TYPO (want 2)"
+  fi
+  if printf '%s' "$OUT_B" | jaq -e '
+    (.data.steps // .steps // []) | map(select(.cmd == "net")) as $n
+    | (($n[2].ok // false) == true)
+      and (($n[2].data.request.url // "") | length > 0)
+  ' >/dev/null 2>&1; then
+    record "get_network_request" PASS "wave_b get resolved a record with a url"
+  else
+    record "get_network_request" FAIL "wave_b get returned no record or no url"
+  fi
 fi
 
 # ============================================================

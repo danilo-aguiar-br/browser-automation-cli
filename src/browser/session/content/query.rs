@@ -11,6 +11,17 @@ use super::super::OneShotSession;
 
 impl OneShotSession {
     /// Read an element's text, or one attribute when `attr` is given.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the session has no active page, and with
+    /// [`ErrorKind::Browser`] —
+    /// `"extract attr failed: …"` or `"extract text failed: …"`, both carrying
+    /// the `target_ref_from_view` suggestion — when `target` resolves to no
+    /// element or the page call is refused.
+    ///
+    /// An attribute that does not exist is not an error: it comes back as JSON
+    /// `null` after the DOM-property fallback also misses.
     pub async fn extract(&mut self, target: &str, attr: Option<&str>) -> Result<Value, CliError> {
         self.drain_events();
         let session_id = self.session_id()?;
@@ -54,16 +65,31 @@ impl OneShotSession {
     }
 
     /// Read one attribute of an element.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`extract`](Self::extract) with `attr` set: no active page,
+    /// or `target` resolving to no element.
     pub async fn attr(&mut self, target: &str, name: &str) -> Result<Value, CliError> {
         self.extract(target, Some(name)).await
     }
 
     /// PRD §7 `text`: extract visible text from a target.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`extract`](Self::extract) with no attribute: no active
+    /// page, or `target` resolving to no element.
     pub async fn text(&mut self, target: &str) -> Result<Value, CliError> {
         self.extract(target, None).await
     }
 
     /// PRD §7 `scroll`: scroll window or element by delta pixels.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`scroll_ex`](Self::scroll_ex) with a delta-only request:
+    /// no active page, `target` resolving to no element, or a refused scroll.
     pub async fn scroll(
         &mut self,
         target: Option<&str>,
@@ -88,6 +114,18 @@ impl OneShotSession {
     ///
     /// The envelope carries `before` / `after` offsets and the container metrics so an
     /// agent can distinguish "already at the end" from "target is not scrollable".
+    ///
+    /// # Errors
+    ///
+    /// Fails when the session has no active page, and with
+    /// [`ErrorKind::Browser`] —
+    /// `"scroll failed: …"`, carrying the `target_ref_from_view` suggestion —
+    /// when `req.target` resolves to no element, when the document exposes no
+    /// scrolling element, or when the scroll helper is refused.
+    ///
+    /// A container that did not move is **not** an error: `moved: false` plus
+    /// `scrollable` is what tells "already at the end" from "not scrollable at
+    /// all".
     pub async fn scroll_ex(
         &mut self,
         req: interaction::ScrollRequest<'_>,

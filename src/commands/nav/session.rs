@@ -15,13 +15,50 @@ where
     F: FnOnce(OneShotSession) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = Result<(OneShotSession, serde_json::Value), CliError>> + Send,
 {
+    with_session_at(
+        life,
+        capture,
+        timeout_secs,
+        None,
+        crate::robots::RobotsPolicy::Honor,
+        f,
+    )
+}
+
+/// Same one-shot session lifecycle, navigated to `url` before `f` runs.
+///
+/// # Why this exists next to [`with_session_blank`]
+///
+/// A blank page is the right start for a command that acts on the browser
+/// itself. It is the wrong start for a command that measures a PAGE: a heap
+/// snapshot of `about:blank` is a correct answer to a question nobody asked.
+/// `url` of `None` reproduces [`with_session_blank`] exactly, so the existing
+/// callers keep the behaviour they were written against.
+///
+/// # Errors
+///
+/// Propagates launch, navigation, callback, and shutdown failures; the browser
+/// is closed and the lifecycle cleared on every path that reached launch.
+pub(crate) fn with_session_at<F, Fut>(
+    life: &Lifecycle,
+    capture: CaptureOpts,
+    timeout_secs: u64,
+    url: Option<String>,
+    robots: crate::robots::RobotsPolicy,
+    f: F,
+) -> Result<serde_json::Value, CliError>
+where
+    F: FnOnce(OneShotSession) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<(OneShotSession, serde_json::Value), CliError>> + Send,
+{
     block_on_browser_timeout(
         async move {
             let mut session = OneShotSession::launch_headless_with_capture(capture).await?;
             life.record_chrome(session.chrome_pid());
-            let _ = session
-                .goto("about:blank", crate::robots::RobotsPolicy::Honor)
-                .await?;
+            let target = url.as_deref().unwrap_or(crate::constants::ABOUT_BLANK);
+            // `about:blank` is not a fetch and robots has nothing to say about
+            // it; a real URL is honoured under the caller's policy.
+            let _ = session.goto(target, robots).await?;
             let (session, value) = f(session).await?;
             let close = session.shutdown().await;
             life.clear_chrome();

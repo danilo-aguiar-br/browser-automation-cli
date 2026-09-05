@@ -13,6 +13,7 @@
 - Uma chave sem padrão embutido permanece desativada até você defini-la
 - Segredos como `openrouter_api_key` e `encryption_key` são gravados com permissão `0600`
 - Segredos nunca aparecem em log, em stdout ou em envelope JSON
+- O bypass de robots continua exigindo `--ignore-robots` e `--i-accept-robots-risk` juntos na linha de comando
 - Descubra o caminho vencedor do arquivo com `config path`
 
 
@@ -33,9 +34,9 @@
 
 ## Núcleo e Idioma
 - `lang` — sobrescreve o idioma das mensagens humanas, aceitando `en` ou `pt-BR`, com `pt` puro rejeitado. Padrão: nenhum.
+- O `lang` seleciona o idioma apenas do campo `suggestion`; a `message` é o diagnóstico técnico e permanece em inglês em qualquer locale, a mesma divisão que `rustc` e `git` entregam — veja `docs/AGENTS.pt-BR.md`
 - `timeout` — timeout global de execução em segundos. Padrão: `0`.
 - `artifacts_dir` — diretório de saída dos artefatos gerados. Padrão: nenhum.
-- `ignore_robots` — ignora `robots.txt` por padrão, sendo que as flags de risco continuam obrigatórias. Padrão: nenhum.
 - `namespace` — namespace isolado de estado do produto. Padrão: nenhum.
 - `encryption_key` — material de chave para cifrar o estado de sessão. Padrão: nenhum.
 - `color` — habilita cores ANSI na saída humana enviada ao stderr. Padrão: nenhum.
@@ -44,6 +45,7 @@
 ## Registro de Log
 - `log_level` — filtro de tracing aplicado quando as flags de argv estão silenciosas, sem qualquer leitura de `RUST_LOG`. Padrão: `error`.
 - `log_to_file` — grava logs JSON locais rotacionados sob o diretório de estado XDG, nunca remotos. Padrão: nenhum.
+- `mitm/redact_policy.json` — default de redação de segredos persistido sob o diretório de estado XDG, gravado por `mitm redact --secrets true|false`. Lido apenas quando nem `--mitm-redact-secrets` nem `--mitm-no-redact-secrets` estão no argv; o argv sempre vence e o padrão embutido é redigir
 - `max_log_files` — número de arquivos de log rotacionados retidos, na faixa de 1 até 90. Padrão: `14`.
 - `log_rotation` — política de rotação, aceitando `daily`, `hourly` ou `never`. Padrão: `daily`.
 
@@ -84,14 +86,17 @@
 - `http_connect_timeout_secs` — timeout da fase de conexão HTTP em segundos. Padrão: `10`.
 - `http_redirect_max` — número máximo de redirecionamentos HTTP seguidos pelos clientes do produto. Padrão: `10`.
 - `http_pool_max_idle_per_host` — número máximo de conexões ociosas do pool `reqwest` por host. Padrão: `4`.
+- `scrape_max_body_bytes` — número máximo de bytes do corpo em scrape HTTP. Padrão: `5000000`.
+- `browser_scrape_max_body_bytes` — número máximo de bytes do corpo nos auxiliares de scrape do motor de navegador. Padrão: `2000000`.
 - `search_base_url` — URL base do endpoint HTML de busca, ao qual `?q=` é anexado. Padrão: `https://html.duckduckgo.com/html/`.
+- `user_data_dir` — diretório de perfil persistente do Chrome, opt-in. Ausente por padrão, e a ausência é o que preserva o residual-zero: o launch recebe um perfil descartável e a execução não deixa nada em disco. Defina apenas quando um detector atestar sessão entre invocações, porque perfil persistente é diretório que esta CLI nunca apaga por você. Criado com mode 0700 em Unix. `--profile` no argv vence esta chave. Padrão: ausente.
 
 
 ## Robots e Polidez
+- `ignore_robots` — ignora `robots.txt` por padrão, sendo que as flags de risco continuam obrigatórias. Padrão: nenhum.
 - `robots_loopback_exempt` — hosts de loopback pulam o `robots.txt`, e o valor `false` passa a exigir conformidade contra `localhost`. Padrão: `true`.
-- `robots_probe_timeout_secs` — timeout da sondagem HEAD do `robots.txt` em segundos. Padrão: `5`.
+- `robots_probe_timeout_secs` — timeout da requisição de `robots.txt` em segundos. Padrão: `5`.
 - `robots_max_body_bytes` — limite de bytes do corpo do `robots.txt`, como proteção contra estouro de memória. Padrão: `524288`.
-- `robots_fetch_timeout_secs` — timeout do download completo do `robots.txt` em segundos. Padrão: `30`.
 - `scrape_min_delay_ms` — atraso mínimo entre requisições GET de mesma origem em milissegundos. Padrão: `0`.
 - `scrape_delay_jitter_ratio` — razão de variação aleatória do atraso de polidez, de 0.0 até 1.0, com `0` desligando. Padrão: `0.2`.
 - `scrape_honor_meta_robots` — respeita as diretivas `meta robots` e `X-Robots-Tag` do tipo `noindex`. Padrão: `true`.
@@ -99,8 +104,6 @@
 
 
 ## Scrape e Crawl
-- `scrape_max_body_bytes` — número máximo de bytes do corpo em scrape HTTP. Padrão: `5000000`.
-- `browser_scrape_max_body_bytes` — número máximo de bytes do corpo nos auxiliares de scrape do motor de navegador. Padrão: `2000000`.
 - `scrape_max_text_chars` — número máximo de caracteres de texto ou markdown nos envelopes de scrape, com `0` removendo o teto. Padrão: `32768`.
 - `scrape_use_sitemap` — prefere o `sitemap.xml` ao mapear um site. Padrão: `true`.
 - `scrape_default_engine` — motor de scrape usado quando a CLI omite `--engine`, aceitando `http` ou `browser`. Padrão: `http`.
@@ -113,7 +116,7 @@
 - `scrape_sitemap_max_bytes` — número máximo de bytes do corpo do sitemap. Padrão: `524288`.
 - `scrape_charset_peek_bytes` — janela de inspeção usada para detectar o charset, em bytes. Padrão: `4096`.
 - `scrape_crawl_limit_max` — orçamento máximo de páginas do crawl, atuando como teto contra abuso para `--limit`. Padrão: `500`.
-- `scrape_crawl_max_depth` — profundidade máxima da busca em largura para crawl e map. Padrão: `10`.
+- `scrape_crawl_max_depth` — profundidade máxima da busca em largura (BFS) para `crawl` e `map`. Padrão: `10`.
 - `scrape_search_limit_max` — orçamento máximo de resultados de busca, atuando como teto contra abuso. Padrão: `50`.
 - `scrape_max_parse_bytes` — tamanho máximo de arquivo local aceito para parse antes da rejeição, em bytes. Padrão: `50000000`.
 - `max_urls_file_bytes` — número máximo de bytes da lista informada em `batch-scrape --urls-file`. Padrão: `8388608`.
@@ -158,7 +161,7 @@
 - `browser_close_wait_secs` — orçamento de espera por `Browser.close` e pelo término do processo durante a fase FINALIZE, em segundos. Padrão: `5`.
 - `residual_orphan_min_age_secs` — idade mínima antes que um perfil marcador de dono morto se torne coletável, em segundos. Padrão: `60`.
 - `platform_child_wait_secs` — prazo de espera pelo processo filho da plataforma em segundos. Padrão: `5`.
-- `shutdown_poll_ms` — intervalo de sondagem cooperativa durante o desligamento em milissegundos. Padrão: `5`.
+- `platform_child_poll_ms` — intervalo de sondagem de saída do processo filho durante o FINALIZE em milissegundos. Padrão: `50`.
 - `shutdown_deadline_secs` — prazo rígido de desligamento aguardando a saída do navegador, em segundos. Padrão: `30`.
 
 
@@ -171,8 +174,11 @@
 - `cdp_target_event_wait_ms` — espera curta por evento de target do CDP em milissegundos. Padrão: `600`.
 - `cdp_discovery_timeout_secs` — timeout da descoberta HTTP do CDP nas sondagens de `/json/version`, em segundos. Padrão: `2`.
 - `event_tracker_max_entries` — tamanho do anel em memória do rastreador de console e rede por sessão de página. Padrão: `1000`.
+- `capture_preserved_rings` — fronteiras de navegação mantidas para `--include-preserved` de console e rede. Padrão: `3`.
 - `event_pump_slice_ms` — fatia da bomba de eventos usada em `wait` e `eval`, em milissegundos. Padrão: `50`.
 - `eval_drain_slice_ms` — fatia de esvaziamento durante a espera pelos resultados de `Runtime.evaluate`, em milissegundos. Padrão: `40`.
+- `extension_attach_poll_ms` — fatia de sondagem ao anexar uma extensão, em milissegundos. Padrão: `150`.
+- `extension_attach_poll_iters` — iterações de sondagem ao anexar extensão; fatia vezes iterações é a espera total. Padrão: `20`.
 
 
 ## Motor Lightpanda
@@ -197,6 +203,7 @@
 - `browser_mode` — modo de janela: `auto` resolve para `headless`; `headed` coloca uma janela real no seu display, e no Linux essa janela é renderizada em um display virtual privado quando há Xvfb; `headless` é o mais barato e o mais detectável. `--headed` continua vencendo. Inverter o padrão de `auto` tem custo de latência e é decisão separada; o `doctor` reporta para que `auto` resolve neste host no check `virtual_display`, então a resposta nunca diverge do binário. Padrão: `auto`.
 - `stealth` — patches de anti-detecção aplicados antes da primeira navegação. `--no-stealth` desliga por uma execução. Padrão: `true`.
 - `stealth_profile` — identidade personificada: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`. `auto` segue o host, e é o único valor que não contradiz os hashes de Canvas e WebGL que a GPU real produz. Padrão: `auto`.
+- `doctor --fingerprint` (não é chave XDG) — campos do envelope `measurement_scope` (`linux-headless-xvfb`), `unmeasured_os` (`macos`, `windows`), `measurement_note`. Canvas/WebGL/áudio ao vivo só foram pontuados em Linux headless + Xvfb; os mesmos tipos compilam em macOS e Windows.
 - `proxy_url` — proxy de saída para o Chrome e para o motor HTTP (`http`, `https`, `socks5`, `socks5h`). Guarde credenciais aqui em vez de `--proxy`, onde a tabela de processos as expõe. Padrão: nenhum.
 - `proxy_bypass` — hosts que ignoram o proxy, na sintaxe de bypass-list do Chrome. Padrão: nenhum.
 - `proxy_username` — nome de conta do proxy, enviado como basic auth. Fica aqui e não no argv, onde a tabela de processos o exporia. Padrão: nenhum.
@@ -219,9 +226,18 @@
 - `input_scroll_max_ticks` — teto do número de tiques de roda que um gesto de rolagem sintetiza. Cada tique é um round-trip CDP, então sem teto o custo da rolagem cresce linearmente com a distância pedida e um `--delta-y` grande esgota o timeout do comando. Acima do teto cada tique carrega mais pixels; o percurso total não muda e só a granularidade degrada. Padrão: `40`.
 - `input_target_jitter_px` — raio do deslocamento aleatório aplicado ao alvo do clique, em pixels CSS. Padrão: `3`.
 - `input_scroll_settle_rounds` — rodadas extras permitidas para entregar um delta de roda que o renderizador descartou. Padrão: `3`.
+- `input_timing_distribution` — forma da dispersão sorteada em torno de cada atraso de input: `lognormal`, `normal` ou `uniform`. `lognormal` é o padrão porque o intervalo humano entre teclas é assimétrico à direita, e um sorteio simétrico reproduz a largura da distribuição humana sem a assimetria dela. Ela governa apenas o ritmo rápido; a cauda de pausas longas é `input_word_pause_permille`. Toda média recebe um piso de 5% de dispersão e é truncada entre um quarto e quatro vezes ela mesma, então zerar um desvio padrão não compra a variância zero que um detector lê como máquina. Padrão: `lognormal`.
+- `input_move_steps_stddev` — desvio padrão do orçamento de amostras de ponteiro por gesto, para que dois movimentos sobre a mesma distância não carreguem o mesmo número de posições intermediárias. Um drag reescala esse valor para o próprio orçamento menor em vez de herdar o número absoluto. Padrão: `6`.
+- `input_move_gap_stddev_ms` — desvio padrão do atraso entre as posições sintetizadas do ponteiro, em milissegundos. Padrão: `5`.
+- `input_click_dwell_stddev_ms` — desvio padrão da retenção entre pressionar e soltar o botão, em milissegundos. Padrão: `26`.
+- `input_key_dwell_stddev_ms` — desvio padrão da retenção entre `keyDown` e `keyUp`, em milissegundos. Padrão: `18`.
+- `input_type_delay_stddev_ms` — desvio padrão do atraso entre caracteres, em milissegundos. Um chamador que pede o próprio ritmo de digitação recebe essa dispersão reescalada na mesma proporção, então metade da média vira metade da largura, em vez de um valor absoluto que já não cabe. Padrão: `40`.
+- `input_scroll_tick_stddev_px` — desvio padrão da distância que um tique de roda sintetizado carrega, em pixels CSS. Padrão: `25`.
+- `input_word_pause_ms` — média da pausa extra tomada em um limite de palavra ou de frase, em milissegundos, ela mesma dispersa por metade do próprio valor. Essa pausa é o que produz a cauda longa à direita de um traço de digitação, que nenhum jitter em torno da média por caractere cria. Padrão: `320`.
+- `input_word_pause_permille` — chance em mil de um limite de palavra ou de frase ganhar essa pausa longa. `0` remove a cauda e deixa só o ritmo rápido. Padrão: `120`.
+- `input_typo_permille` — chance em mil de um caractere ser digitado errado, apagado com `Backspace` e redigitado. O campo termina sempre com exatamente o texto pedido. `0` por padrão, e é a única chave de humanização que é: todas as outras dispersam TEMPO, que a página não lê como valor diferente, enquanto esta muda o FLUXO DE CARACTERES, então um ouvinte de `input` vê o prefixo errado e pode autocompletar ou navegar com ele. A tecla errada é sempre uma vizinha física na fileira QWERTY. Padrão: `0`.
 - `support_settle_ms` — estabilização da thread de suporte para os auxiliares síncronos, em milissegundos. Padrão: `80`.
 - `nav_micro_settle_ms` — microestabilização de navegação após transições de página, em milissegundos. Padrão: `100`.
-- `extension_attach_poll_ms` — fatia de sondagem ao anexar uma extensão, em milissegundos. Padrão: `150`.
 
 
 ## Screencast e Perf
@@ -291,8 +307,9 @@
 
 
 ## Viewport e Estado
-- `default_viewport_width` — largura padrão da janela do Chrome headless quando as opções de inicialização omitem o viewport. Padrão: `1280`.
-- `default_viewport_height` — altura padrão da janela do Chrome headless quando as opções de inicialização omitem o viewport. Padrão: `720`.
+- `default_viewport_width` — largura padrão da janela do Chrome headless (`--window-size`) quando as opções de inicialização omitem o viewport. Padrão: `1920`. Distinto de `screen`: é a janela do processo e o fallback de screenshot/screencast, não `screen.width`.
+- `default_viewport_height` — altura padrão da janela do Chrome headless (`--window-size`) quando as opções de inicialização omitem o viewport. Padrão: `1080`.
+- `screen` — Tela da página `WxH` para `Emulation.setDeviceMetricsOverride` (`screen.width`/`screen.height`). Ausente = espelha o viewport. Argv `--screen` e o campo `screen` de emulate/resize no `run` ainda vencem. Nunca menor que o viewport. Padrão: nenhum.
 - `state_collect_deadline_secs` — prazo externo da coleta de storage via CDP em segundos. Padrão: `5`.
 - `state_event_recv_secs` — fatia de recebimento de eventos de storage do CDP em segundos. Padrão: `2`.
 - `state_load_settle_ms` — atraso de estabilização após a navegação de `load_state`, em milissegundos. Padrão: `500`.

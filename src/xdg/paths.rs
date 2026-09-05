@@ -19,6 +19,12 @@ const ORGANIZATION: &str = "browser-automation";
 const APPLICATION: &str = env!("CARGO_PKG_NAME");
 
 /// Resolve platform project directories.
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] when `ProjectDirs::from` cannot locate a home directory
+/// (no `$HOME` on Unix, no known-folder path on Windows). The suggestion points
+/// at the `xdg_home_required` remediation.
 pub fn project_dirs() -> Result<ProjectDirs, CliError> {
     ProjectDirs::from(QUALIFIER, ORGANIZATION, APPLICATION).ok_or_else(|| {
         CliError::with_suggestion(
@@ -30,21 +36,42 @@ pub fn project_dirs() -> Result<ProjectDirs, CliError> {
 }
 
 /// Config directory (`…/browser-automation-cli`).
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`project_dirs`] when no home directory
+/// can be resolved; the config directory itself is derived infallibly.
 pub fn config_dir() -> Result<PathBuf, CliError> {
     Ok(project_dirs()?.config_dir().to_path_buf())
 }
 
 /// Data directory (sessions, journals, durable artifacts).
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`project_dirs`] when no home directory
+/// can be resolved; the data directory itself is derived infallibly.
 pub fn data_dir() -> Result<PathBuf, CliError> {
     Ok(project_dirs()?.data_dir().to_path_buf())
 }
 
 /// Cache directory (lighthouse reports, HTTP scrape cache, browsers cache).
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`project_dirs`] when no home directory
+/// can be resolved; the cache directory itself is derived infallibly.
 pub fn cache_dir() -> Result<PathBuf, CliError> {
     Ok(project_dirs()?.cache_dir().to_path_buf())
 }
 
 /// State directory (runtime state, workflow journal default).
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`project_dirs`]. A platform without a
+/// dedicated state directory is not an error: it falls back to
+/// `<data_dir>/state`.
 pub fn state_dir() -> Result<PathBuf, CliError> {
     let pd = project_dirs()?;
     #[allow(deprecated)]
@@ -56,46 +83,93 @@ pub fn state_dir() -> Result<PathBuf, CliError> {
 }
 
 /// Default browsers cache under XDG cache.
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`cache_dir`], itself propagated from
+/// [`project_dirs`] when no home directory can be resolved.
 pub fn browsers_dir() -> Result<PathBuf, CliError> {
     Ok(cache_dir()?.join("browsers"))
 }
 
 /// Ephemeral Chrome user-data profiles under XDG cache (residual-aware marker prefix).
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`cache_dir`], itself propagated from
+/// [`project_dirs`] when no home directory can be resolved.
 pub fn chrome_profiles_dir() -> Result<PathBuf, CliError> {
     Ok(cache_dir()?.join("chrome-profiles"))
 }
 
 /// Default sessions directory under XDG state.
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`state_dir`], itself propagated from
+/// [`project_dirs`] when no home directory can be resolved.
 pub fn sessions_dir() -> Result<PathBuf, CliError> {
     Ok(state_dir()?.join("sessions"))
 }
 
 /// Default workflow journal directory.
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`state_dir`], itself propagated from
+/// [`project_dirs`] when no home directory can be resolved.
 pub fn workflow_dir() -> Result<PathBuf, CliError> {
     Ok(state_dir()?.join("workflows"))
 }
 
 /// Rotated local tracing files under XDG state (`log_to_file`; never remote telemetry).
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`state_dir`], itself propagated from
+/// [`project_dirs`] when no home directory can be resolved.
 pub fn log_dir() -> Result<PathBuf, CliError> {
     Ok(state_dir()?.join("log"))
 }
 
 /// Default MITM CA directory.
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`data_dir`], itself propagated from
+/// [`project_dirs`] when no home directory can be resolved.
 pub fn mitm_ca_dir() -> Result<PathBuf, CliError> {
     Ok(data_dir()?.join("mitm").join("ca"))
 }
 
 /// Default MITM capture directory for the invocation artifacts.
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`state_dir`], itself propagated from
+/// [`project_dirs`] when no home directory can be resolved.
 pub fn mitm_capture_dir() -> Result<PathBuf, CliError> {
     Ok(state_dir()?.join("mitm"))
 }
 
 /// Path to the TOML config file.
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`config_dir`], itself propagated from
+/// [`project_dirs`] when no home directory can be resolved.
 pub fn config_file() -> Result<PathBuf, CliError> {
     Ok(config_dir()?.join("config.toml"))
 }
 
 /// Ensure a directory exists with restrictive permissions when possible.
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] when `std::fs::create_dir_all` fails — a missing parent
+/// that cannot be created, a permission denial, or a non-directory component in
+/// the path. Tightening the mode to `0o700` on Unix is best-effort and never
+/// turns into an error.
 pub fn ensure_dir(path: &Path) -> Result<(), CliError> {
     fs::create_dir_all(path).map_err(|e| {
         CliError::new(
@@ -103,15 +177,28 @@ pub fn ensure_dir(path: &Path) -> Result<(), CliError> {
             format!("create directory {}: {e}", path.display()),
         )
     })?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o700));
-    }
+    // `0700` and not best-effort: this directory holds the MITM CA private key,
+    // the config file with `proxy_password`, and the stealth seed cache. A
+    // failure here used to be discarded, leaving the whole tree at whatever the
+    // umask allowed while the product reported success.
+    crate::platform::restrict_to_owner(path, 0o700).map_err(|e| {
+        CliError::new(
+            ErrorKind::Io,
+            format!("restrict directory {}: {e}", path.display()),
+        )
+    })?;
     Ok(())
 }
 
 /// Create all standard XDG product directories.
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] from [`project_dirs`] when no home directory resolves, or
+/// from [`ensure_dir`] when any of the product directories cannot be created.
+/// [`ErrorKind::Io`] also propagates from
+/// [`write_config`] when the default
+/// `config.toml` is materialized on first run.
 pub fn init_layout() -> Result<Value, CliError> {
     let cfg = config_dir()?;
     let data = data_dir()?;
@@ -149,6 +236,12 @@ pub fn init_layout() -> Result<Value, CliError> {
 }
 
 /// JSON snapshot of all resolved paths (for `config path` / doctor).
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] propagated from [`project_dirs`] via the individual path
+/// accessors when no home directory can be resolved. Nothing is created or
+/// written here, so no other failure mode exists.
 pub fn paths_snapshot() -> Result<Value, CliError> {
     let home = BaseDirs::new().map(|b| b.home_dir().display().to_string());
     let user_dirs = UserDirs::new().map(|u| u.home_dir().display().to_string());

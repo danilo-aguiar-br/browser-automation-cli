@@ -1,87 +1,167 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Product-owned patches that the emulation crate does not cover.
 //!
-//! # Why this file exists at all
+//! # Why `navigator.webdriver` stays present
 //!
-//! It was written against a measurement, not against a document. The first
-//! version of this layer trusted the crate's own guidance — "You should not
-//! need this if you use the cli args ... `disabled-features=AutomationEnabled`"
-//! — and passed `--disable-blink-features=AutomationControlled` instead of
-//! patching from inside the page.
+//! A real Chrome always defines `webdriver` on `Navigator.prototype`. The
+//! value is the boolean `false` when the session is not automated. Deleting
+//! the property makes `'webdriver' in navigator` return `false` and
+//! `String(navigator.webdriver)` return `undefined` — an anomaly no genuine
+//! Chrome produces. A detector that tests *presence* therefore scores a
+//! deleted property as more automated than the unpatched `false`.
 //!
-//! Measured on Chrome against a local probe page, with stealth on and off:
-//!
-//! ```text
-//! stealth off -> {"webdriver": false, "webdriver_type": "boolean", ...}
-//! stealth on  -> {"webdriver": false, "webdriver_type": "boolean", ...}
-//! ```
-//!
-//! The switch changed nothing, and `false` is the worst of the three possible
-//! answers. A real Chrome reports `undefined`, because the property does not
-//! exist. `true` says "automated". `false` says "something removed the flag",
-//! which only automation ever has reason to do — so the defensive value is
-//! itself the tell.
-//!
-//! The fix is deletion, not a getter. Overriding the getter to return `false`
-//! leaves the property present and leaves a patched
-//! `Function.prototype.toString` behind. Deleting it from the prototype makes
-//! `navigator.webdriver` `undefined` AND `'webdriver' in navigator` false,
-//! which is what an unautomated browser reports.
+//! The patch defines the getter as `false` and leaves the property in place.
 
 /// Patches applied before the crate's emulation payload.
 ///
-/// Ordering matters: this runs first so the crate's script observes a browser
-/// that already looks unautomated, rather than racing it for the same
-/// properties.
-pub const PRODUCT_PATCHES: &str = r#"(()=>{try{
+/// `navigator_platform` is interpolated so a foreign `--stealth-profile`
+/// cannot leave `navigator.platform` on the host OS while the User-Agent
+/// claims another one.
+pub fn product_patches(navigator_platform: &str) -> String {
+    let platform = js_string_literal(navigator_platform);
+    format!(
+        r#"(()=>{{try{{
 const proto = Object.getPrototypeOf(navigator);
-if (proto && 'webdriver' in proto) { delete proto.webdriver; }
-if ('webdriver' in navigator) { try { delete navigator.webdriver; } catch (_) {} }
-}catch(_){}
-try{
-const c = window.chrome || {};
-if (!c.runtime) {
-  Object.defineProperty(c, 'runtime', {
-    value: { id: undefined, connect: function connect(){}, sendMessage: function sendMessage(){} },
+if (proto) {{
+  Object.defineProperty(proto, 'webdriver', {{
+    get: function() {{ return false; }},
+    configurable: true,
+    enumerable: true
+  }});
+}}
+try {{ delete navigator.webdriver; }} catch (_) {{}}
+}}catch(_){{}}
+try{{
+const c = window.chrome || {{}};
+if (!c.runtime) {{
+  Object.defineProperty(c, 'runtime', {{
+    value: {{ id: undefined, connect: function connect(){{}}, sendMessage: function sendMessage(){{}} }},
     enumerable: true, configurable: true
-  });
+  }});
+}}
+Object.defineProperty(window, 'chrome', {{ value: c, writable: true, enumerable: true, configurable: true }});
+}}catch(_){{}}
+try{{
+Object.defineProperty(navigator, 'platform', {{ get: function() {{ return {platform}; }}, configurable: true }});
+}}catch(_){{}}
+}})();"#
+    )
 }
-Object.defineProperty(window, 'chrome', { value: c, writable: true, enumerable: true, configurable: true });
-}catch(_){}
-try{
-if (window.outerHeight === 0) { Object.defineProperty(window, 'outerHeight', { get: () => window.innerHeight, configurable: true }); }
-if (window.outerWidth === 0) { Object.defineProperty(window, 'outerWidth', { get: () => window.innerWidth, configurable: true }); }
-}catch(_){}
-})();"#;
+
+/// Replace the Linux crate bug that recurses through wrapped `getImageData`.
+///
+/// The crate saves `getImageData` then, on Linux only, calls
+/// `t.getImageData(...)` from `noisify` *after* wrapping the prototype.
+/// Mac and Windows already use `getImageData.apply(t,[...])`.
+#[must_use]
+pub fn sanitize_crate_canvas(emulated: &str) -> String {
+    emulated.replace(
+        "a=t.getImageData(0,0,r,n)",
+        "a=getImageData.apply(t,[0,0,r,n])",
+    )
+}
+
+/// Restore native canvas methods after the crate payload.
+///
+/// `Fingerprint::NativeGPU` already chose the host GPU. A broken noise wrap
+/// is worse than an honest hash: `toDataURL` must return a PNG, not throw.
+#[must_use]
+pub fn canvas_restore_native() -> String {
+    r#"(function(){try{
+var d=document.documentElement||document.head||document.body;
+if(!d)return;
+var f=document.createElement('iframe');
+f.setAttribute('style','display:none');
+d.appendChild(f);
+var w=f.contentWindow;
+if(!w){f.remove();return;}
+var nT=w.HTMLCanvasElement.prototype.toDataURL;
+var nB=w.HTMLCanvasElement.prototype.toBlob;
+var nG=w.CanvasRenderingContext2D.prototype.getImageData;
+f.remove();
+Object.defineProperty(HTMLCanvasElement.prototype,'toDataURL',{value:function(){return nT.apply(this,arguments);},configurable:true});
+Object.defineProperty(HTMLCanvasElement.prototype,'toBlob',{value:function(){return nB.apply(this,arguments);},configurable:true});
+Object.defineProperty(CanvasRenderingContext2D.prototype,'getImageData',{value:function(){return nG.apply(this,arguments);},configurable:true});
+}catch(_){}})();"#
+        .to_string()
+}
+
+/// Re-apply `navigator.platform` after the crate payload, which may overwrite it.
+pub fn platform_patch(navigator_platform: &str) -> String {
+    let platform = js_string_literal(navigator_platform);
+    format!(
+        r#"(()=>{{try{{Object.defineProperty(navigator,'platform',{{get:function(){{return {platform};}},configurable:true}});}}catch(_){{}}}})();"#
+    )
+}
+
+fn js_string_literal(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('\'', "\\'");
+    format!("'{escaped}'")
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn webdriver_is_deleted_not_set_to_false() {
-        // Setting it to `false` is the documented anti-pattern: a real browser
-        // has no such property, so a defined-and-false value announces that
-        // something removed it.
-        assert!(PRODUCT_PATCHES.contains("delete proto.webdriver"));
+    fn webdriver_stays_present_and_false() {
+        let patches = product_patches("Win32");
         assert!(
-            !PRODUCT_PATCHES.contains("webdriver:false")
-                && !PRODUCT_PATCHES.contains("webdriver', {get: () => false"),
-            "webdriver must be deleted, never assigned false"
+            patches.contains("return false"),
+            "webdriver getter must return false"
         );
+        assert!(
+            !patches.contains("delete proto.webdriver"),
+            "deleting the property is the tell the patch exists to avoid"
+        );
+        assert!(patches.contains("webdriver"));
+        assert!(patches.contains("'webdriver'"));
+    }
+
+    #[test]
+    fn platform_is_the_identity_spelling() {
+        let patches = product_patches("Win32");
+        assert!(patches.contains("'Win32'"));
+        let after = platform_patch("MacIntel");
+        assert!(after.contains("'MacIntel'"));
     }
 
     #[test]
     fn every_patch_is_individually_guarded() {
-        // One `try` around the whole script would let the first failure skip
-        // every later patch. Each concern gets its own.
-        assert!(PRODUCT_PATCHES.matches("try{").count() >= 3);
+        let patches = product_patches("Linux x86_64");
+        assert!(patches.matches("try{").count() >= 3);
+    }
+
+    /// Window geometry moved to `chrome_geometry`, which owns the whole set.
+    ///
+    /// The old conditional here answered `outerHeight = innerHeight` whenever
+    /// headless reported zero, which is a browser with no title bar. Leaving it
+    /// in place would fight the new patch for the same property.
+    #[test]
+    fn product_patches_no_longer_own_the_window_geometry() {
+        let patches = product_patches("Linux x86_64");
+        assert!(!patches.contains("outerHeight"));
+        assert!(!patches.contains("outerWidth"));
     }
 
     #[test]
-    fn outer_dimensions_are_only_patched_when_they_are_zero() {
-        // A headed browser reports real values; overwriting them would replace
-        // a true answer with a guess.
-        assert!(PRODUCT_PATCHES.contains("window.outerHeight === 0"));
+    fn platform_literal_escapes_quotes() {
+        assert_eq!(js_string_literal("O'Reilly"), "'O\\'Reilly'");
+    }
+
+    #[test]
+    fn sanitize_rewrites_the_linux_recursive_getimagedata() {
+        let buggy = "a=t.getImageData(0,0,r,n)";
+        let fixed = sanitize_crate_canvas(buggy);
+        assert!(!fixed.contains("t.getImageData(0,0"));
+        assert!(fixed.contains("getImageData.apply(t,[0,0,r,n])"));
+    }
+
+    #[test]
+    fn canvas_restore_mentions_native_methods() {
+        let js = canvas_restore_native();
+        assert!(js.contains("toDataURL"));
+        assert!(js.contains("getImageData"));
+        assert!(js.contains("iframe"));
     }
 }

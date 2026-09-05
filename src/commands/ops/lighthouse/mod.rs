@@ -53,7 +53,10 @@ mod lighthouse_tests {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let mock = root.join("scripts/mock-lighthouse.sh");
         if !mock.is_file() {
-            eprintln!("skip: mock-lighthouse.sh missing");
+            crate::test_utils::skip_unit_test(
+                "lighthouse_mock",
+                "scripts/mock-lighthouse.sh missing.",
+            );
             return;
         }
         #[cfg(unix)]

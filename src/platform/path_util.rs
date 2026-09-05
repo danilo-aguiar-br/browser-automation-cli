@@ -43,6 +43,57 @@ pub fn which_bin(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Create a file that is private to its owner from the moment it exists.
+///
+/// # Why creation and not a later chmod
+///
+/// `File::create` honours the process umask, which is commonly `0o022`, so the
+/// file is born world-readable. Restricting it afterwards leaves a window in
+/// which any local user can read it, and for a file that holds a private key or
+/// a proxy password that window is the whole vulnerability. Passing the mode to
+/// `open` closes it: the file never exists in a readable state.
+///
+/// # Why the error is returned instead of ignored
+///
+/// The call sites this replaces all discarded the result. A chmod that fails —
+/// an exotic filesystem, a restrictive mount — then left the secret readable
+/// permanently, with nothing in the output to say so. A security control that
+/// cannot report its own failure is indistinguishable from one that is absent.
+///
+/// # Non-Unix platforms
+///
+/// Windows inherits the ACL of the containing directory, which the previous
+/// `cfg(unix)` blocks left entirely unaddressed. Callers holding a secret
+/// should keep it under a directory the product itself created private.
+pub fn create_private_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    opts.open(path)
+}
+
+/// Restrict an existing path to its owner, reporting failure instead of hiding it.
+///
+/// Prefer [`create_private_file`] when the file is being created: this function
+/// still leaves the window between creation and restriction, and exists only
+/// for paths the product did not open itself, such as a directory.
+pub fn restrict_to_owner(path: &Path, mode: u32) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+    }
+    Ok(())
+}
+
 /// True when `path` is a regular file and (on Unix) has any execute bit.
 pub fn is_executable_file(path: &Path) -> bool {
     if !path.is_file() {

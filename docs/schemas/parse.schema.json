@@ -5,6 +5,20 @@
   "type": "object",
   "description": "Parse a local file (html/md/txt/pdf/docx/xlsx text extract)",
   "properties": {
+    "format": {
+      "argv": "--format",
+      "description": "Scrape formats to derive from the parsed file (CSV or repeatable)",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "source": "parser",
+      "step_key": "format",
+      "surfaces": [
+        "argv"
+      ],
+      "type": "array"
+    },
     "path": {
       "argv": "<PATH>",
       "description": "Local file to extract text from",

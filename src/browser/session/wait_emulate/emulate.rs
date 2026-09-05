@@ -14,6 +14,29 @@ impl OneShotSession {
     // network, CPU, color scheme, headers, viewport).
     #[allow(clippy::too_many_arguments)]
     /// Apply device/network/geolocation emulation presets via CDP.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Usage`] for a
+    /// `user_agent` whose platform contradicts the active stealth profile — a
+    /// pair no real browser emits, and a stronger signal than the untouched
+    /// identity — for an unknown `network_conditions` preset, for a
+    /// `color_scheme` outside `dark` / `light` / `auto`, for an
+    /// `extra_headers_json` that is not a JSON object, and for a malformed
+    /// `viewport` spec.
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when no page is active, and when any individual CDP override is
+    /// refused — `"emulate ua: …"`, `"emulate locale: …"`,
+    /// `"emulate timezone: …"`, `"emulate network: …"`,
+    /// `"emulate offline: …"`, `"emulate cpu throttle: …"`,
+    /// `"emulate geo: …"`, `"emulate color-scheme: …"`, `"emulate media: …"`,
+    /// `"emulate headers: …"`, `"emulate viewport: …"`, `"emulate screen: …"`.
+    ///
+    /// The overrides are applied in that order and the first failure stops the
+    /// call, so an error leaves the earlier ones ALREADY in effect. An empty
+    /// `user_agent` is not an error: clearing an override is not portable
+    /// across engines, so it is skipped.
     pub async fn emulate(
         &mut self,
         user_agent: Option<&str>,
@@ -39,6 +62,17 @@ impl OneShotSession {
             if ua.is_empty() {
                 // clear override with empty UA not portable; skip
             } else {
+                let profile = crate::browser_policy::stealth_profile();
+                if crate::native::stealth::ua_contradicts_profile(ua, profile) {
+                    return Err(CliError::with_suggestion(
+                        ErrorKind::Usage,
+                        format!(
+                            "emulate --user-agent claims a platform that contradicts stealth profile `{}`",
+                            profile.as_str()
+                        ),
+                        crate::i18n::suggestion_key("stealth_profile_ua", None),
+                    ));
+                }
                 self.manager
                     .set_user_agent_without_client_hints(ua)
                     .await
@@ -168,6 +202,12 @@ impl OneShotSession {
                 )
                 .await
                 .map_err(|e| CliError::new(ErrorKind::Browser, format!("emulate viewport: {e}")))?;
+            self.last_device_metrics = (
+                spec.width,
+                spec.height,
+                spec.device_scale_factor,
+                spec.mobile,
+            );
             applied_viewport = Some(json!({
                 "width": spec.width,
                 "height": spec.height,
@@ -176,7 +216,39 @@ impl OneShotSession {
                 "has_touch": spec.has_touch,
                 "is_landscape": spec.is_landscape,
             }));
+        } else if crate::native::stealth::current_screen_override().is_some() {
+            let (width, height, scale, mobile) = self.last_device_metrics;
+            self.manager
+                .set_viewport(width, height, scale, mobile)
+                .await
+                .map_err(|e| CliError::new(ErrorKind::Browser, format!("emulate screen: {e}")))?;
+            applied_viewport = Some(json!({
+                "width": width,
+                "height": height,
+                "device_scale_factor": scale,
+                "mobile": mobile,
+            }));
         }
+
+        let applied_screen = if applied_viewport.is_some()
+            || crate::native::stealth::current_screen_override().is_some()
+        {
+            let (width, height, _, _) = self.last_device_metrics;
+            let (sw, sh) = crate::native::stealth::resolve_screen(width, height);
+            Some(json!({ "width": sw, "height": sh }))
+        } else {
+            None
+        };
+        // `resolved_screen_source` and not `current_screen_source`: the second
+        // answers where the REQUEST came from and keeps saying `step` even when
+        // the floor overrode the requested value, which is a provenance the
+        // number never had.
+        let screen_source = if applied_screen.is_some() {
+            let (vw, vh, _, _) = self.last_device_metrics;
+            Some(crate::native::stealth::resolved_screen_source(vw, vh).as_str())
+        } else {
+            None
+        };
 
         Ok(json!({
             "emulated": true,
@@ -192,6 +264,8 @@ impl OneShotSession {
             "color_scheme": color_scheme,
             "extra_headers": extra_headers_json.is_some(),
             "viewport": applied_viewport,
+            "screen": applied_screen,
+            "screen_source": screen_source,
         }))
     }
 }

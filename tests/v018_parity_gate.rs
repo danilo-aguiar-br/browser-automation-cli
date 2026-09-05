@@ -31,10 +31,11 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
+
+mod common;
 
 /// Flipped by the monitor gate to make the same URL serve different bytes.
 static BODY_VERSION: AtomicUsize = AtomicUsize::new(0);
@@ -43,22 +44,21 @@ static BODY_VERSION: AtomicUsize = AtomicUsize::new(0);
 static ROOT_HITS: AtomicUsize = AtomicUsize::new(0);
 static DEEP_HITS: AtomicUsize = AtomicUsize::new(0);
 
-/// The binary under test, resolved by cargo at COMPILE time.
-///
-/// The first version of this file hardcoded `target/debug/browser-automation-cli`
-/// and skipped when it was absent — with an `eprintln!` libtest swallows, so all
-/// fourteen tests reported `ok` while measuring nothing. Under `--release`, a
-/// custom `CARGO_TARGET_DIR` or `--target`, that is a silently empty gate.
-///
-/// `CARGO_BIN_EXE_<name>` is set by cargo for integration tests and points at the
-/// binary actually built for this run, so there is no path to guess and no skip
-/// to hide behind. The rationale is spelled out at length in
-/// `tests/image_media_cli_e2e.rs`; this file simply stopped ignoring it.
-const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
-
-fn binary() -> Option<PathBuf> {
-    Some(PathBuf::from(BIN))
-}
+// The binary under test, resolved by cargo at COMPILE time.
+//
+// The first version of this file hardcoded `target/debug/browser-automation-cli`
+// and skipped when it was absent — with an `eprintln!` libtest swallows, so all
+// fourteen tests reported `ok` while measuring nothing. Under `--release`, a
+// custom `CARGO_TARGET_DIR` or `--target`, that is a silently empty gate.
+//
+// `CARGO_BIN_EXE_<name>` is set by cargo for integration tests and points at the
+// binary actually built for this run, so there is no path to guess and no skip
+// to hide behind. The rationale is spelled out at length in
+// `tests/image_media_cli_e2e.rs`; this file simply stopped ignoring it.
+//
+// Plain comments, not doc comments: the `bin()` these lines documented moved to
+// `tests/common/mod.rs` in 0.1.9, and a `///` block with no item under it is a
+// rustdoc warning as well as a lie about what it describes.
 
 /// Kept so the call sites read the same; the gate can no longer fail to find its
 /// own binary, so this is always false.
@@ -132,14 +132,25 @@ fn serve_one(mut stream: TcpStream) {
     let _ = stream.write_all(response.as_bytes());
 }
 
-fn config_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("bac-v018-{name}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create isolated config dir");
-    dir
+/// An isolated XDG config dir so the gate never reads the developer's config.
+///
+/// The guard is returned, not the path: dropping it removes the directory, and a
+/// caller holding only the path would hand the CLI a config home that no longer
+/// exists. The old body used a pid-keyed name with no removal at all, so a full
+/// run of this file left sixteen directories behind for good.
+fn config_dir(name: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("bac-v018-{name}-"))
+        .tempdir()
+        .expect("create isolated config dir")
 }
 
-fn raw(cfg: &PathBuf, args: &[&str]) -> (serde_json::Value, i32) {
-    let out = Command::new(binary().expect("binary"))
+fn raw(cfg: &Path, args: &[&str]) -> (serde_json::Value, i32) {
+    let out = common::cmd()
+        // `HOME` is what isolates config on macOS: `directories` resolves to
+        // ~/Library/Application Support and never reads `XDG_CONFIG_HOME`.
+        // Full measurement (2026-09-04) lives in `tests/scrape_wave6_gate.rs`.
+        .env("HOME", cfg)
         .env("XDG_CONFIG_HOME", cfg)
         .args(args)
         .output()
@@ -156,20 +167,20 @@ fn raw(cfg: &PathBuf, args: &[&str]) -> (serde_json::Value, i32) {
     (v, code)
 }
 
-fn run(cfg: &PathBuf, args: &[&str]) -> serde_json::Value {
+fn run(cfg: &Path, args: &[&str]) -> serde_json::Value {
     raw(cfg, args).0
 }
 
-fn set(cfg: &PathBuf, key: &str, value: &str) {
+fn set(cfg: &Path, key: &str, value: &str) {
     let v = run(cfg, &["-q", "--json", "config", "set", key, value]);
     assert_eq!(v["ok"], serde_json::json!(true), "config set {key}={value}");
 }
 
 /// Loopback fixtures need an SSRF exemption and a robots exemption.
-fn prepare(name: &str) -> PathBuf {
+fn prepare(name: &str) -> tempfile::TempDir {
     let cfg = config_dir(name);
-    set(&cfg, "http_ssrf_mode", "allow_loopback");
-    set(&cfg, "robots_loopback_exempt", "true");
+    set(cfg.path(), "http_ssrf_mode", "allow_loopback");
+    set(cfg.path(), "robots_loopback_exempt", "true");
     cfg
 }
 
@@ -187,7 +198,8 @@ fn monitor_reports_a_page_that_actually_changed() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("monitor-change");
+    let cfg_dir = prepare("monitor-change");
+    let cfg = cfg_dir.path().to_path_buf();
     // The defect only appears on a PERSISTENT backend: with `memory` the entry
     // dies with the process and every invocation looks fresh by accident. Pin
     // sqlite so this gate measures the configuration the bug lived in.
@@ -195,9 +207,10 @@ fn monitor_reports_a_page_that_actually_changed() {
 
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/mutable.html");
-    let baseline =
-        std::env::temp_dir().join(format!("bac-v018-mon-{}.baseline", std::process::id()));
-    let _ = std::fs::remove_file(&baseline);
+    // Inside the scratch dir, so the guard owns it: the `remove_file` this
+    // replaced ran BEFORE the test, which cleaned up the previous run rather
+    // than this one, and left the last run's file on disk for good.
+    let baseline = cfg_dir.path().join("monitor.baseline");
     let bl = baseline.to_string_lossy().to_string();
 
     BODY_VERSION.store(1, Ordering::SeqCst);
@@ -257,11 +270,11 @@ fn monitor_diff_mode_json_writes_the_content_sidecar() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("monitor-diff");
+    let cfg_dir = prepare("monitor-diff");
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/deep.html");
-    let baseline =
-        std::env::temp_dir().join(format!("bac-v018-diff-{}.baseline", std::process::id()));
+    let baseline = cfg_dir.path().join("diff.baseline");
     let sidecar = PathBuf::from(format!("{}.content", baseline.to_string_lossy()));
     let _ = std::fs::remove_file(&baseline);
     let _ = std::fs::remove_file(&sidecar);
@@ -303,7 +316,8 @@ fn attributes_returns_one_row_per_matched_selector() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("attributes-ok");
+    let cfg_dir = prepare("attributes-ok");
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/links.html");
     let v = run(
@@ -346,7 +360,8 @@ fn the_http_engine_discloses_whether_the_profile_contradicts_the_host() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("disclosure");
+    let cfg_dir = prepare("disclosure");
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/deep.html");
     let v = run(
@@ -369,7 +384,8 @@ fn an_unpaired_selector_is_refused_rather_than_silently_dropped() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("attributes-unpaired");
+    let cfg_dir = prepare("attributes-unpaired");
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/links.html");
     // Two selectors and one name cannot be zipped. Answering anyway would make
@@ -404,7 +420,8 @@ fn no_cache_is_reachable_from_argv_and_from_xdg() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("no-cache");
+    let cfg_dir = prepare("no-cache");
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let url = format!("http://127.0.0.1:{port}/deep.html");
 
@@ -445,7 +462,8 @@ fn a_zero_ttl_is_refused_because_zero_already_means_never_expires() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("ttl-zero");
+    let cfg_dir = prepare("ttl-zero");
+    let cfg = cfg_dir.path().to_path_buf();
     // This is the trap that made the bypass necessary: `expires_unix == 0` is
     // read as "no expiry", so a caller reaching for TTL 0 to disable the cache
     // would have made every entry immortal instead. The refusal is the feature.
@@ -471,7 +489,8 @@ fn warmup_url_actually_fetches_the_origin_first() {
     if cannot_run() {
         return;
     }
-    let cfg = prepare("warmup");
+    let cfg_dir = prepare("warmup");
+    let cfg = cfg_dir.path().to_path_buf();
     let port = start_fixture_server();
     let root = format!("http://127.0.0.1:{port}/");
     let deep = format!("http://127.0.0.1:{port}/deep.html");
@@ -515,7 +534,8 @@ fn doctor_states_the_cookie_jar_scope() {
     if cannot_run() {
         return;
     }
-    let cfg = config_dir("doctor-cookie");
+    let cfg_dir = config_dir("doctor-cookie");
+    let cfg = cfg_dir.path().to_path_buf();
     let v = run(&cfg, &["-q", "--json", "doctor", "--offline", "--quick"]);
     let c = check(&v, "cookie_jar_scope").unwrap_or_else(|| panic!("check missing in {v}"));
     // Silence would read as a guarantee of persistence, and a caller who
@@ -533,7 +553,8 @@ fn doctor_states_what_browser_mode_auto_resolves_to() {
     if cannot_run() {
         return;
     }
-    let cfg = config_dir("doctor-display");
+    let cfg_dir = config_dir("doctor-display");
+    let cfg = cfg_dir.path().to_path_buf();
     let v = run(&cfg, &["-q", "--json", "doctor", "--offline", "--quick"]);
     let c = check(&v, "virtual_display").unwrap_or_else(|| panic!("check missing in {v}"));
     // The documentation claimed `auto` ran headed inside a private display for
@@ -554,7 +575,8 @@ fn the_proxy_bypass_opt_out_is_a_real_key() {
     if cannot_run() {
         return;
     }
-    let cfg = config_dir("proxy-bypass");
+    let cfg_dir = config_dir("proxy-bypass");
+    let cfg = cfg_dir.path().to_path_buf();
     // The opt-out shipped with no gate at all. Its whole surface is the key, so
     // the key existing and round-tripping IS the contract.
     set(&cfg, "cdp_proxy_bypass_loopback", "false");
@@ -570,7 +592,8 @@ fn every_declared_key_survives_being_set() {
     if cannot_run() {
         return;
     }
-    let cfg = config_dir("roundtrip");
+    let cfg_dir = config_dir("roundtrip");
+    let cfg = cfg_dir.path().to_path_buf();
     // `write_config` rebuilds the file from a template that names every key one
     // by one, so a key missing from that template was dropped on every write.
     // Seventeen were missing, `browser_mode` and `stealth` among them: `config
@@ -613,7 +636,8 @@ fn the_scroll_tick_ceiling_is_a_real_key() {
     if cannot_run() {
         return;
     }
-    let cfg = config_dir("scroll-ceiling");
+    let cfg_dir = config_dir("scroll-ceiling");
+    let cfg = cfg_dir.path().to_path_buf();
     // Every wheel tick is a CDP round trip, so this key is the difference
     // between a bounded scroll and one whose cost grows with the delta asked.
     set(&cfg, "input_scroll_max_ticks", "12");
@@ -640,7 +664,8 @@ fn the_http_cookie_jar_still_drops_an_ip_literal_host() {
     // Every fixture in this repository is on 127.0.0.1, which is exactly why the
     // limit went unnoticed: the tests could never have observed a session that
     // only works off-loopback.
-    let cfg = config_dir("cookie-ip");
+    let cfg_dir = config_dir("cookie-ip");
+    let cfg = cfg_dir.path().to_path_buf();
     let v = run(&cfg, &["-q", "--json", "doctor", "--offline", "--quick"]);
     let c = check(&v, "cookie_jar_scope").unwrap_or_else(|| panic!("check missing in {v}"));
     assert_eq!(c["scope"], serde_json::json!("process"), "{c}");

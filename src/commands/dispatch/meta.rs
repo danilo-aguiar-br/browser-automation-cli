@@ -7,7 +7,16 @@ use super::{result_code, DispatchCtx};
 use crate::commands::common::{emit_err, handle_locale, handle_version};
 use crate::commands::meta as agent_meta;
 
-pub(crate) fn doctor(ctx: &DispatchCtx<'_>, offline: bool, quick: bool, fix: bool) -> i32 {
+pub(crate) fn doctor(
+    ctx: &DispatchCtx<'_>,
+    offline: bool,
+    quick: bool,
+    fix: bool,
+    fingerprint: bool,
+) -> i32 {
+    if fingerprint {
+        return crate::doctor::run_fingerprint(ctx.json, !quick && !offline);
+    }
     crate::doctor::run_doctor(crate::doctor::DoctorOptions {
         offline,
         quick,

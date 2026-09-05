@@ -2,9 +2,10 @@
 //! One-shot form handlers: submit, fill-form, upload, scroll.
 
 use crate::browser::CaptureOpts;
-use crate::commands::common::emit_ok;
+use crate::commands::common::{emit_ok, emit_ok_summary};
 use crate::commands::nav::session::with_session_blank;
 use crate::error::{CliError, ErrorKind};
+use crate::etd::{with_target, TargetSource};
 use crate::lifecycle::Lifecycle;
 use std::path::Path;
 
@@ -17,6 +18,7 @@ pub(crate) fn handle_submit(
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
+    let resolved = target.to_string();
     let target = target.to_string();
     let data = with_session_blank(life, capture, timeout_secs, move |mut session| async move {
         let v = session
@@ -24,6 +26,7 @@ pub(crate) fn handle_submit(
             .await?;
         Ok((session, v))
     })?;
+    let data = with_target(data, &resolved, TargetSource::Argv);
     emit_ok(data, json, |d| {
         let outcome = d
             .get("outcome")
@@ -91,10 +94,18 @@ pub(crate) fn handle_fill_form(
             .to_string();
         fields.push((target, value));
     }
+    // Every field is a separate mutation, so the whole list is the target. Only
+    // the field names travel here; the values are the caller's data.
+    let resolved = fields
+        .iter()
+        .map(|(t, _)| t.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
     let data = with_session_blank(life, capture, timeout_secs, move |mut session| async move {
         let v = session.fill_form(&fields, include_snapshot).await?;
         Ok((session, v))
     })?;
+    let data = with_target(data, &resolved, TargetSource::Argv);
     emit_ok(data, json, |d| {
         let n = d.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
         crate::output::writeln_stdout(format!("ok fill-form count={n}"))?;
@@ -111,12 +122,14 @@ pub(crate) fn handle_upload(
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
+    let resolved = target.to_string();
     let target = target.to_string();
     let path = path.to_path_buf();
     let data = with_session_blank(life, capture, timeout_secs, move |mut session| async move {
         let v = session.upload(&target, &path, include_snapshot).await?;
         Ok((session, v))
     })?;
+    let data = with_target(data, &resolved, TargetSource::Argv);
     emit_ok(data, json, |d| {
         let p = d.get("path").and_then(|v| v.as_str()).unwrap_or("");
         crate::output::writeln_stdout(format!("ok upload path={p}"))?;
@@ -153,7 +166,11 @@ pub(crate) fn handle_scroll(
             .await?;
         Ok((session, v))
     })?;
-    emit_ok(data, json, |d| {
-        crate::output::writeln_stdout(format!("ok scroll {d}"))
-    })
+    // Without `--target` the wheel lands on the active viewport, which nothing
+    // in argv named.
+    let data = match target {
+        Some(t) => with_target(data, t, TargetSource::Argv),
+        None => with_target(data, "(active viewport)", TargetSource::Ambient),
+    };
+    emit_ok_summary(data, json, "scroll")
 }

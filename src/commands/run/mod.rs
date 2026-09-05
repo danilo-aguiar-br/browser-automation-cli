@@ -11,7 +11,7 @@
 //!
 //! | Module | Responsibility |
 //! |--------|----------------|
-//! | `inventory` | RUN_DISPATCHED_CMDS, INTENTIONAL_RUN_EXCLUDE |
+//! | `inventory` | RUN_DISPATCHED_CMDS, INTENTIONAL_RUN_EXCLUDE, STEP_KEY_ALIASES |
 //! | `parse` | parse_run_script / normalize |
 //! | `preflight` | whole-script validation before BORN (GAP-012/029) |
 //! | `flags` | RunFlags |
@@ -26,6 +26,8 @@ mod flags;
 mod inventory;
 mod parse;
 mod preflight;
+mod step_fields;
+mod step_synonyms;
 mod stream;
 
 pub use argv::argv_to_step;
@@ -33,8 +35,8 @@ pub use engine::{run_one_step, run_script_with_flags};
 pub(crate) use execute::is_dispatchable_cmd;
 pub use flags::RunFlags;
 pub use inventory::{
-    run_supported_suggestion, run_unknown_cmd_suggestion, INTENTIONAL_RUN_EXCLUDE,
-    RUN_DISPATCHED_CMDS,
+    run_supported_suggestion, run_unknown_cmd_suggestion, step_key_aliases,
+    INTENTIONAL_RUN_EXCLUDE, RUN_DISPATCHED_CMDS, STEP_FIELDS, STEP_KEY_ALIASES,
 };
 pub use parse::parse_run_script;
 pub use preflight::preflight_script;

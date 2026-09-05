@@ -67,6 +67,76 @@ fn test_compact_tree_empty_interactive() {
     assert_eq!(result, "(no interactive elements)");
 }
 
+/// The pre-rewrite quadratic marker, kept ONLY as a test oracle.
+///
+/// It is a byte-for-byte copy of what `compact_tree` did before the single-pass
+/// rewrite, including the detail that made the rewrite delicate: the inner loop
+/// marked EVERY earlier line shallower than the content line — not just its
+/// ancestors — and stopped at the first column-zero line. A stack of ancestors
+/// would have dropped closed siblings and quietly changed the output.
+fn compact_tree_reference(tree: &str, interactive: bool) -> String {
+    let lines: Vec<&str> = tree.lines().collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+    let mut keep = vec![false; lines.len()];
+    for (i, line) in lines.iter().enumerate() {
+        if line.contains("ref=") || line.contains(": ") {
+            keep[i] = true;
+            let my_indent = count_indent(line);
+            for j in (0..i).rev() {
+                let ancestor_indent = count_indent(lines[j]);
+                if ancestor_indent < my_indent {
+                    keep[j] = true;
+                    if ancestor_indent == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    let result: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| keep[*i])
+        .map(|(_, line)| *line)
+        .collect();
+    let output = result.join("\n");
+    if output.trim().is_empty() && interactive {
+        return "(no interactive elements)".to_string();
+    }
+    output
+}
+
+#[test]
+fn compact_tree_matches_the_quadratic_reference() {
+    let trees = [
+        // Flat: every line at column zero, so nothing is ever an ancestor.
+        "- button \"A\" [ref=e1]\n- button \"B\" [ref=e2]\n- heading \"Title\"\n",
+        // Deep single chain: the ancestor path is the whole prefix.
+        "- main\n  - form\n    - group\n      - textbox \"Email\" [ref=e1]\n",
+        // Wide siblings with the ref under the LAST one: `- b` is not an
+        // ancestor of the ref line, yet the old loop marked it. This shape is
+        // what rules a plain ancestor stack out.
+        "- a\n  - b\n  - c\n    - link \"Deep\" [ref=e1]\n  - d\n- e\n",
+        // Several top-level blocks, so the column-zero break fires more than once.
+        "- nav\n  - link \"Home\" [ref=e1]\n- aside\n  - text: note\n- footer\n  - generic\n",
+        // No content line at all: nothing may be kept.
+        "- generic\n  - generic\n    - generic\n",
+        // Content at column zero only: the old loop marked nothing above it.
+        "- paragraph\n- text: Hello\n",
+    ];
+    for tree in trees {
+        for interactive in [false, true] {
+            assert_eq!(
+                compact_tree(tree, interactive),
+                compact_tree_reference(tree, interactive),
+                "single-pass compaction diverged from the reference on:\n{tree}"
+            );
+        }
+    }
+}
+
 #[test]
 fn test_count_indent() {
     assert_eq!(count_indent("- heading"), 0);

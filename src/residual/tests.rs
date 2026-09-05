@@ -18,18 +18,19 @@ use super::*;
 #[test]
 fn marker_scan_finds_and_filters() {
     let _shared_roots = shared_roots_guard();
-    let tmp = std::env::temp_dir();
-    let dir = tmp.join(format!(
-        "browser-automation-cli-chrome-test-{}",
-        uuid::Uuid::new_v4()
-    ));
-    let _ = fs::create_dir_all(&dir);
+    // A `TempDir` guard: the `remove_dir_all` below is on the happy path only.
+    // The marker prefix survives the move, which is what matters — the product
+    // DISCOVERS these directories by that prefix, and the suffix is free.
+    let dir_guard = tempfile::Builder::new()
+        .prefix("browser-automation-cli-chrome-test-")
+        .tempdir()
+        .expect("create marker fixture");
+    let dir = dir_guard.path().to_path_buf();
     // Snapshot first, then confirm the fixture outlived it. A concurrent CLI
     // invocation on this host runs BORN GC over the same roots and can collect
     // the fixture mid-test; asserting anyway would measure the neighbour.
     let found = list_cli_chrome_marker_dirs();
     let survived = dir.exists();
-    let _ = fs::remove_dir_all(&dir);
     if survived {
         assert!(
             found.iter().any(|p| p == &dir),
@@ -55,8 +56,14 @@ fn stale_gc_removes_singleton_only_fixture() {
     // microseconds ago, before Chrome exists to hold it — the liveness guard
     // cannot protect what has not been spawned yet. Narrowing the roots keeps the
     // predicate under test intact and takes the neighbours out of range.
-    let root = std::env::temp_dir().join(format!("bac-stale-gc-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&root).expect("mkdir sandbox root");
+    // A `TempDir` guard: the `remove_dir_all` at the end of this test is on the
+    // happy path only, so a failing assertion left the sandbox on disk. `uuid`
+    // already gave the name uniqueness; what it never gave was removal on unwind.
+    let root_guard = tempfile::Builder::new()
+        .prefix("bac-stale-gc-")
+        .tempdir()
+        .expect("mkdir sandbox root");
+    let root = root_guard.path().to_path_buf();
     let dir = root.join(format!(
         "org.chromium.Chromium.{}",
         &uuid::Uuid::new_v4().to_string()[..8]
@@ -74,7 +81,7 @@ fn stale_gc_removes_singleton_only_fixture() {
 
     assert!(is_singleton_only_or_small(&dir));
     // Age floor zero in tests so we do not depend on utimensat/filetime.
-    let wiped = scavenge_stale_singleton_orphans_in_roots(&[root.clone()], Duration::ZERO);
+    let wiped = scavenge_stale_singleton_orphans_in_roots(&[root], Duration::ZERO);
     if index_live_processes().is_some() {
         assert!(
             wiped.iter().any(|p| p == &dir) || !dir.exists(),
@@ -89,7 +96,6 @@ fn stale_gc_removes_singleton_only_fixture() {
             "fail-closed GC must keep the fixture: wiped={wiped:?}"
         );
     }
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -270,6 +276,16 @@ fn wipe_refuses_when_process_table_unavailable() {
     // the documented contract of the public entry point on hosts without a backend,
     // and prove the fixture survives when liveness cannot be established.
     if index_live_processes().is_none() {
+        // Same shared-root window as `stamp_or_skip` documents: this case
+        // stamps nothing, so the fixture spends its whole life owner-less and
+        // a concurrent sweep may take it before the wipe is even called.
+        if !dir.exists() {
+            eprintln!(
+                "wipe_refuses_when_process_table_unavailable: fixture was swept \\
+                 by a concurrent invocation; assertion skipped"
+            );
+            return;
+        }
         let wiped = super::wipe::wipe_safe_candidates(&[dir.clone()]);
         assert!(
             wiped.is_empty() && dir.exists(),
@@ -286,7 +302,13 @@ fn wipe_spares_profile_of_live_sibling() {
     let dir = marker_fixture("live-sibling");
     // Simulated sibling: an owner pid that the index reports as alive.
     let sibling_pid = 424_242_u32;
-    fs::write(owner_pid_path(&dir), sibling_pid.to_string()).expect("write owner pid");
+    if !stamp_or_skip(
+        &dir,
+        &sibling_pid.to_string(),
+        "wipe_spares_profile_of_live_sibling",
+    ) {
+        return;
+    }
     let index = LiveProcessIndex::from_parts(HashSet::from([sibling_pid]), Vec::new());
 
     let wiped = wipe_safe_candidates_with_index(&[dir.clone()], &index);
@@ -328,7 +350,13 @@ fn cmdline_fallback_ignores_non_browser_mentions() {
 fn dead_owner_still_spared_while_orphaned_browser_holds_it() {
     let _shared_roots = shared_roots_guard();
     let dir = marker_fixture("orphan-browser");
-    fs::write(owner_pid_path(&dir), "999999").expect("write owner pid");
+    if !stamp_or_skip(
+        &dir,
+        "999999",
+        "dead_owner_still_spared_while_orphaned_browser_holds_it",
+    ) {
+        return;
+    }
     assert_eq!(read_owner_pid(&dir), Some(999_999));
     assert!(has_owner_pid(&dir));
 
@@ -426,6 +454,39 @@ fn marker_fixture(tag: &str) -> std::path::PathBuf {
     dir
 }
 
+/// Stamp a fixture with `pid`, or report that a neighbour swept it first.
+///
+/// # Why stamping can fail at all
+///
+/// The fixture lives under the SHARED scan roots and `marker_fixture` creates
+/// the directory BEFORE anything stamps it. In that window the directory
+/// carries the CLI marker prefix with no owner behind it, which is exactly the
+/// shape `wipe.rs:44` is entitled to collect, and `SHARED_ROOTS` only
+/// serializes tests inside THIS process: any other invocation on this host —
+/// an integration gate launching the binary, a developer's own run — sweeps
+/// the same roots at BORN.
+///
+/// Measured 2026-09-04 on two sibling tests that assert through the discovery
+/// path: one failed once at 1077 of 1078 in a full-suite run and passed 5/5
+/// alone. The tests below assert on the WIPE rather than on discovery, so they
+/// have never been seen to fail, but the window is the same one and a vanished
+/// fixture would make them measure the neighbour instead of the wipe.
+///
+/// Returning `false` lets the caller skip out loud rather than panic inside
+/// `expect`, which would report a write error and hide the real cause.
+fn stamp_or_skip(dir: &std::path::Path, pid: &str, test: &str) -> bool {
+    if fs::write(owner_pid_path(dir), pid).is_err() || !dir.exists() {
+        // Never silent: a fixture swept on every run would otherwise turn the
+        // gate into an empty green.
+        eprintln!(
+            "{test}: fixture was swept by a concurrent invocation before it \
+             could be stamped; assertions skipped"
+        );
+        return false;
+    }
+    true
+}
+
 /// A supervised teardown is not residue; a disowned browser is.
 ///
 /// FINALIZE removes the profile dir and then waits for Chrome to exit, so every
@@ -497,12 +558,19 @@ fn disowned_ghosts_are_counted_and_supervised_ones_are_not() {
 #[cfg(unix)]
 #[test]
 fn the_tmp_singleton_dir_is_claimed_through_the_profile_symlink() {
-    let profile = std::env::temp_dir().join(format!("bac-sym-prof-{}", uuid::Uuid::new_v4()));
+    // The profile takes a `TempDir` guard so a failing assertion below cannot
+    // keep it. `tmp_dir` deliberately does NOT: the `org.chromium.Chromium.<8
+    // hex>` SHAPE of that name is the predicate under test, and `TempDir` picks
+    // the suffix itself, so a guard there would change what this measures.
+    let profile_guard = tempfile::Builder::new()
+        .prefix("bac-sym-prof-")
+        .tempdir()
+        .expect("mkdir profile");
+    let profile = profile_guard.path().to_path_buf();
     let tmp_dir = std::env::temp_dir().join(format!(
         "org.chromium.Chromium.{}",
         &uuid::Uuid::new_v4().to_string()[..8]
     ));
-    fs::create_dir_all(&profile).expect("mkdir profile");
     fs::create_dir_all(&tmp_dir).expect("mkdir chromium tmp");
     let target = tmp_dir.join("SingletonSocket");
     let _ = fs::write(&target, b"");
@@ -515,7 +583,6 @@ fn the_tmp_singleton_dir_is_claimed_through_the_profile_symlink() {
         "the profile symlink must resolve to the directory Chrome created"
     );
 
-    let _ = fs::remove_dir_all(&profile);
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
@@ -527,10 +594,19 @@ fn the_tmp_singleton_dir_is_claimed_through_the_profile_symlink() {
 #[cfg(unix)]
 #[test]
 fn a_symlink_outside_the_chromium_shape_is_never_claimed() {
-    let profile = std::env::temp_dir().join(format!("bac-sym-bad-{}", uuid::Uuid::new_v4()));
-    let decoy = std::env::temp_dir().join(format!("bac-not-chromium-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&profile).expect("mkdir profile");
-    fs::create_dir_all(&decoy).expect("mkdir decoy");
+    // A `TempDir` guard: the `remove_dir_all` below runs only on the happy path,
+    // so a failing assertion left the fixture on disk. `uuid` already gave the
+    // name uniqueness; what it never gave was removal under unwind.
+    let profile_guard = tempfile::Builder::new()
+        .prefix("bac-sym-bad-")
+        .tempdir()
+        .expect("mkdir profile");
+    let profile = profile_guard.path().to_path_buf();
+    let decoy_guard = tempfile::Builder::new()
+        .prefix("bac-not-chromium-")
+        .tempdir()
+        .expect("mkdir decoy");
+    let decoy = decoy_guard.path().to_path_buf();
     let target = decoy.join("SingletonSocket");
     let _ = fs::write(&target, b"");
     std::os::unix::fs::symlink(&target, profile.join("SingletonSocket")).expect("symlink");
@@ -539,16 +615,147 @@ fn a_symlink_outside_the_chromium_shape_is_never_claimed() {
         owned_chromium_tmp_dir_via_profile(&profile).is_none(),
         "a target without the Chromium temp name must never be handed to a delete"
     );
-
-    let _ = fs::remove_dir_all(&profile);
-    let _ = fs::remove_dir_all(&decoy);
 }
 
 /// A profile with no symlink yields nothing, rather than a parent directory.
 #[test]
 fn a_profile_without_the_symlink_claims_nothing() {
-    let profile = std::env::temp_dir().join(format!("bac-sym-none-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&profile).expect("mkdir profile");
+    // A `TempDir` guard: the `remove_dir_all` below runs only on the happy path,
+    // so a failing assertion left the fixture on disk. `uuid` already gave the
+    // name uniqueness; what it never gave was removal under unwind.
+    let profile_guard = tempfile::Builder::new()
+        .prefix("bac-sym-none-")
+        .tempdir()
+        .expect("mkdir profile");
+    let profile = profile_guard.path().to_path_buf();
     assert!(owned_chromium_tmp_dir_via_profile(&profile).is_none());
-    let _ = fs::remove_dir_all(&profile);
+}
+
+/// A LIVE sibling's profile is never claimed by this invocation's FINALIZE.
+///
+/// # The defect this pins
+///
+/// `discover_owned_chromium_tmp_side_channels` accepted any marker directory
+/// that was recent and owned by this uid, under the comment "always ours when
+/// marker + recent + our uid". None of those three identifies an invocation:
+/// the prefix is shared by every run of the product, the uid by every process
+/// this user starts, and "recent" is exactly what a LATER, still-running
+/// sibling's profile looks like.
+///
+/// The result was a cross-invocation delete. A finishing one-shot collected a
+/// live sibling's profile and `wipe_owned_path` removed it — no age floor, no
+/// liveness check — while that sibling's Chrome was still booting. Measured
+/// 2026-08-18 in `cargo test --tests`: exit 21 with `Failed to create
+/// <profile>/SingletonLock: No such file or directory`, one victim per full
+/// run, a different test each time, and never reproducible alone because it
+/// takes a second invocation to happen at all.
+#[test]
+fn a_marker_profile_owned_by_another_pid_is_not_claimed() {
+    let _shared_roots = shared_roots_guard();
+    let sibling = marker_fixture("sibling-live");
+    // pid 1 is init: always live, and definitively not this process.
+    fs::write(super::owner::owner_pid_path(&sibling), "1").expect("stamp foreign owner");
+
+    let found = super::discover::discover_owned_chromium_tmp_side_channels(
+        None,
+        None,
+        SystemTime::UNIX_EPOCH,
+    );
+    let claimed = found.iter().any(|p| p == &sibling);
+    let _ = fs::remove_dir_all(&sibling);
+
+    assert!(
+        !claimed,
+        "a profile stamped with another pid belongs to that invocation, \
+         and FINALIZE must not delete it"
+    );
+}
+
+/// Our OWN profile is still claimed, so the fix does not disarm the cleanup.
+///
+/// Without this the change above could be satisfied by claiming nothing at all,
+/// which would leak one profile directory per launch.
+#[test]
+fn our_own_marker_profile_is_still_claimed() {
+    let _shared_roots = shared_roots_guard();
+    let mine = marker_fixture("own-profile");
+    super::owner::write_owner_pid(&mine).expect("stamp own owner");
+
+    let found = super::discover::discover_owned_chromium_tmp_side_channels(
+        Some(&mine),
+        None,
+        SystemTime::UNIX_EPOCH,
+    );
+    // Read survival AFTER the scan: the fixture lives under the SHARED roots,
+    // and `SHARED_ROOTS` only serializes this process. Any other invocation on
+    // this host -- an integration gate launching the binary, a developer's own
+    // run -- sweeps the same roots at BORN, and `wipe.rs:44` collects every
+    // `browser-automation-cli-chrome-` directory with no live process behind
+    // it. `marker_fixture` creates the directory and only then stamps the
+    // owner pid, so between those two calls the fixture is indistinguishable
+    // from an orphan and a concurrent sweep is entitled to delete it.
+    //
+    // Measured 2026-09-04: this test failed once inside a full-suite run and
+    // passed 5/5 alone and 5/5 under `--lib` alone, which is the signature of a
+    // neighbour and not of this code. Asserting through a vanished fixture
+    // would measure the neighbour, exactly as the sibling case above already
+    // documents.
+    let survived = mine.exists();
+    let claimed = found.iter().any(|p| p == &mine);
+    let _ = fs::remove_dir_all(&mine);
+
+    if !survived {
+        // Never silent: a permanently swept fixture would turn this gate into
+        // an empty green, and the line says so out loud under `--nocapture`.
+        eprintln!(
+            "our_own_marker_profile_is_still_claimed: fixture was swept by a \
+             concurrent invocation before the scan finished; assertion skipped"
+        );
+        return;
+    }
+
+    assert!(
+        claimed,
+        "the profile this invocation owns must still be collected at FINALIZE"
+    );
+}
+
+/// A stamped profile is claimed by the process whose pid it names, path aside.
+///
+/// The `profile` argument is not the only way to be the owner: a launch may
+/// allocate more than one marker directory, and the stamp is what says which
+/// process they belong to.
+#[test]
+fn a_profile_stamped_with_our_own_pid_is_claimed_without_the_profile_arg() {
+    let _shared_roots = shared_roots_guard();
+    let mine = marker_fixture("own-stamp");
+    super::owner::write_owner_pid(&mine).expect("stamp own owner");
+
+    let found = super::discover::discover_owned_chromium_tmp_side_channels(
+        None,
+        None,
+        SystemTime::UNIX_EPOCH,
+    );
+    // Same shape and same window as the sibling above: `marker_fixture`
+    // creates the directory and only then stamps the owner pid, so in between
+    // the fixture is indistinguishable from an orphan and `wipe.rs:44` on any
+    // concurrent invocation of this host is entitled to collect it.
+    // `SHARED_ROOTS` serializes this process, never the host, so read survival
+    // AFTER the scan rather than asserting through a fixture that may be gone.
+    let survived = mine.exists();
+    let claimed = found.iter().any(|p| p == &mine);
+    let _ = fs::remove_dir_all(&mine);
+
+    if !survived {
+        // Never silent: a fixture swept every time would turn this gate into
+        // an empty green, and the line says so out loud under `--nocapture`.
+        eprintln!(
+            "a_profile_stamped_with_our_own_pid_is_claimed_without_the_profile_arg: \\
+             fixture was swept by a concurrent invocation before the scan \\
+             finished; assertion skipped"
+        );
+        return;
+    }
+
+    assert!(claimed, "our own pid in the marker is proof of ownership");
 }

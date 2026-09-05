@@ -151,6 +151,11 @@ mod drag {
 
     /// Edge anchors must land on opposite halves of the rect and stay inside it,
     /// or list-insertion order is a coin flip.
+    // `float_cmp` is enabled package-wide, and exact equality is the right
+    // assertion here: the anchors come from `x + width / 2.0` over values that
+    // are exactly representable in binary floating point, so the expected
+    // results are exact too. A tolerance would let a wrong formula pass.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn edge_anchors_stay_inside_the_rect_and_differ() {
         let rect = ElementRect {
@@ -289,4 +294,55 @@ mod scroll {
         assert_eq!(args[2], Value::Null, "unset axis stays null");
         assert_eq!(args[3], 0.0, "zero is a real offset, not 'unset'");
     }
+}
+
+/// No `Input.dispatchKeyEvent` may carry `nativeVirtualKeyCode`.
+///
+/// # Why this is asserted against the source and not against a browser
+///
+/// `char_to_key_info` returns the WINDOWS virtual key code, and the native code
+/// is a different namespace on every platform. Measured 2026-09-04 on macOS:
+/// sending 65 in both fields made Chrome read the native one, where 65 is
+/// `kVK_ANSI_KeypadDecimal`, and answer one `a` keydown with 374 spurious
+/// `NumpadDecimal` ones in a 213 ms burst. Five characters hung the command
+/// past chromiumoxide's 30 s `REQUEST_TIMEOUT`, which is how the defect first
+/// showed up: as a flaky `tests/input_trace_gate.rs`, three layers away from
+/// the field that caused it.
+///
+/// `input_trace_gate` does catch the regression, by asserting five keydowns and
+/// getting thousands. It needs a Chrome, a fixture and roughly five minutes,
+/// and it names the symptom rather than the cause. This case needs a file read,
+/// and it names the field.
+///
+/// Scanning source text is the right shape here precisely because the defect is
+/// a literal that type-checks. `Some(key_code)` in that position compiles,
+/// round-trips through serde and reaches Chrome; no type, no lint and no unit
+/// test on `char_to_key_info` can see anything wrong with it.
+#[test]
+fn no_dispatch_key_event_sends_a_native_virtual_key_code() {
+    let src = include_str!("keyboard.rs");
+    let offenders: Vec<usize> = src
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| {
+            let t = l.trim_start();
+            t.starts_with("native_virtual_key_code:")
+                && !t.starts_with("native_virtual_key_code: None")
+        })
+        .map(|(i, _)| i + 1)
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "src/native/interaction/keyboard.rs sets `native_virtual_key_code` to something other \
+         than `None` at line(s) {offenders:?}; the only key code this module knows is the \
+         WINDOWS one, and Chrome reads the native field in the host platform's namespace, where \
+         the same number means a different key"
+    );
+    assert!(
+        src.contains("native_virtual_key_code: None"),
+        "src/native/interaction/keyboard.rs no longer mentions `native_virtual_key_code` at all, \
+         so this case stopped guarding anything; either the field was dropped from the params \
+         struct — in which case delete this case — or the dispatch calls moved elsewhere and the \
+         guard must move with them"
+    );
 }

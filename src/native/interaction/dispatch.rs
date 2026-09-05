@@ -59,6 +59,8 @@ pub(super) async fn travel_to(
                 delta_x: None,
                 delta_y: None,
                 modifiers: None,
+                screen_x: None,
+                screen_y: None,
             },
         )
         .await?;
@@ -172,6 +174,8 @@ pub(super) async fn dispatch_click(
             delta_x: None,
             delta_y: None,
             modifiers: None,
+            screen_x: None,
+            screen_y: None,
         },
     )
     .await?
@@ -213,6 +217,8 @@ pub(super) async fn dispatch_click(
             delta_x: None,
             delta_y: None,
             modifiers: None,
+            screen_x: None,
+            screen_y: None,
         },
     )
     .await?;

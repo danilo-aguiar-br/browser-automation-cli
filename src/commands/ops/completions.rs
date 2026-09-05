@@ -37,7 +37,11 @@ pub(crate) fn handle_man(out: Option<&Path>) -> Result<(), CliError> {
 
     if let Some(path) = out {
         crate::validation::reject_path_traversal(path).map_err(|m| {
-            CliError::with_suggestion(ErrorKind::Usage, m, "Pass a path without `..` components")
+            CliError::with_suggestion(
+                ErrorKind::Usage,
+                m,
+                crate::i18n::suggestion_key("path_no_parent_components", None),
+            )
         })?;
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {

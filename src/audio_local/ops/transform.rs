@@ -9,7 +9,7 @@ use super::super::ffmpeg_ops::{convert_path, trim_path, ConvertOpts};
 use super::super::limits::AudioLimits;
 use super::super::magic::probe_path_magic;
 use super::super::validate::parse_output_format;
-use super::common::{convert_envelope, default_out_path};
+use super::common::{convert_envelope, resolve_out_path};
 use super::source::AudioSource;
 use crate::error::CliError;
 use crate::xdg;
@@ -28,9 +28,7 @@ pub fn convert(
     let container = parse_output_format(format)?;
     let mut opts = opts;
     opts.format = container;
-    let out_path = out
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| default_out_path(container.extension()));
+    let out_path = resolve_out_path(out, container.extension())?;
     let res = convert_path(&path_in, &out_path, &opts)?;
     let full = convert_envelope(
         "convert",
@@ -69,9 +67,7 @@ pub fn trim(
     let br = bitrate
         .map(|s| s.to_string())
         .unwrap_or_else(xdg::resolve_audio_default_bitrate);
-    let out_path = out
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| default_out_path(container.extension()));
+    let out_path = resolve_out_path(out, container.extension())?;
     let res = trim_path(
         &path_in, &out_path, start, duration, to, container, codec, &br,
     )?;

@@ -2,27 +2,16 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::process::Command;
 use std::thread;
-use std::time::Duration;
 
-const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
-
-fn chrome_available() -> bool {
-    ["google-chrome", "chromium", "chromium-browser"]
-        .iter()
-        .any(|b| {
-            Command::new(b)
-                .arg("--version")
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-        })
-}
+mod common;
+use common::chrome_responds_to_version;
 
 fn spawn_robots_disallow_server() -> (String, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-    let addr = listener.local_addr().unwrap();
+    let addr = listener
+        .local_addr()
+        .expect("bound listener has an address");
     let base = format!("http://{addr}");
     let handle = thread::spawn(move || {
         // Serve a few requests then exit.
@@ -50,8 +39,12 @@ fn spawn_robots_disallow_server() -> (String, thread::JoinHandle<()>) {
             }
         }
     });
-    // give server a beat
-    thread::sleep(Duration::from_millis(50));
+    // No wait: `TcpListener::bind` performs bind AND listen, so the socket is
+    // already accepting into the kernel backlog before this thread was
+    // spawned — `addr` was read off it above to build `base`. `accept()` only
+    // dequeues; it is not what makes the port reachable. A client connecting
+    // before the loop runs is queued, never refused, so there is no window for
+    // the 50ms sleep this replaces to protect.
     (base, handle)
 }
 
@@ -64,8 +57,12 @@ fn spawn_robots_disallow_server() -> (String, thread::JoinHandle<()>) {
 /// about the supported way to change policy.
 fn strict_loopback_config_home() -> tempfile::TempDir {
     let home = tempfile::tempdir().expect("tempdir");
-    let out = Command::new(BIN)
+    let out = common::cmd()
         .args(["config", "set", "robots_loopback_exempt", "false", "--json"])
+        // `HOME` is what isolates config on macOS: `directories` resolves to
+        // ~/Library/Application Support and never reads `XDG_CONFIG_HOME`.
+        // Full measurement (2026-09-04) lives in `tests/scrape_wave6_gate.rs`.
+        .env("HOME", home.path())
         .env("XDG_CONFIG_HOME", home.path())
         .env("NO_COLOR", "1")
         .output()
@@ -81,15 +78,20 @@ fn strict_loopback_config_home() -> tempfile::TempDir {
 
 #[test]
 fn http_disallow_blocks_goto_without_override() {
-    if !chrome_available() {
-        eprintln!("skip: no chrome");
+    if !chrome_responds_to_version() {
+        common::skip_with_remedy(
+            "robots_http",
+            "no usable Chrome on this host.",
+            "install a system Chrome/Chromium.",
+        );
         return;
     }
     let config_home = strict_loopback_config_home();
     let (base, _jh) = spawn_robots_disallow_server();
     let url = format!("{base}/");
-    let out = Command::new(BIN)
+    let out = common::cmd()
         .args(["goto", &url, "--json"])
+        .env("HOME", config_home.path())
         .env("XDG_CONFIG_HOME", config_home.path())
         .env("NO_COLOR", "1")
         .output()
@@ -113,13 +115,17 @@ fn http_disallow_blocks_goto_without_override() {
 
 #[test]
 fn http_disallow_allows_with_dual_flags() {
-    if !chrome_available() {
-        eprintln!("skip: no chrome");
+    if !chrome_responds_to_version() {
+        common::skip_with_remedy(
+            "robots_http",
+            "no usable Chrome on this host.",
+            "install a system Chrome/Chromium.",
+        );
         return;
     }
     let (base, _jh) = spawn_robots_disallow_server();
     let url = format!("{base}/");
-    let out = Command::new(BIN)
+    let out = common::cmd()
         .args([
             "--ignore-robots",
             "--i-accept-robots-risk",

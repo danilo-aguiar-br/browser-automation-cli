@@ -48,6 +48,19 @@
                 "exec"
               ],
               "type": "string"
+            },
+            "path": {
+              "argv": "--path",
+              "description": "Trace file to analyze offline, instead of the live session",
+              "required": false,
+              "source": "parser",
+              "step_key": "path",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
             }
           }
         },

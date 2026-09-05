@@ -33,6 +33,16 @@ fn wipe_profile_and_its_tmp_singleton(dir: &std::path::Path) {
 
 impl BrowserManager {
     /// FINALIZE: close the browser, then reap whatever this manager owns.
+    ///
+    /// # Errors
+    ///
+    /// On the chromiumoxide-owned path, propagates `finalize_browser`: a
+    /// refused `Browser.close` or a failing `Browser::wait`. Every other path
+    /// returns `Ok(())` by construction — `Browser.close` on a self-spawned
+    /// child is sent best-effort, the child is reaped by
+    /// `wait_or_kill`, and the temp profile wipe (plus its
+    /// `/tmp/org.chromium.Chromium.*` singleton directory) ignores I/O errors,
+    /// so FINALIZE cannot fail after the browser is already gone.
     pub async fn close(&mut self) -> Result<(), String> {
         // Chrome one-shot: chromiumoxide FINALIZE (close + wait + kill fallback).
         if self.owns_oxide_browser {
@@ -132,6 +142,11 @@ impl BrowserManager {
     }
 
     /// Chrome target id of the active tab, or an error when there is none.
+    ///
+    /// # Errors
+    ///
+    /// Returns `"No active page"` when `active_page_index` addresses no
+    /// tracked page — before the first attach, or after every tab was closed.
     pub fn active_target_id(&self) -> Result<&str, String> {
         self.pages
             .get(self.active_page_index)
@@ -153,6 +168,12 @@ impl BrowserManager {
     }
 
     /// Point downloads at `download_path` and allow them.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Browser.setDownloadBehavior` — an engine that does not
+    /// implement it, or a `download_path` the browser cannot use.
     pub async fn set_download_behavior(&self, download_path: &str) -> Result<(), String> {
         let session_id = self.active_session_id()?;
         self.client

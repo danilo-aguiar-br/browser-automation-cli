@@ -29,6 +29,12 @@
 #      the file. Only `.stats.code` is used below, so this does not affect the
 #      criterion — it is recorded because summing those three looks correct.
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -82,7 +88,9 @@ EXPIRED=()
 is_exception() {
   local candidate="$1"
   local entry allowed expires
-  for entry in "${EXCEPTIONS[@]}"; do
+  # An empty array expands to `unbound variable` under `set -u` on bash 3.2,
+  # which is what macOS ships, so the expansion is guarded (2026-09-04).
+  for entry in "${EXCEPTIONS[@]+"${EXCEPTIONS[@]}"}"; do
     allowed="${entry%%|*}"
     expires="${entry##*|}"
     [[ "$candidate" != "$allowed" ]] && continue
@@ -131,27 +139,57 @@ inline_test_code_lines() {
     return 0
   }
 
-  local tmp
-  tmp="$(mktemp -t filesize-check-XXXXXX.rs)"
+  # The extension is NOT decoration: `tokei` classifies by it, and a tail
+  # written to a file without `.rs` is not Rust to it — `.Rust.reports[0]`
+  # is then absent, the `// 0` below hands back 0, and the discount silently
+  # never happens.
+  #
+  # `mktemp -t PREFIX` cannot carry it. BSD `mktemp`, which is what macOS ships,
+  # treats the argument as a PREFIX and appends its random suffix AFTER it.
+  # Measured 2026-09-04: `mktemp -t filesize-check-XXXXXX.rs` produced
+  # `.../filesize-check-XXXXXX.rs.DRJyU98B8A`. GNU `mktemp` honours a trailing
+  # template, so this was invisible on Linux and total on macOS.
+  #
+  # Consequence while it was broken: every file was measured with its inline
+  # `#[cfg(test)] mod tests` included, so the gate demanded that PRODUCTION code
+  # be split to make room for test code — the exact perverse incentive the
+  # discount exists to remove.
+  #
+  # A private directory carries the name unchanged and needs no rename.
+  local tmpdir tmp
+  tmpdir="$(mktemp -d)"
+  tmp="$tmpdir/tail.rs"
   bat -pP -r "${start}:" "$file" >"$tmp" 2>/dev/null || {
-    rm -f "$tmp"
+    rm -rf "$tmpdir"
     echo 0
     return 0
   }
   local tail_code
   tail_code="$(tokei "$tmp" -o json 2>/dev/null | jaq -r '.Rust.reports[0].stats.code // 0' 2>/dev/null || echo 0)"
-  rm -f "$tmp"
+  rm -rf "$tmpdir"
   echo "${tail_code:-0}"
 }
 
 echo "== filesize-check (limit ${LIMIT} code lines, target ${TARGET_DIR}) =="
 
 # One tokei pass for the whole tree. Per-file invocation would be correct but
-# pays process startup once per file; the map is built once and read below.
-declare -A CODE_LINES
-while IFS=$'\t' read -r path count; do
-  CODE_LINES["$path"]="$count"
-done < <(tokei "$TARGET_DIR" -o json | jaq -r '.Rust.reports[] | "\(.name)\t\(.stats.code)"' | sd '^\./' '')
+# pays process startup once per file; the table is built once and read below.
+#
+# `declare -A` needs bash 4 and macOS ships bash 3.2, so the map is a plain
+# `path<TAB>count` block scanned exactly, with no key mangling (2026-09-04).
+CODE_LINES_TSV="$(tokei "$TARGET_DIR" -o json | jaq -r '.Rust.reports[] | "\(.name)\t\(.stats.code)"' | sd '^\./' '')"
+
+# Echoes the code-line count for $1; returns 1 when tokei never reported it.
+code_lines_for() {
+  local target="$1" p c
+  while IFS=$'\t' read -r p c; do
+    if [[ "$p" == "$target" ]]; then
+      printf '%s' "$c"
+      return 0
+    fi
+  done <<<"$CODE_LINES_TSV"
+  return 1
+}
 
 offenders=0
 checked=0
@@ -160,7 +198,7 @@ exempted=0
 while IFS= read -r file; do
   is_test_file "$file" && continue
   checked=$((checked + 1))
-  lines="${CODE_LINES[$file]:-}"
+  lines="$(code_lines_for "$file" || true)"
   if [[ -z "$lines" ]]; then
     # A Rust file fd found that tokei did not report is a measurement hole, not
     # a passing file. Fail loudly rather than skip silently.

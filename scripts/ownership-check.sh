@@ -2,6 +2,12 @@
 # Local hygiene gate for rules_rust_ownership_borrowing_lifetimes (one-shot CLI).
 # No GitHub Actions — run manually or from scripts/ci-check.sh.
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -87,10 +93,19 @@ else
 fi
 
 # 6) Ownership clippy lints enabled at crate root
-if rg -n 'clippy::redundant_clone|clippy::needless_pass_by_value|clippy::ptr_arg' src/lib.rs >/dev/null; then
+# Looked ONLY in src/lib.rs until 2026-08-26, and reported FAIL while the very
+# next control passed: `clippy ownership deny set clean`. The lints had moved to
+# the `[lints.clippy]` table in Cargo.toml, which is the mechanism Cargo injects
+# into every target, and this grep never followed them. A check that reports on
+# WHERE the text lives, while the behavioural check right below it proves the
+# lint is in force, reports on itself and not on the crate.
+# Both spellings are accepted because either one puts the lint in force.
+if rg -n 'clippy::redundant_clone|clippy::needless_pass_by_value|clippy::ptr_arg' src/lib.rs >/dev/null 2>&1; then
   pass "ownership clippy lints in crate root"
+elif rg -n '^(redundant_clone|needless_pass_by_value|ptr_arg)\s*=' Cargo.toml >/dev/null 2>&1; then
+  pass "ownership clippy lints in the [lints.clippy] table"
 else
-  bad "ownership clippy lints missing from src/lib.rs"
+  bad "ownership clippy lints absent from BOTH src/lib.rs and the [lints.clippy] table"
 fi
 
 # 6b) Pass L: launch moves Option fields (no options.{user_agent,color_scheme,download_path}.clone)

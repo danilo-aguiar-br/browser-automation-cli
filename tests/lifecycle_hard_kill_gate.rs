@@ -26,6 +26,12 @@ use browser_automation_cli::native::cdp::chrome::find_chrome;
 use browser_automation_cli::native::cdp::spawn::{host, ParentDeathBinding};
 use browser_automation_cli::residual::{index_live_processes, CLI_CHROME_MARKER_PREFIX};
 
+mod common;
+use common::skip_with_reason;
+
+/// Name this gate reports under when it skips.
+const GATE: &str = "lifecycle_hard_kill_gate";
+
 /// Bound on how long the CLI is given to get Chrome running.
 const STARTUP_DEADLINE: Duration = Duration::from_secs(45);
 /// Bound on how long the kernel is given to tear the group down after SIGKILL.
@@ -100,39 +106,49 @@ fn sigkill_of_the_cli_leaves_no_browser_process_behind() {
         index_live_processes().as_ref().map(|i| i.len())
     );
     if find_chrome().is_none() {
-        println!(
-            "SKIP lifecycle_hard_kill_gate: no Chrome/Chromium on this host, so \
-             there is no browser tree to orphan. This is a skip, not a pass."
+        skip_with_reason(
+            GATE,
+            "no Chrome/Chromium on this host, so there is no browser tree to orphan.",
         );
         return;
     }
     let Some(before) = live_marker_pids() else {
-        eprintln!(
-            "SKIP lifecycle_hard_kill_gate: host process table is unreadable, so \
-             residue cannot be audited. This is a skip, not a pass."
+        skip_with_reason(
+            GATE,
+            "host process table is unreadable, so residue cannot be audited.",
         );
         return;
     };
     if host().binding() != ParentDeathBinding::Kernel {
-        eprintln!(
-            "SKIP lifecycle_hard_kill_gate: this host has no kernel parent-death \
-             binding ({}), so a hard kill is documented to leave the group alive \
-             until cross-run residual GC collects it.",
-            host().binding().as_str()
+        skip_with_reason(
+            GATE,
+            &format!(
+                "this host has no kernel parent-death binding ({}), so a hard kill \
+                 is documented to leave the group alive until cross-run residual GC \
+                 collects it.",
+                host().binding().as_str()
+            ),
         );
         return;
     }
 
     // A script that opens a page and then holds the session open well past the
     // kill, so Chrome is provably live at the moment of the SIGKILL.
-    let script = std::env::temp_dir().join("lifecycle_hard_kill_gate.jsonl");
+    // The scratch dir owns the fixture: the three `remove_file` calls this
+    // replaced ran only on the paths that reached them, and none covered a
+    // panic. The fixed name also collided between concurrent runs.
+    let scratch = tempfile::Builder::new()
+        .prefix("bac-hard-kill-")
+        .tempdir()
+        .expect("script scratch dir");
+    let script = scratch.path().join("lifecycle_hard_kill_gate.jsonl");
     std::fs::write(
         &script,
         "{\"cmd\":\"goto\",\"url\":\"about:blank\"}\n{\"cmd\":\"wait\",\"ms\":120000}\n",
     )
     .expect("script fixture");
 
-    let mut cli = std::process::Command::new(env!("CARGO_BIN_EXE_browser-automation-cli"))
+    let mut cli = common::cmd()
         .args([
             "--json",
             "--timeout",
@@ -163,7 +179,6 @@ fn sigkill_of_the_cli_leaves_no_browser_process_behind() {
             break;
         }
         if let Ok(Some(status)) = cli.try_wait() {
-            let _ = std::fs::remove_file(&script);
             panic!("the CLI exited before Chrome started (status: {status})");
         }
         std::thread::sleep(POLL);
@@ -172,10 +187,12 @@ fn sigkill_of_the_cli_leaves_no_browser_process_behind() {
     if spawned.is_empty() {
         let _ = cli.kill();
         let _ = cli.wait();
-        let _ = std::fs::remove_file(&script);
-        eprintln!(
-            "SKIP lifecycle_hard_kill_gate: Chrome never appeared within {STARTUP_DEADLINE:?}; \
-             the host could not run the browser. This is a skip, not a pass."
+        skip_with_reason(
+            GATE,
+            &format!(
+                "Chrome never appeared within {STARTUP_DEADLINE:?}; the host could \
+                 not run the browser."
+            ),
         );
         return;
     }
@@ -212,7 +229,6 @@ fn sigkill_of_the_cli_leaves_no_browser_process_behind() {
     for pid in &survivors {
         sigkill(*pid);
     }
-    let _ = std::fs::remove_file(&script);
 
     assert!(
         survivors.is_empty(),

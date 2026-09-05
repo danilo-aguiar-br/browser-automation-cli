@@ -67,6 +67,11 @@ pub(super) fn insert_disguise_disclosure(map: &mut Map<String, Value>, engine: S
             // is C, and this product is pure Rust by policy. Not a gap to be
             // closed later: a stated boundary.
             map.insert("tls_impersonation".into(), json!(false));
+            // WHICH stack produced that fingerprint, not just whether it was
+            // disguised. `tls_impersonation: false` says the JA3 was not forged
+            // and leaves open what it actually is, so a caller correlating a
+            // block against a fingerprint database had to guess the library.
+            map.insert("transport_fingerprint".into(), json!("rustls"));
             // Layer 4, partial. The VALUES of Chrome's headers are sent; the
             // ORDER is not, because `reqwest` writes headers by iterating a
             // `HeaderMap` whose iteration order comes from its hash state
@@ -83,6 +88,12 @@ pub(super) fn insert_disguise_disclosure(map: &mut Map<String, Value>, engine: S
             // Not impersonation in the `wreq` sense — it is the real thing.
             // The JA3/JA4 on the wire is Chrome's because the peer IS Chrome.
             map.insert("tls_impersonation".into(), json!(true));
+            // The twin of the `http` line, emitted here for the same reason the
+            // module doc gives for emitting the `false` fields: a key present in
+            // half the envelopes cannot be filtered on. Chrome's TLS is
+            // BoringSSL, so this names the real stack rather than repeating the
+            // engine name the envelope already carries.
+            map.insert("transport_fingerprint".into(), json!("chrome-boringssl"));
             map.insert("header_order_controlled".into(), json!(true));
         }
     }
@@ -95,7 +106,21 @@ pub(super) fn insert_disguise_disclosure(map: &mut Map<String, Value>, engine: S
 /// client that can only offer `http/1.1` is identifiable during the TLS
 /// handshake, before any response exists to inspect.
 fn negotiated_http_version() -> &'static str {
-    if crate::xdg::resolve_http2_enabled() {
+    negotiated_http_version_with(crate::xdg::resolve_http2_enabled())
+}
+
+/// The pure core of [`negotiated_http_version`], taking the knob as an argument.
+///
+/// # Why the facade is not enough
+///
+/// The facade reads XDG, and the policy snapshot behind it is a `OnceLock`:
+/// the first test in a binary to touch it freezes the value for every test
+/// after it. An assertion written against the facade therefore measures
+/// whichever neighbour ran first, which is why this axis had ZERO coverage
+/// while six tests in this file reported green — every one of them asserted
+/// literals that are identical in both branches.
+fn negotiated_http_version_with(http2_enabled: bool) -> &'static str {
+    if http2_enabled {
         "h2"
     } else {
         "http/1.1"
@@ -109,13 +134,28 @@ fn negotiated_http_version() -> &'static str {
 /// `MAX_CONCURRENT_STREAMS`, nor to order the four pseudo-headers, so the
 /// frame resembles Chrome without matching it byte for byte.
 fn http2_profile() -> &'static str {
-    if !crate::xdg::resolve_http2_enabled() {
+    http2_profile_with(
+        crate::xdg::resolve_http2_enabled(),
+        crate::xdg::resolve_http2_initial_stream_window_size(),
+        crate::xdg::resolve_http2_initial_connection_window_size(),
+    )
+}
+
+/// The pure core of [`http2_profile`], taking the three knobs as arguments.
+///
+/// Same reason as [`negotiated_http_version_with`]: the three states this
+/// function distinguishes — `disabled`, `chrome-partial` and `custom` — are
+/// unreachable from a test that has to go through the frozen XDG snapshot.
+fn http2_profile_with(
+    http2_enabled: bool,
+    stream_window: u32,
+    connection_window: u32,
+) -> &'static str {
+    if !http2_enabled {
         return "disabled";
     }
-    let stock = crate::xdg::resolve_http2_initial_stream_window_size()
-        == crate::constants::HTTP2_INITIAL_STREAM_WINDOW_SIZE
-        && crate::xdg::resolve_http2_initial_connection_window_size()
-            == crate::constants::HTTP2_INITIAL_CONNECTION_WINDOW_SIZE;
+    let stock = stream_window == crate::constants::HTTP2_INITIAL_STREAM_WINDOW_SIZE
+        && connection_window == crate::constants::HTTP2_INITIAL_CONNECTION_WINDOW_SIZE;
     if stock {
         "chrome-partial"
     } else {
@@ -126,6 +166,45 @@ fn http2_profile() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The HTTP version reported follows the knob, in BOTH directions.
+    ///
+    /// Asserting only the `h2` side would pass against a function hardcoded to
+    /// return `h2`, which is the shape the six older tests in this file have.
+    #[test]
+    fn the_reported_http_version_follows_the_knob() {
+        assert_eq!(negotiated_http_version_with(true), "h2");
+        assert_eq!(negotiated_http_version_with(false), "http/1.1");
+    }
+
+    /// All THREE profile states are reachable and distinct.
+    #[test]
+    fn the_http2_profile_separates_disabled_stock_and_custom() {
+        let stock_stream = crate::constants::HTTP2_INITIAL_STREAM_WINDOW_SIZE;
+        let stock_conn = crate::constants::HTTP2_INITIAL_CONNECTION_WINDOW_SIZE;
+
+        // Disabled wins over the windows: a client that offers no h2 has no
+        // SETTINGS frame to describe, so reporting a profile there would name a
+        // frame that is never sent.
+        assert_eq!(
+            http2_profile_with(false, stock_stream, stock_conn),
+            "disabled"
+        );
+        assert_eq!(
+            http2_profile_with(true, stock_stream, stock_conn),
+            "chrome-partial"
+        );
+        // EITHER window off the stock value is enough: the frame no longer
+        // matches Chrome's, and `chrome-partial` would overstate it.
+        assert_eq!(
+            http2_profile_with(true, stock_stream + 1, stock_conn),
+            "custom"
+        );
+        assert_eq!(
+            http2_profile_with(true, stock_stream, stock_conn + 1),
+            "custom"
+        );
+    }
 
     #[test]
     fn every_field_is_present_even_when_false() {

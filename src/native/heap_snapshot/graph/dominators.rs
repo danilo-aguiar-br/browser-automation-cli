@@ -20,9 +20,9 @@ impl SnapshotGraph {
             .iter()
             .enumerate()
             .filter(|(_, node)| {
-                node.type_name == "synthetic"
+                &*node.type_name == "synthetic"
                     || node.name.contains("GC roots")
-                    || node.name == "(GC roots)"
+                    || &*node.name == "(GC roots)"
             })
             .map(|(i, _)| i)
             .collect();

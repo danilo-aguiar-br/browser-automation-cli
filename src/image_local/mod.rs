@@ -67,7 +67,7 @@ pub use exif::read_exif_map;
 pub use limits::ImageLimits;
 pub use magic::{detect_format, verify_format_name, DetectedFormat};
 pub(crate) use ops::project_fields;
-pub use ops::{convert, decode_path_for_qr, info, resize, ImageSource};
+pub use ops::{convert, decode_path_for_qr, decode_path_for_qr_with, info, resize, ImageSource};
 
 pub use avif::{
     decode_available as avif_decode_available, encode_available as avif_encode_available,

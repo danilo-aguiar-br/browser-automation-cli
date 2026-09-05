@@ -14,7 +14,11 @@
         "message": { "type": "string" },
         "kind": { "type": "string" },
         "suggestion": { "type": "string" },
-        "exit_code": { "type": "integer" }
+        "exit_code": { "type": "integer" },
+        "retryable": {
+          "description": "Whether retrying the same call could plausibly succeed. Always present, false included: a field that appears only when true is indistinguishable from one that was never implemented.",
+          "type": "boolean"
+        }
       },
       "additionalProperties": true
     },

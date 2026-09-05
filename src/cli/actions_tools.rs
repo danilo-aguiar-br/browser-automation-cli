@@ -128,6 +128,14 @@ pub enum ImageAction {
         /// Read image bytes from stdin
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one image path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Emits one envelope holding a per-item result. A failing item is
+        /// reported and the run continues, so `ok: true` means the batch
+        /// produced SOMETHING, never that every item passed — read
+        /// `error_count`. If NO item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Include GPS EXIF tags (default strips location)
         #[arg(long, action = clap::ArgAction::SetTrue)]
         include_gps: bool,
@@ -143,6 +151,16 @@ pub enum ImageAction {
         /// Read image bytes from stdin
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one image path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Each output is derived beside its input as `input.<target format>`;
+        /// `--out` is refused here because one destination cannot serve N
+        /// inputs. An item whose derived path already exists, or equals its own
+        /// input, fails and the batch continues, so `ok: true` means the batch
+        /// produced SOMETHING, never that every item passed — read
+        /// `error_count`. If NO item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Output format: png | jpeg | webp | gif | avif (avif needs the `image-avif` feature; heic is rejected — no pure-Rust HEVC encoder)
         #[arg(long)]
         format: String,
@@ -167,6 +185,16 @@ pub enum ImageAction {
         /// Read image bytes from stdin
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one image path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Each output is derived beside its input as `input.<target format>`;
+        /// `--out` is refused here because one destination cannot serve N
+        /// inputs. An item whose derived path already exists, or equals its own
+        /// input, fails and the batch continues, so `ok: true` means the batch
+        /// produced SOMETHING, never that every item passed — read
+        /// `error_count`. If NO item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Target width in pixels
         #[arg(long)]
         width: u32,
@@ -212,6 +240,14 @@ pub enum ImageAction {
         /// Read image bytes from stdin
         #[arg(long, action = clap::ArgAction::SetTrue)]
         stdin: bool,
+        /// Batch: one image path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`
+        ///
+        /// Emits one envelope holding a per-item result. A failing item is
+        /// reported and the run continues, so `ok: true` means the batch
+        /// produced SOMETHING, never that every item passed — read
+        /// `error_count`. If NO item succeeds the run fails with exit 65.
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        paths_file: Option<std::path::PathBuf>,
         /// Include GPS EXIF tags
         #[arg(long, action = clap::ArgAction::SetTrue)]
         include_gps: bool,
@@ -235,7 +271,7 @@ pub enum MitmAction {
         #[arg(long)]
         host: Option<String>,
         /// Maximum exchanges to return
-        #[arg(long, default_value_t = 100)]
+        #[arg(long, default_value_t = crate::constants::MITM_LIST_LIMIT)]
         limit: usize,
         /// Read a capture written by another invocation (GAP-009 explicit path)
         #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
@@ -290,7 +326,7 @@ pub enum MitmAction {
     /// Start one-shot MITM proxy on 127.0.0.1 (ephemeral port); captures until timeout
     Start {
         /// Seconds to keep the proxy alive (one-shot; default 30)
-        #[arg(long, default_value_t = 30)]
+        #[arg(long, default_value_t = crate::constants::MITM_DEFAULT_SECONDS)]
         seconds: u64,
     },
     /// One-shot: proxy + Chrome + navigate URL + capture (GAP-011 / GAP-019)
@@ -299,19 +335,30 @@ pub enum MitmAction {
         #[arg(value_hint = ValueHint::Url)]
         url: String,
         /// Max seconds for the whole one-shot (default 30)
-        #[arg(long, default_value_t = 30)]
+        #[arg(long, default_value_t = crate::constants::MITM_DEFAULT_SECONDS)]
         seconds: u64,
         /// Optional HAR output path
         #[arg(long, value_hint = ValueHint::FilePath)]
         har: Option<std::path::PathBuf>,
-        /// Optional host allowlist for TLS intercept
+        /// Host allowlist for TLS DECRYPTION (CSV). Decides what is intercepted, not what is kept
         #[arg(long)]
         hosts: Option<String>,
+        /// Host allowlist for the CAPTURE RECORD (CSV). Exchanges off this list are forwarded but never written
+        ///
+        /// Distinct from `--hosts`: that one decides which connections are
+        /// decrypted, from the SNI; this one decides which exchanges reach the
+        /// artifact, from the request host. Plaintext HTTP and the CDP merge
+        /// never pass through the decryption decision, so `--hosts` alone still
+        /// leaves the browser's own background chatter in the capture. Matches a
+        /// host exactly or as a subdomain: `example.com` admits
+        /// `api.example.com` and refuses `evil-example.com`.
+        #[arg(long, value_name = "CSV")]
+        capture_hosts: Option<String>,
     },
     /// GraphQL operations discovered in capture
     Graphql {
         /// Maximum operations to return
-        #[arg(long, default_value_t = 100)]
+        #[arg(long, default_value_t = crate::constants::MITM_GRAPHQL_LIMIT)]
         limit: usize,
         /// Read a capture written by another invocation (GAP-009 explicit path)
         #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
@@ -324,9 +371,13 @@ pub enum MitmAction {
         action: MitmWsAction,
     },
     /// Short-circuit block host/path (persists for next start/capture-url in same process config note)
+    ///
+    /// At least one of `--host` or `--path` is required: a rule with neither
+    /// names no target, and a block rule that matches everything is not a
+    /// narrower version of a block rule — it is a different, far larger act.
     Block {
         /// Host to short-circuit
-        #[arg(long)]
+        #[arg(long, required_unless_present = "path")]
         host: Option<String>,
         /// Restrict the block to this path prefix
         #[arg(long)]
@@ -338,11 +389,18 @@ pub enum MitmAction {
         #[arg(long)]
         host: String,
     },
-    /// Show or set redact-secrets policy for exports
+    /// Show or set the redact-secrets policy applied to captures
     Redact {
-        /// When true, redact Authorization/Cookie (default true)
-        #[arg(long, default_value_t = true)]
-        secrets: bool,
+        /// Set the policy: `--secrets false` stops masking, `--secrets true` restores it. Omit to SHOW the effective policy without writing anything
+        ///
+        /// Was `#[arg(long, default_value_t = true)]` over a bare `bool`, which
+        /// clap derives as `SetTrue`. Measured 2026-09-01: omitting the flag
+        /// gave `true`, passing `--secrets` gave `true`, and `--secrets false`
+        /// exited 2 with `unexpected argument 'false'`. The one value an
+        /// operator would ever type was the one the parser refused, while the
+        /// help text said "when true" as though a "when false" existed.
+        #[arg(long)]
+        secrets: Option<bool>,
     },
 }
 
@@ -352,7 +410,7 @@ pub enum MitmWsAction {
     /// List captured WebSocket frames
     List {
         /// Maximum frames to return
-        #[arg(long, default_value_t = 100)]
+        #[arg(long, default_value_t = crate::constants::MITM_WS_FRAMES_LIMIT)]
         limit: usize,
         /// Read a capture written by another invocation (GAP-009 explicit path)
         #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]

@@ -147,7 +147,7 @@ pub(super) async fn execute_assert(
                         CliError::with_suggestion(
                             ErrorKind::Usage,
                             "assert url requires value",
-                            "Use {\"cmd\":\"assert\",\"kind\":\"url\",\"value\":\"example.com\"} or url_contains",
+                            crate::i18n::suggestion_key("assert_url_example", None),
                         )
                     })?;
                 let contains = step
@@ -166,7 +166,7 @@ pub(super) async fn execute_assert(
                         CliError::with_suggestion(
                             ErrorKind::Usage,
                             "assert text requires value",
-                            "Use {\"cmd\":\"assert\",\"kind\":\"text\",\"value\":\"Hello\"}",
+                            crate::i18n::suggestion_key("assert_text_example", None),
                         )
                     })?;
                 let target = step
@@ -201,7 +201,7 @@ pub(super) async fn execute_assert(
                         CliError::with_suggestion(
                             ErrorKind::Usage,
                             "assert console_no_match requires pattern",
-                            "Use {\"cmd\":\"assert\",\"kind\":\"console_no_match\",\"pattern\":\"TypeError\"}",
+                            crate::i18n::suggestion_key("assert_console_no_match_example", None),
                         )
                     })?;
                 return session.assert_console_no_match(pattern).await;
@@ -239,7 +239,7 @@ pub(super) async fn execute_assert(
     Err(CliError::with_suggestion(
         ErrorKind::Usage,
         "assert requires kind=url|text|console|console_empty|console_no_match|step or url/text/url_contains fields",
-        "Example: {\"cmd\":\"assert\",\"kind\":\"step\",\"path\":\"result\",\"equals\":\"OK\"}",
+        crate::i18n::suggestion_key("assert_step_example", None),
     ))
 }
 

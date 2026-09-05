@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# NOT a ci-check verifier, on purpose. Do NOT add `# ci-check: verifier` here.
+#   `ci-check` already runs `tests/phantom_flag_gate.rs` under `cargo test
+#   --tests`, and the header below says a second green adds nothing. Marking
+#   this file bought the gate 31 extra seconds and zero extra coverage.
 # Shim: run one property of `tests/phantom_flag_gate.rs` and surface its message.
 #
 # WHY THIS FILE EXISTS

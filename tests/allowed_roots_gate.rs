@@ -26,38 +26,18 @@
 //! No binary or no Chrome means SKIP LOUDLY.
 
 use std::path::PathBuf;
-use std::process::Command;
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+mod common;
+use common::{binary, binary_or_skip, chrome_not_ready};
 
-fn binary() -> Option<PathBuf> {
-    let p = root().join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
+const GATE: &str = "allowed_roots_gate";
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    let Some(bin) = binary() else {
-        eprintln!(
-            "SKIP allowed_roots_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    let Some(bin) = binary_or_skip(GATE) else {
         return true;
     };
-    let chrome_ok = Command::new(&bin)
-        .args(["-q", "--json", "doctor", "--offline", "--quick"])
-        .output()
-        .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if !chrome_ok {
-        eprintln!(
-            "SKIP allowed_roots_gate: doctor reports the host is not ready for Chrome. \
-             This is NOT a pass."
-        );
+    if chrome_not_ready(GATE, &bin) {
         return true;
     }
     false
@@ -73,7 +53,7 @@ fn outside_target() -> Option<&'static str> {
 
 fn run(args: &[&str]) -> Option<(i32, serde_json::Value)> {
     let bin = binary()?;
-    let out = Command::new(&bin)
+    let out = common::isolated_cmd(&bin)
         .args(["-q", "--timeout", "90", "--json"])
         .args(args)
         .output()
@@ -83,12 +63,19 @@ fn run(args: &[&str]) -> Option<(i32, serde_json::Value)> {
 }
 
 /// Write a fixture inside the system temp dir, which is a default allowed root.
-fn fixture_inside_roots() -> Option<PathBuf> {
-    let dir = std::env::temp_dir().join(format!("allowed-roots-gate-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).ok()?;
-    let file = dir.join("inside.html");
+///
+/// The guard comes back with the path: dropping it deletes the fixture, so a
+/// caller that kept only the `PathBuf` would point the CLI at nothing. The
+/// directory used to be pid-keyed and never removed, which left one behind per
+/// run — nine of them by the time this was measured.
+fn fixture_inside_roots() -> Option<(tempfile::TempDir, PathBuf)> {
+    let tmp = tempfile::Builder::new()
+        .prefix("allowed-roots-gate-")
+        .tempdir()
+        .ok()?;
+    let file = tmp.path().join("inside.html");
     std::fs::write(&file, b"<html><body>inside</body></html>").ok()?;
-    Some(file)
+    Some((tmp, file))
 }
 
 /// POSITIVE CONTROL: a local file INSIDE an allowed root stays readable.
@@ -100,7 +87,7 @@ fn local_file_inside_an_allowed_root_is_readable() {
     if cannot_run() {
         return;
     }
-    let file = fixture_inside_roots().expect("fixture");
+    let (_tmp, file) = fixture_inside_roots().expect("fixture");
     let url = format!("file://{}", file.display());
     let (code, env) = run(&["goto", &url]).expect("envelope");
     let _ = std::fs::remove_file(&file);
@@ -118,9 +105,9 @@ fn local_file_outside_allowed_roots_is_refused() {
         return;
     }
     let Some(target) = outside_target() else {
-        eprintln!(
-            "SKIP allowed_roots_gate: no readable path outside the roots on this host. \
-             This is NOT a pass."
+        common::skip_with_reason(
+            "allowed_roots_gate",
+            "no readable path outside the roots on this host.",
         );
         return;
     };
@@ -150,7 +137,10 @@ fn the_refusal_is_classified_as_policy_not_argv() {
         return;
     }
     let Some(target) = outside_target() else {
-        eprintln!("SKIP allowed_roots_gate: no path outside the roots. This is NOT a pass.");
+        common::skip_with_reason(
+            "allowed_roots_gate",
+            "no readable path outside the roots on this host.",
+        );
         return;
     };
     let url = format!("file://{target}");
@@ -185,7 +175,10 @@ fn the_risk_flag_restores_access() {
         return;
     }
     let Some(target) = outside_target() else {
-        eprintln!("SKIP allowed_roots_gate: no path outside the roots. This is NOT a pass.");
+        common::skip_with_reason(
+            "allowed_roots_gate",
+            "no readable path outside the roots on this host.",
+        );
         return;
     };
     let url = format!("file://{target}");

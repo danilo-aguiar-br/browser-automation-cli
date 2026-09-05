@@ -24,6 +24,14 @@ mod capture;
 mod page;
 mod state;
 
+// The action slices are defined against the `match` arms that consume them, so
+// they live in the leaf modules; preflight reaches them through here.
+pub(super) use capture::{CONSOLE_ACTIONS, NET_ACTIONS};
+pub(super) use page::{DIALOG_ACTIONS, PAGE_ACTIONS};
+pub(super) use state::COOKIE_ACTIONS;
+// Re-exported one level further by `execute`, so it must be crate-visible here.
+pub(crate) use state::{cookie_set_payload, cookie_set_payload_error};
+
 pub(super) async fn handle(
     session: &mut OneShotSession,
     cmd: &str,

@@ -58,6 +58,25 @@ impl OneShotSession {
     ///
     /// A native `<select>` takes a different route entirely (GAP-055); see
     /// `native_select_fn` in this module (shared `input`+`change` events).
+    ///
+    /// # Errors
+    ///
+    /// On the native `<select>` route, fails with
+    /// [`ErrorKind::Browser`] —
+    /// `"select-option failed: …"` — when the target cannot be resolved or the
+    /// page call is refused, and with
+    /// [`ErrorKind::Data`] when `option`
+    /// matches no option value or label, listing the ones that exist.
+    ///
+    /// On the custom-widget route, fails with
+    /// [`ErrorKind::Data`] —
+    /// `"pick option not found: target=… option=…"` — when no popover entry,
+    /// `role=option` label or CSS match is found, after the click fallback has
+    /// also been tried.
+    ///
+    /// Both misses are errors rather than silent successes: an agent that
+    /// picked nothing would otherwise read "done" and act on a form it never
+    /// changed.
     pub async fn pick_option(
         &mut self,
         target: &str,
@@ -128,7 +147,7 @@ impl OneShotSession {
             return Err(CliError::with_suggestion(
                 ErrorKind::Data,
                 format!("pick option not found: target={target} option={option}"),
-                "Pass option text visible in the popover, a CSS selector, or role=option label",
+                crate::i18n::suggestion_key("pick_option_target", None),
             ));
         }
         let out = json!({

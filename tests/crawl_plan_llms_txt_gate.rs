@@ -15,18 +15,13 @@
 //! attempted the command would fail, so a success envelope IS the evidence.
 //! A test against a reachable host could pass while quietly hitting the network.
 
-use std::path::PathBuf;
-use std::process::Command;
-
-fn bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_browser-automation-cli"))
-}
+mod common;
 
 /// A host that cannot resolve, so any real fetch turns into a failure.
 const UNREACHABLE: &str = "https://this-host-does-not-resolve.invalid/start";
 
 fn run(args: &[&str]) -> (bool, String) {
-    let out = Command::new(bin()).args(args).output().expect("spawn cli");
+    let out = common::cmd().args(args).output().expect("spawn cli");
     (
         out.status.success(),
         String::from_utf8_lossy(&out.stdout).into_owned(),

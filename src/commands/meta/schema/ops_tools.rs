@@ -62,7 +62,8 @@ pub(crate) fn schema_for(cmd: &str) -> Option<Value> {
                 "cpu_throttling_rate": { "type": "number" },
                 "color_scheme": { "type": "string" },
                 "extra_headers": { "type": "string" },
-                "viewport": { "type": "string" }
+                "viewport": { "type": "string" },
+                "screen": { "type": "string", "description": "Screen size WxH (never smaller than the viewport)" }
             }),
             &[],
         ),
@@ -72,7 +73,8 @@ pub(crate) fn schema_for(cmd: &str) -> Option<Value> {
                 "width": { "type": "integer" },
                 "height": { "type": "integer" },
                 "scale": { "type": "number" },
-                "mobile": { "type": "boolean" }
+                "mobile": { "type": "boolean" },
+                "screen": { "type": "string", "description": "Screen size WxH (never smaller than the viewport)" }
             }),
             &["width", "height"],
         ),

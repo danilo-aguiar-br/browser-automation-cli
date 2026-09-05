@@ -9,6 +9,8 @@ use browser_automation_cli::residual::{
     write_owner_pid, LiveProcessIndex, ProcessEntry, CLI_CHROME_MARKER_PREFIX,
 };
 
+mod common;
+
 /// A browser-shaped command line holding `profile` as its user-data-dir.
 fn chrome_cmdline(profile: &str, kind: &str) -> String {
     format!("/usr/lib/chromium/chromium --type={kind} --user-data-dir={profile} --headless=new")
@@ -139,9 +141,16 @@ fn foreign_root_orphans_are_reported_separately() {
 
 #[test]
 fn a_live_owner_pid_protects_a_concurrent_invocation() {
-    let temp = std::env::temp_dir().join(format!("{CLI_CHROME_MARKER_PREFIX}live-owner-gate"));
-    let _ = std::fs::remove_dir_all(&temp);
-    std::fs::create_dir_all(&temp).expect("fixture profile");
+    // A `TempDir` and not a fixed name: the sweep this replaced ran BEFORE the
+    // work, so it cleaned the PREVIOUS run and never its own, and the last run
+    // always survived. The guard also covers the slice a panicking assertion
+    // below crosses. The marker prefix is preserved because the product
+    // DISCOVERS these directories by it.
+    let guard = tempfile::Builder::new()
+        .prefix(CLI_CHROME_MARKER_PREFIX)
+        .tempdir()
+        .expect("fixture profile");
+    let temp = guard.path().to_path_buf();
     write_owner_pid(&temp).expect("owner marker");
 
     // Our own pid is alive by construction, so this profile is a live sibling.
@@ -158,14 +167,20 @@ fn a_live_owner_pid_protects_a_concurrent_invocation() {
         "a profile whose owner pid is alive is a healthy concurrent \
          invocation and must never be force-collected"
     );
-    let _ = std::fs::remove_dir_all(&temp);
 }
 
 #[test]
 fn a_dead_owner_past_the_age_floor_becomes_collectable() {
-    let temp = std::env::temp_dir().join(format!("{CLI_CHROME_MARKER_PREFIX}dead-owner-gate"));
-    let _ = std::fs::remove_dir_all(&temp);
-    std::fs::create_dir_all(&temp).expect("fixture profile");
+    // A `TempDir` and not a fixed name: the sweep this replaced ran BEFORE the
+    // work, so it cleaned the PREVIOUS run and never its own, and the last run
+    // always survived. The guard also covers the slice a panicking assertion
+    // below crosses. The marker prefix is preserved because the product
+    // DISCOVERS these directories by it.
+    let guard = tempfile::Builder::new()
+        .prefix(CLI_CHROME_MARKER_PREFIX)
+        .tempdir()
+        .expect("fixture profile");
+    let temp = guard.path().to_path_buf();
     // pid 0 is never a live user process, so it stands in for a dead owner.
     std::fs::write(temp.join(".browser-automation-cli-owner-pid"), "0").expect("owner marker");
 
@@ -197,15 +212,20 @@ fn a_dead_owner_past_the_age_floor_becomes_collectable() {
         1,
         "a dead owner past the floor is provable residue"
     );
-
-    let _ = std::fs::remove_dir_all(&temp);
 }
 
 #[test]
 fn an_unmarked_profile_is_never_force_collected() {
-    let temp = std::env::temp_dir().join(format!("{CLI_CHROME_MARKER_PREFIX}no-owner-gate"));
-    let _ = std::fs::remove_dir_all(&temp);
-    std::fs::create_dir_all(&temp).expect("fixture profile");
+    // A `TempDir` and not a fixed name: the sweep this replaced ran BEFORE the
+    // work, so it cleaned the PREVIOUS run and never its own, and the last run
+    // always survived. The guard also covers the slice a panicking assertion
+    // below crosses. The marker prefix is preserved because the product
+    // DISCOVERS these directories by it.
+    let guard = tempfile::Builder::new()
+        .prefix(CLI_CHROME_MARKER_PREFIX)
+        .tempdir()
+        .expect("fixture profile");
+    let temp = guard.path().to_path_buf();
     // No owner-pid file: the directory cannot be attributed to a dead owner.
 
     let index = LiveProcessIndex::from_parts(HashSet::from([std::process::id()]), Vec::new());
@@ -220,7 +240,6 @@ fn an_unmarked_profile_is_never_force_collected() {
         "without an owner marker the escape hatch has no proof and must defer \
          to the ordinary stale-GC path"
     );
-    let _ = std::fs::remove_dir_all(&temp);
 }
 
 #[test]
@@ -366,8 +385,14 @@ fn reaper_ignores_foreign_chromium_profiles() {
 /// root's parent is not a live CLI of this product, so nothing owns it.
 #[test]
 fn legacy_profile_without_marker_is_reaped_when_reparented() {
-    let dir = std::env::temp_dir().join(format!("{CLI_CHROME_MARKER_PREFIX}legacy-orphan"));
-    std::fs::create_dir_all(&dir).expect("fixture dir");
+    // A `TempDir` guard: the `remove_dir_all` at the end of this test is on the
+    // happy path only, so a failing assertion left the fixture behind. The
+    // marker prefix is preserved because the product DISCOVERS by it.
+    let guard = tempfile::Builder::new()
+        .prefix(CLI_CHROME_MARKER_PREFIX)
+        .tempdir()
+        .expect("fixture dir");
+    let dir = guard.path().to_path_buf();
     // No write_owner_pid: that is the whole point of this gate.
     let profile = dir.display().to_string();
     let index = LiveProcessIndex::from_entries(vec![
@@ -392,10 +417,9 @@ fn legacy_profile_without_marker_is_reaped_when_reparented() {
     );
     assert_eq!(
         abandoned,
-        vec![dir.clone()],
+        vec![dir],
         "an orphaned legacy tree must be collectable without an owner marker"
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The same legacy profile is protected while a real CLI still owns it.
@@ -404,8 +428,14 @@ fn legacy_profile_without_marker_is_reaped_when_reparented() {
 /// requirement must not turn a healthy concurrent invocation into a target.
 #[test]
 fn legacy_profile_is_protected_while_its_cli_lives() {
-    let dir = std::env::temp_dir().join(format!("{CLI_CHROME_MARKER_PREFIX}legacy-owned"));
-    std::fs::create_dir_all(&dir).expect("fixture dir");
+    // A `TempDir` guard: the `remove_dir_all` at the end of this test is on the
+    // happy path only, so a failing assertion left the fixture behind. The
+    // marker prefix is preserved because the product DISCOVERS by it.
+    let guard = tempfile::Builder::new()
+        .prefix(CLI_CHROME_MARKER_PREFIX)
+        .tempdir()
+        .expect("fixture dir");
+    let dir = guard.path().to_path_buf();
     let profile = dir.display().to_string();
     let index = LiveProcessIndex::from_entries(vec![
         chrome_proc(800, Some(42), &profile, "browser"),
@@ -422,7 +452,7 @@ fn legacy_profile_is_protected_while_its_cli_lives() {
     ]);
 
     let abandoned = abandoned_marker_dirs(
-        &[dir.clone()],
+        &[dir],
         &index,
         SystemTime::now() + Duration::from_secs(86_400),
         Duration::from_secs(1),
@@ -431,7 +461,6 @@ fn legacy_profile_is_protected_while_its_cli_lives() {
         abandoned.is_empty(),
         "a tree whose parent is a live CLI must never be reaped"
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The `residual_disk` check and `data.residual` must describe the same thing.
@@ -450,9 +479,10 @@ fn legacy_profile_is_protected_while_its_cli_lives() {
 /// fields were added to remove.
 #[test]
 fn the_residual_check_carries_every_field_the_report_does() {
-    // `CARGO_BIN_EXE_` and not `cargo_bin`: the latter resolves to a path any
-    // build overwrites, with no guarantee it matches this test's feature set.
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_browser-automation-cli"))
+    // `common::bin()` wraps `CARGO_BIN_EXE_` and not `cargo_bin`: the latter
+    // resolves to a path any build overwrites, with no guarantee it matches this
+    // test's feature set.
+    let out = common::cmd()
         .args(["-q", "--json", "doctor", "--offline", "--quick"])
         .output()
         .expect("spawn cli");
@@ -501,7 +531,7 @@ fn the_residual_check_carries_every_field_the_report_does() {
 /// cannot quietly turn concurrency into a failure.
 #[test]
 fn the_residual_check_verdict_depends_on_orphans_not_on_raw_counts() {
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_browser-automation-cli"))
+    let out = common::cmd()
         .args(["-q", "--json", "doctor", "--offline", "--quick"])
         .output()
         .expect("spawn cli");

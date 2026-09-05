@@ -54,6 +54,17 @@
               ],
               "type": "string"
             },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one image path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
             "quality": {
               "argv": "--quality",
               "description": "Lossy quality 1..=100 (applied for jpeg and avif; local webp encoder is lossless — quality recorded but not applied)",
@@ -176,6 +187,17 @@
               ],
               "type": "string"
             },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one image path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
             "select": {
               "argv": "--select",
               "description": "Project fields (CSV): path,count,exif,include_gps,engine (aliases: tags=exif, tag_count=count). EXIF only — no IPTC/XMP",
@@ -220,6 +242,17 @@
               "required": false,
               "source": "parser",
               "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one image path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
               "surfaces": [
                 "argv"
               ],
@@ -302,6 +335,17 @@
               "required": false,
               "source": "parser",
               "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one image path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
               "surfaces": [
                 "argv"
               ],

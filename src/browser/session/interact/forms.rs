@@ -19,6 +19,17 @@ impl OneShotSession {
     /// focus and produce non-deterministic agent results. Multi-field forms do not
     /// justify multi-process Chrome (product law: one residual profile).
     /// Fill multiple form fields from a map of target → value.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`write`](Self::write) for the first field that fails: no
+    /// active page, a target that resolves to no element, a `<select>` with no
+    /// matching option, or a radio asked for a falsy value.
+    ///
+    /// Fields are filled in order and the loop stops at the first failure, so
+    /// an error leaves the form PARTIALLY filled — everything before the
+    /// failing field is already written, and the envelope that would have
+    /// listed them is never returned.
     pub async fn fill_form(
         &mut self,
         fields: &[(String, String)],
@@ -34,6 +45,22 @@ impl OneShotSession {
     }
 
     /// Set files on a file input without a native picker.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Usage`] —
+    /// `"upload path is not a regular file: …"` — for a missing path or a
+    /// directory, checked before the browser is touched, and with
+    /// [`ErrorKind::Io`] when the path cannot be
+    /// canonicalized.
+    ///
+    /// Fails with [`ErrorKind::Browser`] —
+    /// `"upload failed: …"`, carrying the `target_ref_from_view` suggestion —
+    /// when `target` resolves to no element or is not a file input.
+    ///
+    /// The path is canonicalized first so the browser is handed an absolute
+    /// path: it resolves the file itself, and a relative one would be read
+    /// against Chrome's working directory rather than the caller's.
     pub async fn upload(
         &mut self,
         target: &str,

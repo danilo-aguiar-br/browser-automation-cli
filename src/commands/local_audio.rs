@@ -4,21 +4,17 @@
 use crate::audio_local::{self, AudioSource, ConvertOpts};
 use crate::cli::AudioAction;
 use crate::commands::common::emit_ok;
-use crate::error::{CliError, ErrorKind};
+use crate::error::CliError;
 
-fn audio_source(path: Option<std::path::PathBuf>, stdin: bool) -> Result<AudioSource, CliError> {
-    match (path, stdin) {
-        (Some(p), false) => Ok(AudioSource::Path(p)),
-        (None, true) => Ok(AudioSource::Stdin),
-        (Some(_), true) => Err(CliError::new(
-            ErrorKind::Usage,
-            "audio: pass either --path or --stdin, not both",
-        )),
-        (None, false) => Err(CliError::new(
-            ErrorKind::Usage,
-            "audio: require --path or --stdin",
-        )),
-    }
+/// Resolve `--path` / `--stdin` / `--paths-file` for the `audio` family.
+fn audio_inputs(
+    path: Option<std::path::PathBuf>,
+    stdin: bool,
+    paths_file: Option<std::path::PathBuf>,
+) -> Result<crate::commands::media::MediaInputs<AudioSource>, CliError> {
+    crate::commands::media::resolve("audio", path, stdin, paths_file, AudioSource::Path, || {
+        AudioSource::Stdin
+    })
 }
 
 /// Run an `audio` subcommand and write the agent envelope.
@@ -27,10 +23,13 @@ pub(crate) fn handle_audio(action: AudioAction, json: bool) -> Result<(), CliErr
         AudioAction::Info {
             path,
             stdin,
+            paths_file,
             select,
         } => {
-            let src = audio_source(path, stdin)?;
-            audio_local::info(&src, select.as_deref())?
+            let inputs = audio_inputs(path, stdin, paths_file)?;
+            crate::commands::media::run("audio", inputs, |src| {
+                audio_local::info(src, select.as_deref())
+            })?
         }
         AudioAction::Download {
             url,
@@ -56,6 +55,7 @@ pub(crate) fn handle_audio(action: AudioAction, json: bool) -> Result<(), CliErr
         AudioAction::Convert {
             path,
             stdin,
+            paths_file,
             format,
             out,
             codec,
@@ -66,7 +66,7 @@ pub(crate) fn handle_audio(action: AudioAction, json: bool) -> Result<(), CliErr
             strip_metadata,
             select,
         } => {
-            let src = audio_source(path, stdin)?;
+            let inputs = audio_inputs(path, stdin, paths_file)?;
             let fmt = format.unwrap_or_else(crate::xdg::resolve_audio_default_format);
             let container = audio_local::parse_output_format(&fmt)?;
             let br = bitrate.unwrap_or_else(crate::xdg::resolve_audio_default_bitrate);
@@ -79,11 +79,18 @@ pub(crate) fn handle_audio(action: AudioAction, json: bool) -> Result<(), CliErr
                 audio_stream,
                 strip_metadata,
             };
-            audio_local::convert(&src, &fmt, out.as_deref(), opts, select.as_deref())?
+            crate::commands::media::run_producing(
+                "audio",
+                inputs,
+                out.as_deref(),
+                |_| fmt.clone(),
+                |src, dest| audio_local::convert(src, &fmt, dest, opts.clone(), select.as_deref()),
+            )?
         }
         AudioAction::Trim {
             path,
             stdin,
+            paths_file,
             start,
             duration,
             to,
@@ -93,17 +100,33 @@ pub(crate) fn handle_audio(action: AudioAction, json: bool) -> Result<(), CliErr
             bitrate,
             select,
         } => {
-            let src = audio_source(path, stdin)?;
-            audio_local::trim(
-                &src,
-                start,
-                duration,
-                to,
+            let inputs = audio_inputs(path, stdin, paths_file)?;
+            crate::commands::media::run_producing(
+                "audio",
+                inputs,
                 out.as_deref(),
-                format.as_deref(),
-                codec.as_deref(),
-                bitrate.as_deref(),
-                select.as_deref(),
+                // Trim keeps the format it was handed, so absent `--format` the
+                // target is a property of each input, not of the run.
+                |input| match format.as_deref() {
+                    Some(f) => f.to_ascii_lowercase(),
+                    None => crate::commands::media::input_ext(
+                        input,
+                        &crate::xdg::resolve_audio_default_format(),
+                    ),
+                },
+                |src, dest| {
+                    audio_local::trim(
+                        src,
+                        start,
+                        duration,
+                        to,
+                        dest,
+                        format.as_deref(),
+                        codec.as_deref(),
+                        bitrate.as_deref(),
+                        select.as_deref(),
+                    )
+                },
             )?
         }
     };

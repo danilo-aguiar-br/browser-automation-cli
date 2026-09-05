@@ -43,6 +43,16 @@ pub(crate) fn save_screenshot(
 }
 
 /// Async-safe screenshot save: decode+write on Tokio blocking pool.
+///
+/// # Errors
+///
+/// Fails when the default screenshot directory cannot be resolved (only when
+/// both `explicit_path` and `output_dir` are `None`), with
+/// `"Failed to decode screenshot: …"` when `base64_data` is not valid base64,
+/// and with `"Failed to save screenshot to <path>: …"` when the atomic
+/// tmp-fsync-rename write fails — an unwritable directory, or a full disk.
+/// Also fails with `"screenshot save join: …"` when the `spawn_blocking` task
+/// panics.
 pub async fn save_screenshot_async(
     base64_data: String,
     explicit_path: Option<String>,

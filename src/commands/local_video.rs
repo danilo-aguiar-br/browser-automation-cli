@@ -3,22 +3,18 @@
 
 use crate::cli::VideoAction;
 use crate::commands::common::emit_ok;
-use crate::error::{CliError, ErrorKind};
+use crate::error::CliError;
 use crate::video_local::{self, ConvertOpts, VideoSource};
 
-fn video_source(path: Option<std::path::PathBuf>, stdin: bool) -> Result<VideoSource, CliError> {
-    match (path, stdin) {
-        (Some(p), false) => Ok(VideoSource::Path(p)),
-        (None, true) => Ok(VideoSource::Stdin),
-        (Some(_), true) => Err(CliError::new(
-            ErrorKind::Usage,
-            "video: pass either --path or --stdin, not both",
-        )),
-        (None, false) => Err(CliError::new(
-            ErrorKind::Usage,
-            "video: require --path or --stdin",
-        )),
-    }
+/// Resolve `--path` / `--stdin` / `--paths-file` for the `video` family.
+fn video_inputs(
+    path: Option<std::path::PathBuf>,
+    stdin: bool,
+    paths_file: Option<std::path::PathBuf>,
+) -> Result<crate::commands::media::MediaInputs<VideoSource>, CliError> {
+    crate::commands::media::resolve("video", path, stdin, paths_file, VideoSource::Path, || {
+        VideoSource::Stdin
+    })
 }
 
 /// Run a `video` subcommand and write the agent envelope.
@@ -27,10 +23,13 @@ pub(crate) fn handle_video(action: VideoAction, json: bool) -> Result<(), CliErr
         VideoAction::Info {
             path,
             stdin,
+            paths_file,
             select,
         } => {
-            let src = video_source(path, stdin)?;
-            video_local::info(&src, select.as_deref())?
+            let inputs = video_inputs(path, stdin, paths_file)?;
+            crate::commands::media::run("video", inputs, |src| {
+                video_local::info(src, select.as_deref())
+            })?
         }
         VideoAction::Download {
             url,
@@ -56,6 +55,7 @@ pub(crate) fn handle_video(action: VideoAction, json: bool) -> Result<(), CliErr
         VideoAction::Convert {
             path,
             stdin,
+            paths_file,
             format,
             out,
             video_codec,
@@ -66,7 +66,7 @@ pub(crate) fn handle_video(action: VideoAction, json: bool) -> Result<(), CliErr
             drop_audio,
             select,
         } => {
-            let src = video_source(path, stdin)?;
+            let inputs = video_inputs(path, stdin, paths_file)?;
             let fmt = format.unwrap_or_else(crate::xdg::resolve_video_default_container);
             let container = video_local::parse_output_container(&fmt)?;
             let opts = ConvertOpts::from_flags(
@@ -78,28 +78,45 @@ pub(crate) fn handle_video(action: VideoAction, json: bool) -> Result<(), CliErr
                 strip_metadata,
                 drop_audio,
             );
-            video_local::convert(&src, &fmt, out.as_deref(), opts, select.as_deref())?
+            crate::commands::media::run_producing(
+                "video",
+                inputs,
+                out.as_deref(),
+                |_| fmt.clone(),
+                |src, dest| video_local::convert(src, &fmt, dest, opts.clone(), select.as_deref()),
+            )?
         }
         VideoAction::ToMp3 {
             path,
             stdin,
+            paths_file,
             out,
             bitrate,
             audio_stream,
             select,
         } => {
-            let src = video_source(path, stdin)?;
-            video_local::to_mp3(
-                &src,
+            let inputs = video_inputs(path, stdin, paths_file)?;
+            crate::commands::media::run_producing(
+                "video",
+                inputs,
                 out.as_deref(),
-                bitrate.as_deref(),
-                audio_stream,
-                select.as_deref(),
+                // The action names its own output format; nothing to infer.
+                |_| "mp3".to_string(),
+                |src, dest| {
+                    video_local::to_mp3(
+                        src,
+                        dest,
+                        bitrate.as_deref(),
+                        audio_stream,
+                        select.as_deref(),
+                    )
+                },
             )?
         }
         VideoAction::Trim {
             path,
             stdin,
+            paths_file,
             start,
             duration,
             to,
@@ -109,41 +126,68 @@ pub(crate) fn handle_video(action: VideoAction, json: bool) -> Result<(), CliErr
             audio_codec,
             select,
         } => {
-            let src = video_source(path, stdin)?;
-            video_local::trim(
-                &src,
-                start,
-                duration,
-                to,
+            let inputs = video_inputs(path, stdin, paths_file)?;
+            crate::commands::media::run_producing(
+                "video",
+                inputs,
                 out.as_deref(),
-                format.as_deref(),
-                video_codec.as_deref(),
-                audio_codec.as_deref(),
-                select.as_deref(),
+                // Trim keeps the container it was handed, so absent `--format`
+                // the target is a property of each input, not of the run.
+                |input| match format.as_deref() {
+                    Some(f) => f.to_ascii_lowercase(),
+                    None => crate::commands::media::input_ext(
+                        input,
+                        &crate::xdg::resolve_video_default_container(),
+                    ),
+                },
+                |src, dest| {
+                    video_local::trim(
+                        src,
+                        start,
+                        duration,
+                        to,
+                        dest,
+                        format.as_deref(),
+                        video_codec.as_deref(),
+                        audio_codec.as_deref(),
+                        select.as_deref(),
+                    )
+                },
             )?
         }
         VideoAction::Thumbnail {
             path,
             stdin,
+            paths_file,
             at,
             out,
             select,
         } => {
-            let src = video_source(path, stdin)?;
-            video_local::thumbnail(&src, at, out.as_deref(), select.as_deref())?
+            let inputs = video_inputs(path, stdin, paths_file)?;
+            crate::commands::media::run_producing(
+                "video",
+                inputs,
+                out.as_deref(),
+                // A frame is an image; the single-input default is `.png` too.
+                |_| "png".to_string(),
+                |src, dest| video_local::thumbnail(src, at, dest, select.as_deref()),
+            )?
         }
         VideoAction::Manifest {
             path,
             stdin,
+            paths_file,
             base_url,
             select,
         } => {
-            let src = video_source(path, stdin)?;
-            // Read under the manifest cap, not the video one: a playlist is a
-            // small text document and never needs a temp file on disk.
-            let body = src.load_bytes(crate::xdg::resolve_manifest_max_bytes())?;
-            let parsed = video_local::parse_manifest(&body, base_url.as_deref())?;
-            video_local::project_fields(parsed, select.as_deref())
+            let inputs = video_inputs(path, stdin, paths_file)?;
+            crate::commands::media::run("video", inputs, |src| {
+                // Read under the manifest cap, not the video one: a playlist is
+                // a small text document and never needs a temp file on disk.
+                let body = src.load_bytes(crate::xdg::resolve_manifest_max_bytes())?;
+                let parsed = video_local::parse_manifest(&body, base_url.as_deref())?;
+                Ok(video_local::project_fields(parsed, select.as_deref()))
+            })?
         }
     };
     emit_ok(data, json, |d| {

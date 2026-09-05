@@ -2,41 +2,21 @@
 //!
 //! Skips when Chrome is not available on PATH / system locations.
 
-use std::process::Command;
-use std::time::Duration;
-
-const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
-
-fn chrome_discoverable() -> bool {
-    // Pure PATH walk — never shell out to `which` (rules_rust crates nativas).
-    let paths = match std::env::var_os("PATH") {
-        Some(p) => p,
-        None => return false,
-    };
-    for name in [
-        "google-chrome",
-        "google-chrome-stable",
-        "chromium",
-        "chromium-browser",
-    ] {
-        for dir in std::env::split_paths(&paths) {
-            let candidate = dir.join(name);
-            if candidate.is_file() {
-                return true;
-            }
-        }
-    }
-    false
-}
+mod common;
+use common::chrome_discoverable;
 
 #[test]
 fn goto_about_blank_json_when_chrome_present() {
     if !chrome_discoverable() {
-        eprintln!("skip: no system Chrome/Chromium for goto smoke");
+        common::skip_with_remedy(
+            "goto_smoke::goto",
+            "no usable Chrome on this host.",
+            "install a system Chrome/Chromium.",
+        );
         return;
     }
 
-    let output = Command::new(BIN)
+    let output = common::cmd()
         .args(["goto", "about:blank", "--json"])
         .output()
         .expect("spawn browser-automation-cli");
@@ -65,19 +45,23 @@ fn goto_about_blank_json_when_chrome_present() {
 
 #[test]
 fn invalid_argv_still_exits_2() {
-    let output = Command::new(BIN).args(["goto"]).output().expect("spawn");
+    let output = common::cmd().args(["goto"]).output().expect("spawn");
     assert_eq!(output.status.code(), Some(2));
 }
 
 #[test]
 fn view_without_prior_session_is_one_shot_launch() {
     if !chrome_discoverable() {
-        eprintln!("skip: no system Chrome/Chromium for view smoke");
+        common::skip_with_remedy(
+            "goto_smoke::view",
+            "no usable Chrome on this host.",
+            "install a system Chrome/Chromium.",
+        );
         return;
     }
     // GAP-012: blank about:blank is refused unless --allow-empty.
     // Each command is one-shot: view launches its own headless Chrome then FINALIZE/DIE.
-    let output = Command::new(BIN)
+    let output = common::cmd()
         .args(["view", "--json", "--allow-empty"])
         .output()
         .expect("spawn");
@@ -94,7 +78,3 @@ fn view_without_prior_session_is_one_shot_launch() {
         "stdout={stdout}"
     );
 }
-
-// Silence unused Duration import on skip-only platforms if rustc warns later.
-#[allow(dead_code)]
-const _SMOKE_BUDGET: Duration = Duration::from_secs(120);

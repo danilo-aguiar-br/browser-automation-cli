@@ -1,15 +1,15 @@
 //! BrokenPipe → exit 141 integration (stdout closed early).
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
-const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
+mod common;
 
 #[test]
 fn commands_json_closed_pipe_maps_to_141_or_success() {
     // When the reader closes after a few bytes, the writer may see BrokenPipe.
     // On some platforms the process may finish writing before EPIPE — both 0 and 141 accepted
     // only if stdout path is exercised; we force a large enough payload via commands --json.
-    let mut child = Command::new(BIN)
+    let mut child = common::cmd()
         .args(["commands", "--json"])
         .env("NO_COLOR", "1")
         .stdout(Stdio::piped())

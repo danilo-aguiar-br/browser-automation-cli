@@ -83,6 +83,23 @@ pub(crate) async fn resolve_center_in_same_process_frame(
 /// The returned session id is not always the one passed in: an element inside
 /// an iframe resolves in the iframe's session, and the caller must dispatch the
 /// interaction there.
+///
+/// # Errors
+///
+/// Fails with `"durable locator <loc> did not resolve: …"` when a
+/// `role=…[name="…"]` matches no node in the live accessibility tree, with
+/// `"Unknown ref: <id>"` when `ref_map` never recorded the `@eN`, and with
+/// `"Element not found: <selector> (<detail>)"` — or `"Element not found in
+/// the selected frame: <selector>"` under an active same-process `frame`
+/// selection — when a selector matches nothing.
+///
+/// Also fails when another element covers the computed centre: the
+/// interception check reports the blocker by name, because clicking there
+/// would hit the overlay rather than the target. `DOM.getBoxModel` refusals
+/// propagate as-is; a node with no box model is what that reports for a
+/// `display: none` element. A stale cached `backend_node_id` is not an error
+/// — the accessibility re-query runs — and `scroll_node_into_view` is
+/// best-effort throughout.
 pub async fn resolve_element_center(
     client: &CdpClient,
     session_id: &str,

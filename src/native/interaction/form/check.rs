@@ -7,6 +7,18 @@ use crate::native::element::{resolve_element_object_id, RefMap};
 use serde_json::Value;
 
 /// Check a checkbox or radio, doing nothing if it is already checked.
+///
+/// # Errors
+///
+/// Propagates
+/// [`is_element_checked`](crate::native::element::is_element_checked) for the
+/// state probe, [`click`] for the coordinate click — an unresolvable element
+/// or a covered centre — and the `Runtime.callFunctionOn` of the JS-click
+/// fallback taken when the click did not toggle the state.
+///
+/// A control that stays unchecked after **both** attempts is not reported
+/// here: the second probe only gates the fallback, and its result is never
+/// re-checked.
 pub async fn check(
     client: &CdpClient,
     session_id: &str,
@@ -60,6 +72,14 @@ pub async fn check(
 }
 
 /// Uncheck a checkbox, doing nothing if it is already unchecked.
+///
+/// # Errors
+///
+/// Propagates
+/// [`is_element_checked`](crate::native::element::is_element_checked),
+/// [`click`], and the `Runtime.callFunctionOn` of the JS-click fallback,
+/// exactly as [`check`] does in the opposite direction. A control still
+/// checked after both attempts is likewise not reported as an error.
 pub async fn uncheck(
     client: &CdpClient,
     session_id: &str,

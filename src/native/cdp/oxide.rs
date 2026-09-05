@@ -38,19 +38,21 @@ pub struct OxideLaunch {
 ///
 /// Forbidden in MVP: attach/connect to external CDP. Forbidden: BrowserFetcher auto-download.
 /// Handler must be polled (via CdpClient::from_browser) for commands to complete.
+///
+/// # Errors
+///
+/// Returns a human-readable reason when `build_chrome_args` rejects the
+/// options, when the temp profile directory cannot be created, when
+/// `BrowserConfig::build` refuses the assembled flag set, or when
+/// `Browser::launch` cannot start Chrome — binary missing at the resolved
+/// path, sandbox refusal, or no DevTools endpoint announced. Unlike
+/// [`launch_self_spawned`](crate::native::cdp::chrome::launch_self_spawned),
+/// this path never learns the child pid, so a failure here can leave a Chrome
+/// the lifecycle ledger cannot reap.
 pub async fn launch_with_oxide(options: &LaunchOptions) -> Result<OxideLaunch, String> {
     let chrome_args = build_chrome_args(options)?;
-    // PAR-92: materialize temp profile off the async worker (docsrs spawn_blocking).
-    if let Some(ref dir) = chrome_args.temp_user_data_dir {
-        crate::concurrency::create_dir_all_blocking(dir.clone())
-            .await
-            .map_err(|e| format!("Failed to create temp profile dir: {e}"))?;
-        // GAP-052: stamp the owning CLI pid so residual GC resolves liveness by
-        // exact pid instead of substring-matching whole command lines.
-        if let Err(e) = crate::residual::write_owner_pid(dir) {
-            tracing::debug!(error = %e, dir = %dir.display(), "owner-pid marker not written");
-        }
-    }
+    // PAR-92: materialize the profile off the async worker (docsrs spawn_blocking).
+    crate::native::cdp::chrome::materialize_profile_dir(&chrome_args).await?;
 
     let mut builder = BrowserConfig::builder();
 
@@ -122,6 +124,16 @@ pub async fn launch_with_oxide(options: &LaunchOptions) -> Result<OxideLaunch, S
 /// (`close` / `wait` / `kill`). That also **serializes** concurrent CDP work
 /// on the shared [`Browser`] — required by chromiumoxide's async execute API
 /// (do not replace with `std::sync::Mutex`).
+///
+/// # Errors
+///
+/// Fails when `Browser::close` is refused, or when the subsequent
+/// `Browser::wait` reports an error. Both paths `kill()` the browser before
+/// returning, so an `Err` here means "teardown was not graceful", not "the
+/// child survived". Exceeding
+/// [`BROWSER_CLOSE_WAIT_SECS`](crate::xdg::policy::key::BROWSER_CLOSE_WAIT_SECS)
+/// is deliberately **not** an error: the wait times out, the browser is
+/// killed, and `Ok(())` is returned.
 pub async fn finalize_browser(browser: Arc<Mutex<Browser>>) -> Result<(), String> {
     let mut browser = match Arc::try_unwrap(browser) {
         Ok(m) => m.into_inner(),

@@ -52,58 +52,6 @@ pub(crate) fn schema_for(cmd: &str) -> Option<Value> {
             }),
             &["url"],
         ),
-        "batch-scrape" => schema_object(
-            "Scrape many URLs from a file (HTTP or browser engine, one-shot)",
-            json!({
-                "urls_file": { "type": "string", "description": "Path to file with one URL per line" },
-                "format": {
-                    "type": "string",
-                    "enum": ["text", "markdown", "html", "links", "metadata", "raw-html", "screenshot", "summary", "product", "branding"],
-                    "description": "Single format or CSV multi-format when supported"
-                },
-                "engine": {
-                    "type": "string",
-                    "enum": ["http", "browser"],
-                    "description": "Default http; browser uses CDP per URL (GAP-010)"
-                },
-                "concurrency": { "type": "integer", "minimum": 1 }
-            }),
-            &["urls_file"],
-        ),
-        "crawl" => schema_object(
-            "Crawl from a seed URL (HTTP BFS or browser, one-shot)",
-            json!({
-                "url": { "type": "string" },
-                "limit": { "type": "integer", "minimum": 1 },
-                "max_pages": { "type": "integer", "minimum": 1, "description": "Alias of limit" },
-                "max_depth": { "type": "integer", "minimum": 0 },
-                "format": { "type": "string" },
-                "same_host": { "type": "boolean" },
-                "engine": {
-                    "type": "string",
-                    "enum": ["http", "browser"],
-                    "description": "Default http; browser engine for JS-rendered crawl (GAP-010)"
-                }
-            }),
-            &["url"],
-        ),
-        "map" => schema_object(
-            "Map site URLs from a seed (HTTP)",
-            json!({
-                "url": { "type": "string" },
-                "limit": { "type": "integer", "minimum": 1 },
-                "max_depth": { "type": "integer", "minimum": 0 }
-            }),
-            &["url"],
-        ),
-        "search" => schema_object(
-            "Local search (HTTP SERP links or URL map)",
-            json!({
-                "query": { "type": "string" },
-                "limit": { "type": "integer", "minimum": 1 }
-            }),
-            &["query"],
-        ),
         "parse" => schema_object(
             "Parse a local file (html/md/txt/pdf/docx/xlsx)",
             json!({

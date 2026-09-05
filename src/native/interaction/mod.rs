@@ -30,7 +30,7 @@ pub use form::*;
 pub use keyboard::*;
 pub use kinematics::{
     active as active_kinematics, active_profile, set_input_profile, set_input_seed, InputProfile,
-    Jitter, Kinematics,
+    Jitter, Kinematics, TimingDistribution, TimingMetrics,
 };
 pub use pointer::*;
 pub use scroll::*;

@@ -13,6 +13,10 @@ use crate::scrape_local::finalize_scrape_value;
 
 use super::formats::build_formats_map;
 
+mod llm;
+
+use llm::{llm_extract_is_reachable, maybe_llm_json};
+
 fn resolve_max_text(cli: Option<usize>) -> usize {
     match cli {
         Some(0) | None => crate::xdg::resolve_scrape_max_text_chars(),
@@ -70,6 +74,25 @@ pub(crate) fn handle_scrape(
         ));
     }
 
+    if !llm_extract_is_reachable(&engine_l, &formats)
+        && (schema_json.is_some() || question.map(|q| !q.trim().is_empty()).unwrap_or(false))
+    {
+        // Same rule as `--action` above: refused rather than ignored. Measured
+        // 2026-08-26 before this guard existed, all three exiting 0 with the
+        // flag silently dropped and no field in the envelope derived from it:
+        // `--format text --schema-json X`, `--format json,text --schema-json X`
+        // and `--engine browser --format json --schema-json X`. The second is
+        // the worst of the three, because the caller DID ask for json and the
+        // argv is well formed — nothing distinguishes it from a run that used
+        // the schema.
+        return Err(CliError::with_suggestion(
+            crate::error::ErrorKind::Usage,
+            "--schema-json / --question drive the LLM extract branch, which runs \
+             only under --engine http with a single --format json",
+            crate::i18n::suggestion_key("scrape_llm_extract_scope", None),
+        ));
+    }
+
     if engine_l == "http" {
         if formats.len() == 1 {
             let fmt = crate::scrape_local::ScrapeFormat::parse(formats[0])?;
@@ -91,7 +114,11 @@ pub(crate) fn handle_scrape(
                 crate::scrape_local::scrape_http(url, robots, &opts),
                 timeout_secs,
             )?;
-            if matches!(fmt, crate::scrape_local::ScrapeFormat::Json) {
+            // Deliberately re-derived from the same predicate the argv guard
+            // above uses, instead of re-testing `fmt` here. Two spellings of
+            // "when does LLM extract run" is exactly the parallel inventory
+            // that goes stale the first time this branch moves.
+            if llm_extract_is_reachable(&engine_l, &formats) {
                 data = maybe_llm_json(data, schema_json, question)?;
             }
             // One format still reports `formats` / `format_list`, so a caller
@@ -262,55 +289,4 @@ fn parse_header_flags(headers: &[String]) -> Vec<(String, String)> {
         }
     }
     out
-}
-
-fn maybe_llm_json(
-    mut data: serde_json::Value,
-    schema_json: Option<&std::path::Path>,
-    question: Option<&str>,
-) -> Result<serde_json::Value, CliError> {
-    if schema_json.is_none() && question.map(|q| q.trim().is_empty()).unwrap_or(true) {
-        return Ok(data);
-    }
-    let key = crate::xdg::openrouter_api_key();
-    if key.as_deref().map(|s| s.trim().is_empty()).unwrap_or(true) {
-        return Err(CliError::with_suggestion(
-            crate::error::ErrorKind::Usage,
-            "format json requires XDG openrouter_api_key via config set",
-            crate::i18n::suggestion_key("use_listed_value", None),
-        ));
-    }
-    // Source text: prefer markdown/text from payload or nested json placeholder.
-    let source_text = data
-        .get("text")
-        .and_then(|v| v.as_str())
-        .or_else(|| data.get("markdown").and_then(|v| v.as_str()))
-        .or_else(|| {
-            data.get("json")
-                .and_then(|j| j.get("text").or_else(|| j.get("markdown")))
-                .and_then(|v| v.as_str())
-        })
-        .unwrap_or("")
-        .to_string();
-    if source_text.trim().is_empty() {
-        return Err(CliError::new(
-            crate::error::ErrorKind::Data,
-            "format json: empty page text for LLM extract",
-        ));
-    }
-    let schema_body = match schema_json {
-        Some(p) => Some(std::fs::read_to_string(p).map_err(|e| {
-            CliError::new(
-                crate::error::ErrorKind::Io,
-                format!("read schema-json {}: {e}", p.display()),
-            )
-        })?),
-        None => None,
-    };
-    let llm = crate::llm_local::extract_with_llm(&source_text, question, schema_body.as_deref())?;
-    if let Some(obj) = data.as_object_mut() {
-        obj.insert("json".into(), llm);
-        obj.insert("llm_extracted".into(), serde_json::json!(true));
-    }
-    Ok(data)
 }

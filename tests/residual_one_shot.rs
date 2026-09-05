@@ -31,7 +31,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
+mod common;
 
 /// A private pair of residual roots: an OS temp dir and an XDG cache dir.
 ///
@@ -96,7 +96,7 @@ impl Drop for Sandbox {
 #[test]
 fn goto_leaves_zero_cli_chrome_marker_dirs() {
     let sandbox = Sandbox::new("goto");
-    let mut cmd = Command::new(BIN);
+    let mut cmd = common::cmd();
     cmd.args(["--json", "goto", "about:blank"]);
     sandbox.apply(&mut cmd);
     let output = cmd.output().expect("spawn goto");
@@ -117,7 +117,7 @@ fn goto_leaves_zero_cli_chrome_marker_dirs() {
 fn goto_does_not_leave_new_chromium_singleton_orphans() {
     let sandbox = Sandbox::new("singleton");
     let pdf = sandbox.child_file("residual.pdf");
-    let mut cmd = Command::new(BIN);
+    let mut cmd = common::cmd();
     cmd.args(["--json", "print-pdf", "--url", "about:blank", "--path"])
         .arg(&pdf);
     sandbox.apply(&mut cmd);
@@ -169,7 +169,7 @@ fn born_gc_wipes_stale_singleton_fixture() {
 
 #[test]
 fn doctor_json_includes_residual_report() {
-    let output = Command::new(BIN)
+    let output = common::cmd()
         .args(["--json", "doctor", "--quick", "--offline"])
         .env("NO_COLOR", "1")
         .output()
@@ -212,13 +212,32 @@ fn sigterm_during_run_leaves_profile_collected_by_next_born() {
         }
     }
 
-    let mut cmd = Command::new(BIN);
+    let mut cmd = common::cmd();
     cmd.args(["--json", "--timeout", "120", "run", "--script"])
         .arg(&script);
     sandbox.apply(&mut cmd);
     let mut child = cmd.spawn().expect("spawn run");
 
-    std::thread::sleep(Duration::from_secs(4));
+    // Wait for the CONDITION the signal needs, not for a number.
+    //
+    // This was `sleep(4s)`. A fixed sleep is wrong in both directions: too
+    // short on a loaded machine and SIGTERM lands during BORN, where no profile
+    // exists yet and the test proves nothing while still reporting PASS; too
+    // long and every run pays the worst case. The observable the assertion
+    // actually depends on is a marker profile inside this sandbox's roots, so
+    // that is what we wait for.
+    //
+    // The deadline is a HANG guard, not a budget: reaching it means no profile
+    // ever appeared, and the test then signals anyway and asserts on the empty
+    // set, which is the same honest no-op it performed before this change.
+    let roots = sandbox.roots();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while browser_automation_cli::residual::list_cli_chrome_marker_dirs_in_roots(&roots).is_empty()
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
     // SIGTERM first — never a bare SIGKILL as the normal cancel path.
     let pid = child.id() as i32;
     // SAFETY:
@@ -233,7 +252,6 @@ fn sigterm_during_run_leaves_profile_collected_by_next_born() {
 
     // Any profile left behind now has a dead owner pid. Give the age floor a
     // zero override through the library API, which is the same predicate BORN uses.
-    let roots = sandbox.roots();
     let before = browser_automation_cli::residual::list_cli_chrome_marker_dirs_in_roots(&roots);
     let wiped = browser_automation_cli::residual::scavenge_stale_singleton_orphans_in_roots(
         &roots,
@@ -266,19 +284,19 @@ fn sigterm_during_run_leaves_profile_collected_by_next_born() {
 #[test]
 fn concurrent_invocation_keeps_doctor_exit_zero() {
     let sandbox = Sandbox::new("concurrent");
-    let mut cmd = Command::new(BIN);
+    let mut cmd = common::cmd();
     cmd.args(["--json", "--timeout", "60", "goto", "about:blank"]);
     sandbox.apply(&mut cmd);
     let sibling = cmd.spawn().expect("spawn sibling");
 
-    let doctor = Command::new(BIN)
+    let doctor = common::cmd()
         .args(["--json", "doctor", "--quick", "--offline"])
         .env("NO_COLOR", "1")
         .output()
         .expect("spawn doctor");
 
     let mut sibling = sibling;
-    let _ = sibling.wait();
+    reap_or_kill(&mut sibling, Duration::from_secs(90));
 
     assert!(
         doctor.status.success(),
@@ -292,6 +310,33 @@ fn concurrent_invocation_keeps_doctor_exit_zero() {
         stdout.contains("sibling_live_processes"),
         "doctor must report sibling_live_processes: {stdout}"
     );
+}
+
+/// Reap a child within `budget`, killing it if it overstays.
+///
+/// A bare `child.wait()` blocks FOREVER. The sibling here is a real browser
+/// invocation, and a browser that wedges — waiting on a socket, on a profile
+/// lock, on a display that never arrives — takes the whole suite down with it,
+/// with no output and no name to blame, because libtest cannot interrupt a
+/// blocked thread.
+///
+/// The budget is generous on purpose. It is a HANG guard, never a performance
+/// assertion: a slow machine must not turn this into a red test, and the child
+/// already carries its own `--timeout`.
+fn reap_or_kill(child: &mut std::process::Child, budget: Duration) {
+    let deadline = std::time::Instant::now() + budget;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(25)),
+            Err(_) => return,
+        }
+    }
 }
 
 /// Chromium side-channel directories present under `root`.

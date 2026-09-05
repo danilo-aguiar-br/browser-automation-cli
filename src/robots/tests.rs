@@ -78,7 +78,7 @@ fn lookalike_hosts_are_not_treated_as_loopback() {
 
 #[test]
 fn scheme_skips_local() {
-    assert!(scheme_skips_robots("about:blank"));
+    assert!(scheme_skips_robots(crate::constants::ABOUT_BLANK));
     assert!(scheme_skips_robots("file:///tmp/x.html"));
     assert!(!scheme_skips_robots("https://example.com/"));
 }

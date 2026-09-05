@@ -2,7 +2,7 @@
 
 use crate::browser::CaptureOpts;
 use crate::cli::ScreencastAction;
-use crate::commands::common::emit_ok;
+use crate::commands::common::emit_ok_summary;
 use crate::commands::nav::with_session_blank;
 use crate::error::CliError;
 use crate::lifecycle::Lifecycle;
@@ -21,7 +21,5 @@ pub(crate) fn handle_screencast(
         };
         Ok((session, v))
     })?;
-    emit_ok(data, json, |d| {
-        crate::output::writeln_stdout(format!("ok screencast {d}"))
-    })
+    emit_ok_summary(data, json, "screencast")
 }

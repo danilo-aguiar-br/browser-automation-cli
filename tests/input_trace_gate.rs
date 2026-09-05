@@ -33,17 +33,10 @@
 //! No Chrome, no binary or no fixture means SKIP LOUDLY. A silent green here
 //! would rebuild exactly the blind spot this gate removes.
 
-use std::path::PathBuf;
-use std::process::Command;
+mod common;
+use common::{binary, missing_binary, root};
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn binary() -> Option<PathBuf> {
-    let p = root().join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
+const GATE: &str = "input_trace_gate";
 
 fn fixture_url() -> Option<String> {
     let p = root().join("scripts/fixtures/input_trace/instrumented.html");
@@ -52,17 +45,13 @@ fn fixture_url() -> Option<String> {
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    if binary().is_none() {
-        eprintln!(
-            "SKIP input_trace_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    if missing_binary(GATE) {
         return true;
     }
     if fixture_url().is_none() {
-        eprintln!(
-            "SKIP input_trace_gate: fixture scripts/fixtures/input_trace/instrumented.html \
-             absent. This is NOT a pass."
+        common::skip_with_reason(
+            "input_trace_gate",
+            "fixture scripts/fixtures/input_trace/instrumented.html absent.",
         );
         return true;
     }
@@ -77,14 +66,20 @@ fn run_script(profile: &str, lines: &[String]) -> Option<serde_json::Value> {
     // Each invocation needs its own directory: these tests are threads of ONE
     // binary and a pid-keyed path is shared, so they would overwrite each
     // other's script.
-    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("input-trace-gate-{}-{n}", std::process::id()));
-    std::fs::create_dir_all(&dir).ok()?;
+    // A `TempDir` and not a pid+counter path: the counter only ever resolved
+    // COLLISION between the threads of this one binary, never cleanup, so an
+    // assertion that panicked left the directory behind for good. The guard is
+    // bound to a NAMED variable on purpose — `let _ = ...` drops it on the spot
+    // and deletes the script before the child process can read it.
+    let scratch = tempfile::Builder::new()
+        .prefix("bac-input-trace-gate-")
+        .tempdir()
+        .ok()?;
+    let dir = scratch.path();
     let script = dir.join("steps.jsonl");
     std::fs::write(&script, lines.join("\n")).ok()?;
 
-    let out = Command::new(&bin)
+    let out = common::isolated_cmd(&bin)
         .args([
             "-q",
             "--timeout",
@@ -103,7 +98,7 @@ fn run_script(profile: &str, lines: &[String]) -> Option<serde_json::Value> {
         .arg(&script)
         .output()
         .ok()?;
-    let _ = std::fs::remove_dir_all(&dir);
+
     serde_json::from_slice(&out.stdout).ok()
 }
 
@@ -288,4 +283,259 @@ fn direct_profile_emits_no_synthetic_wheel_or_key_events() {
          keydown; got {}. trace={trace:?}",
         down.len()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Second moment: the SHAPE of the dispersion, not just its presence.
+//
+// The three tests above prove the page RECEIVES the gestures and that the gaps
+// are not all identical. "Not all identical" is a weak claim, and the product
+// passed it while producing symmetric noise: measured 2026-08-31 on the final
+// browser event, 20 characters under `human`, the interval distribution came
+// out at mean 141.26 ms, stddev 20.38 ms, **skewness 0.036**. A detector reads
+// the second moment because the first is trivial to imitate, and the third to
+// tell a scaled constant from a hand. Zero skewness is not an unusual typist.
+//
+// These cases need no browser and no fixture: `Jitter` is pure arithmetic, so
+// the shape can be asserted directly instead of inferred from a trace.
+// ---------------------------------------------------------------------------
+
+use browser_automation_cli::constants::{
+    DEFAULT_INPUT_TIMING_DISTRIBUTION, INPUT_TYPE_DELAY_MS, INPUT_TYPE_DELAY_STDDEV_MS,
+    TIMING_MIN_DISPERSION_RATIO, TIMING_SAMPLE_CEILING_RATIO, TIMING_SAMPLE_FLOOR_RATIO,
+};
+// `Jitter` and not `Kinematics`: the sampler is pure arithmetic, while building
+// a `Kinematics` resolves XDG and would make the assertion depend on whoever
+// runs the suite. `TimingDistribution` is deliberately absent — the enum is not
+// re-exported from `native::interaction`, so each shape is exercised through the
+// `Jitter` method it dispatches to.
+use browser_automation_cli::native::interaction::{Jitter, TimingDistribution};
+
+/// Samples large enough that the third moment is a measurement, not a coin flip.
+const SAMPLES: usize = 4_000;
+
+/// One shape of dispersion, named as it appears in the config token.
+type Shape = (&'static str, fn(u64) -> Vec<u64>);
+
+/// The three shapes `input_timing_distribution` selects between.
+const SHAPES: &[Shape] = &[
+    ("lognormal", draw_lognormal),
+    ("normal", draw_normal),
+    ("uniform", draw_uniform),
+];
+
+/// Mean, standard deviation and skewness of a delay sample.
+fn moments(xs: &[u64]) -> (f64, f64, f64) {
+    let n = xs.len() as f64;
+    let mean = xs.iter().map(|&x| x as f64).sum::<f64>() / n;
+    let m2 = xs.iter().map(|&x| (x as f64 - mean).powi(2)).sum::<f64>() / n;
+    let m3 = xs.iter().map(|&x| (x as f64 - mean).powi(3)).sum::<f64>() / n;
+    let sd = m2.sqrt();
+    (mean, sd, m3 / sd.powi(3))
+}
+
+/// `SAMPLES` log-normal delays of the default typing rhythm.
+fn draw_lognormal(seed: u64) -> Vec<u64> {
+    let mut j = Jitter::from_seed(seed);
+    (0..SAMPLES)
+        .map(|_| j.lognormal_ms(INPUT_TYPE_DELAY_MS, INPUT_TYPE_DELAY_STDDEV_MS))
+        .collect()
+}
+
+/// The same, drawn from a normal.
+fn draw_normal(seed: u64) -> Vec<u64> {
+    let mut j = Jitter::from_seed(seed);
+    (0..SAMPLES)
+        .map(|_| j.normal_ms(INPUT_TYPE_DELAY_MS, INPUT_TYPE_DELAY_STDDEV_MS))
+        .collect()
+}
+
+/// The same, drawn from the pre-0.1.9 uniform.
+///
+/// A uniform of standard deviation `s` has half-width `s * sqrt(3)`, which is
+/// how `sample_ms` converts the knob for this arm. Repeating the conversion here
+/// is what makes this a fair control rather than a weaker one.
+fn draw_uniform(seed: u64) -> Vec<u64> {
+    let spread = INPUT_TYPE_DELAY_STDDEV_MS as f64 * 3.0_f64.sqrt() / INPUT_TYPE_DELAY_MS as f64;
+    let mut j = Jitter::from_seed(seed);
+    (0..SAMPLES)
+        .map(|_| j.vary_ms(INPUT_TYPE_DELAY_MS, spread))
+        .collect()
+}
+
+/// A seeded run must still replay exactly.
+///
+/// Reproducibility is the property the whole event-trace gate rests on, and the
+/// log-normal sampler consumes TWO uniforms per draw where the old uniform arm
+/// consumed one. A rejection loop instead of the `MIN_POSITIVE` guard inside
+/// `normal01` would consume an unpredictable number and break exactly this.
+#[test]
+fn the_same_seed_replays_the_same_delay_sequence() {
+    let a = draw_lognormal(424_242);
+    let b = draw_lognormal(424_242);
+    assert_eq!(a, b, "--input-seed must keep a human run reproducible");
+}
+
+/// Seeding must choose WHICH noise, never WHETHER there is noise.
+///
+/// The failure this catches is a "simplification" that makes the sampler
+/// deterministic to make the gate stable. Variance zero is a stronger signal
+/// than a wrong mean: a wrong mean reads as an unusual human, and no variance
+/// reads as no human.
+#[test]
+fn different_seeds_produce_different_sequences() {
+    let a = draw_lognormal(1);
+    let b = draw_lognormal(2);
+    assert_ne!(a, b, "the seed must not be the only source of dispersion");
+    // The support is integer milliseconds inside the truncation window, so the
+    // count of distinct values is capped by the WINDOW and not by `SAMPLES`.
+    // Comparing against a fraction of `SAMPLES` would be a bound no correct
+    // sampler can meet: measured, 4000 draws land on 231 of the ~357 values the
+    // window admits. The claim worth asserting is that the draws spread across
+    // that window rather than piling onto a handful of points.
+    let distinct: std::collections::HashSet<u64> = a.iter().copied().collect();
+    assert!(
+        distinct.len() > 100,
+        "only {} distinct values in {SAMPLES} draws; the sampler collapsed onto \
+         a grid",
+        distinct.len()
+    );
+}
+
+/// The distribution must have a long RIGHT tail, not merely a width.
+///
+/// This is the assertion the product failed. `uniform` is asserted alongside as
+/// the negative control: it satisfies every "the gaps differ" test in this file
+/// and still has a skewness indistinguishable from zero, which is what makes it
+/// the shape a detector recognises.
+#[test]
+fn the_lognormal_shape_is_skewed_right_and_the_uniform_one_is_not() {
+    let (mean, sd, skew) = moments(&draw_lognormal(7));
+    assert!(
+        skew > 0.5,
+        "lognormal skewness {skew:.3} (mean {mean:.2} ms, sd {sd:.2} ms); human \
+         inter-key intervals sit between 1 and 3, and a symmetric spread is the \
+         exact signature this sampler exists to remove"
+    );
+
+    let (_, _, flat) = moments(&draw_uniform(7));
+    assert!(
+        flat.abs() < 0.2,
+        "uniform skewness {flat:.3} should be ~0; if this fails the control is \
+         broken and the test above proves nothing"
+    );
+}
+
+/// The knob an operator sets must be the moment they can measure.
+///
+/// `lognormal_ms` takes ARITHMETIC moments and solves the log-space parameters
+/// from them, so a stddev that came out systematically low would mean the
+/// solution is wrong, not that the draw was unlucky.
+#[test]
+fn the_sample_dispersion_matches_the_requested_stddev() {
+    let asked = INPUT_TYPE_DELAY_STDDEV_MS as f64;
+    for &(name, draw) in SHAPES {
+        let (mean, sd, skew) = moments(&draw(31));
+        let error = (sd - asked).abs() / asked;
+        println!("{name}: mean {mean:.2} ms, sd {sd:.2} ms, skew {skew:.3}");
+        assert!(
+            error < 0.15,
+            "{name}: sd {sd:.2} ms against {asked} asked ({:.1}% off), mean {mean:.2} ms",
+            error * 100.0
+        );
+    }
+}
+
+/// A stddev of zero must NOT produce a constant.
+///
+/// This is the assertion that turns a comment into a guarantee. `stddev_ms == 0`
+/// used to return the mean unchanged, which is variance zero -- the one shape
+/// that says "machine" outright, and a stronger signal than any wrong mean.
+/// Nothing reachable requests zero today: every default is non-zero and
+/// `policy_u64` filters `n > 0`. That is protection by CIRCUMSTANCE, and this
+/// case exists so the first refactor that changes either circumstance fails
+/// here instead of shipping a constant delay in silence.
+#[test]
+fn a_zero_stddev_still_disperses_because_variance_zero_is_the_worst_signal() {
+    let mut j = Jitter::from_seed(4242);
+    let samples: Vec<u64> = (0..SAMPLES)
+        .map(|_| j.lognormal_ms(INPUT_TYPE_DELAY_MS, 0))
+        .collect();
+    let (mean, sd, _) = moments(&samples);
+    let floor = INPUT_TYPE_DELAY_MS as f64 * TIMING_MIN_DISPERSION_RATIO;
+    println!("zero-stddev request: mean {mean:.2} ms, sd {sd:.2} ms, floor {floor:.2} ms");
+    assert!(
+        sd > 0.0,
+        "a zero stddev collapsed the delay onto a constant; variance zero is \
+         not a tight rhythm, it is no hand at all"
+    );
+    // Within 25% of the declared floor: the sampler must honour the FLOOR, not
+    // merely avoid the constant, or a future one-millisecond fudge would pass.
+    assert!(
+        (sd - floor).abs() / floor < 0.25,
+        "sd {sd:.2} ms against a declared floor of {floor:.2} ms; the clamp is \
+         not the one TIMING_MIN_DISPERSION_RATIO names"
+    );
+}
+
+/// Every shape token must survive the round trip through config.
+///
+/// `input_timing_distribution` is validated on WRITE by `config set`, so a
+/// token this parser rejects would be a key an operator can never set, and a
+/// token it accepts but cannot re-emit would break `config get`.
+#[test]
+fn every_distribution_token_round_trips() {
+    for &(name, _) in SHAPES {
+        let parsed = TimingDistribution::parse(name);
+        assert!(
+            parsed.is_some(),
+            "{name} is a documented token but parses to None"
+        );
+        assert_eq!(
+            parsed.map(TimingDistribution::as_str),
+            Some(name),
+            "{name} did not survive parse then as_str"
+        );
+    }
+    assert_eq!(
+        TimingDistribution::parse(DEFAULT_INPUT_TIMING_DISTRIBUTION),
+        Some(TimingDistribution::default()),
+        "the compiled default must be a token its own parser accepts, or every \
+         unconfigured process falls back to something nobody wrote down"
+    );
+    assert_eq!(TimingDistribution::parse("gaussian"), None);
+}
+
+/// Truncation must hold on both sides.
+///
+/// A log-normal has unbounded support: unclamped, a draw lands at one
+/// millisecond (a paste, not a typist) or stalls a one-shot process past its own
+/// timeout. The bounds are named constants, and this reads them rather than
+/// repeating the numbers.
+#[test]
+fn every_sample_lands_inside_the_named_truncation_bounds() {
+    let mean = INPUT_TYPE_DELAY_MS as f64;
+    let floor = (mean * TIMING_SAMPLE_FLOOR_RATIO).floor();
+    let ceiling = (mean * TIMING_SAMPLE_CEILING_RATIO).ceil();
+    for &(name, draw) in SHAPES {
+        for seed in 1_u64..=4 {
+            let samples = draw(seed);
+            let (lo, hi) = (
+                samples.iter().copied().min().unwrap_or_default(),
+                samples.iter().copied().max().unwrap_or_default(),
+            );
+            println!("{name} seed {seed}: min {lo} ms, max {hi} ms");
+            let out: Vec<u64> = samples
+                .into_iter()
+                .filter(|&v| (v as f64) < floor || (v as f64) > ceiling)
+                .collect();
+            assert!(
+                out.is_empty(),
+                "{name} seed {seed}: {} samples outside [{floor}, {ceiling}] ms, \
+                 first few {:?}",
+                out.len(),
+                &out[..out.len().min(5)]
+            );
+        }
+    }
 }

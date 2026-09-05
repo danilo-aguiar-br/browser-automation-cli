@@ -40,7 +40,7 @@ pub(super) fn sha256_path_head(path: &Path, _max: u64) -> Result<(String, u64), 
     let mut f =
         std::fs::File::open(path).map_err(|e| crate::audio_local::magic::io_open_err(path, &e))?;
     let mut hasher = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
+    let mut buf = vec![0u8; crate::constants::MEDIA_STREAM_CHUNK_BYTES];
     loop {
         let n = f
             .read(&mut buf)
@@ -60,6 +60,24 @@ pub(super) fn default_out_path(ext: &str) -> PathBuf {
         .map(|d| d.as_millis())
         .unwrap_or(0);
     dir.join(format!("audio-{stamp}.{ext}"))
+}
+
+/// Resolve `--out`, bounding it to the allowed roots when the operator named it.
+///
+/// Twin of [`crate::video_local::ops::common::resolve_out_path`], which carries
+/// the full account of why the transform family escaped the media write funnel:
+/// it hands the path to ffmpeg as argv and lets the subprocess do the writing.
+///
+/// # Errors
+///
+/// [`crate::fs_roots::ensure_write_allowed`] when the operator named a path
+/// outside the allowed roots. The `None` arm cannot fail — it builds the path
+/// under `xdg::cache_dir()`, which is product-owned and inside the roots.
+pub(super) fn resolve_out_path(out: Option<&Path>, ext: &str) -> Result<PathBuf, CliError> {
+    match out {
+        Some(p) => crate::fs_roots::ensure_write_allowed(p),
+        None => Ok(default_out_path(ext)),
+    }
 }
 
 pub(super) fn convert_envelope(

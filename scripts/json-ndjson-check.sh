@@ -2,6 +2,12 @@
 # Local gate: JSON / NDJSON rules (Pass 13 / rules_rust_json_e_ndjson).
 # No CI/GHA — operator runs this script.
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=scripts/lib/rust-regions.sh

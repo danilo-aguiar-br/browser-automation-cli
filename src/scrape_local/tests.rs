@@ -18,7 +18,7 @@ fn build_payload_links() {
     let opts = ScrapeOpts {
         format: ScrapeFormat::Links,
         engine: "http".into(),
-        ..Default::default()
+        ..ScrapeOpts::product_defaults()
     };
     let v = build_scrape_payload(
         "https://example.com/",
@@ -38,7 +38,7 @@ async fn batch_pre_cancelled_returns_cancelled_flag() {
     let opts = ScrapeOpts {
         format: ScrapeFormat::Text,
         engine: "http".into(),
-        ..Default::default()
+        ..ScrapeOpts::product_defaults()
     };
     let urls = vec!["https://example.com/".into()];
     let v = batch_scrape_http(&urls, RobotsPolicy::Ignore, &opts, 1)

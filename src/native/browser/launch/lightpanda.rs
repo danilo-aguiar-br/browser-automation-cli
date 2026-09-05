@@ -75,7 +75,14 @@ pub(crate) async fn initialize_lightpanda_manager(
             ws_url: ws_url.clone(),
             pages: Vec::new(),
             active_page_index: 0,
-            default_timeout_ms: 25_000,
+            // Same knob the Chrome engine reads. This was the literal `25_000`,
+            // which happened to equal the Chrome default and silently stopped
+            // tracking it: `config set chrome_default_timeout_ms` moved one
+            // engine and not the other. The per-operation budget is a property
+            // of the CDP round trip, not of which binary is on the far end.
+            default_timeout_ms: crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::CHROME_DEFAULT_TIMEOUT_MS,
+            ),
             download_path: None,
             ignore_https_errors: false,
             visited_origins: FxHashSet::default(),

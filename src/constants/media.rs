@@ -171,3 +171,25 @@ const _: () = assert!(DEFAULT_SVG_MAX_DEPTH > 0);
 const _: () = assert!(DEFAULT_GIF_MAX_FRAMES > 0);
 const _: () = assert!(DEFAULT_MANIFEST_MAX_BYTES > 0);
 const _: () = assert!(DEFAULT_MANIFEST_MAX_VARIANTS > 0);
+
+/// Streaming copy buffer for local media I/O, in bytes.
+///
+/// Heap, not stack. These buffers used to be `[0u8; 64 * 1024]` arrays declared
+/// inside the copy loops of image, audio and video I/O — 64 KiB of stack frame
+/// that the compiler zeroes on every entry, in eight places. A Tokio worker's
+/// 2 MiB default stack survives it, but nothing about a streaming buffer wants
+/// to live on the stack.
+pub const MEDIA_STREAM_CHUNK_BYTES: usize = 64 * 1024;
+
+const _: () = assert!(MEDIA_STREAM_CHUNK_BYTES > 0);
+
+/// In-memory screencast frame ring, in frames.
+///
+/// A screencast at the default 10 fps fills this in a minute. Beyond it the
+/// capture keeps running and frames are DROPPED — silently, because the CDP
+/// event still arrives and is still acked. The cap exists to keep a long
+/// recording from growing without bound; naming it is what lets the drop be
+/// documented instead of discovered.
+pub const SCREENCAST_FRAME_BUFFER_CAP: usize = 600;
+
+const _: () = assert!(SCREENCAST_FRAME_BUFFER_CAP > 0);

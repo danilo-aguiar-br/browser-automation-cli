@@ -74,6 +74,28 @@ pub fn effective_limit() -> usize {
     *AUTO_BUDGET.get_or_init(compute_auto_budget)
 }
 
+/// Fan-out ceiling for a batch of CDP round trips on one connection.
+///
+/// Five call sites spelled the literal `32` — snapshot cursor, snapshot URL
+/// resolution, screenshot annotation, target enumeration and the network domain
+/// filter. They are the same ceiling for the same reason (one WebSocket, one
+/// browser), so a change had to be made in five places or in none, and nothing
+/// said they belonged together.
+pub const CDP_FANOUT_CAP: usize = 32;
+
+/// Fan-out ceiling for CDP round trips that ATTACH to a target.
+///
+/// Deliberately lower than [`CDP_FANOUT_CAP`], and the difference is the point:
+/// the sites above issue one message on an existing session, while these open a
+/// session per target, so the browser-side cost is not comparable and one
+/// ceiling for both would be wrong in whichever direction it moved.
+///
+/// It was the bare literal `8` at five sites — the four attach paths in
+/// `cdp::client::page_attach` and the extension enumerator. Naming it separates
+/// "these five share a ceiling" from "this ceiling equals the other one", which
+/// a reader had no way to tell apart while both were unnamed numbers.
+pub const CDP_ATTACH_FANOUT_CAP: usize = 8;
+
 /// Same as [`effective_limit`] but capped for a specific subsystem.
 pub fn effective_limit_capped(cap: usize) -> usize {
     effective_limit().min(cap.max(MIN_CONCURRENCY))
@@ -133,44 +155,62 @@ pub fn free_ram_mb() -> Option<u64> {
     }
 }
 
+// `libc` deprecated its Mach bindings in 0.2.55 pointing at the `mach2` crate,
+// but `mach2` exposes no `host_statistics64`, so the call below would still
+// need `libc` anyway. Bind the single deprecated symbol here instead of taking
+// a second FFI crate that cannot replace it; both resolve from libSystem,
+// which is already linked on macOS.
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn mach_host_self() -> libc::mach_port_t;
+}
+
 #[cfg(target_os = "macos")]
 fn free_ram_mb_macos() -> Option<u64> {
     // host_statistics64(HOST_VM_INFO64): free + inactive pages ≈ reclaimable.
-    // SAFETY: zeroed vm_statistics64 is a valid out-buffer; host is host_self.
-    unsafe {
-        let mut count = libc::HOST_VM_INFO64_COUNT;
-        let mut stat: libc::vm_statistics64 = std::mem::zeroed();
-        let host = libc::mach_host_self();
-        let kr = libc::host_statistics64(
+    let mut count = libc::HOST_VM_INFO64_COUNT;
+    // SAFETY: `vm_statistics64` is a plain C struct of integers, so an all-zero
+    // bit pattern is a valid initial value for an out-buffer.
+    let mut stat: libc::vm_statistics64 = unsafe { std::mem::zeroed() };
+    // SAFETY: `mach_host_self` takes no argument and returns the host name
+    // port; it has no failure mode.
+    let host = unsafe { mach_host_self() };
+    // SAFETY: `host` is the host name port, `stat` is a live out-buffer, and
+    // `count` states its length in `integer_t` units as the flavor requires.
+    let kr = unsafe {
+        libc::host_statistics64(
             host,
             libc::HOST_VM_INFO64,
             &mut stat as *mut _ as *mut _,
             &mut count,
-        );
-        if kr != libc::KERN_SUCCESS {
-            return None;
-        }
-        let page = libc::sysconf(libc::_SC_PAGESIZE);
-        if page <= 0 {
-            return None;
-        }
-        let pages = (stat.free_count as u64).saturating_add(stat.inactive_count as u64);
-        Some(pages.saturating_mul(page as u64) / (1024 * 1024))
+        )
+    };
+    if kr != libc::KERN_SUCCESS {
+        return None;
     }
+    // SAFETY: `sysconf` reads a static system limit and reports failure as -1.
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if page <= 0 {
+        return None;
+    }
+    let pages = (stat.free_count as u64).saturating_add(stat.inactive_count as u64);
+    Some(pages.saturating_mul(page as u64) / (1024 * 1024))
 }
 
 #[cfg(windows)]
 fn free_ram_mb_windows() -> Option<u64> {
     use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-    // SAFETY: dwLength set before call; structure fully written on success.
-    unsafe {
-        let mut st: MEMORYSTATUSEX = std::mem::zeroed();
-        st.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
-        if GlobalMemoryStatusEx(&mut st) == 0 {
-            return None;
-        }
-        Some(st.ullAvailPhys / (1024 * 1024))
+    // SAFETY: `MEMORYSTATUSEX` is a plain C struct, so an all-zero bit pattern
+    // is a valid initial value; `dwLength` is set on the next line.
+    let mut st: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    st.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    // SAFETY: `st` is a live out-buffer whose `dwLength` is set, which is the
+    // contract the call requires; it reports failure as 0 and writes the
+    // structure fully on success.
+    if unsafe { GlobalMemoryStatusEx(&mut st) } == 0 {
+        return None;
     }
+    Some(st.ullAvailPhys / (1024 * 1024))
 }
 
 /// Auto budget: `min(cpus, ram_budget, HARD_CAP)`.
@@ -188,12 +228,11 @@ pub fn compute_auto_budget() -> usize {
     cpus.min(ram_side).clamp(MIN_CONCURRENCY, HARD_CAP)
 }
 
-/// `Arc<Semaphore>` gate with [`effective_limit`] permits.
-pub fn io_semaphore() -> Arc<Semaphore> {
-    Arc::new(Semaphore::new(effective_limit()))
-}
-
-/// Semaphore with an explicit permit count (already clamped by caller).
+/// Semaphore with an explicit permit count, clamped to the process bounds.
+///
+/// `io_semaphore()`, which wrapped `semaphore_with(effective_limit())` and had
+/// no production caller, was removed on 2026-09-01. Its only reader was a unit
+/// test, which is the exact shape the phantom-flag gate exists to reject.
 pub fn semaphore_with(permits: usize) -> Arc<Semaphore> {
     Arc::new(Semaphore::new(permits.clamp(MIN_CONCURRENCY, HARD_CAP)))
 }

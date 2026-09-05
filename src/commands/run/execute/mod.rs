@@ -190,6 +190,52 @@ pub(crate) fn is_dispatchable_cmd(cmd: &str) -> bool {
         || EXT_CMDS.contains(&cmd)
 }
 
+// Preflight validates the `cookie set` payload with the SAME reader the
+// dispatcher uses, so the accepted key names keep one definition.
+pub(crate) use page_steps::{cookie_set_payload, cookie_set_payload_error};
+
+// Same contract for the two commands that take NO `action` and still require a
+// payload. `cookie set` was reachable from preflight because it hangs off an
+// action; `eval` and `goto` were not, so a step missing `expression` or `url`
+// paid for a full browser launch before the dispatcher raised the usage error
+// it could have raised from argv. Measured 2026-08-28: `eval` with no
+// expression cost 1485 ms and launched Chrome, against 145 ms for the cases
+// preflight already covered.
+pub(crate) use nav_steps::{eval_expression, eval_expression_error, goto_url, goto_url_error};
+
+/// Actions `cmd` accepts, or `None` when `cmd` takes no `action` field.
+///
+/// Eight step commands branch on `action`, and until now every one of them
+/// discovered a typo only INSIDE the dispatcher — that is, after BORN, with a
+/// browser already launched. `tests/cookie_jar_gate.rs` shows what that costs:
+/// it asserts that a malformed step is a usage error, a question that needs no
+/// browser at all, yet the script opens with a `goto` and paid a full Chrome to
+/// ask it. A launch that lost a contended host therefore failed a test about
+/// argv validation, which is an accidental coupling and not a real dependency.
+///
+/// Each slice is defined against the `match` it mirrors rather than here, for
+/// the same reason [`is_dispatchable_cmd`] derives from the dispatcher slices:
+/// a parallel inventory drifts, and a drifted inventory rejects a step that
+/// would have run.
+pub(crate) fn known_actions(cmd: &str) -> Option<&'static [&'static str]> {
+    match cmd {
+        "cookie" => Some(page_steps::COOKIE_ACTIONS),
+        "page" => Some(page_steps::PAGE_ACTIONS),
+        "dialog" => Some(page_steps::DIALOG_ACTIONS),
+        "console" => Some(page_steps::CONSOLE_ACTIONS),
+        "net" => Some(page_steps::NET_ACTIONS),
+        "perf" => Some(perf_steps::PERF_ACTIONS),
+        "screencast" => Some(perf_steps::SCREENCAST_ACTIONS),
+        "heap" => Some(perf_steps::HEAP_ACTIONS),
+        _ => None,
+    }
+}
+
+/// Error for a step whose `action` has no arm, worded like the dispatcher's.
+pub(crate) fn unknown_action_error(cmd: &str, action: &str) -> CliError {
+    CliError::new(ErrorKind::Usage, format!("unknown {cmd} action: {action}"))
+}
+
 /// Error for a step command with no dispatch arm.
 pub(super) fn unknown_cmd_error(cmd: &str) -> CliError {
     if cmd.is_empty() {
@@ -223,5 +269,65 @@ async fn dispatch_step(
         c if PERF_CMDS.contains(&c) => perf_steps::handle(session, cmd, step, robots, flags).await,
         c if EXT_CMDS.contains(&c) => ext_steps::handle(session, cmd, step, robots, flags).await,
         other => Err(unknown_cmd_error(other)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::run::RUN_DISPATCHED_CMDS;
+
+    /// Every spelling the dispatcher matches, in one set.
+    fn dispatcher_cmds() -> std::collections::BTreeSet<&'static str> {
+        std::iter::once("assert")
+            .chain(NAV_CMDS.iter().copied())
+            .chain(CAPTURE_CMDS.iter().copied())
+            .chain(PAGE_CMDS.iter().copied())
+            .chain(EMULATE_CMDS.iter().copied())
+            .chain(PERF_CMDS.iter().copied())
+            .chain(EXT_CMDS.iter().copied())
+            .collect()
+    }
+
+    /// The published inventory and the dispatcher must name the same commands.
+    ///
+    /// They did not, in both directions, and neither direction was visible from
+    /// either side. `RUN_DISPATCHED_CMDS` advertised four underscore spellings
+    /// of the devtools/webmcp pair that no arm matched — a step naming one got
+    /// `unknown script cmd` quoting a `Supported:` line that had just listed
+    /// it — while `submit`, `click`, `fill`, `screenshot`, `devtools3p` and
+    /// `webmcp` ran and were never advertised.
+    ///
+    /// The set is compared in BOTH directions because each direction is a
+    /// different lie: an extra name promises a command that does not exist, a
+    /// missing name hides one that does.
+    #[test]
+    fn dispatched_cmds_match_inventory() {
+        let dispatcher = dispatcher_cmds();
+        let inventory: std::collections::BTreeSet<&str> =
+            RUN_DISPATCHED_CMDS.iter().copied().collect();
+
+        let phantom: Vec<&str> = inventory.difference(&dispatcher).copied().collect();
+        assert!(
+            phantom.is_empty(),
+            "RUN_DISPATCHED_CMDS advertises commands the dispatcher does not match: {phantom:?}"
+        );
+
+        // `assert` is dispatched by its own arm and belongs to no family slice;
+        // it is in the inventory, so the difference below must still be empty.
+        let unlisted: Vec<&str> = dispatcher.difference(&inventory).copied().collect();
+        assert!(
+            unlisted.is_empty(),
+            "dispatcher runs commands RUN_DISPATCHED_CMDS never names: {unlisted:?}"
+        );
+    }
+
+    /// `is_dispatchable_cmd` is what preflight asks before BORN, so it has to
+    /// agree with the inventory the suggestion text quotes.
+    #[test]
+    fn is_dispatchable_agrees_with_the_inventory() {
+        for cmd in RUN_DISPATCHED_CMDS {
+            assert!(is_dispatchable_cmd(cmd), "{cmd} is advertised and refused");
+        }
     }
 }

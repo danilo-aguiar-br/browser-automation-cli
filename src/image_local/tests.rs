@@ -48,7 +48,15 @@ fn magic_detects_avif_then_refuses_to_decode_it() {
 
     // Decode stays refused in every configuration (no C-free AV1 decoder).
     assert!(!fmt.is_supported());
-    let Err(err) = super::decode_bytes(&b, ImageLimits::from_xdg()) else {
+    // Explicit limits, never `from_xdg()`: a host with a small
+    // image_max_input_bytes would make this fail as a SIZE error, and the
+    // assertion below demands the message be about DECODE.
+    let lim = ImageLimits {
+        max_input_bytes: 1 << 20,
+        max_pixels: 1_000_000,
+        default_quality: 80,
+    };
+    let Err(err) = super::decode_bytes(&b, lim) else {
         panic!("avif decode must be refused");
     };
     assert_eq!(err.kind(), crate::error::ErrorKind::Data);
@@ -182,14 +190,32 @@ fn magic_first_ignores_lying_extension() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("qr-like.bin");
     std::fs::write(&path, tiny_png_bytes()).unwrap();
-    let img = super::decode_path_for_qr(&path).unwrap();
+    // Explicit limits: through the facade the operator’s image_max_input_bytes
+    // decides whether this 4x4 fixture is readable at all, so a strict config
+    // would fail this test for a reason unrelated to magic-vs-extension.
+    let img = super::decode_path_for_qr_with(
+        &path,
+        ImageLimits {
+            max_input_bytes: 1 << 20,
+            max_pixels: 1_000_000,
+            default_quality: 80,
+        },
+    )
+    .unwrap();
     assert_eq!(img.width(), 4);
     assert_eq!(img.height(), 4);
 }
 
 #[test]
 fn ssrf_blocks_loopback_image_url() {
-    let err = crate::net::assert_safe_http_url("http://127.0.0.1/img.png").unwrap_err();
+    // Parameterized core, never the XDG-resolving facade: `assert_safe_http_url`
+    // reads the operator's real `http_ssrf_mode`, so this assertion inverted on
+    // any host configured with `allow_loopback`.
+    let err = crate::net::assert_safe_http_url_mode(
+        "http://127.0.0.1/img.png",
+        crate::net::SsrfMode::Strict,
+    )
+    .unwrap_err();
     // Strict SSRF: usage or data — never success.
     assert!(matches!(
         err.kind(),

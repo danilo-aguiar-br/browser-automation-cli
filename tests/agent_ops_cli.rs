@@ -13,17 +13,16 @@
 //! assertion here spawns the real binary and reads the real exit code, because
 //! that is the contract an agent depends on.
 
-use std::process::Command;
 use tempfile::TempDir;
 
-const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
+mod common;
 
 /// Spawn the CLI with `HOME` pointed at a throwaway directory.
 fn run(tmp: &TempDir, args: &[&str]) -> (i32, String, String) {
     let home = tmp.path().join("home");
     std::fs::create_dir_all(&home).expect("create temp home");
 
-    let out = Command::new(BIN)
+    let out = common::cmd()
         .args(args)
         .env("HOME", &home)
         .env("USERPROFILE", &home)
@@ -203,7 +202,7 @@ fn dedupe_by_with_a_missing_key_is_no_longer_read_as_all_unique() {
 
 #[test]
 fn agent_ops_suggestions_never_cite_a_flag_outside_their_scope() {
-    // The `agent-ops-*` messages are emitted for ANY of the 69 commands, so they
+    // The `agent-ops-*` messages are emitted for ANY of the 71 commands, so they
     // may only mention GLOBAL flags. They used to suggest `--select`, which is a
     // per-command flag on scrape/crawl/map/search and the media `info` verbs, so
     // following the advice anywhere else produced `unexpected argument`.

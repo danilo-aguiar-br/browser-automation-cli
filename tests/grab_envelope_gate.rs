@@ -23,12 +23,8 @@
 //! A `file://` fixture with fixed-height blocks gives an exact expected value;
 //! a live site would make the test depend on someone else's layout.
 
-use std::path::PathBuf;
-use std::process::Command;
-
-fn bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_browser-automation-cli"))
-}
+mod common;
+use common::{bin, chrome_found_or_assume_present};
 
 /// Five 600px blocks: full page is 3000px tall, well past any viewport.
 const TALL_PAGE: &str = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Tall</title>\
@@ -42,29 +38,25 @@ const TALL_PAGE: &str = "<!doctype html><html><head><meta charset=\"utf-8\"><tit
 const BLOCK_PX: u64 = 600;
 const BLOCKS: u64 = 5;
 
-fn chrome_available() -> bool {
-    Command::new(bin())
-        .args(["--json", "doctor", "--offline", "--quick"])
-        .output()
-        .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.pointer("/data/chrome_found").and_then(|c| c.as_bool()))
-        .unwrap_or(true)
-}
-
 /// Run a `run --script` sequence and return the per-step NDJSON lines.
 ///
-/// `slug` names the script file. Cargo runs `#[test]` functions in parallel
-/// threads of one process, so a shared filename would let one test overwrite
-/// the script the other is about to execute — which is exactly how this file
-/// first reported three captures for a two-step script.
-fn run_steps(slug: &str, steps: &[String]) -> Vec<serde_json::Value> {
-    let dir = std::env::temp_dir().join("bac-grab-envelope-gate");
-    std::fs::create_dir_all(&dir).expect("temp dir");
+/// `dir` is the caller's own scratch directory, which is why it is a parameter
+/// rather than a constant. This used to be
+/// `temp_dir().join("bac-grab-envelope-gate")` — a FIXED name with no pid and
+/// no random suffix, the only undisambiguated path in the suite. Two concurrent
+/// runs of this file, in any two processes on the machine, wrote their fixtures
+/// and their screenshots over each other, and neither ever removed the tree.
+///
+/// `slug` still names the script file. Cargo runs `#[test]` functions in
+/// parallel threads of ONE process, so within a run the per-test directory is
+/// what keeps two tests apart, and the slug keeps two calls inside one test
+/// apart — which is exactly how this file first reported three captures for a
+/// two-step script.
+fn run_steps(dir: &std::path::Path, slug: &str, steps: &[String]) -> Vec<serde_json::Value> {
     let script = dir.join(format!("{slug}.jsonl"));
     std::fs::write(&script, format!("{}\n", steps.join("\n"))).expect("write script");
 
-    let out = Command::new(bin())
+    let out = common::cmd()
         .args([
             "--json",
             "--json-steps",
@@ -72,7 +64,7 @@ fn run_steps(slug: &str, steps: &[String]) -> Vec<serde_json::Value> {
             "150",
             "run",
             "--script",
-            script.to_str().unwrap(),
+            script.to_str().expect("script path is valid UTF-8"),
         ])
         .output()
         .expect("spawn cli");
@@ -86,13 +78,17 @@ fn run_steps(slug: &str, steps: &[String]) -> Vec<serde_json::Value> {
 
 #[test]
 fn grab_reports_width_and_height_for_viewport_full_page_and_element() {
-    if !chrome_available() {
-        eprintln!("skipping: no usable Chrome on this host");
+    if !chrome_found_or_assume_present(&bin()) {
+        common::skip_with_remedy(
+            "grab_envelope_gate",
+            "no usable Chrome on this host.",
+            "install a system Chrome/Chromium.",
+        );
         return;
     }
 
-    let dir = std::env::temp_dir().join("bac-grab-envelope-gate");
-    std::fs::create_dir_all(&dir).expect("temp dir");
+    let tmp = tempfile::tempdir().expect("scratch dir");
+    let dir = tmp.path();
     let page = dir.join("tall.html");
     std::fs::write(&page, TALL_PAGE).expect("write fixture");
     let shot = |n: &str| dir.join(n).to_string_lossy().into_owned();
@@ -116,7 +112,7 @@ fn grab_reports_width_and_height_for_viewport_full_page_and_element() {
         ),
     ];
 
-    let grabs = run_steps("dims", &steps);
+    let grabs = run_steps(dir, "dims", &steps);
     assert_eq!(grabs.len(), 3, "expected three captures: {grabs:?}");
 
     for g in &grabs {
@@ -155,18 +151,23 @@ fn grab_reports_width_and_height_for_viewport_full_page_and_element() {
 /// The dimensions must describe the file on disk, not a guess from CDP.
 #[test]
 fn the_reported_size_matches_the_file_that_was_written() {
-    if !chrome_available() {
-        eprintln!("skipping: no usable Chrome on this host");
+    if !chrome_found_or_assume_present(&bin()) {
+        common::skip_with_remedy(
+            "grab_envelope_gate",
+            "no usable Chrome on this host.",
+            "install a system Chrome/Chromium.",
+        );
         return;
     }
 
-    let dir = std::env::temp_dir().join("bac-grab-envelope-gate");
-    std::fs::create_dir_all(&dir).expect("temp dir");
+    let tmp = tempfile::tempdir().expect("scratch dir");
+    let dir = tmp.path();
     let page = dir.join("tall.html");
     std::fs::write(&page, TALL_PAGE).expect("write fixture");
     let shot = dir.join("check-match.png").to_string_lossy().into_owned();
 
     let grabs = run_steps(
+        dir,
         "match",
         &[
             format!(
@@ -181,7 +182,7 @@ fn the_reported_size_matches_the_file_that_was_written() {
     let reported_h = grabs[0]["data"]["height"].as_u64().expect("height");
 
     // Cross-check with the independent local probe.
-    let out = Command::new(bin())
+    let out = common::cmd()
         .args(["--json", "image", "info", "--path", &shot])
         .output()
         .expect("image info");

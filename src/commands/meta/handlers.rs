@@ -30,6 +30,9 @@ pub fn list_commands(detail: bool, json: bool) -> Result<(), CliError> {
         "parity_default_on": PARITY_DEFAULT_ON_REQUIRED,
         "devtools_tool_map": map,
         "binary": "browser-automation-cli",
+        "stealth_profiles": crate::constants::STEALTH_PROFILE_TOKENS,
+        "stealth_seed_fields": crate::constants::STEALTH_SEED_FIELDS,
+        "stealth_seed_does_not_vary": crate::constants::STEALTH_SEED_DOES_NOT_VARY,
     });
     if json {
         print_success_json(data)?;

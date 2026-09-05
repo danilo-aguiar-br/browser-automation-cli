@@ -60,38 +60,37 @@
 //! `the_host_can_actually_run_this_gate` turns that skip into exactly one red
 //! case instead of five silent greens.
 
-use std::path::PathBuf;
-use std::process::Command;
+mod common;
+use common::{binary, chrome_not_ready, missing_binary};
+
+const GATE: &str = "cookie_jar_gate";
 
 /// Values that exist nowhere else in the repository.
 const TOKEN_ALPHA: &str = "COOKIE_A7B8";
 const TOKEN_BETA: &str = "COOKIE_C9D0";
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn binary() -> Option<PathBuf> {
-    let p = root().join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
-
 /// Run a script through `run` and return the parsed envelope.
 fn run_script(lines: &[String]) -> Option<serde_json::Value> {
     let bin = binary()?;
-    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("cookie-gate-{}-{n}", std::process::id()));
-    std::fs::create_dir_all(&dir).ok()?;
+    // A `TempDir` and not a pid+counter path: the counter only ever resolved
+    // COLLISION between the threads of this one binary, never cleanup, so an
+    // assertion that panicked left the directory behind for good. The guard is
+    // bound to a NAMED variable on purpose — `let _ = ...` drops it on the spot
+    // and deletes the script before the child process can read it.
+    let scratch = tempfile::Builder::new()
+        .prefix("bac-cookie-gate-")
+        .tempdir()
+        .ok()?;
+    let dir = scratch.path();
     let script = dir.join("steps.jsonl");
     std::fs::write(&script, lines.join("\n")).ok()?;
 
-    let out = Command::new(&bin)
+    let out = common::isolated_cmd(&bin)
         .args(["-q", "--timeout", "120", "--json", "run", "--script"])
         .arg(&script)
         .output()
         .ok()?;
-    let _ = std::fs::remove_dir_all(&dir);
+
     serde_json::from_slice(&out.stdout).ok()
 }
 
@@ -122,26 +121,10 @@ fn set(name: &str, value: &str, url: &str) -> String {
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    if binary().is_none() {
-        eprintln!(
-            "SKIP cookie_jar_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    if missing_binary(GATE) {
         return true;
     }
-    let probe = Command::new(binary().expect("binary"))
-        .args(["-q", "--json", "doctor", "--offline", "--quick"])
-        .output();
-    let chrome_ok = probe
-        .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if !chrome_ok {
-        eprintln!(
-            "SKIP cookie_jar_gate: doctor reports the host is not ready for Chrome. \
-             This is NOT a pass."
-        );
+    if chrome_not_ready(GATE, &binary().expect("binary")) {
         return true;
     }
     false
@@ -363,9 +346,24 @@ fn an_empty_jar_succeeds_and_reports_itself_as_empty() {
 /// Skipping either would let a typo disarm the step while the run reported
 /// success, which is the false green every gate in this directory exists to
 /// remove.
+///
+/// # Why this case does NOT wait for Chrome
+///
+/// It used to, and that was the bug. The question here is about parsing, not
+/// about browsing, yet the script opens with a `goto` and the rejection lived
+/// inside the dispatcher — so the run paid a whole browser to reach an answer
+/// argv alone decides. A launch that lost a contended host therefore failed a
+/// test that never needed a browser, and that is exactly what was observed: one
+/// `exit_code 69 / unavailable` per full suite run, landing on a different test
+/// each time.
+///
+/// `run --script` now validates `action` and required payloads before BORN, so
+/// dropping the Chrome guard is not a convenience — it is the ASSERTION. If the
+/// rejection ever moves back behind the launch, this case fails on any host
+/// without Chrome instead of passing quietly.
 #[test]
 fn an_unknown_action_and_a_missing_payload_are_usage_errors() {
-    if cannot_run() {
+    if missing_binary(GATE) {
         return;
     }
     for (label, step) in [
@@ -416,5 +414,55 @@ fn the_host_can_actually_run_this_gate() {
         "host cannot run this gate: every other case in this file skipped, and a \
          skip is NOT a pass. The SKIP line on stderr names the missing \
          precondition (binary or Chrome)."
+    );
+}
+
+/// The SAME rejection on the `exec` surface, and it needs no browser either.
+///
+/// `exec` runs one step and used to launch the browser as its very first
+/// instruction — before it had even read the `cmd` — so `exec cookie --action
+/// nonsense` paid a full Chrome to reach a usage error decided by argv. Same
+/// defect as the script path, second surface. This case carries no Chrome
+/// guard, so a regression that moves the check back behind the launch fails
+/// here rather than hiding on a host that happens to have Chrome.
+///
+/// Measured 2026-08-18 on this host: the rejection returns in ~200 ms while the
+/// same command with a VALID action takes ~2130 ms, because that one really
+/// does launch a browser. Ten times the cost is what the check removes.
+#[test]
+fn exec_rejects_an_unknown_action_without_launching_a_browser() {
+    if missing_binary(GATE) {
+        return;
+    }
+    let bin = binary().expect("binary");
+    let out = common::isolated_cmd(&bin)
+        .args([
+            "-q",
+            "--json",
+            "exec",
+            "cookie",
+            "--action",
+            "action-that-does-not-exist",
+        ])
+        .output()
+        .expect("spawn browser-automation-cli");
+    let env: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("stdout must be JSON; CLEAN STDOUT is contract");
+    assert_eq!(
+        env.get("ok").and_then(|v| v.as_bool()),
+        Some(false),
+        "a typo must not be treated as a runnable step: {env}"
+    );
+    assert_eq!(
+        env.pointer("/error/kind").and_then(|v| v.as_str()),
+        Some("usage"),
+        "malformed argv is a usage error, not an unavailable browser: {env}"
+    );
+    assert!(
+        env.pointer("/error/message")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .contains("cookie"),
+        "the failure must name the step: {env}"
     );
 }

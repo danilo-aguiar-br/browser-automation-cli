@@ -16,6 +16,13 @@ use crate::native::cdp::discovery::discover_cdp_url_with_timeout;
 /// milliseconds, so the collision window is negligible — and a collision only
 /// costs a failed launch, never a wrong connection, because readiness is proven
 /// by talking CDP to the port rather than by assuming it.
+///
+/// # Errors
+///
+/// Fails when the kernel refuses to bind an ephemeral port on
+/// [`LOOPBACK_HOST`](crate::constants::LOOPBACK_HOST), or when the bound
+/// listener cannot report its local address — an exhausted ephemeral range, or
+/// a sandbox that denies loopback binds.
 pub fn reserve_loopback_port() -> Result<u16, String> {
     TcpListener::bind((crate::constants::LOOPBACK_HOST, 0))
         .and_then(|l| l.local_addr())
@@ -46,6 +53,14 @@ pub struct ReadinessBudget {
 /// Returns the DevTools websocket URL. The discovery cascade
 /// (`/json/version` → `/json/list` → direct websocket) is **not** duplicated
 /// here: it lives in [`crate::native::cdp::discovery`] and is engine-agnostic.
+///
+/// # Errors
+///
+/// Returns a `launch_error` rendering — engine name, reason, captured
+/// stdout/stderr, last probe error — in exactly two cases: the child exited
+/// before serving CDP, or `budget.startup` elapsed with every discovery probe
+/// still failing. A single failed probe is not an error; it is recorded as
+/// `last_probe_error` and the loop keeps polling.
 pub async fn wait_for_cdp_ready(
     engine: &str,
     child: &mut Child,

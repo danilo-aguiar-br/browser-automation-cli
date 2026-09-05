@@ -9,6 +9,12 @@ use crate::native::cdp::client::CdpClient;
 ///
 /// Replaces the whole set: CDP has no "add one header" call, so the caller must
 /// pass the complete map each time.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Network.setExtraHTTPHeaders` — the
+/// `Network` domain was never enabled on `session_id`, or a header name is not
+/// one Chrome allows to be overridden.
 pub async fn set_extra_headers(
     client: &CdpClient,
     session_id: &str,
@@ -32,6 +38,12 @@ pub async fn set_extra_headers(
 }
 
 /// Toggle offline emulation for the session.
+///
+/// # Errors
+///
+/// Propagates [`set_network_conditions`] with unlimited throughput and no
+/// added latency: the CDP error raised by
+/// `Network.emulateNetworkConditions`.
 pub async fn set_offline(
     client: &CdpClient,
     session_id: &str,
@@ -41,6 +53,12 @@ pub async fn set_offline(
 }
 
 /// Activate `Network.emulateNetworkConditions` (latency ms; throughput bytes/s, -1 = unlimited).
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Network.emulateNetworkConditions` — the
+/// `Network` domain was never enabled on `session_id`, or the engine does not
+/// implement the command.
 pub async fn set_network_conditions(
     client: &CdpClient,
     session_id: &str,
@@ -68,6 +86,11 @@ pub async fn set_network_conditions(
 ///
 /// Emulation only: it does not change the machine, so a result measured under
 /// throttling is comparable across runs but not to wall-clock on real hardware.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Emulation.setCPUThrottlingRate`, which
+/// is what rejects a `rate` below `1.0`.
 pub async fn set_cpu_throttling_rate(
     client: &CdpClient,
     session_id: &str,
@@ -87,6 +110,15 @@ pub async fn set_cpu_throttling_rate(
 ///
 /// Resolves the frame from the frame tree first, so it acts on whatever frame
 /// the session is pointed at rather than assuming the main frame.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Page.getFrameTree`, with
+/// `"Could not determine frame ID"` when the tree carries no frame id, and
+/// with the CDP error raised by `Page.setDocumentContent` — which is what
+/// rejects a frame that navigated away between the two calls. Malformed
+/// `html` is not an error: the browser parses it leniently, as it would any
+/// document.
 pub async fn set_content(client: &CdpClient, session_id: &str, html: &str) -> Result<(), String> {
     // Get current frame ID
     let tree_result = client

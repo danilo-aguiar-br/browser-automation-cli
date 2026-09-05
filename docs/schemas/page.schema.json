@@ -96,7 +96,7 @@
             "bring_to_front": {
               "argv": "--bring-to-front",
               "default": true,
-              "description": "Bring selected tab to front (tool-ref bringToFront)",
+              "description": "Bring selected tab to front (tool-ref bringToFront, default)",
               "required": false,
               "source": "parser",
               "step_key": "bring_to_front",
@@ -119,6 +119,19 @@
                 "exec"
               ],
               "type": "integer"
+            },
+            "no_bring_to_front": {
+              "argv": "--no-bring-to-front",
+              "description": "Select the tab WITHOUT raising its window",
+              "required": false,
+              "source": "parser",
+              "step_key": "no_bring_to_front",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
             },
             "page_id": {
               "argv": "--page-id",

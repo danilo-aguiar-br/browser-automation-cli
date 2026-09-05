@@ -21,10 +21,28 @@ pub(crate) fn handle_emulate(
     color_scheme: Option<&str>,
     extra_headers: Option<&str>,
     viewport: Option<&str>,
+    screen: Option<&str>,
     capture: CaptureOpts,
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
+    if let Some(ua) = user_agent {
+        if !ua.is_empty()
+            && crate::native::stealth::ua_contradicts_profile(
+                ua,
+                crate::browser_policy::stealth_profile(),
+            )
+        {
+            return Err(CliError::with_suggestion(
+                crate::error::ErrorKind::Usage,
+                format!(
+                    "emulate --user-agent claims a platform that contradicts stealth profile `{}`",
+                    crate::browser_policy::stealth_profile().as_str()
+                ),
+                crate::i18n::suggestion_key("stealth_profile_ua", None),
+            ));
+        }
+    }
     let ua = user_agent.map(|s| s.to_string());
     let loc = locale.map(|s| s.to_string());
     let tz = timezone.map(|s| s.to_string());
@@ -33,6 +51,19 @@ pub(crate) fn handle_emulate(
     let scheme = color_scheme.map(|s| s.to_string());
     let headers = extra_headers.map(|s| s.to_string());
     let vp = viewport.map(|s| s.to_string());
+    if let Some(raw) = screen {
+        let size = crate::native::stealth::parse_screen_spec(raw).map_err(|e| {
+            CliError::with_suggestion(
+                crate::error::ErrorKind::Usage,
+                e,
+                crate::i18n::suggestion_key("screen_spec_format", None),
+            )
+        })?;
+        crate::native::stealth::set_screen_override(
+            Some(size),
+            crate::native::stealth::ScreenSource::Argv,
+        );
+    }
     let data = with_session_blank(life, capture, timeout_secs, move |mut session| async move {
         let v = session
             .emulate(
@@ -62,10 +93,24 @@ pub(crate) fn handle_resize(
     height: i32,
     scale: f64,
     mobile: bool,
+    screen: Option<&str>,
     capture: CaptureOpts,
     timeout_secs: u64,
     json: bool,
 ) -> Result<(), CliError> {
+    if let Some(raw) = screen {
+        let size = crate::native::stealth::parse_screen_spec(raw).map_err(|e| {
+            CliError::with_suggestion(
+                crate::error::ErrorKind::Usage,
+                e,
+                crate::i18n::suggestion_key("screen_spec_format", None),
+            )
+        })?;
+        crate::native::stealth::set_screen_override(
+            Some(size),
+            crate::native::stealth::ScreenSource::Argv,
+        );
+    }
     let data = with_session_blank(life, capture, timeout_secs, move |mut session| async move {
         let v = session.resize(width, height, scale, mobile).await?;
         Ok((session, v))

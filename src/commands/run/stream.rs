@@ -89,6 +89,15 @@ pub async fn run_stream_with_flags(
             .unwrap_or("")
             .to_string();
 
+        // Timed exactly as the file path times it, in `engine.rs`.
+        //
+        // The two paths already diverge on row keys — this one writes `line`,
+        // that one writes `step` — and a timing field present on only one of
+        // them would make an agent`s measurement depend on whether its script
+        // arrived from a file or a pipe. Measured 2026-09-04: that asymmetry is
+        // how a whole investigation ended up reading the wrong code path, and it
+        // only surfaced because a NEW field came back null.
+        let started = std::time::Instant::now();
         match execute_step(
             &mut session,
             &cmd,
@@ -105,11 +114,10 @@ pub async fn run_stream_with_flags(
                     "line": lineno,
                     "cmd": cmd,
                     "ok": true,
+                    "duration_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                     "data": data,
                 });
-                if flags.json_steps {
-                    crate::output::write_json_line_ser(&row)?;
-                }
+                flags.emit_step_row(&row)?;
                 last_ok_data = Some(data);
                 results.push(row);
             }
@@ -120,15 +128,14 @@ pub async fn run_stream_with_flags(
                     "line": lineno,
                     "cmd": cmd,
                     "ok": false,
+                    "duration_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                     "error": {
                         "kind": e.kind().as_str(),
                         "message": e.message(),
                         "suggestion": e.suggestion(),
                     }
                 });
-                if flags.json_steps {
-                    crate::output::write_json_line_ser(&row)?;
-                }
+                flags.emit_step_row(&row)?;
                 results.push(row);
                 let _ = session.shutdown().await;
                 life.clear_chrome();
@@ -141,13 +148,13 @@ pub async fn run_stream_with_flags(
     life.clear_chrome();
     close?;
 
-    Ok(json!({
+    Ok(super::engine::finish_run_envelope(json!({
         "ok": true,
         "mode": "stream",
         "validation": "per-line",
         "total": results.len(),
         "steps": results,
-    }))
+    })))
 }
 
 /// Read one line from stdin without pinning the async worker.
@@ -216,7 +223,10 @@ fn stream_envelope(
         "error": {
             "kind": err.kind().as_str(),
             "message": format!("run stream fail-fast at line {lineno} cmd={cmd}: {err}"),
-            "suggestion": crate::i18n::suggestion_key("run_fail_fast", None),
+            "suggestion": err
+                .suggestion()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| crate::i18n::suggestion_key("run_fail_fast", None)),
             "exit_code": err.exit_code(),
         }
     });
@@ -226,7 +236,7 @@ fn stream_envelope(
             json!(path.display().to_string()),
         );
     }
-    envelope
+    super::engine::finish_run_envelope(envelope)
 }
 
 #[cfg(test)]

@@ -12,6 +12,22 @@ use super::BrowserManager;
 
 impl BrowserManager {
     /// Navigate the active tab and wait according to `wait_until`.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, with the CDP
+    /// error raised by `Page.navigate`, or with the bare `errorText` Chrome
+    /// reports for a navigation it started and could not complete
+    /// (`net::ERR_NAME_NOT_RESOLVED`, `net::ERR_PROXY_CONNECTION_FAILED`, …).
+    /// That text is returned **unprefixed** on purpose: the caller in
+    /// `session::nav` owns the `Navigation failed:` context and this layer owns
+    /// the cause.
+    ///
+    /// When Chrome created a loader and `wait_until` is not
+    /// [`WaitUntil::None`], the lifecycle wait can also fail with
+    /// `"Timeout waiting for <event>"` or `"Timeout waiting for networkidle"`
+    /// after `default_timeout_ms`. Reading back the URL and title is
+    /// best-effort and never fails the call.
     pub async fn navigate(&mut self, url: &str, wait_until: WaitUntil) -> Result<Value, String> {
         let session_id = self.active_session_id()?.to_string();
         let mut lifecycle_rx = self.client.subscribe();
@@ -147,18 +163,39 @@ impl BrowserManager {
     }
 
     /// Current URL of the active tab, read from the live page.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`evaluate`](Self::evaluate) of `location.href`: no active
+    /// page, a refused `Runtime.evaluate`, or a JS exception — which is what a
+    /// cross-origin or destroyed execution context raises. A non-string result
+    /// is not an error; it yields the empty string.
     pub async fn get_url(&self) -> Result<String, String> {
         let result = self.evaluate_simple("location.href").await?;
         Ok(result.as_str().unwrap_or("").to_string())
     }
 
     /// Current title of the active tab, read from the live page.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`evaluate`](Self::evaluate) of `document.title`: no active
+    /// page, a refused `Runtime.evaluate`, or a JS exception. A non-string
+    /// result is not an error; it yields the empty string.
     pub async fn get_title(&self) -> Result<String, String> {
         let result = self.evaluate_simple("document.title").await?;
         Ok(result.as_str().unwrap_or("").to_string())
     }
 
     /// Serialized HTML of the active document.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`evaluate`](Self::evaluate) of
+    /// `document.documentElement.outerHTML`: no active page, a refused
+    /// `Runtime.evaluate`, or a JS exception — which is what a document with
+    /// no `documentElement` raises. A non-string result is not an error; it
+    /// yields the empty string.
     pub async fn get_content(&self) -> Result<String, String> {
         let result = self
             .evaluate_simple("document.documentElement.outerHTML")
@@ -167,6 +204,14 @@ impl BrowserManager {
     }
 
     /// Evaluate JavaScript in the active page and return its value.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, with the CDP
+    /// error raised by `Runtime.evaluate`, or with
+    /// `"Evaluation error: <description>"` when the script threw — including a
+    /// rejected promise, since `awaitPromise` is set. A result that carries no
+    /// value is not an error; it yields [`Value::Null`](serde_json::Value).
     pub async fn evaluate(&self, script: &str, _args: Option<Value>) -> Result<Value, String> {
         let session_id = self.active_session_id()?.to_string();
 
@@ -203,6 +248,15 @@ impl BrowserManager {
     ///
     /// The external form exists for tabs this manager is not currently
     /// focused on, where the active-tab helpers would wait on the wrong page.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"Timeout waiting for Page.loadEventFired"` /
+    /// `"Timeout waiting for Page.domContentEventFired"` /
+    /// `"Timeout waiting for networkidle"` when `default_timeout_ms` elapses
+    /// before the milestone is observed. [`WaitUntil::None`] returns
+    /// immediately and cannot fail. A closed or lagging event channel is not
+    /// an error: the loop falls back to polling `document.readyState`.
     pub async fn wait_for_lifecycle_external(
         &self,
         wait_until: WaitUntil,

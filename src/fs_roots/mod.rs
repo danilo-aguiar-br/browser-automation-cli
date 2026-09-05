@@ -48,7 +48,7 @@ pub fn set_allow_outside_roots(allow: bool) {
 }
 
 /// Whether this invocation may step outside the allowed roots.
-pub fn allow_outside_roots() -> bool {
+fn allow_outside_roots() -> bool {
     ALLOW_OUTSIDE.load(Ordering::Relaxed)
 }
 

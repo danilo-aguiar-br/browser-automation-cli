@@ -13,12 +13,12 @@
 - Local scrape / crawl / map / search / parse surface ships as first-class subcommands
 - Artifact helpers (`print-pdf`, `monitor`, `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) and XDG LLM keys extend agent workflows without daemons
 - Durable defaults live in flags and XDG `config path|init|show|set|get`
-- v0.1.8 agent-first: anti-detection family shipped; scrape envelope unified; inventory **69** live; **204** XDG keys
+- v0.1.9 agent-first (anti-detection family since 0.1.8); scrape envelope unified; inventory **71** live; **217** XDG keys; `doctor --fingerprint` names `measurement_scope` and `unmeasured_os`
 - Carried forward: `dialog_settled` boolean after real dialog answer; XDG `dialog_settle_ms`; grab **png|jpeg|webp** only (AVIF removed); run `wait_timeout_ms` + scrape `format`/`formats` (0.1.6 added `submit`/`storage`; 0.1.7 added `image`+`video`+`audio`+`record`)
 - Multi-tab dialog isolation via `Page::session_id` / `dialog_map_key`; native select `via: native_select` (input then change)
 - Residual-zero disk law from v0.1.5 remains current: BORN + FINALIZE Singleton GC, doctor `residual_disk` / JSON `residual`, meta cmds `locale` and `man`
 - Product config: flags + XDG only (never product env vars); discover keys via `config list-keys --json`
-- GAP-021 partial: unit LHR fixtures; e2e lighthouse mock **SKIP**. GAP-022 residual ~53 multi-version dups accepted. GAP-023/024 intentional PRD divergences in `parity_intentional_divergences.json`
+- GAP-021 partial: unit LHR fixtures; e2e lighthouse mock **SKIP**. GAP-022 residual ~53 multi-version dups accepted. GAP-023/024 intentional PRD divergences
 - Carry-forward from v0.1.4 agent contracts: `--json-steps`, wait multi/url, pick/select-option, assert console, schema positional, MITM capture-url, clap JSON usage errors
 
 
@@ -68,9 +68,9 @@
 - Always pass `--json` for machine parsing
 - Read success and error envelopes from stdout
 - Keep stderr for human or debug logs only
-- Use `commands --json` to discover the live inventory (**69 agent names**)
-- Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, submit, storage, select-option, pick, locale, man, and DevTools-parity tools (**69** total, includes `image`, `video`, `audio`; e2e 53 tools with lighthouse mock SKIP)
-- Note: `select-option` and `pick` are in the **69** agent inventory (`commands --json`) and are used via `run` / `exec` / `schema`; they are **not** clap standalone subcommands (clap product surface is **67** names excluding `help`)
+- Use `commands --json` to discover the live inventory (**71 agent names**)
+- Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, submit, storage, select-option, pick, locale, man, and DevTools-parity tools (**71** total, includes `image`, `video`, `audio`; e2e 53 tools with lighthouse mock SKIP)
+- Note: `select-option` and `pick` are in the **71** agent inventory (`commands --json`) and are used via `run` / `exec` / `schema`; they are **not** clap standalone subcommands (clap product surface is **69** names excluding `help`)
 - Use `schema <name> --json` or `schema --cmd <name> --json` before generating argv for unfamiliar commands
 - Prefer flags for one-off control
 - Use `config init|set|get|path|show|list-keys` for durable XDG defaults
@@ -119,6 +119,7 @@
 - Inspect resolved locale with `locale --json`; generate man page with `man`
 - After browser work, expect residual-zero disk when alone: doctor check `residual_disk` not `fail` and top-level `residual` zeros for `orphan_marker_dirs`, `ghost_marker_processes`, and (after DIE alone) `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes` is informational concurrency; do **not** require zero `live_cli_marker_processes`
 - Clap usage errors emit JSON when `--json` is already on argv (GAP-002)
+- Soft dialog path: `dialog accept --if-present` / `dialog dismiss --if-present`
 - Beforeunload (GAP-003): `goto`/`reload --handle-before-unload accept|dismiss`; run field `handle_before_unload`
 - Isolated context (GAP-004): `page new --isolated-context [name]` (flag alone → `default-isolated`); run `isolated_context` string or `true`
 - Extension install/uninstall intentionally outside `run` (GAP-007); discover via `schema`/`commands`
@@ -155,14 +156,15 @@ fn main() {
 
 
 ## Surface Discovery for Agents
-- Inventory: `browser-automation-cli commands --json` (**69** agent names)
+- Inventory: `browser-automation-cli commands --json` (**71** agent names)
 - Input fragments: `browser-automation-cli schema <name> --json` or `schema --cmd <name> --json`
 - Config paths: `browser-automation-cli config path --json`
 - Config keys: discover with `config list-keys --json` (includes `dialog_settle_ms`; never invent product env vars)
 - MITM: `mitm status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
 - Global MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`, `--mitm-no-redact-secrets`
+- `--mitm-ws` restates the default: WebSocket frames are always captured under `--mitm`, so passing it changes nothing
 - Workflow: `workflow run|resume|status`
-- Local scrape surface: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- Local scrape surface: `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`
 - Artifacts and local IO: `print-pdf`, `monitor check`, `qr encode|decode`, `image info|convert|resize|download|exif`, `video info|download|convert|to-mp3|trim|thumbnail|manifest`, `audio info|download|convert|trim`, `find-paths` (`--glob`), `sheet-write`, `sg-scan`, `sg-rewrite`
 - Forms / state: `submit`, `storage export|import`, `select-option` / `pick` (inventory + run/exec; not clap standalone)
 - Meta: `locale` (UI locale diagnostics), `man` (roff man page; no Chrome)
@@ -173,11 +175,11 @@ fn main() {
 - Lighthouse: flag → XDG `lighthouse_path` → PATH; envelope `binary_source` is `real` or `mock`; e2e mock is SKIP (never claim full e2e lighthouse parser PASS)
 
 
-## Full Command Inventory (69)
-- Live source of truth: `browser-automation-cli commands --json` (**69** agent-facing names)
-Clap product surface is **67** names (excludes agent-only `select-option` / `pick`)
+## Full Command Inventory (71)
+- Live source of truth: `browser-automation-cli commands --json` (**71** agent-facing names)
+- Clap product surface is **69** names (excludes agent-only `select-option` / `pick`)
 - DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53; lighthouse mock SKIP)
-- Full agent command list (all **69**):
+- Full agent command list (all **71**):
   - Meta / discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interact: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
@@ -185,12 +187,12 @@ Clap product surface is **67** names (excludes agent-only `select-option` / `pic
   - Observe: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Capture: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-step: `run`, `exec`, `record`
-  - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - Extract / scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`
   - Local IO (no Chrome): `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
   - Emulation / perf: `emulate`, `resize`, `perf`, `heap`
   - Category gates: `extension`, `devtools3p`, `webmcp`
-- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
+- Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Discover argv with `schema <name> --json` for any name above
 
 ## Lifecycle
@@ -204,7 +206,7 @@ Clap product surface is **67** names (excludes agent-only `select-option` / `pic
 - Verify with `doctor --offline --quick --json` → `residual` / check `residual_disk`
 
 
-## Technical Contract (v0.1.8)
+## Technical Contract (v0.1.9)
 ### REQUIRED
 - Pass `--json` for programmatic consumption
 - Treat one process as one Chrome lifecycle (BORN EXECUTE FINALIZE DIE)
@@ -223,7 +225,7 @@ Clap product surface is **67** names (excludes agent-only `select-option` / `pic
 - Branch on envelope field `ok`
 - Keep category and experimental gates explicit when needed
 - Configure durable product settings via `config` / flags only (`--lang` + XDG for language)
-- Discover unknown commands with `commands --json` (**69**) and `schema <cmd>` or `schema --cmd`
+- Discover unknown commands with `commands --json` (**71**) and `schema <cmd>` or `schema --cmd`
 - Discover config keys with `config list-keys --json` (never hard-code a fixed key count)
 - After browser one-shots, treat residual-zero as part of success: inspect doctor `residual` when diagnosing leaks
 
@@ -294,8 +296,55 @@ browser-automation-cli -q --json doctor --offline --quick
 - Live input fragments always come from `schema <cmd>` / `schema --cmd`; static files may lag
 
 
+## Browser Witness Fields on Every Envelope
+- Every browser envelope carries five witness fields, so an agent can VERIFY what the process did instead of trusting the intent it declared
+- `browser_mode_requested` is the mode that was asked for, before resolution
+- `browser_mode_effective` is what the launch will actually do, `headless` or `headed`
+- It differs from the requested mode exactly under `auto`, which is the case the caller cannot see any other way
+- `browser_mode_source` names the precedence step that won, and takes `default`, `xdg` or `flag`
+- Read `browser_mode_source` first when behaviour diverges from expectation, because it answers which configuration layer decided this run
+- `display_backend` is the surface the browser draws onto, and takes `headless`, `xvfb` or `host`
+- `display_backend` is NOT deduced from `browser_mode` alone, because headed on a private virtual display is not the operator's screen
+- `runtime_enable_used` states whether this launch issued `Runtime.enable`
+- Compare two runs and the domain appears the moment `--capture-console` is passed, which turns "the default path does not enable Runtime" into a checkable claim instead of prose
+- `run` publishes the five once at the top level of `data` and strips them from each step, because they are process-global and cannot vary inside one process
+
+
+## Text Mode (no `--json`)
+- Without `--json` a command answers ONE line: `ok <verb> key=value key=value`
+- Field names are the envelope's own keys, spelled identically, so a line and its JSON describe the same answer
+- Arrays and objects render as CARDINALITY, never contents: `keys=<217 items>`, `meta=<2 fields>`
+- Pass `--json` to get the items; text mode answers how many, not which
+- `null` renders as `key=null` rather than being omitted, so an empty field stays distinguishable from an absent one
+- A value holding whitespace, a quote or `=` is quoted, so `title="Hello World"` cannot be read as two fields
+- Key order follows the envelope, so the same command answers with the same line every time
+- This contract is machine-checkable: split on spaces, then on the first `=`
+- Until 0.1.9 these commands printed `ok <verb> {json}` — the payload with a prefix glued on, readable by neither a human nor a parser, and `config list-keys` reached 23_248 bytes on one line that way
+
+
+## What `lang` Translates, and What It Does Not
+- The `lang` config key selects the locale of `suggestion`, and NEVER of `message`
+- `message` is the technical diagnostic and is always English, in every locale
+- `suggestion` is the actionable remedy and is the string the catalogs carry, in `en` and `pt-BR`
+- Measured 2026-09-04: 439 `CliError::new` sites and 353 `CliError::with_suggestion` sites in Rust sources, with no `message` routed through the catalog — `tests/doc_measured_claims_gate.rs` re-measures both, because a number frozen in prose goes stale without a word
+- This is the split `rustc`, `git` and `docker` ship, and it is deliberate rather than an unfinished translation
+- A diagnostic is a search key: it is pasted into an issue, a log grep and a web search, and translating it fragments every one of those
+- A remedy is an instruction to a person, so it belongs in that person's language
+- Parse on `kind` and on the exit code, never on the text of `message`, which carries no stability promise in any locale
+- This policy shipped undeclared until 0.1.9 — the behaviour was already this, and a reader who set `lang` had no way to tell a deliberate split from a missing translation
+
+
+## Step Keys in `run --script`
+- Every OPTIONAL step key is read in both `snake_case` and `camelCase`, and both spellings mean the same thing
+- The eight aliases are `includePreservedMessages`, `includePreservedRequests`, `serviceWorkerId`, `resourceTypes`, and `pageIdx` and `pageSize` on both the `console` and the `net` step
+- `docs/schemas/*.json` publishes only the `snake_case` spelling, because those files are generated from the `clap` surface and a script step never passes through `clap`
+- The tolerance exists because a script is written by hand and by agents that emit JSON in the casing of their own language, and a step silently ignored is worse than one accepted twice
+- Whoever adds an optional step key adds BOTH spellings or NEITHER, so this stays one rule instead of a list of exceptions
+- Measured 2026-08-30: an audit named `resourceTypes` alone, which read as one field slipping through; it is eight, and fixing only the named one would have left seven siblings alive under a closed ticket
+
+
 ## Reducing the Payload (never pipe through a JSON processor)
-- These flags are GLOBAL and work on every one of the 69 commands
+- These flags are GLOBAL and work on every one of the 71 commands
 - The binary applies them to `data` before writing, so the model never receives what it would discard
 - `--fields PATHS` projects dotted paths (CSV) and keeps the documented nesting
 - `--filter-rows EXPR` keeps rows matching `key=value`, `key!=value` or `key~substring`; repeatable and ANDed
@@ -361,7 +410,7 @@ browser-automation-cli -q --json doctor --offline --quick
 
 
 ## Other Global Flags
-- Every flag below applies to all 69 commands and is accepted before or after the subcommand
+- Every flag below applies to all 71 commands and is accepted before or after the subcommand
 ### Output and diagnostics
 - `--json` emits the machine envelope; `--json-steps` adds a per-step envelope inside `run`
 - `-q` / `--quiet` silences stderr prose; `--plain` drops ANSI from human output
@@ -373,6 +422,8 @@ browser-automation-cli -q --json doctor --offline --quick
 - `--timeout SECS` bounds the whole run; `--step-timeout SECS` bounds one step of `run`
 - `--max-concurrency N` caps fan-out for the commands that have any
 ### Browser mode and anti-detection
+- `--browser-mode <auto|headless|headed>` is the canonical spelling, and `--headed` and `--headless` are shorthands for two of its values
+- `--headless` REQUIRES a headless run and overrides any persisted mode, so "I require headless" and "I said nothing" stop being the same argv
 - `--headed` renders a real window; on Linux it goes into a private virtual display when `Xvfb` is available
 - `--no-xvfb` keeps a headed launch on the operator's own display instead
 - `doctor` reports `xvfb` with the install command for the detected distribution; the CLI never installs anything
@@ -380,12 +431,25 @@ browser-automation-cli -q --json doctor --offline --quick
 - `auto` follows the host platform, and a headless launch still gets a User-Agent override so it does not announce `HeadlessChrome`
 - `--stealth-seed SEED` pins the identity so it is stable across processes
 - `--input-profile human|direct` and `--input-seed SEED` govern pointer and keyboard timing
+- Measured on 2026-09-04 in this tree: the `human` rhythm cost grows superlinearly with the typed length, 2281 ms for 1 character, 14236 ms for 2 and 95781 ms for 4, so every doubling multiplies the cost by about 6.5
+- A long `type` under `human` therefore exhausts `--timeout` and returns exit 124
+- Countermeasure for long fields: pass `--input-profile direct` and keep `human` for short inputs
+- This is an OPEN defect tracked in `gaps.md`, never a designed feature
 - `--warmup` visits the origin root first; `--warmup-url URL` names a different entry point and implies `--warmup`
 - The cookie jar lives for one process only; the scrape envelope states that as `cookie_jar_persistent: false`
 - `doctor` repeats that scope as the `cookie_jar_scope` check, so the limit is discoverable without a scrape
+- `cookie clear` requires `--all`, and a bare `cookie clear` is a usage error the parser refuses with exit 2 before anything launches
+- CDP offers no partial clear, so `--all` does not narrow the scope; it makes the caller STATE it
+- `target_source` on the envelope becomes `argv` instead of `ambient`, which is what makes the choice auditable after the fact
+- A 0.1.8 invocation that wiped the jar with no flag now fails, because an irreversible verb no longer infers its own subject
 - Use `storage export` and `storage import` to carry a session between invocations
 - The envelope reports `profile_contradicts_host: true` when the stealth profile claims another platform
 - Read that field before blaming a block: TLS and HTTP/2 carry the real stack whatever the User-Agent says
+- The `doctor --fingerprint` envelope carries `planned_version_source`, and the field takes THREE values: `null`, `chrome_binary` and `crate_table`
+- It is `null` under stealth, which is the default, because there the crate table IS the projected identity and nothing is probed, so there is no source to declare
+- It is `chrome_binary` under `--no-stealth` when the planned major was read from the Chrome/Chromium binary THIS host would launch
+- It is `crate_table` under `--no-stealth` when the binary could NOT be probed and the plan fell back to the dependency's table
+- Read `crate_table` as a guess rather than a measurement, or you will treat a plan derived from a table as a reading of the binary
 - Anti-detection defaults, all set with `config set` and never with an environment variable
 - `stealth` is `true`, `stealth_profile` is `auto`, `browser_mode` is `auto`
 - `stealth_seed` has no default; set it only when a stable identity is required
@@ -405,6 +469,9 @@ browser-automation-cli -q --json doctor --offline --quick
 ### Network
 - `--proxy URL` routes both engines; credentials belong in XDG via `config set proxy_url`, never in argv
 - `--proxy-bypass HOSTS` adds hosts that skip the proxy
+- `--min-delay-ms MS` sets the same-origin courtesy floor for this invocation only
+- The effective wait is the MAXIMUM of the flag, XDG `scrape_min_delay_ms` and the site's `Crawl-delay`
+- Taking the maximum is deliberate: a flag able to LOWER `Crawl-delay` would be a way to ignore the site
 - Loopback is bypassed automatically under `--proxy`, because the CDP control channel is loopback
 - Without it, a proxy failure surfaces as a Chrome startup timeout and blames the wrong component
 - `config set cdp_proxy_bypass_loopback false` opts out
@@ -416,6 +483,13 @@ browser-automation-cli -q --json doctor --offline --quick
 - `--mitm-no-redact-secrets` is the only way to turn the masking off
 - Asking for both resolves to MASK, because the safe reading of a contradiction about secrets is to mask
 - `--mitm-max-body-bytes` caps a captured body; the default ceiling is 65536 bytes
+- That ceiling trims the body RETAINED after it is already resident, and a second, distinct ceiling bounds the body READ
+- A `chunked` body above 8 MiB now arrives EMPTY, and `chunked` is every body without a declared `content-length`, which is the norm
+- Before that read ceiling the remote peer decided how much memory this process allocated
+- `mitm block` requires the target in argv, either `--host` or `--path`
+- A request matching a rule is short-circuited with `204 No Content` before any DNS or connection, and the refusal is recorded in the capture
+- Host matching is case-insensitive, path matching is an anchored prefix, and a rule carrying both requires BOTH
+- Before 0.1.9 the rule was written to `block_rules.json` behind a `{"ok": true}` envelope that nothing ever read back, so refused traffic went through intact
 - `--mitm-no-media-bodies` drops image, video and audio bodies from the capture
 - `--ignore-robots` needs `--i-accept-robots-risk` as well; one flag alone does not bypass robots
 ### Feature gates

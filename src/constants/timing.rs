@@ -88,6 +88,63 @@ pub const INPUT_KEY_DWELL_MS: u64 = 45;
 /// zero with no flag able to reach it; this is the value that finally feeds it.
 pub const INPUT_TYPE_DELAY_MS: u64 = 95;
 
+/// Standard deviation of the delay between synthesized pointer positions (ms).
+///
+/// Sized against [`INPUT_MOVE_GAP_MS`] at a coefficient of variation near 0.42,
+/// the same ratio used for the other input delays, so one profile shapes the
+/// whole gesture family rather than each knob drifting on its own.
+pub const INPUT_MOVE_GAP_STDDEV_MS: u64 = 5;
+
+/// Standard deviation of the press-to-release hold (milliseconds).
+///
+/// Paired with [`INPUT_CLICK_DWELL_MS`] at a coefficient of variation near 0.4.
+pub const INPUT_CLICK_DWELL_STDDEV_MS: u64 = 26;
+
+/// Standard deviation of the `keyDown`-to-`keyUp` hold (milliseconds).
+///
+/// # Why this number and not a smaller one
+///
+/// Measured 2026-08-31 in the browser, on the FINAL event, 20 characters under
+/// `--input-profile human`: n=19, mean 141.26 ms, stddev 20.38 ms, skewness
+/// 0.036. Published human key-timing corpora put the dispersion between 20 and
+/// 50 ms, so the product was sitting on the FLOOR of the human band while its
+/// near-zero skewness said "symmetric noise", which no hand produces.
+///
+/// A key costs [`INPUT_KEY_DWELL_MS`] plus [`INPUT_TYPE_DELAY_MS`], and the two
+/// draws are independent, so the observable dispersion is the quadrature sum:
+/// `sqrt(18^2 + 40^2)` is about 44 ms, which lands in the middle of the human
+/// band instead of its edge.
+pub const INPUT_KEY_DWELL_STDDEV_MS: u64 = 18;
+
+/// Standard deviation of the delay between characters (milliseconds).
+///
+/// See [`INPUT_KEY_DWELL_STDDEV_MS`] for the measurement this is sized against.
+pub const INPUT_TYPE_DELAY_STDDEV_MS: u64 = 40;
+
+/// Standard deviation of the per-gesture pointer sample budget.
+///
+/// A fixed step count makes every trajectory of a given length carry exactly the
+/// same number of samples, which is a countable signature even when each sample
+/// lands somewhere different. Narrower in relative terms than the delay knobs
+/// (a coefficient of variation near 0.25) because the count is also clamped by
+/// travel distance, and a wide draw would spend round trips on a short hop.
+pub const INPUT_MOVE_STEPS_STDDEV: u64 = 6;
+
+/// Standard deviation of the distance carried by one wheel tick (CSS pixels).
+///
+/// A constant notch size means every scroll of a given delta decomposes into the
+/// same tick sequence. Sized at a coefficient of variation near 0.25 so the
+/// texture varies without the tick count swinging enough to change the cost.
+pub const INPUT_SCROLL_TICK_STDDEV_PX: u64 = 25;
+
+/// Mean of the extra pause taken at a word or sentence boundary (milliseconds).
+///
+/// Human typing is not one distribution but two superposed: a fast within-word
+/// rhythm and an occasional long pause where the writer thinks. The long pause
+/// is what gives the interval distribution its right tail, and a model that only
+/// widens the fast rhythm reproduces the WIDTH without the SHAPE.
+pub const INPUT_WORD_PAUSE_MS: u64 = 320;
+
 /// Scroll distance carried by one synthesized wheel tick (CSS pixels).
 ///
 /// A wheel notch, not the whole delta: one giant tick is as unlike a human as no
@@ -137,6 +194,23 @@ pub const CHROME_DEFAULT_TIMEOUT_MS: u64 = 25_000;
 /// Default quiet window for `wait --network-idle` (milliseconds): how long the
 /// in-flight request count must stay at zero before the page counts as idle.
 pub const DEFAULT_NETWORK_IDLE_WINDOW_MS: u64 = 500;
+
+/// Largest value `--timeout` accepts, in seconds (24 hours).
+///
+/// # Why a ceiling, and why it is not configurable
+///
+/// `--timeout` took any `u64`, so `--timeout 99999999999` parsed happily and
+/// asked a one-shot process to wait roughly three thousand years. A value that
+/// large is never a request; it is a typo, a bad unit conversion (milliseconds
+/// pasted into a seconds flag), or arithmetic that overflowed somewhere else.
+/// Accepting it turns a mistake into a hang that looks like a product bug.
+///
+/// This deliberately has NO XDG key. Every other timing default here is tunable
+/// because the operator legitimately wants a different budget; this is not a
+/// budget but a sanity bound on argv, and a bound the caller can raise stops
+/// bounding anything. The real budget is still `--timeout` itself, anywhere
+/// from `0` (no override) up to this.
+pub const MAX_GLOBAL_TIMEOUT_SECS: u64 = 86_400;
 
 /// Default quiet window for `wait --dom-stable-ms` (milliseconds).
 pub const DEFAULT_DOM_STABLE_WINDOW_MS: u64 = 500;

@@ -1,12 +1,10 @@
 //! Golden envelope keys + i18n lang surface.
 
-use std::process::Command;
-
-const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
+mod common;
 
 #[test]
 fn commands_json_has_schema_and_stable_shape() {
-    let out = Command::new(BIN)
+    let out = common::cmd()
         .args(["commands", "--json"])
         .env("NO_COLOR", "1")
         .output()
@@ -31,7 +29,7 @@ fn commands_json_has_schema_and_stable_shape() {
 
 #[test]
 fn lang_pt_br_changes_suggestion_on_usage_error() {
-    let en = Command::new(BIN)
+    let en = common::cmd()
         .args([
             "--lang",
             "en",
@@ -43,7 +41,7 @@ fn lang_pt_br_changes_suggestion_on_usage_error() {
         .env("NO_COLOR", "1")
         .output()
         .expect("spawn");
-    let pt = Command::new(BIN)
+    let pt = common::cmd()
         .args([
             "--lang",
             "pt-BR",
@@ -92,7 +90,7 @@ fn pt_br_suggestions_use_accents() {
 
 #[test]
 fn locale_subcommand_json_shape() {
-    let out = Command::new(BIN)
+    let out = common::cmd()
         .args(["--lang", "pt-BR", "locale", "--json"])
         .env("NO_COLOR", "1")
         .output()
@@ -124,7 +122,7 @@ fn locale_subcommand_json_shape() {
 #[test]
 fn product_env_lang_is_ignored() {
     // Product-law: BROWSER_AUTOMATION_CLI_LANG must not override locale.
-    let out = Command::new(BIN)
+    let out = common::cmd()
         .args(["--lang", "en", "locale", "--json"])
         .env("NO_COLOR", "1")
         .env("BROWSER_AUTOMATION_CLI_LANG", "pt-BR")

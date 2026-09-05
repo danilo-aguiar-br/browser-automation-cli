@@ -10,6 +10,14 @@ use super::super::js::build_count_elements_js;
 ///
 /// Selector only: unlike its neighbours this takes no ref, because a `@eN` ref
 /// denotes ONE element and counting it would always answer one.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Runtime.evaluate` on `session_id` — the
+/// `Runtime` domain was never enabled, or the execution context is gone. A
+/// selector that matches nothing is not an error, and neither is one the
+/// browser rejects: `exception_details` is not inspected here, so a malformed
+/// CSS or XPath selector reports `0` rather than failing.
 pub async fn get_element_count(
     client: &CdpClient,
     session_id: &str,

@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Offline gates for local `video` pipeline (skip when ffmpeg/ffprobe missing).
 
-use std::path::PathBuf;
 use std::process::Command;
 
-fn bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_browser-automation-cli"))
-}
+mod common;
 
 fn has_ffmpeg() -> bool {
     Command::new("ffmpeg")
@@ -35,7 +32,7 @@ fn make_tiny_mp4(path: &std::path::Path) {
             "-c:a",
             "aac",
             "-shortest",
-            path.to_str().unwrap(),
+            path.to_str().expect("fixture path is valid UTF-8"),
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -46,20 +43,20 @@ fn make_tiny_mp4(path: &std::path::Path) {
 
 #[test]
 fn video_in_inventory() {
-    let out = Command::new(bin())
+    let out = common::cmd()
         .args(["--json", "commands"])
         .output()
         .expect("commands");
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let cmds = v["data"]["commands"].as_array().expect("commands array");
-    assert_eq!(cmds.len(), 69);
+    assert_eq!(cmds.len(), 71);
     assert!(cmds.iter().any(|c| c.as_str() == Some("video")));
 }
 
 #[test]
 fn schema_video_includes_wave_b_actions() {
-    let out = Command::new(bin())
+    let out = common::cmd()
         .args(["--json", "schema", "video"])
         .output()
         .expect("schema video");
@@ -85,7 +82,7 @@ fn schema_video_includes_wave_b_actions() {
 fn ssrf_blocks_loopback_download() {
     let tmp = tempfile::tempdir().unwrap();
     let out_path = tmp.path().join("x.mp4");
-    let out = Command::new(bin())
+    let out = common::cmd()
         .args([
             "--json",
             "video",
@@ -109,14 +106,18 @@ fn ssrf_blocks_loopback_download() {
 #[test]
 fn convert_default_webm_auto_reencodes_when_ffmpeg_present() {
     if !has_ffmpeg() {
-        eprintln!("skip: ffmpeg not on PATH");
+        common::skip_with_remedy(
+            "video_local_gate",
+            "ffmpeg is not on PATH.",
+            "install ffmpeg to exercise the transcode path.",
+        );
         return;
     }
     let tmp = tempfile::tempdir().unwrap();
     let input = tmp.path().join("in.mp4");
     let output = tmp.path().join("out.webm");
     make_tiny_mp4(&input);
-    let out = Command::new(bin())
+    let out = common::cmd()
         .args([
             "--json",
             "video",
@@ -147,7 +148,11 @@ fn convert_default_webm_auto_reencodes_when_ffmpeg_present() {
 #[test]
 fn trim_and_thumbnail_when_ffmpeg_present() {
     if !has_ffmpeg() {
-        eprintln!("skip: ffmpeg not on PATH");
+        common::skip_with_remedy(
+            "video_local_gate",
+            "ffmpeg is not on PATH.",
+            "install ffmpeg to exercise the transcode path.",
+        );
         return;
     }
     let tmp = tempfile::tempdir().unwrap();
@@ -155,7 +160,7 @@ fn trim_and_thumbnail_when_ffmpeg_present() {
     let clip = tmp.path().join("clip.mp4");
     let thumb = tmp.path().join("t.png");
     make_tiny_mp4(&input);
-    let out = Command::new(bin())
+    let out = common::cmd()
         .args([
             "--json",
             "video",
@@ -176,7 +181,7 @@ fn trim_and_thumbnail_when_ffmpeg_present() {
         "{}",
         String::from_utf8_lossy(&out.stdout)
     );
-    let out2 = Command::new(bin())
+    let out2 = common::cmd()
         .args([
             "--json",
             "video",

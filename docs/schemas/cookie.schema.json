@@ -8,8 +8,22 @@
     "action": {
       "actions": {
         "clear": {
-          "description": "Clear all browser cookies in this one-shot process",
-          "properties": {}
+          "description": "Clear browser cookies in this one-shot process (requires `--all`)",
+          "properties": {
+            "all": {
+              "argv": "--all",
+              "description": "Confirm that the whole jar is the target",
+              "required": true,
+              "source": "parser",
+              "step_key": "all",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
+            }
+          }
         },
         "list": {
           "description": "List cookies (optional URL filter)",

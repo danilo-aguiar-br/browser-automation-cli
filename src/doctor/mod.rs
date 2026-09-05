@@ -8,6 +8,15 @@
 //! cheap (stat/which); Rayon would rarely beat sequential assembly and the
 //! matrix **must not** claim `map_cpu` for doctor. Concurrency budget is still
 //! exported for agents (`budget_report` / `by_command.doctor`).
+//!
+//! # Module map
+//!
+//! | Module | Responsibility |
+//! |--------|----------------|
+//! | `run` | assemble every probe into one envelope, in report order |
+//! | `probes` | the individual host probes |
+//! | `residual_policy` | interpret the residual counters into pass / warn / fail |
+//! | `fingerprint` | stealth-profile diagnostics |
 
 use serde_json::json;
 
@@ -29,7 +38,10 @@ pub struct DoctorOptions {
 }
 
 /// Run doctor checks and return a process exit code (`0` = all pass).
+mod fingerprint;
 mod probes;
+mod residual_policy;
 mod run;
 
+pub use fingerprint::{emit_stealth_profiles, run_fingerprint};
 pub use run::run_doctor;

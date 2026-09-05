@@ -134,7 +134,7 @@ pub(crate) fn lighthouse_to_value(
         return Err(CliError::with_suggestion(
             ErrorKind::Software,
             format!("lighthouse exited non-zero: {stderr}"),
-            "Check URL and lighthouse install",
+            crate::i18n::suggestion_key("lighthouse_run_failed", None),
         ));
     }
     // Lighthouse may write report.report.html / report.report.json depending on version.

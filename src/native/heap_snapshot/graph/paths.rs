@@ -22,7 +22,7 @@ impl SnapshotGraph {
         let mut q: VecDeque<(usize, Vec<usize>)> = VecDeque::new();
         q.push_back((idx, vec![idx]));
         let mut visited_states = 0usize;
-        let max_states = super::super::limits::MAX_STATES;
+        let max_states = super::super::limits::max_states();
 
         while let Some((u, path)) = q.pop_front() {
             visited_states += 1;
@@ -35,7 +35,7 @@ impl SnapshotGraph {
                 break;
             }
             let is_root = self.in_edges[u].is_empty()
-                || self.nodes[u].type_name == "synthetic"
+                || &*self.nodes[u].type_name == "synthetic"
                 || self.nodes[u].name.contains("GC roots");
             if (is_root && path.len() > 1) || path.len() > max_depth {
                 let nodes_json: Vec<Value> =

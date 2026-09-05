@@ -184,6 +184,7 @@ Hard-close GAP-001…025 for agent-first observability, wait/assert depth, MITM 
 
 ### Schema positional (GAP-022)
 - `schema <cmd>` positional in addition to `schema --cmd <cmd>`
+- Prefer the positional `schema <cmd>` in agent UX
 
 ### Navigation / dialog / view / PDF honesty (GAP-003, GAP-006, GAP-012, GAP-013, GAP-001, GAP-017)
 - `BeforeUnloadAction` accept|dismiss on `goto` / `reload` (`--handle-before-unload`; run `handle_before_unload`)
@@ -213,6 +214,9 @@ Hard-close GAP-001…025 for agent-first observability, wait/assert depth, MITM 
 ### Scrape multi-format and batch/crawl browser engine (GAP-009, GAP-010, GAP-018)
 - `scrape --format` accepts CSV or repeatable multi-format in one invocation
 - Alias `--formats` accepted where supported (GAP-018)
+- Format aliases (GAP-018): `raw-html` / `rawHtml` and related tokens
+- Historical note: this alias grouping describes `0.1.4` and no longer holds
+- In `0.1.7` `rawHtml` stopped being an alias of `html` and got its own key
 - `batch-scrape --engine http|browser` (default http)
 - `crawl --engine http|browser` (default http)
 
@@ -249,13 +253,13 @@ Hard-close residual-zero **disk** hygiene (RES-01…12, Pass 27) and meta discov
 - Fields as of 0.1.5: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
 - Status as of 0.1.5: `fail` if live marker processes; `warn` if marker dirs or singleton orphans remain; else `pass`
 - Both lines above describe **0.1.5** and are kept as the historical record; tip is different
-- Tip 0.1.8 carries the six fields added at 0.1.7: `scanned_roots`, `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
-- Tip 0.1.8 status: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; a live sibling is healthy and never fails
-- Tip 0.1.8 agent contract: do **not** require zero `live_cli_marker_processes` — see `docs/AGENTS.md`
+- Tip 0.1.9 carries the six fields added at 0.1.7: `scanned_roots`, `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
+- Tip 0.1.9 status: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; a live sibling is healthy and never fails
+- Tip 0.1.9 agent contract: do **not** require zero `live_cli_marker_processes` — see `docs/AGENTS.md`
 
 ### Inventory and meta commands
-- Inventory as of 0.1.5 was **63** agent names; tip 0.1.8 is **69** (includes `image`+`video`+`audio`+`record`) via `commands --json`
-Tip clap product surface is **67** names (excludes agent-only `select-option` / `pick`)
+- Inventory as of 0.1.5 was `63` agent names; tip 0.1.9 is **71** (0.1.7 added `image`+`video`+`audio`+`record`, 0.1.9 added `sitemap`+`feed`) via `commands --json`
+Tip 0.1.9 clap product surface is **69** names (excludes agent-only `select-option` / `pick`)
 - Meta already in binary and inventory: `locale` (UI locale diagnostics), `man` (roff via clap_mangen; no Chrome)
 - DevTools tool-ref e2e remains **53 tools**
 
@@ -281,16 +285,16 @@ Agent-first dialog settle, native select events, scrape format in run, wait dead
 - **`wait_timeout_ms` (GAP-053):** run wait steps honor the public deadline key (parser no longer silently discards it)
 - **Scrape formats in run (GAP-057):** run steps accept `format` / `formats`; text-only requests must not dump large `html` fields
 - **AVIF encode removed (breaking):** `grab` supports **png | jpeg | webp** only (image crate features drop avif / yanked core2)
-- **Inventory (0.1.6 → 0.1.7):** `commands --json` lists **69** agent names (0.1.6 added **`submit`**, **`storage`**; 0.1.7 adds **`image`**, **`video`**, **`audio`**, **`record`**); clap product surface **67** (excludes agent-only `select-option`/`pick`)
+- **Inventory (0.1.6 → 0.1.7):** `commands --json` listed 69 agent names (0.1.6 added **`submit`**, **`storage`**; 0.1.7 adds **`image`**, **`video`**, **`audio`**, **`record`**); clap product surface **67** (excludes agent-only `select-option`/`pick`)
 - **`submit`:** form submit by form or field target; waits for navigation/request outcome
 - **`storage`:** `export|import --path` for cookies + localStorage + sessionStorage (explicit path)
 - **Config key discovery:** do **not** claim a fixed “16 keys” count — always discover with `config list-keys --json` (includes `dialog_settle_ms` and more)
 - **Lighthouse (GAP-021 partial↑):** unit fixtures `minimal_lhr.json` + `chrome_captured_lhr.json` (real LHR-shaped); e2e mock remains **SKIP** — never claim full e2e lighthouse parser PASS
 - **GAP-022 residual dups:** ~53 multi-version dependency duplicates measured; cheap prune exhausted; residual accepted for 0.1.6
-- **GAP-023/024 intentional:** PRD wishlist flags/commands remain divergences in `parity_intentional_divergences.json` — not full PRD parity
+- **GAP-023/024 intentional:** PRD wishlist flags/commands remain divergences — not full PRD parity
 - **Residual-zero disk:** 0.1.5 product law (RES-01…12) is **still current**
 
-### Full agent inventory (69) — tip 0.1.8 (unchanged since 0.1.7: 0.1.6 base + `image` + `video` + `audio` + `record`)
+### Full agent inventory (71) — tip 0.1.9 (0.1.7 base + `record`, then 0.1.9 `sitemap` + `feed`)
 
 Discover live: `browser-automation-cli commands --json`
 
@@ -303,14 +307,14 @@ scroll search select-option sg-rewrite sg-scan sheet-write storage submit text t
 upload version view wait webmcp workflow write
 ```
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is 66. Inventory note for names often missed in older docs: `click-at`, `completions`, `cookie`, `devtools3p`, `drag`, `fill-form`, `hover`, `net`, `resize`, `upload`, `webmcp`.
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts, so the clap product subcommand count is `69` at the 0.1.9 tip (**71** agent names minus the two run-only names). Inventory note for names often missed in older docs: `back`, `click-at`, `completions`, `cookie`, `devtools3p`, `drag`, `fill-form`, `forward`, `hover`, `net`, `resize`, `upload`, `webmcp`.
 
 ### Step-by-step migration for agents
 1. Rebuild/install `0.1.6` (`cargo install --path . --force --locked`)
 2. Confirm version and inventory:
 ```bash
 browser-automation-cli --version   # 0.1.6
-browser-automation-cli --json commands | jaq '.data.commands | length'  # 69
+browser-automation-cli --json commands | jaq '.data.commands | length'  # 71
 ```
 3. After real dialog answers, parse `dialog_settled`; remove invented post-dialog waits when true
 4. If hosts need a longer Closed budget: `config set dialog_settle_ms <ms>` (XDG)
@@ -336,7 +340,8 @@ browser-automation-cli --json config get dialog_settle_ms
   - `dialog_settle_ms` is a config key
   - run wait honors `wait_timeout_ms` as a public step key
   - run scrape honors `format`/`formats`
-  - inventory is **69** / includes `submit`, `storage`, and `image`+`video`+`audio`+`record`
+  - inventory is `65` (`submit` and `storage`), because `image`, `video`, `audio` and `record` only arrive at 0.1.7
+  - the tip inventory is **71** at 0.1.9, which no 0.1.5 tree reports
   - grab refuses AVIF (0.1.5 may still accept depending on build features)
 - Residual-zero disk fields remain valid when rolling back only if staying on 0.1.5+
 
@@ -398,7 +403,7 @@ browser-automation-cli --json config get dialog_settle_ms
 - `chrome_default_timeout_ms` sets the default Chrome timeout, default `25000`
 - `drag_move_steps` sets intermediate `drag` move steps, default `6`
 - `drag_move_gap_ms` sets the gap between drag moves, default `16`
-- `robots_fetch_timeout_secs` caps the robots fetch, default `30`
+- `robots_fetch_timeout_secs` capped the robots fetch, default `30`. REMOVED in 0.1.9: it was published by the knob table and read by nobody, and the single robots request is governed by `robots_probe_timeout_secs`
 - Key total at 0.1.7 was `176`, documented in `docs/CONFIGURATION.md`
 - Discover the live list with `config list-keys --json`
 
@@ -411,6 +416,10 @@ browser-automation-cli --json config get dialog_settle_ms
 - A `human` gesture also dwells between press and release and paces each keystroke
 - That costs wall time per gesture against the previous instantaneous input
 - Pass `--input-profile direct`, or `config set input_profile direct`, to restore the older behaviour
+- The `human` cost grows superlinearly with the typed length, measured on 2026-09-04 as `2281 ms` for 1 character, `14236 ms` for 2 and `95781 ms` for 4
+- Each doubling of the typed length multiplies the elapsed time by roughly 6.5, so a long `type` exhausts `--timeout` and exits `124`
+- The countermeasure is passing `--input-profile direct` before any long `type`
+- This is an OPEN defect tracked in `gaps.md`, and the countermeasure is NEVER a designed feature
 - `http2_enabled` defaults to `true`
 - `cdp_proxy_bypass_loopback` defaults to `true` so the CDP control channel survives a configured proxy
 
@@ -462,7 +471,91 @@ browser-automation-cli --json config get dialog_settle_ms
 - Never pass a proxy credential on argv: the process table exposes argv to every user of the machine
 
 ### Inventory
-- The command count stays **69**, with no command added and none removed
+- The command count stays `69`, with no command added and none removed
+
+
+## 0.1.8 → 0.1.9
+### Breaking: `cookie clear` requires `--all`
+- `cookie clear` took no argument and wiped the entire jar
+- The scope came from the ABSENCE of a flag instead of from anything the caller wrote
+- That is ambient authority on an irreversible verb
+- In `0.1.9` a bare `cookie clear` is a usage error
+- The parser refuses it with exit `2`, before any browser is launched
+- CDP offers no partial clear, so `--all` does NOT narrow the scope
+- The flag makes the caller DECLARE the scope that used to be implied
+- `target_source` on the envelope moves from `ambient` to `argv`
+- The migration is mechanical: add `--all` to every existing invocation
+- Nothing else about the verb changed, so the jar is wiped exactly as before
+
+### Breaking: `mitm block` requires a target in argv
+- Before `0.1.9`, `mitm block` accepted neither `--host` nor `--path`
+- It produced a rule that names no target
+- Now at least one of `--host` and `--path` is required on the command line
+- A `mitm block` carrying neither is a usage error with exit `2`
+- Add the target you already meant to any script that relied on the bare form
+
+### Breaking: `mitm block` now actually blocks
+- Before `0.1.9` the verb wrote its rule to `block_rules.json` and answered `{"ok": true}`
+- Nothing ever read that file back
+- Traffic the operator asked to refuse went through untouched, behind a success envelope
+- Now a request matching a rule is short-circuited with `204 No Content`
+- The refusal happens before any DNS resolution and before any connection
+- The refusal is recorded in the capture, so a blocked request is distinguishable from one that never happened
+- Host matching is case-insensitive
+- Path matching is an anchored prefix
+- A rule carrying BOTH `--host` and `--path` requires BOTH to match
+- Read as OR, such a rule would refuse traffic the operator never named
+- The migration cost falls on whoever depended on the verb being inert
+- Traffic that used to flow now stops
+- Audit every rule you keep before pointing `0.1.9` at live traffic
+
+### Breaking: `sg-rewrite --apply` requires the root in argv
+- Before `0.1.9`, `--apply` defaulted its root to the current directory while writing to disk
+- Now the root must be named on the command line
+- Pass `.` explicitly to keep the previous behaviour
+
+### MITM body buffering is bounded on the READ
+- Before `0.1.9`, a body without a declared `content-length` was admitted whole
+- That is the `chunked` case, which is the norm and not the exception
+- The readers collected the body unwrapped, so the peer decided how much memory this process allocated
+- Both directions now read through a limited reader
+- A `chunked` body above 8 MiB arrives EMPTY instead of exhausting memory
+- This is distinct from `--mitm-max-body-bytes`
+- That flag trims what is RETAINED, after the whole body is already resident
+- An agent that parsed large chunked bodies out of a capture must now expect an empty body above that ceiling
+
+### Removed XDG key `robots_fetch_timeout_secs`
+- `robots_fetch_timeout_secs` is REMOVED in `0.1.9`
+- It was published by the knob table and read by nobody
+- The single robots request is governed by `robots_probe_timeout_secs`
+- Remove the key from any XDG file that set it
+- Move the intended value to `robots_probe_timeout_secs`
+
+### XDG surface at 0.1.9
+- The surface is `217` keys at `0.1.9`, measured with `config list-keys --json`
+- It was `204` keys at `0.1.8`
+- Do not hard-code that number: discover the live list on the host you run
+
+### Inventory
+- The inventory grows from `69` names at `0.1.8` to **71** at `0.1.9`
+- The two new names are `sitemap` and `feed`
+- Neither adds capability, both add discoverability
+
+### Step-by-step migration for agents
+- Add `--all` to every `cookie clear` invocation
+- Name a target on every `mitm block` invocation
+- Audit the block rules you keep before pointing `0.1.9` at live traffic
+- Pass the root explicitly to `sg-rewrite --apply`
+- Drop `robots_fetch_timeout_secs` from the XDG file and set `robots_probe_timeout_secs` instead
+- Re-discover the key list rather than trusting a copied count
+
+```bash
+browser-automation-cli --json cookie clear --all
+browser-automation-cli --json mitm block --host example.com --path /ads
+browser-automation-cli --json sg-rewrite . --apply
+browser-automation-cli --json config set robots_probe_timeout_secs 10
+browser-automation-cli --json config list-keys
+```
 
 
 ## Step-by-Step Migration
@@ -536,7 +629,7 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Parse doctor JSON for top-level `residual` and check `residual_disk` when diagnosing leaks
 - Do not rely on residual GC wiping host Flatpak Chrome temp (never targeted)
 - Discover meta commands: `locale`, `man` (already in inventory; confirm with `commands --json`)
-- Confirm inventory with `commands --json` (**69**) and regenerate schemas if packaging docs
+- Confirm inventory with `commands --json` (`69`) and regenerate schemas if packaging docs
 - Prefer residual gates when validating browser paths:
 ```bash
 cargo test --lib residual:: --locked
@@ -555,7 +648,7 @@ bash scripts/residual-check.sh
 - Pass `format`/`formats` on run scrape steps
 - Stop using `grab --format avif` (png|jpeg|webp only)
 - Discover `submit` and `storage` via `commands --json` / `schema`
-- Confirm inventory **69**; regenerate schemas if packaging docs
+- Confirm inventory **71**; regenerate schemas if packaging docs
 - Expect e2e lighthouse mock **SKIP** (not PASS)
 - Keep residual-zero disk law from 0.1.5
 - Re-run local gates: `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate`, residual suite, e2e 53-tool script
@@ -581,8 +674,8 @@ bash scripts/residual-check.sh
 - Replace hand edits of the XDG file that removed a key with `config unset <KEY>`
 - Read `formats` / `format_list` from every `scrape` envelope and stop branching on key count
 - Move `proxy_username` and `proxy_password` into `config set`, never onto argv
-- Re-discover config keys with `config list-keys --json` (live total `204`)
-- Confirm the inventory is still **69** with `commands --json`
+- Re-discover config keys with `config list-keys --json` (live total `217`)
+- Confirm the inventory is still `69` with `commands --json`
 
 ## JSON Schema Changes
 - Before: free-form prose or ad-hoc JSON without `schema_version`
@@ -604,7 +697,7 @@ bash scripts/residual-check.sh
 - v0.1.4: wait/assert/schema/run fragments expand for multi-selector, url wait, console asserts, json-steps; inventory adds `select-option`/`pick` as run/schema names
 - v0.1.5: doctor residual report fields; inventory adds `locale` / `man` (meta); residual-zero disk contract
 - v0.1.6: dialog settle / `dialog_settled`; `dialog_settle_ms`; run `wait_timeout_ms` + scrape `format`/`formats`; inventory **65** (`submit`, `storage`); grab drops AVIF; lighthouse unit LHR fixtures; e2e lighthouse mock SKIP
-- 0.1.7: inventory **69** adds local `image` + `video` + `audio` pipelines (image info|convert|resize|download|exif; video info|download|convert|to-mp3|trim|thumbnail|manifest)
+- 0.1.7: inventory 69 adds local `image` + `video` + `audio` pipelines (image info|convert|resize|download|exif; video info|download|convert|to-mp3|trim|thumbnail|manifest)
 - 0.1.7: success envelopes may carry `agent_ops` with `unresolved_paths` when envelope operators run
 - 0.1.7: `scrape --format rawHtml` emits key `rawHtml`; `--format html` emits key `html`
 - Prefer live `schema <cmd>` after upgrades to confirm the installed binary
@@ -621,7 +714,7 @@ bash scripts/residual-check.sh
 - Agents that assumed `batch-scrape` was HTTP-only must accept optional `--engine browser` in 0.1.4
 - Agents that treated `select-option`/`pick` as clap subcommands must use `run`/`exec` steps instead
 - Agents that only checked process residual in 0.1.3/0.1.4 should also parse doctor `residual` disk fields in 0.1.5
-- Inventory size moves 61 → **63** (`locale`, `man`) in 0.1.5, then **63 → 65** (`submit`, `storage`) in 0.1.6, then **65 → 66** (`image`), then **66 → 67** (`video`), then **67 → 68** (`audio`), then **68 → 69** (`record`) in 0.1.7
+- Inventory size moves 61 → **63** (`locale`, `man`) in 0.1.5, then **63 → 65** (`submit`, `storage`) in 0.1.6, then **65 → 66** (`image`), then **66 → 67** (`video`), then **67 → 68** (`audio`), then **68 → 69** (`record`) in 0.1.7, then **69 → 71** (`sitemap`, `feed`) in 0.1.9
 - Agents that hard-coded “16 config keys” must switch to `config list-keys --json`
 - GAP-022 residual dependency duplicates and GAP-023/024 PRD wishlist divergences are intentional in 0.1.6 (not full PRD parity)
 - Agents that called `image ocr` must drop it: the action was REMOVED in 0.1.7

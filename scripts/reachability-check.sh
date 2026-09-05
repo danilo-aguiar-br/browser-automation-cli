@@ -43,6 +43,12 @@
 #
 # CLEAN STDOUT: one status line on stdout; every diagnostic on stderr.
 set -euo pipefail
+
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -54,7 +60,9 @@ ALLOWLIST=(
 
 allowed() {
   local needle="$1" entry
-  for entry in "${ALLOWLIST[@]}"; do
+  # The list is empty today and bash 3.2 aborts on "${arr[@]}" of an empty array
+  # under `set -u`, so the expansion is guarded.
+  for entry in "${ALLOWLIST[@]+"${ALLOWLIST[@]}"}"; do
     [[ "${entry%% #*}" == "$needle" ]] && return 0
   done
   return 1
@@ -68,14 +76,21 @@ fi
 
 # ── Collect exported names from every `pub use` statement ───────────────────
 # Statements may span lines, so match through to the terminating semicolon.
-mapfile -t statements < <(
+# `mapfile` is a bash 4 builtin and macOS ships bash 3.2, so the read loop
+# below is the portable equivalent (2026-09-04).
+statements=()
+while IFS= read -r __line; do statements+=("$__line"); done < <(
   rg --multiline --multiline-dotall --no-filename --no-line-number \
      -o 'pub(?:\([^)]*\))? use [^;]*;' \
      --glob '!*.bak.*' --glob '*.rs' src/ 2>/dev/null || true
 )
 
-declare -A exported=()
-for stmt in "${statements[@]}"; do
+# `declare -A` needs bash 4 and macOS ships bash 3.2, so the exported-name set is
+# one identifier per line, deduped with `sort -u` after the loop (2026-09-04).
+exported_names=""
+# `statements` can be empty and bash 3.2 aborts on "${arr[@]}" of an empty
+# array under `set -u`, so it is expanded defensively.
+for stmt in "${statements[@]+"${statements[@]}"}"; do
   # Normalise whitespace and strip the leading `pub use` / trailing `;`.
   body="${stmt//$'\n'/ }"
   body="${body#*use }"
@@ -86,7 +101,7 @@ for stmt in "${statements[@]}"; do
   body="${body//\{/,}"
   body="${body//\}/,}"
   IFS=',' read -ra items <<<"$body"
-  for item in "${items[@]}"; do
+  for item in "${items[@]+"${items[@]}"}"; do
     name="${item// /}"
     [[ -z "$name" ]] && continue
     # `x as y` exports `y`.
@@ -99,11 +114,18 @@ for stmt in "${statements[@]}"; do
     # Skip glob re-exports, `self`, and anything that is not an identifier.
     [[ "$name" == "*" || "$name" == "self" || "$name" == "crate" ]] && continue
     [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-    exported["$name"]=1
+    exported_names="${exported_names}${name}"$'\n'
   done
 done
 
-if [[ ${#exported[@]} -eq 0 ]]; then
+# Dedupe once so the guard, the loop and the final count read the same set.
+exported_names="$(printf '%s' "$exported_names" | rg -v '^$' | sort -u || true)"
+exported_count=0
+if [[ -n "$exported_names" ]]; then
+  exported_count="$(printf '%s\n' "$exported_names" | rg -c '' || true)"
+fi
+
+if [[ "$exported_count" -eq 0 ]]; then
   echo "reachability-check: FAIL (no pub use statements parsed; extractor broken)" >&2
   echo "reachability-check: FAIL"
   exit 1
@@ -117,7 +139,8 @@ for extra in tests benches examples; do
 done
 
 orphans=()
-for name in "${!exported[@]}"; do
+# Word splitting is safe: every entry matched ^[A-Za-z_][A-Za-z0-9_]*$ above.
+for name in $exported_names; do
   allowed "$name" && continue
   hits="$(
     rg -w --no-heading --line-number --glob '!*.bak.*' --glob '*.rs' \
@@ -144,4 +167,4 @@ if [[ ${#orphans[@]} -gt 0 ]]; then
   exit 1
 fi
 
-echo "reachability-check: PASS (exported=${#exported[@]} allowlisted=${#ALLOWLIST[@]} orphans=0)"
+echo "reachability-check: PASS (exported=${exported_count} allowlisted=${#ALLOWLIST[@]} orphans=0)"

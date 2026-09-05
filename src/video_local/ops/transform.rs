@@ -5,11 +5,11 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
+use super::super::container_matrix::parse_output_container;
 use super::super::ffmpeg_ops::{convert_path, thumbnail_path, to_mp3_path, trim_path, ConvertOpts};
 use super::super::limits::VideoLimits;
 use super::super::magic::{probe_path_magic, DetectedContainer};
-use super::super::validate::parse_output_container;
-use super::common::{convert_envelope, default_out_path};
+use super::common::{convert_envelope, resolve_out_path};
 use super::source::VideoSource;
 use crate::error::CliError;
 use crate::xdg;
@@ -28,9 +28,7 @@ pub fn convert(
     let container = parse_output_container(format)?;
     let mut opts = opts;
     opts.format = container;
-    let out_path = out
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| default_out_path(container.as_str()));
+    let out_path = resolve_out_path(out, container.as_str())?;
     let drop_audio = opts.drop_audio;
     let res = convert_path(&path_in, &out_path, &opts)?;
     let full = convert_envelope(
@@ -58,9 +56,7 @@ pub fn to_mp3(
     let br = bitrate
         .map(|s| s.to_string())
         .unwrap_or_else(xdg::resolve_video_default_audio_bitrate);
-    let out_path = out
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| default_out_path("mp3"));
+    let out_path = resolve_out_path(out, "mp3")?;
     let res = to_mp3_path(&path_in, &out_path, &br, audio_stream)?;
     let full = json!({
         "action": "to_mp3",
@@ -104,9 +100,7 @@ pub fn trim(
             _ => xdg::resolve_video_default_container(),
         });
     let container = parse_output_container(&fmt)?;
-    let out_path = out
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| default_out_path(container.as_str()));
+    let out_path = resolve_out_path(out, container.as_str())?;
     let res = trim_path(
         &path_in,
         &out_path,
@@ -148,9 +142,7 @@ pub fn thumbnail(
     let (path_in, _temp) = source.resolve_path(limits)?;
     let magic = probe_path_magic(&path_in)?;
     let at_secs = at.unwrap_or(0.0);
-    let out_path = out
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| default_out_path("png"));
+    let out_path = resolve_out_path(out, "png")?;
     let res = thumbnail_path(&path_in, &out_path, at_secs)?;
     let full = json!({
         "action": "thumbnail",

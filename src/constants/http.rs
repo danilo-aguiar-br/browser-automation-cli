@@ -3,11 +3,14 @@
 
 /// Default total HTTP request timeout for the process-wide async client (seconds).
 ///
-/// Also the default robots fetch timeout. Override: XDG `http_timeout_secs`.
-pub const ROBOTS_FETCH_TIMEOUT_SECS: u64 = 30;
-
-/// Alias for the shared HTTP client total timeout default.
-pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = ROBOTS_FETCH_TIMEOUT_SECS;
+/// Override: XDG `http_timeout_secs`.
+///
+/// This was once aliased as `ROBOTS_FETCH_TIMEOUT_SECS`, and the alias made a
+/// dead XDG key look alive: `robots_fetch_timeout_secs` was published by the
+/// knob table, accepted by `config set`, and read by nothing. The robots GET
+/// spends [`ROBOTS_PROBE_TIMEOUT_SECS`] instead. Removed in 0.1.9 — one request
+/// deserves one key, and 30s is the wrong budget for the scrape critical path.
+pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
 
 /// HTTP connect-phase timeout for the process-wide clients (seconds).
 ///
@@ -104,6 +107,18 @@ pub const DEFAULT_SCRAPE_MAX_TEXT_CHARS: usize = 32_768;
 /// Override: XDG `scrape_min_delay_ms`. Robots Crawl-delay wins when larger.
 pub const DEFAULT_SCRAPE_MIN_DELAY_MS: u64 = 0;
 
+/// Honour `<meta name="robots">` by default.
+///
+/// Named because the value lived as a bare `unwrap_or(true)` in
+/// `xdg::resolve_scrape`, which meant the product default existed only inside
+/// the resolver and could not be referenced by anything that needed to state
+/// the same default — a test, or `ScrapeOpts::product_defaults`.
+pub const DEFAULT_SCRAPE_HONOR_META_ROBOTS: bool = true;
+
+/// Honour `rel="nofollow"` by default. Same reasoning as
+/// [`DEFAULT_SCRAPE_HONOR_META_ROBOTS`].
+pub const DEFAULT_SCRAPE_HONOR_NOFOLLOW: bool = true;
+
 /// Max characters kept for each link `text` field (anti-token).
 pub const DEFAULT_SCRAPE_LINK_TEXT_CHARS: usize = 200;
 
@@ -122,7 +137,7 @@ pub const MONITOR_DIFF_MAX_BYTES: u64 = 65536;
 pub const DEFAULT_SCRAPE_CHARSET_PEEK_BYTES: usize = 4096;
 
 /// Max sitemap body bytes. Override: XDG `scrape_sitemap_max_bytes`.
-pub const DEFAULT_SCRAPE_SITEMAP_MAX_BYTES: usize = 512 * 1024;
+pub const DEFAULT_SCRAPE_SITEMAP_MAX_BYTES: usize = 2 * 1000 * 1000;
 
 /// Politeness delay jitter ratio (0.0 = none, 0.2 = ±20%). Override: XDG `scrape_delay_jitter_ratio`.
 pub const DEFAULT_SCRAPE_DELAY_JITTER_RATIO: f64 = 0.2;

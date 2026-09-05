@@ -10,7 +10,16 @@ use super::call::call_on_element;
 ///
 /// Prefers `innerText`, which reflects what is RENDERED, and falls back to
 /// `textContent` so a node that renders nothing still yields its source text.
-/// A missing element yields an empty string, not an error.
+/// An element that resolves but holds no text yields an empty string; one that
+/// does not resolve is an error, not an empty string.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// — an unknown `@eN` ref or a selector matching nothing DOES fail here — and
+/// the CDP error raised by `Runtime.callFunctionOn`. Only an element that
+/// resolved and holds no text yields the empty string.
 pub async fn get_element_text(
     client: &CdpClient,
     session_id: &str,
@@ -34,6 +43,14 @@ pub async fn get_element_text(
 }
 
 /// Strictly `innerText`: rendered text only, no `textContent` fallback.
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// and the CDP error raised by `Runtime.callFunctionOn`. A node that renders
+/// nothing — `display: none`, or a `head` child — is not an error: `innerText`
+/// is empty and the empty string is returned.
 pub async fn get_element_inner_text(
     client: &CdpClient,
     session_id: &str,
@@ -57,6 +74,14 @@ pub async fn get_element_inner_text(
 }
 
 /// Serialized markup inside the element (`innerHTML`).
+///
+/// # Errors
+///
+/// Propagates
+/// [`resolve_element_object_id`](crate::native::element::resolve_element_object_id)
+/// and the CDP error raised by `Runtime.callFunctionOn` — which is where a
+/// payload too large for one protocol message surfaces. An empty element is
+/// not an error; it yields the empty string.
 pub async fn get_element_inner_html(
     client: &CdpClient,
     session_id: &str,

@@ -10,6 +10,16 @@ use super::sqlite::SqliteCache;
 use super::types::HttpCache;
 
 /// Build the product cache from XDG `cache_backend` (sqlite|memory|redis).
+///
+/// # Errors
+///
+/// [`crate::error::ErrorKind::Usage`] or [`crate::error::ErrorKind::Unavailable`] propagated from
+/// [`RedisCache::connect`] when `cache_backend = redis` — the first for an empty
+/// `cache_redis_url`, the second when the PING round-trip fails.
+/// [`crate::error::ErrorKind::Io`] propagated from [`SqliteCache::open_default`] on the
+/// default sqlite path when the cache directory cannot be resolved or created,
+/// or the schema cannot be initialised. Loading the config is deliberately
+/// infallible here: an unreadable config falls back to defaults.
 pub fn default_cache() -> Result<Box<dyn HttpCache>, CliError> {
     let cfg = xdg::load_config().unwrap_or_default();
     let backend = cfg

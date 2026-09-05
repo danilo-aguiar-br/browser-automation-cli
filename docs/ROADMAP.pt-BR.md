@@ -7,14 +7,23 @@
 
 ## Curto prazo (qualidade local)
 
-- A v0.1.8 é o release CORRENTE e as linhas abaixo descrevem o estado vivo
-- A v0.1.8 entregou a família anti-detecção e fechou os gaps G2, G4, G8, G9, G11 e G13
-- Superfície XDG viva: 204 chaves documentadas em `docs/CONFIGURATION.md`
-- Inventário vivo de agentes: 69 nomes via `commands --json`
+- A v0.1.9 é o release CORRENTE e as linhas abaixo descrevem o estado vivo
+- A v0.1.8 entregou a família anti-detecção e fechou os gaps G2, G4, G8, G9, G11 e G13; a 0.1.9 fechou identidade/tela/FTL, fecha emulate só-screen via CDP, o plano webdriver do `--no-stealth` e o cartão da frente do README, nomeia o recorte vivo do fingerprint e acrescenta gates chrome-mac / eval-nav
+- Superfície XDG viva: 217 chaves documentadas em `docs/CONFIGURATION.md`
+- Inventário vivo de agentes: 71 nomes via `commands --json`
 - O inventário inclui `submit`, `storage`, `image`, `video`, `audio`, `record`, `locale` e `man`
+- A v0.1.9 acrescentou os verbos `sitemap` e `feed`, que levaram o inventário vivo de 69 para **71**
+- Os dois delegam para um motor que já respondia, sem uma linha de lógica duplicada
+- `map --sitemap-only` já devolvia as URLs do sitemap e `scrape --formats feed` já devolvia o feed processado
+- A razão para nomeá-los como verbos foi descobribilidade, nunca comportamento novo
+- `download`, `agent` e `stats` NÃO estão implementados
+- O PRD dá uma linha de descrição para cada, sem assinatura, sem envelope e sem critério de aceite
+- Isso é fronteira declarada, não débito escondido
 - Settings de produto são só flags mais XDG `config`, nunca variáveis de ambiente de produto
 - Descubra chaves com `config list-keys --json` em vez de confiar em lista estática
 - Entregue desde a v0.1.7: `scrape --format attributes` com `--attribute-selector` e `--attribute-name`
+- Entregue: `parse --format` deriva formatos de scrape do arquivo processado
+- Entrada não-HTML do `parse` não tem DOM, então aceita só text, markdown e summary
 - Manter gates `scripts/*-check.sh` verdes em cada passe de auditoria
 - Os gates de residual-zero em disco são `scripts/residual-check.sh` e `scripts/residual-stress.sh`
 - Suite opcional de confiança: reexecutar `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate` e `scrape_step_gate`
@@ -72,7 +81,7 @@
 
 - **GAP-021 parcial:** confiança do parser lighthouse é fixtures unit (minimal + chrome-captured LHR); e2e mock permanece **SKIP** — nunca alegar PASS completo do parser lighthouse em e2e
 - **GAP-022 dups residuais:** ~53 multi-versão medidas; poda barata esgotada; residual aceito
-- **GAP-023 / GAP-024:** flags/comandos wishlist do PRD permanecem divergências intencionais em `parity_intentional_divergences.json` — não paridade PRD completa
+- **GAP-023 / GAP-024:** flags/comandos wishlist do PRD permanecem divergências intencionais — não paridade PRD completa
 - **Encode AVIF:** removido de `grab` (webp permanece); documentar como residual breaking intencional da 0.1.6
 - Decode de AVIF segue fechado por limite físico, não por prioridade
 - Encode de HEIC segue fechado pelo mesmo limite físico
@@ -80,29 +89,32 @@
 - Todo recurso que depende de serviço remoto segue fechado por design
 - Anti-detecção é melhor esforço, e NENHUM perfil stealth garante evasão de um detector dado
 
+### Capacidade local de scrape vs fronteira
+
+- Local e entregue: scrape multi-formato, crawl, map, extract via LLM (OpenRouter no XDG), webhook one-shot, MITM local + HAR, `change_status` local (`fresh`/`unchanged`), `--with-content-hash` opt-in
+- Fronteira (não é débito 0.1.9): serviço remoto de change, JA4 no motor HTTP (exige TLS C), ordem de headers no motor HTTP (`HeaderMap` do reqwest não itera por inserção), solvers de desafio
+- Reconhecimento de texto em imagem dentro do processo não é fronteira; foi removido de propósito e não volta, porque toda LLM que chama já tem visão
+
 ## Aberto, sem prazo assumido
 - `scrape` não tem o formato `changeTracking`
 - `search` não tem filtro temporal, e dez dimensões continuam faltando
-- `crawl` não aceita regex em include e exclude, e não há `regexOnFullURL`
-- `parse` não aplica formatos de scrape ao arquivo processado
-- `crawl` e `batch-scrape` não têm `--webhook-url`, que o `scrape` já tem
 - `browser_mode` só é alcançável por XDG, porque nenhuma flag CLI o expõe
 - Estes itens não têm data e NÃO DEVEM ser lidos como promessa
 
-## Inventário completo de agente (69)
+## Inventário completo de agente (71)
 
 Descubra ao vivo: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
-crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
 net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
-scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **67** (69 nomes de agente − 2 só-run).
+Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **69** (71 nomes de agente − 2 só-run).
 
 ### Mídia local (image/video) — não-metas intencionais (Wave C TREATED)
 

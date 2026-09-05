@@ -44,6 +44,22 @@
                 "exec"
               ],
               "type": "integer"
+            },
+            "include_preserved": {
+              "argv": "--include-preserved",
+              "description": "Index over the preserved rings too, matching `console list --include-preserved`. Without it the ids of the two commands address different buffers and silently disagree",
+              "required": false,
+              "source": "parser",
+              "step_key": "include_preserved",
+              "step_key_aliases": [
+                "includePreservedMessages"
+              ],
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "boolean"
             }
           }
         },
@@ -56,6 +72,9 @@
               "required": false,
               "source": "parser",
               "step_key": "include_preserved",
+              "step_key_aliases": [
+                "includePreservedMessages"
+              ],
               "surfaces": [
                 "argv",
                 "run_step",
@@ -69,6 +88,9 @@
               "required": false,
               "source": "parser",
               "step_key": "page_idx",
+              "step_key_aliases": [
+                "pageIdx"
+              ],
               "surfaces": [
                 "argv",
                 "run_step",
@@ -82,6 +104,9 @@
               "required": false,
               "source": "parser",
               "step_key": "page_size",
+              "step_key_aliases": [
+                "pageSize"
+              ],
               "surfaces": [
                 "argv",
                 "run_step",
@@ -95,6 +120,9 @@
               "required": false,
               "source": "parser",
               "step_key": "service_worker_id",
+              "step_key_aliases": [
+                "serviceWorkerId"
+              ],
               "surfaces": [
                 "argv",
                 "run_step",

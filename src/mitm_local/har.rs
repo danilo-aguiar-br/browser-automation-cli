@@ -13,9 +13,23 @@ use super::types::MitmCapture;
 use super::util::{atomic_write, chrono_like};
 
 /// Export HAR 1.2 JSON.
+///
+/// # Errors
+///
+/// [`crate::fs_roots::ensure_write_allowed`] when `out` falls outside the
+/// allowed roots (GAP-026), then any error from the capture load or the write.
 pub fn export_har(out: &Path, capture_path: Option<&str>) -> Result<Value, CliError> {
+    // GAP-026, write axis. `out` is `--mitm-har` from argv, or the XDG
+    // `har_path`, and it reached `util::atomic_write` with no root check.
+    //
+    // The guard belongs here and NOT in `util::atomic_write`, even though that
+    // is the shared funnel: its three other callers write the MITM root CA, the
+    // rules file and captured bodies, all to directories the product derives
+    // itself. This is the one caller whose destination is named by the operator,
+    // which is where the path stops being trustworthy.
+    crate::fs_roots::ensure_write_allowed(out)?;
     let (path, explicit) = resolve_capture_path(capture_path)?;
-    let cap = MitmCapture::load_scoped(&path, true, explicit)?;
+    let cap = MitmCapture::load_scoped(&path, super::policy::redact_secrets(), explicit)?;
     let entries: Vec<Value> = cap
         .items
         .iter()

@@ -9,7 +9,7 @@ use crate::error::{CliError, ErrorKind};
 use crate::xdg;
 
 use super::ca::ensure_ca;
-use super::types::{BTreeMapString, CapturedExchange, MitmCapture};
+use super::types::{BTreeMapString, BlockRule, CapturedExchange, MitmCapture};
 use super::util::{atomic_write, now_ms};
 
 /// Default capture file for this user (latest).
@@ -36,7 +36,7 @@ pub fn resolve_capture_path(explicit: Option<&str>) -> Result<(PathBuf, bool), C
 pub fn status(capture_path: Option<&str>) -> Result<Value, CliError> {
     let ca = ensure_ca()?;
     let (path, explicit) = resolve_capture_path(capture_path)?;
-    let cap = MitmCapture::load_scoped(&path, true, explicit)?;
+    let cap = MitmCapture::load_scoped(&path, super::policy::redact_secrets(), explicit)?;
     Ok(json!({
         "ok": true,
         "ca": ca,
@@ -57,7 +57,7 @@ pub fn list(
     capture_path: Option<&str>,
 ) -> Result<Value, CliError> {
     let (path, explicit) = resolve_capture_path(capture_path)?;
-    let cap = MitmCapture::load_scoped(&path, true, explicit)?;
+    let cap = MitmCapture::load_scoped(&path, super::policy::redact_secrets(), explicit)?;
     let limit = limit.clamp(
         1,
         crate::xdg::policy::policy_usize(crate::xdg::policy::key::MITM_LIST_LIMIT_MAX),
@@ -92,7 +92,7 @@ pub fn list(
 /// Get one exchange by id.
 pub fn get(id: u64, capture_path: Option<&str>) -> Result<Value, CliError> {
     let (path, explicit) = resolve_capture_path(capture_path)?;
-    let cap = MitmCapture::load_scoped(&path, true, explicit)?;
+    let cap = MitmCapture::load_scoped(&path, super::policy::redact_secrets(), explicit)?;
     let item = cap
         .items
         .iter()
@@ -101,69 +101,101 @@ pub fn get(id: u64, capture_path: Option<&str>) -> Result<Value, CliError> {
     serde_json::to_value(item).map_err(|e| CliError::new(ErrorKind::Data, format!("mitm get: {e}")))
 }
 
-/// Import CDP-style network events (array of {method,url,status,...}) into capture.
+/// Map one CDP-style network event onto a [`CapturedExchange`].
+///
+/// Returns `None` for an event with no `url`: every other field has a defensible
+/// default, but an exchange addressed by nothing is not an exchange.
+///
+/// # Why this is split out of [`import_cdp_network`]
+///
+/// The public importer resolves the operator's XDG capture file and writes to
+/// it, so exercising it end to end would mutate real user state. That left the
+/// key mapping — sixty of its sixty-six lines, and the only part that can be
+/// wrong — with no test at all. This module already paid for that once, when
+/// `store::graphql` read `endpoints` while `analyze::apis` wrote `apis`.
+///
+/// The alias reads (`request_method`, `status_code`, `content_type`) are kept
+/// because the events arrive from a LIBRARY caller, not from a producer in this
+/// repository — unlike the `request_method` fallback removed from `proxy.rs`,
+/// which read a key no site here ever wrote. `cdp_event_alias_keys_are_read`
+/// pins them, so they are now a tested contract instead of speculation.
+pub(super) fn cdp_event_to_exchange(ev: &Value) -> Option<CapturedExchange> {
+    let url = ev.get("url").and_then(|v| v.as_str()).unwrap_or("");
+    if url.is_empty() {
+        return None;
+    }
+    let url = url.to_string();
+    let method = ev
+        .get("method")
+        .or_else(|| ev.get("request_method"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("GET")
+        .to_string();
+    let host = url::Url::parse(&url)
+        .ok()
+        .and_then(|u| u.host_str().map(|s| s.to_string()));
+    let status = ev
+        .get("status")
+        .or_else(|| ev.get("status_code"))
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u16);
+    let mut req_h = BTreeMapString::new();
+    if let Some(obj) = ev.get("request_headers").and_then(|h| h.as_object()) {
+        for (k, v) in obj {
+            if let Some(s) = v.as_str() {
+                req_h.insert(k.clone(), s.to_string());
+            }
+        }
+    }
+    let mut res_h = BTreeMapString::new();
+    if let Some(obj) = ev.get("response_headers").and_then(|h| h.as_object()) {
+        for (k, v) in obj {
+            if let Some(s) = v.as_str() {
+                res_h.insert(k.clone(), s.to_string());
+            }
+        }
+    }
+    Some(CapturedExchange {
+        id: 0,
+        method,
+        url,
+        status,
+        content_type: ev
+            .get("mimeType")
+            .or_else(|| ev.get("content_type"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        request_headers: req_h,
+        response_headers: res_h,
+        request_body: None,
+        response_body: None,
+        host,
+        started_ms: now_ms(),
+        finished_ms: None,
+    })
+}
+
+/// Import CDP-style network events (array of `{method,url,status,...}`) into capture.
+///
+/// The mapping itself lives in `cdp_event_to_exchange`, which is where the
+/// tests reach it; this function is the I/O shell around it. That name is
+/// `pub(super)`, so it is written as plain code and NOT as an intra-doc link:
+/// a link from public documentation to a private item is an error under
+/// `-D rustdoc::private-intra-doc-links`, which is what `cargo doc` and
+/// `scripts/docs-check.sh` both enforce.
+///
+/// # Errors
+///
+/// Fails when the XDG capture path cannot be resolved, loaded, or written.
 pub fn import_cdp_network(events: &[Value]) -> Result<Value, CliError> {
     let path = default_capture_path()?;
-    let mut cap = MitmCapture::load(&path, true)?;
+    let mut cap = MitmCapture::load(&path, super::policy::redact_secrets())?;
     let mut n = 0u64;
     for ev in events {
-        let method = ev
-            .get("method")
-            .or_else(|| ev.get("request_method"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("GET")
-            .to_string();
-        let url = ev
-            .get("url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if url.is_empty() {
-            continue;
+        if let Some(exchange) = cdp_event_to_exchange(ev) {
+            cap.push(exchange);
+            n += 1;
         }
-        let host = url::Url::parse(&url)
-            .ok()
-            .and_then(|u| u.host_str().map(|s| s.to_string()));
-        let status = ev
-            .get("status")
-            .or_else(|| ev.get("status_code"))
-            .and_then(|v| v.as_u64())
-            .map(|n| n as u16);
-        let mut req_h = BTreeMapString::new();
-        if let Some(obj) = ev.get("request_headers").and_then(|h| h.as_object()) {
-            for (k, v) in obj {
-                if let Some(s) = v.as_str() {
-                    req_h.insert(k.clone(), s.to_string());
-                }
-            }
-        }
-        let mut res_h = BTreeMapString::new();
-        if let Some(obj) = ev.get("response_headers").and_then(|h| h.as_object()) {
-            for (k, v) in obj {
-                if let Some(s) = v.as_str() {
-                    res_h.insert(k.clone(), s.to_string());
-                }
-            }
-        }
-        cap.push(CapturedExchange {
-            id: 0,
-            method,
-            url,
-            status,
-            content_type: ev
-                .get("mimeType")
-                .or_else(|| ev.get("content_type"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            request_headers: req_h,
-            response_headers: res_h,
-            request_body: None,
-            response_body: None,
-            host,
-            started_ms: now_ms(),
-            finished_ms: None,
-        });
-        n += 1;
     }
     let saved = cap.save()?;
     Ok(json!({ "imported": n, "path": saved.display().to_string(), "total": cap.items.len() }))
@@ -186,7 +218,7 @@ pub fn graphql(limit: usize, capture_path: Option<&str>) -> Result<Value, CliErr
 /// List WebSocket frames from capture (GAP-019).
 pub fn ws_list(limit: usize, capture_path: Option<&str>) -> Result<Value, CliError> {
     let (path, explicit) = resolve_capture_path(capture_path)?;
-    let cap = MitmCapture::load_scoped(&path, true, explicit)?;
+    let cap = MitmCapture::load_scoped(&path, super::policy::redact_secrets(), explicit)?;
     let items: Vec<_> = cap.ws_frames.iter().take(limit.max(1)).cloned().collect();
     Ok(json!({
         "count": items.len(),
@@ -196,9 +228,28 @@ pub fn ws_list(limit: usize, capture_path: Option<&str>) -> Result<Value, CliErr
 }
 
 /// Get one WebSocket frame by index id (GAP-019).
+///
+/// # Why this index agrees with [`ws_list`], and what would break it
+///
+/// The 0.1.9 audit found `net get 0` and `console get 0` addressing DIFFERENT
+/// records than the `list` beside them (findings H5 and H6), and left the mitm
+/// pair unmeasured. Measured 2026-08-30: this pair does NOT have that defect,
+/// and the reason is worth writing down because it is a property of the code
+/// rather than a coincidence.
+///
+/// [`ws_list`] applies no filter and no offset — it is `take(limit)` from the
+/// front — so the Nth frame it returns is the Nth frame of the buffer, which
+/// is what this index addresses. [`get`] is safe for a different reason: it
+/// matches on the STORED `e.id`, which `list` emits on every row, so the
+/// caller never has to infer a position at all.
+///
+/// The fragile one is this function. Adding a host filter, a `skip`, or any
+/// ordering to [`ws_list`] silently breaks the agreement, because nothing
+/// here would change and nothing would report it. A filter added there must
+/// come with an explicit `id` on each row, the way [`list`] already does.
 pub fn ws_get(id: u64, capture_path: Option<&str>) -> Result<Value, CliError> {
     let (path, explicit) = resolve_capture_path(capture_path)?;
-    let cap = MitmCapture::load_scoped(&path, true, explicit)?;
+    let cap = MitmCapture::load_scoped(&path, super::policy::redact_secrets(), explicit)?;
     let frame = cap
         .ws_frames
         .get(id as usize)
@@ -233,6 +284,36 @@ pub fn block_rule(host: Option<&str>, path: Option<&str>) -> Result<Value, CliEr
     Ok(json!({ "ok": true, "rules_path": rules.display().to_string(), "count": list.len() }))
 }
 
+/// Read the persisted `mitm block` rules; empty when there are none.
+///
+/// # Why this never returns an error
+///
+/// A missing, unreadable or malformed rules file means "no rules". Refusing to
+/// start the proxy over a corrupt cache would trade a degraded feature for an
+/// unusable one, and the rules file is a convenience cache, not an input the
+/// operator hand-writes.
+///
+/// # Why it exists
+///
+/// [`block_rule`] has been writing this file and answering `{"ok": true}` since
+/// `mitm block` shipped, and nothing read it back — so the command persisted a
+/// rule and refused nothing. This is the read half that makes the write mean
+/// something.
+#[must_use]
+pub fn load_block_rules() -> Vec<BlockRule> {
+    let Ok(dir) = xdg::mitm_capture_dir() else {
+        return Vec::new();
+    };
+    let rules = dir.join("block_rules.json");
+    if !rules.exists() {
+        return Vec::new();
+    }
+    crate::json_util::read_json_value_file(&rules, crate::xdg::resolve_max_json_file_bytes())
+        .ok()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
 /// Persist allowlist host under XDG state.
 pub fn allow_host(host: &str) -> Result<Value, CliError> {
     let dir = xdg::mitm_capture_dir()?;
@@ -252,11 +333,72 @@ pub fn allow_host(host: &str) -> Result<Value, CliError> {
     Ok(json!({ "ok": true, "hosts": list, "path": rules.display().to_string() }))
 }
 
-/// Redact policy status (always redacts Authorization/Cookie by default in capture store).
-pub fn redact_policy(secrets: bool) -> Result<Value, CliError> {
+/// Where the operator's persisted redaction preference lives.
+fn redact_pref_path() -> Result<std::path::PathBuf, CliError> {
+    Ok(xdg::mitm_capture_dir()?.join("redact_policy.json"))
+}
+
+/// The persisted redaction preference, or `None` when none was ever set.
+///
+/// `None` is deliberately not `Some(true)`: "never chose" and "chose to mask"
+/// look identical in the capture, but only the first may be overridden by a
+/// future default without contradicting the operator.
+pub(super) fn persisted_redact_secrets() -> Option<bool> {
+    let path = redact_pref_path().ok()?;
+    let v: Value =
+        crate::json_util::read_json_file(&path, crate::xdg::resolve_max_json_file_bytes()).ok()?;
+    v.get("redact_secrets")?.as_bool()
+}
+
+/// Persist the redaction policy applied to captures started without a flag.
+///
+/// # Why this writes instead of echoing
+///
+/// It used to answer `{"ok": true, "redact_secrets": <argv>}` and do nothing
+/// else, while `--help` and `docs/schemas/mitm.schema.json` both promised "Show
+/// or set". The value echoed back was the argument the caller had just typed, so
+/// the command confirmed a setting that was never stored anywhere — the same
+/// shape as [`allow_host`] above, minus the write that makes it true. An
+/// operator who ran it and then captured had no way to tell that nothing had
+/// changed, because the confirmation was indistinguishable from a real one.
+///
+/// argv still wins: `--mitm-no-redact-secrets` on the capturing command beats
+/// whatever is on disk, so this sets a default and never a lock.
+pub fn redact_policy(secrets: Option<bool>) -> Result<Value, CliError> {
+    let path = redact_pref_path()?;
+    // No argument means SHOW. Reporting a policy must never change it, and
+    // making the write unconditional would have turned the read half of "Show
+    // or set" into a silent `true` on every invocation — replacing a command
+    // that lied about writing with one that writes when asked to read.
+    let Some(secrets) = secrets else {
+        let stored = persisted_redact_secrets();
+        return Ok(json!({
+            "ok": true,
+            "redact_secrets": super::policy::redact_secrets(),
+            "persisted": stored.is_some(),
+            "persisted_value": stored,
+            "source": if super::policy::redact_from_argv() {
+                "argv"
+            } else if stored.is_some() {
+                "persisted"
+            } else {
+                "default"
+            },
+            "path": path.display().to_string(),
+        }));
+    };
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| CliError::new(ErrorKind::Io, format!("mitm state dir: {e}")))?;
+    }
+    let bytes = serde_json::to_vec_pretty(&json!({ "redact_secrets": secrets }))
+        .map_err(|e| CliError::new(ErrorKind::Data, format!("redact policy json: {e}")))?;
+    atomic_write(&path, &bytes)?;
     Ok(json!({
         "ok": true,
         "redact_secrets": secrets,
-        "note": "Capture store redacts Authorization/Cookie when redact=true on load/save",
+        "persisted": true,
+        "path": path.display().to_string(),
+        "note": "default for captures started without --mitm-redact-secrets or --mitm-no-redact-secrets",
     }))
 }

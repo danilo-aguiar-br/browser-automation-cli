@@ -40,7 +40,10 @@ pub(crate) fn handle_eval(
                 session.eval_service_worker(sw, &expr).await
             } else {
                 let _ = session
-                    .goto("about:blank", crate::robots::RobotsPolicy::Honor)
+                    .goto(
+                        crate::constants::ABOUT_BLANK,
+                        crate::robots::RobotsPolicy::Honor,
+                    )
                     .await?;
                 session
                     .eval_ex(

@@ -2,12 +2,12 @@
 //!
 //! Does not require Chrome. Uses `browser-automation-cli commands --json`.
 
-use assert_cmd::cargo::cargo_bin_cmd;
+mod common;
 use serde_json::Value;
 
 #[test]
 fn parity_default_on_commands_registered() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
+    let assert = common::assert_bin()
         .args(["commands", "--json"])
         .assert()
         .success();
@@ -66,10 +66,7 @@ fn parity_default_on_commands_registered() {
 
 #[test]
 fn wave1_surface_in_help() {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
-        .arg("--help")
-        .assert()
-        .success();
+    let assert = common::assert_bin().arg("--help").assert().success();
     let help = String::from_utf8_lossy(&assert.get_output().stdout);
     for needle in [
         "hover",

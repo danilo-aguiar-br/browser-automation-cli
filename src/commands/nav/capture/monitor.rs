@@ -24,6 +24,24 @@ pub(crate) fn handle_monitor(
             // Parsed before the fetch: a bad mode is an argv mistake, and
             // discovering it after a network round trip wastes the request.
             let mode = super::monitor_diff::DiffMode::parse(&diff_mode)?;
+            // GAP-026, read axis. `--baseline` is operator argv and this command
+            // read it with no root check while WRITING the same path through the
+            // guarded `write_bytes_sync` below — the write was contained and the
+            // read was not, in the same function, on the same path.
+            //
+            // The leak was not just the read: the previous file's contents come
+            // back to the caller in `previous_hash`, and through `build_diff` in
+            // `diff` / `added` / `removed`.
+            //
+            // Bounded HERE and not in `monitor_diff`: this is where the operator
+            // path enters, `content_path` derives the sidecar from this same
+            // value, and `build_diff` / `record_content` have no other caller.
+            // A second check down there could only ever agree with this one or
+            // drift from it.
+            //
+            // Placed before the fetch for the reason the note above gives: a
+            // path that will be refused should not cost a network round trip.
+            let baseline = crate::fs_roots::ensure_read_allowed(&baseline)?;
             let engine_l = engine.to_ascii_lowercase();
             let text = if engine_l == "browser" {
                 return Err(CliError::with_suggestion(

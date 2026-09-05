@@ -87,6 +87,17 @@
               ],
               "type": "string"
             },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one video path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
             "select": {
               "argv": "--select",
               "description": "Project envelope fields (CSV); aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs",
@@ -219,6 +230,17 @@
               ],
               "type": "string"
             },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one video path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
             "select": {
               "argv": "--select",
               "description": "Project envelope fields (CSV): path,container,streams,duration_secs,sha256,…; aliases: format→container|container_out, bytes|size→size_bytes|bytes_out, path→path|path_out, duration→duration_secs",
@@ -263,6 +285,17 @@
               "required": false,
               "source": "parser",
               "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one manifest path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
               "surfaces": [
                 "argv"
               ],
@@ -323,6 +356,17 @@
               "required": false,
               "source": "parser",
               "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one video path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
               "surfaces": [
                 "argv"
               ],
@@ -394,6 +438,17 @@
               "required": false,
               "source": "parser",
               "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one video path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
               "surfaces": [
                 "argv"
               ],
@@ -476,6 +531,17 @@
               "required": false,
               "source": "parser",
               "step_key": "path",
+              "surfaces": [
+                "argv"
+              ],
+              "type": "string"
+            },
+            "paths_file": {
+              "argv": "--paths-file",
+              "description": "Batch: one video path per line (`#` comments skipped). Mutually exclusive with `--path` and `--stdin`",
+              "required": false,
+              "source": "parser",
+              "step_key": "paths_file",
               "surfaces": [
                 "argv"
               ],

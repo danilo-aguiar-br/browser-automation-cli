@@ -16,10 +16,10 @@ pub(crate) fn handle_webmcp(
 ) -> Result<(), CliError> {
     match action {
         WebmcpAction::List { url } => {
-            let url = url.unwrap_or_else(|| "about:blank".into());
+            let url = url.unwrap_or_else(|| crate::constants::ABOUT_BLANK.into());
             let data =
                 with_session_blank(life, capture, timeout_secs, move |mut session| async move {
-                    if url != "about:blank" {
+                    if url != crate::constants::ABOUT_BLANK {
                         let _ = session
                             .goto(&url, crate::robots::RobotsPolicy::Ignore)
                             .await?;
@@ -33,10 +33,10 @@ pub(crate) fn handle_webmcp(
         }
         WebmcpAction::Exec { name, input, url } => {
             // Move owned match bindings into the async block (no redundant clone).
-            let url = url.unwrap_or_else(|| "about:blank".into());
+            let url = url.unwrap_or_else(|| crate::constants::ABOUT_BLANK.into());
             let data =
                 with_session_blank(life, capture, timeout_secs, move |mut session| async move {
-                    if url != "about:blank" {
+                    if url != crate::constants::ABOUT_BLANK {
                         let _ = session
                             .goto(&url, crate::robots::RobotsPolicy::Ignore)
                             .await?;

@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::browser::OneShotSession;
 use crate::error::CliError;
 
-use super::fields::{first_present, first_str, include_snapshot};
+use super::fields::{include_snapshot, step_present, step_str};
 
 pub(super) async fn wait(session: &mut OneShotSession, step: &Value) -> Result<Value, CliError> {
     // GAP-053: `wait_timeout_ms` is the PUBLIC name — it is the `--wait-timeout-ms`
@@ -18,18 +18,10 @@ pub(super) async fn wait(session: &mut OneShotSession, step: &Value) -> Result<V
     //
     // Order matters: `wait_timeout_ms` comes FIRST because the CLI resolves
     // `wait_timeout_ms.or(ms)` (see `commands::nav::wait`), so the explicit
-    // condition timeout wins over the plain sleep when a step carries both.
-    let ms = first_present(
-        step,
-        &[
-            "wait_timeout_ms",
-            "waitTimeoutMs",
-            "ms",
-            "timeout_ms",
-            "timeoutMs",
-        ],
-    )
-    .and_then(|v| v.as_u64());
+    // condition timeout wins over the plain sleep when a step carries both. The
+    // order now lives in `STEP_KEY_SYNONYMS`, which is also what the validator
+    // reads, instead of in an array only this line could see.
+    let ms = step_present(step, "wait", "wait_timeout_ms").and_then(|v| v.as_u64());
     let texts: Vec<String> = match step.get("text") {
         Some(Value::Array(arr)) => arr
             .iter()
@@ -39,14 +31,14 @@ pub(super) async fn wait(session: &mut OneShotSession, step: &Value) -> Result<V
         _ => Vec::new(),
     };
     // GAP-019: selector string and/or array of selectors (OR).
-    let selector = first_str(step, &["selector", "sel"]);
+    let selector = step_str(step, "wait", "selector");
     let selectors: Vec<String> = match step.get("selectors") {
         Some(Value::Array(arr)) => arr
             .iter()
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .collect(),
         Some(Value::String(s)) => vec![s.clone()],
-        _ => match first_present(step, &["selector", "sel"]) {
+        _ => match step_present(step, "wait", "selector") {
             Some(Value::Array(arr)) => arr
                 .iter()
                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
@@ -60,50 +52,41 @@ pub(super) async fn wait(session: &mut OneShotSession, step: &Value) -> Result<V
         .get("url")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty());
-    let url_contains = first_str(step, &["url_contains", "urlContains"]).filter(|s| !s.is_empty());
+    let url_contains = step_str(step, "wait", "url_contains").filter(|s| !s.is_empty());
     let navigation = step
         .get("navigation")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let include_snap = include_snapshot(step);
+    let include_snap = include_snapshot(step, "wait");
 
     // GAP-032: quiet-network and DOM-stability windows join the same OR set as the
     // other conditions. `0` means "use the built-in window" rather than "no wait",
     // because a zero-length quiet window would be satisfied instantly.
-    let network_idle_ms = first_present(
-        step,
-        &[
-            "network_idle_ms",
-            "networkIdleMs",
-            "network_idle",
-            "networkIdle",
-            "idle_ms",
-            "idleMs",
-        ],
-    )
-    .and_then(coerce_window_ms)
-    .map(|v| {
-        if v == 0 {
-            crate::xdg::policy::policy_u64(crate::xdg::policy::key::DEFAULT_NETWORK_IDLE_WINDOW_MS)
-        } else {
-            v
-        }
-    });
-    let dom_stable_ms = first_present(
-        step,
-        &["dom_stable_ms", "domStableMs", "dom_stable", "domStable"],
-    )
-    .and_then(coerce_window_ms)
-    .map(|v| {
-        if v == 0 {
-            crate::xdg::policy::policy_u64(crate::xdg::policy::key::DEFAULT_DOM_STABLE_WINDOW_MS)
-        } else {
-            v
-        }
-    });
+    let network_idle_ms = step_present(step, "wait", "network_idle_ms")
+        .and_then(coerce_window_ms)
+        .map(|v| {
+            if v == 0 {
+                crate::xdg::policy::policy_u64(
+                    crate::xdg::policy::key::DEFAULT_NETWORK_IDLE_WINDOW_MS,
+                )
+            } else {
+                v
+            }
+        });
+    let dom_stable_ms = step_present(step, "wait", "dom_stable_ms")
+        .and_then(coerce_window_ms)
+        .map(|v| {
+            if v == 0 {
+                crate::xdg::policy::policy_u64(
+                    crate::xdg::policy::key::DEFAULT_DOM_STABLE_WINDOW_MS,
+                )
+            } else {
+                v
+            }
+        });
     // `min_count` is not a condition of its own: it raises the selector condition
     // from "at least one node" to "at least N nodes".
-    let min_count = first_present(step, &["min_count", "minCount"]).and_then(|v| v.as_u64());
+    let min_count = step_present(step, "wait", "min_count").and_then(|v| v.as_u64());
 
     let has_sel = selector.is_some() || !selectors.is_empty();
     let has_url = url_exact.is_some() || url_contains.is_some();

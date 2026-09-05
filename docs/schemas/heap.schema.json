@@ -520,6 +520,19 @@
                 "exec"
               ],
               "type": "string"
+            },
+            "url": {
+              "argv": "--url",
+              "description": "Navigate here before capturing (default: `about:blank`)",
+              "required": false,
+              "source": "parser",
+              "step_key": "url",
+              "surfaces": [
+                "argv",
+                "run_step",
+                "exec"
+              ],
+              "type": "string"
             }
           }
         }

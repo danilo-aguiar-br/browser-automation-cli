@@ -9,6 +9,15 @@ use super::BrowserManager;
 
 impl BrowserManager {
     /// Override viewport size, scale factor, mobile and touch emulation.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Emulation.setDeviceMetricsOverride`. The follow-up
+    /// `Browser.getWindowForTarget` / `Browser.setContentsSize` pair is
+    /// best-effort: both are experimental CDP, and a refusal is logged at
+    /// `warn` rather than returned, because the CSS viewport override — the
+    /// part the caller asked for — already landed.
     pub async fn set_viewport(
         &self,
         width: i32,
@@ -20,12 +29,12 @@ impl BrowserManager {
         self.client
             .send_command(
                 "Emulation.setDeviceMetricsOverride",
-                Some(json!({
-                    "width": width,
-                    "height": height,
-                    "deviceScaleFactor": device_scale_factor,
-                    "mobile": mobile,
-                })),
+                Some(crate::native::stealth::device_metrics_override(
+                    width,
+                    height,
+                    device_scale_factor,
+                    mobile,
+                )),
                 Some(session_id),
             )
             .await?;
@@ -88,6 +97,11 @@ impl BrowserManager {
     /// exactly this string and nothing more. Identity changes that must stay
     /// coherent go through [`crate::native::stealth::user_agent_override`],
     /// which carries the matching hints.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Emulation.setUserAgentOverride`.
     pub async fn set_user_agent_without_client_hints(
         &self,
         user_agent: &str,
@@ -104,6 +118,12 @@ impl BrowserManager {
     }
 
     /// Emulate a media type or feature, such as `print` or `prefers-color-scheme`.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Emulation.setEmulatedMedia` — which is also what
+    /// rejects an unknown media type or feature name.
     pub async fn set_emulated_media(
         &self,
         media: Option<&str>,
@@ -131,6 +151,11 @@ impl BrowserManager {
     ///
     /// Matters even headless: a backgrounded tab is throttled, which changes
     /// timing-sensitive results.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Page.bringToFront`.
     pub async fn bring_to_front(&self) -> Result<(), String> {
         let session_id = self.active_session_id()?;
         self.client
@@ -140,6 +165,12 @@ impl BrowserManager {
     }
 
     /// Override the timezone reported to the page, by IANA id.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Emulation.setTimezoneOverride` — which is what rejects
+    /// a `timezone_id` Chrome does not recognize as an IANA zone.
     pub async fn set_timezone(&self, timezone_id: &str) -> Result<(), String> {
         let session_id = self.active_session_id()?;
         self.client
@@ -153,6 +184,12 @@ impl BrowserManager {
     }
 
     /// Override the locale reported to the page.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Emulation.setLocaleOverride`, which rejects a malformed
+    /// locale tag.
     pub async fn set_locale(&self, locale: &str) -> Result<(), String> {
         let session_id = self.active_session_id()?;
         self.client
@@ -166,6 +203,12 @@ impl BrowserManager {
     }
 
     /// Override the geolocation the page receives.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Emulation.setGeolocationOverride`, which rejects
+    /// coordinates outside the valid latitude/longitude ranges.
     pub async fn set_geolocation(
         &self,
         latitude: f64,
@@ -190,6 +233,12 @@ impl BrowserManager {
     /// Grant browser permissions up front so the page never prompts.
     ///
     /// A prompt in a one-shot run is a deadlock: nobody is there to answer it.
+    ///
+    /// # Errors
+    ///
+    /// Fails with the CDP error raised by `Browser.grantPermissions`, which
+    /// rejects any name outside the protocol's `PermissionType` enum. Browser
+    /// scoped, so it does not require an active page.
     pub async fn grant_permissions(&self, permissions: &[String]) -> Result<(), String> {
         self.client
             .send_command(
@@ -202,6 +251,14 @@ impl BrowserManager {
     }
 
     /// Accept or dismiss the open JavaScript dialog.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Page.handleJavaScriptDialog` — which is what reports
+    /// "No dialog is showing" when the caller answered a dialog that is not
+    /// open. Callers surface that as
+    /// [`ErrorKind::Precondition`](crate::error::ErrorKind::Precondition).
     pub async fn handle_dialog(
         &self,
         accept: bool,
@@ -223,6 +280,19 @@ impl BrowserManager {
     }
 
     /// Set the files of a file input without a native picker.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, when
+    /// `resolve_element_object_id` cannot resolve `selector` (unknown `@eN`
+    /// ref, no DOM match, or a detached node), when `DOM.describeNode` is
+    /// refused, when the described node carries no `backendNodeId`
+    /// (`"Could not get backendNodeId for file input"`), or when
+    /// `DOM.setFileInputFiles` is refused — which is what rejects a target
+    /// that is not a file input.
+    ///
+    /// The paths in `files` are resolved by the browser, not here, so a
+    /// missing file surfaces as a CDP error rather than an I/O error.
     pub async fn upload_files(
         &self,
         selector: &str,
@@ -269,6 +339,15 @@ impl BrowserManager {
     ///
     /// Runs BEFORE page script, which is what makes it usable for patching
     /// globals the page will read.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Page.addScriptToEvaluateOnNewDocument`. A response
+    /// carrying no `identifier` is **not** an error: the empty string is
+    /// returned, which
+    /// [`remove_script_to_evaluate`](Self::remove_script_to_evaluate) will
+    /// later fail to unregister.
     pub async fn add_script_to_evaluate(&self, source: &str) -> Result<String, String> {
         let session_id = self.active_session_id()?;
         let result = self
@@ -287,6 +366,12 @@ impl BrowserManager {
     }
 
     /// Unregister a script previously added by [`add_script_to_evaluate`](Self::add_script_to_evaluate).
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"No active page"` when no tab is attached, or with the CDP
+    /// error raised by `Page.removeScriptToEvaluateOnNewDocument`, which
+    /// rejects an `identifier` this session never registered.
     pub async fn remove_script_to_evaluate(&self, identifier: &str) -> Result<(), String> {
         let session_id = self.active_session_id()?;
         self.client

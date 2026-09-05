@@ -3,7 +3,9 @@
 //! Page-scoped CDP event attach (console / network / session).
 
 use chromiumoxide::cdp::browser_protocol::input::EventDragIntercepted;
-use chromiumoxide::cdp::browser_protocol::network::EventRequestWillBeSent;
+use chromiumoxide::cdp::browser_protocol::network::{
+    EventRequestWillBeSent, EventResponseReceived,
+};
 use chromiumoxide::cdp::browser_protocol::page::{
     EventJavascriptDialogClosed, EventJavascriptDialogOpening, EventScreencastFrame,
 };
@@ -20,6 +22,13 @@ impl CdpClient {
     ///
     /// Console capture is per page, so this has to run for each page the
     /// invocation owns; nothing is buffered before the forwarder is attached.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `Browser::pages` cannot enumerate the open targets, or when
+    /// any page refuses the `Runtime.consoleAPICalled` listener. The first
+    /// failing page wins; listeners already attached to other pages stay
+    /// armed.
     pub async fn attach_page_console_forwarders(&self) -> Result<(), String> {
         self.attach_page_event_forwarders_console().await
     }
@@ -30,6 +39,11 @@ impl CdpClient {
     /// only exists once `Runtime.addBinding` published one, so forwarding it
     /// unconditionally would spawn a listener task every invocation pays for
     /// and no invocation reads.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `Browser::pages` cannot enumerate the open targets, or when
+    /// any page refuses the `Runtime.bindingCalled` listener.
     pub async fn attach_page_binding_forwarders(&self) -> Result<(), String> {
         let pages = {
             let browser = self.browser.lock().await;
@@ -39,7 +53,8 @@ impl CdpClient {
                 .map_err(|e| format!("Browser::pages for binding listeners: {e}"))?
         };
         let event_tx = self.event_tx.clone();
-        let limit = crate::concurrency::effective_limit_capped(8);
+        let limit =
+            crate::concurrency::effective_limit_capped(crate::concurrency::CDP_ATTACH_FANOUT_CAP);
         let futs: Vec<_> = pages
             .into_iter()
             .map(|page| {
@@ -61,7 +76,19 @@ impl CdpClient {
         Ok(())
     }
 
-    /// Page-level Network.requestWillBeSent (page-scoped CDP events).
+    /// Page-level network events: `requestWillBeSent` and `responseReceived`.
+    ///
+    /// Page-scoped events reach the broadcast channel ONLY for methods listed
+    /// here, so a handler for an unlisted method is dead code no matter how
+    /// correct it looks. `responseReceived` was unlisted until 0.1.9, which is
+    /// why `status` and `mimeType` had no path into the capture log and the
+    /// mitm consumer reading `status` could never be satisfied — the gap ran
+    /// three layers deep: consumer, producer, and this forwarder.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `Browser::pages` cannot enumerate the open targets, or when
+    /// any page refuses either listener.
     pub async fn attach_page_network_forwarders(&self) -> Result<(), String> {
         let pages = {
             let browser = self.browser.lock().await;
@@ -71,7 +98,8 @@ impl CdpClient {
                 .map_err(|e| format!("Browser::pages for network listeners: {e}"))?
         };
         let event_tx = self.event_tx.clone();
-        let limit = crate::concurrency::effective_limit_capped(8);
+        let limit =
+            crate::concurrency::effective_limit_capped(crate::concurrency::CDP_ATTACH_FANOUT_CAP);
         let futs: Vec<_> = pages
             .into_iter()
             .map(|page| {
@@ -80,6 +108,12 @@ impl CdpClient {
                     attach_page_event_forwarder::<EventRequestWillBeSent>(
                         &page,
                         "Network.requestWillBeSent",
+                        event_tx.clone(),
+                    )
+                    .await?;
+                    attach_page_event_forwarder::<EventResponseReceived>(
+                        &page,
+                        "Network.responseReceived",
                         event_tx,
                     )
                     .await
@@ -102,7 +136,8 @@ impl CdpClient {
                 .map_err(|e| format!("Browser::pages for console listeners: {e}"))?
         };
         let event_tx = self.event_tx.clone();
-        let limit = crate::concurrency::effective_limit_capped(8);
+        let limit =
+            crate::concurrency::effective_limit_capped(crate::concurrency::CDP_ATTACH_FANOUT_CAP);
         let futs: Vec<_> = pages
             .into_iter()
             .map(|page| {
@@ -129,6 +164,16 @@ impl CdpClient {
     ///
     /// Multi-page attach is I/O-bound → [`join_bounded`](crate::concurrency::join_bounded) after releasing the
     /// browser lock (PAR-53).
+    ///
+    /// # Errors
+    ///
+    /// Fails when `Browser::pages` cannot enumerate the open targets, or when
+    /// a page refuses any one of the six listeners attached in order —
+    /// `HeapProfiler.addHeapSnapshotChunk`,
+    /// `HeapProfiler.reportHeapSnapshotProgress`, `Page.screencastFrame`,
+    /// `Page.javascriptDialogOpening`, `Page.javascriptDialogClosed`,
+    /// `Input.dragIntercepted`. A refusal aborts that page only; the listeners
+    /// already attached before it are not rolled back.
     pub async fn attach_page_session_forwarders(&self) -> Result<(), String> {
         let pages = {
             let browser = self.browser.lock().await;
@@ -138,7 +183,8 @@ impl CdpClient {
                 .map_err(|e| format!("Browser::pages for session listeners: {e}"))?
         };
         let event_tx = self.event_tx.clone();
-        let limit = crate::concurrency::effective_limit_capped(8);
+        let limit =
+            crate::concurrency::effective_limit_capped(crate::concurrency::CDP_ATTACH_FANOUT_CAP);
         let futs: Vec<_> = pages
             .into_iter()
             .map(|page| {

@@ -30,9 +30,18 @@ pub enum PageAction {
         /// Tool-ref pageId alias for index
         #[arg(long = "page-id")]
         page_id: Option<usize>,
-        /// Bring selected tab to front (tool-ref bringToFront)
+        /// Bring selected tab to front (tool-ref bringToFront, default)
         #[arg(long, default_value_t = true)]
         bring_to_front: bool,
+        /// Select the tab WITHOUT raising its window
+        ///
+        /// Measured 2026-09-01: `--bring-to-front` is a bare `bool` with
+        /// `default_value_t = true`, so clap derives `SetTrue` and prints it
+        /// with no value in `--help`. Raising the window was unconditional and
+        /// unopt-outable, which steals focus from whatever the operator is doing
+        /// on their own desktop during a headed run.
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        no_bring_to_front: bool,
     },
     /// Close a tab (default: active)
     Close {
@@ -63,8 +72,27 @@ pub enum CookieAction {
         #[arg(long = "cookies-json", value_name = "JSON")]
         cookies_json: String,
     },
-    /// Clear all browser cookies in this one-shot process
-    Clear,
+    /// Clear browser cookies in this one-shot process (requires `--all`)
+    Clear {
+        /// Confirm that the whole jar is the target.
+        ///
+        /// # Why a destructive verb refuses to infer its own scope
+        ///
+        /// `clear` wipes every cookie, and until now it took no argument at
+        /// all: the scope "all" came from the absence of a flag rather than
+        /// from anything the caller wrote. A verb with an irreversible effect
+        /// that picks its own subject is ambient authority — the invocation
+        /// says `clear` and the process decides what got cleared.
+        ///
+        /// CDP offers no partial clear here (`Network.clearBrowserCookies` is
+        /// all-or-nothing), so this flag does not narrow the scope; it makes
+        /// the caller STATE it. `cookie clear` alone is now a usage error
+        /// instead of a silent wipe, and `target_source` on the envelope
+        /// becomes `argv`, which is what makes the choice auditable after the
+        /// fact.
+        #[arg(long, required = true)]
+        all: bool,
+    },
 }
 
 /// Image encoding accepted by `grab`.
@@ -161,6 +189,11 @@ pub enum ConsoleAction {
     Get {
         /// 0-based index in the captured console list
         id: usize,
+        /// Index over the preserved rings too, matching `console list
+        /// --include-preserved`. Without it the ids of the two commands
+        /// address different buffers and silently disagree.
+        #[arg(long, action = ArgAction::SetTrue)]
+        include_preserved: bool,
     },
     /// Drop all console messages captured in this process
     Clear,
@@ -183,8 +216,12 @@ pub enum NetAction {
         /// Max requests per page
         #[arg(long)]
         page_size: Option<usize>,
-        /// Filter resource types (comma-separated: Document,Script,XHR,Fetch,...)
-        #[arg(long)]
+        /// Filter CDP resource types, comma-separated and matched exactly
+        /// (Document, Stylesheet, Image, Media, Font, Script, TextTrack, XHR,
+        /// Fetch, Prefetch, EventSource, WebSocket, Manifest, SignedExchange,
+        /// Ping, CSPViolationReport, Preflight, FedCM, Other). An unknown token
+        /// is refused by the parser, before any browser launch.
+        #[arg(long, value_parser = crate::net::resource_type::validate_resource_types_arg)]
         resource_types: Option<String>,
         /// Include requests preserved over recent navigations in this process
         #[arg(long, action = ArgAction::SetTrue)]
@@ -200,6 +237,11 @@ pub enum NetAction {
         /// Write the response body to this file
         #[arg(long, value_hint = ValueHint::FilePath)]
         response_path: Option<std::path::PathBuf>,
+        /// Index over the preserved rings too, matching `net list
+        /// --include-preserved`. Without it the ids of the two commands
+        /// address different buffers and silently disagree.
+        #[arg(long, action = ArgAction::SetTrue)]
+        include_preserved: bool,
     },
 }
 

@@ -51,7 +51,9 @@ macro_rules! policy_knobs {
             match key {
                 $(
                     stringify!($key) => {
-                        cfg.$key = raw.parse::<u64>().ok().filter(|&n| n > 0);
+                        cfg.$key = raw.parse::<u64>().ok().filter(|&n| {
+                            super::super::validate::keeps_stored(stringify!($key), n)
+                        });
                         true
                     }
                 )*

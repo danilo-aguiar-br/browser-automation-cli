@@ -39,8 +39,12 @@ policy_knobs! {
         "CDP HTTP discovery timeout for /json/version probes (seconds)";
     EVENT_TRACKER_MAX_ENTRIES => event_tracker_max_entries,
         "In-memory console/network tracker ring size per page session";
+    CAPTURE_PRESERVED_RINGS => capture_preserved_rings,
+        "Navigation boundaries kept for console/net --include-preserved";
     EXTENSION_ATTACH_POLL_MS => extension_attach_poll_ms,
         "Extension attach poll slice (milliseconds)";
+    EXTENSION_ATTACH_POLL_ITERS => extension_attach_poll_iters,
+        "Extension attach poll iterations (slice x iterations = total wait)";
 
     // ── external tools ───────────────────────────────────────────────────
     SCREENCAST_FFMPEG_FRAMERATE => screencast_ffmpeg_framerate,
@@ -48,7 +52,7 @@ policy_knobs! {
 
     // ── http: robots, scrape, pool, webhook ──────────────────────────────
     ROBOTS_PROBE_TIMEOUT_SECS => robots_probe_timeout_secs,
-        "robots.txt HEAD/probe timeout (seconds)";
+        "robots.txt request timeout (seconds)";
     ROBOTS_MAX_BODY_BYTES => robots_max_body_bytes,
         "Max robots.txt body bytes (anti-OOM)";
     DEFAULT_BROWSER_SCRAPE_MAX_BODY_BYTES => browser_scrape_max_body_bytes,
@@ -95,8 +99,8 @@ policy_knobs! {
         "Age floor before a dead-owner marker profile is collectable (seconds)";
     PLATFORM_CHILD_WAIT_SECS => platform_child_wait_secs,
         "Platform child wait deadline (seconds)";
-    DEFAULT_SHUTDOWN_POLL_MS => shutdown_poll_ms,
-        "Shutdown cooperative poll interval (milliseconds)";
+    PLATFORM_CHILD_POLL_MS => platform_child_poll_ms,
+        "Child-process exit poll interval during FINALIZE (milliseconds)";
     DEFAULT_SHUTDOWN_DEADLINE_SECS => shutdown_deadline_secs,
         "Shutdown hard deadline waiting for browser exit (seconds)";
 
@@ -178,8 +182,24 @@ policy_knobs! {
         "Radius of the random offset applied to a click target (CSS pixels)";
     INPUT_SCROLL_SETTLE_ROUNDS => input_scroll_settle_rounds,
         "Extra rounds allowed to deliver a wheel delta the renderer dropped";
-    ROBOTS_FETCH_TIMEOUT_SECS => robots_fetch_timeout_secs,
-        "Timeout for fetching robots.txt (seconds)";
+    INPUT_MOVE_STEPS_STDDEV => input_move_steps_stddev,
+        "Standard deviation of the per-gesture pointer sample budget";
+    INPUT_MOVE_GAP_STDDEV_MS => input_move_gap_stddev_ms,
+        "Standard deviation of the delay between pointer positions (milliseconds)";
+    INPUT_CLICK_DWELL_STDDEV_MS => input_click_dwell_stddev_ms,
+        "Standard deviation of the press-to-release hold (milliseconds)";
+    INPUT_KEY_DWELL_STDDEV_MS => input_key_dwell_stddev_ms,
+        "Standard deviation of the keyDown-to-keyUp hold (milliseconds)";
+    INPUT_TYPE_DELAY_STDDEV_MS => input_type_delay_stddev_ms,
+        "Standard deviation of the delay between characters (milliseconds)";
+    INPUT_SCROLL_TICK_STDDEV_PX => input_scroll_tick_stddev_px,
+        "Standard deviation of the distance one wheel tick carries (CSS pixels)";
+    INPUT_WORD_PAUSE_MS => input_word_pause_ms,
+        "Mean of the extra pause taken at a word or sentence boundary (milliseconds)";
+    INPUT_WORD_PAUSE_PERMILLE => input_word_pause_permille,
+        "Chance in a thousand that a word boundary earns a long pause";
+    INPUT_TYPO_PERMILLE => input_typo_permille,
+        "Chance in a thousand that a character is mistyped then corrected with Backspace (0 = off; changes what the page sees mid-word)";
     SCRAPE_CRAWL_LIMIT_MAX => scrape_crawl_limit_max,
         "Max crawl page budget (anti-DoS clamp for --limit)";
     SCRAPE_CRAWL_MAX_DEPTH => scrape_crawl_max_depth,

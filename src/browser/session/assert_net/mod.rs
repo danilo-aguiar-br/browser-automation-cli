@@ -3,6 +3,7 @@
 //! Cookie / assert / console / net / dialog methods for [`super::OneShotSession`].
 
 mod assert_page;
+mod buffers;
 mod console;
 mod cookie;
 mod dialog;

@@ -126,7 +126,30 @@ pub fn start_private_display() -> Result<XvfbGuard, String> {
 /// process that has not yet bound is indistinguishable from a hung one, and
 /// handing Chrome a `DISPLAY` that does not answer yet produces a launch
 /// failure that blames Chrome.
+///
+/// # Why the sleep is handed to the runtime
+///
+/// This function is synchronous, and its only caller — the self-spawn launch
+/// path — is `async`. A bare `std::thread::sleep` here therefore parks a Tokio
+/// worker for the whole startup window, which on a small worker pool is a
+/// visible stall of every other task. [`tokio::task::block_in_place`] moves the
+/// worker's remaining tasks to another thread before blocking, which is the
+/// documented way to block from inside a multi-thread runtime without turning a
+/// synchronous signature into an async one. Outside a runtime — unit tests, and
+/// any future non-async caller — the plain loop is used unchanged.
 fn wait_until_ready(display_number: u32) -> Result<(), String> {
+    match tokio::runtime::Handle::try_current() {
+        // `block_in_place` panics on a current-thread runtime, so the flavor is
+        // checked rather than assumed.
+        Ok(handle) if handle.runtime_flavor() != tokio::runtime::RuntimeFlavor::CurrentThread => {
+            tokio::task::block_in_place(|| poll_until_socket(display_number))
+        }
+        _ => poll_until_socket(display_number),
+    }
+}
+
+/// The readiness poll itself, with no assumption about the calling context.
+fn poll_until_socket(display_number: u32) -> Result<(), String> {
     let socket = display::socket_path(display_number);
     let deadline =
         Instant::now() + Duration::from_secs(crate::constants::DEFAULT_XVFB_STARTUP_TIMEOUT_SECS);
@@ -156,6 +179,13 @@ mod tests {
             + crate::constants::XVFB_DISPLAY_SEARCH_SPAN
             + 7;
         if std::path::Path::new(&display::socket_path(far)).exists() {
+            // NOT routed through `skip_unit_test`, and the difference matters:
+            // that helper turns a skip into a failure under `strict-gates`
+            // because a missing TOOL is fixable by installing it. This branch is
+            // the opposite shape — the host happens to occupy the display this
+            // test needs free, so the assertion is unreachable by construction
+            // and no install makes it reachable. Failing here would punish a
+            // host for a state it is entitled to be in.
             eprintln!("skip: display :{far} unexpectedly exists on this host");
             return;
         }
@@ -171,6 +201,11 @@ mod tests {
     #[test]
     fn a_host_without_the_binary_reports_it_rather_than_panicking() {
         if xvfb_available() {
+            // Mutually exclusive with the host state, exactly like the skip in
+            // `readiness_gives_up_instead_of_hanging`: this test asserts what
+            // happens when Xvfb is ABSENT, so a host that has it can never reach
+            // the assertion. Left out of `strict-gates` on purpose — see the
+            // longer note there.
             eprintln!("skip: this host has Xvfb, so the missing-binary path cannot run");
             return;
         }

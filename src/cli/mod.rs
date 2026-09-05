@@ -30,11 +30,19 @@ mod args_small;
 mod args_tools;
 mod commands;
 mod global;
+pub mod mitm_args;
 
 pub use actions_browser::*;
 pub use actions_local_media::*;
 pub use actions_media::*;
 pub use actions_tools::*;
+// Exported so `dispatch` can take the parsed struct instead of re-listing every
+// field. `crawl` alone carries 28 of them, and spelling those out twice — once
+// in the match arm, once in the wrapper — cost more lines in `dispatch/mod.rs`
+// than the file's own 300-line ceiling allowed.
+pub use args_scrape::{
+    BatchScrapeArgs, CrawlArgs, FeedArgs, MapArgs, ScrapeArgs, SearchArgs, SitemapArgs,
+};
 pub use commands::Commands;
 pub use global::GlobalOpts;
 
@@ -101,6 +109,14 @@ pub const CLAP_TREE_STACK_BYTES: usize = 16 * 1024 * 1024;
 /// });
 /// assert!(!names.is_empty());
 /// ```
+/// # Panics
+///
+/// If the OS refuses to spawn the scoped thread — the one `expect` in this
+/// crate that a degraded host can actually reach. It produces exit 101, which
+/// is outside the sysexits table the rest of the product maps onto, and that
+/// divergence is recorded rather than papered over: a host that cannot create a
+/// thread has no honest error path left for a CLI that must parse its own
+/// argument tree before it can report anything.
 pub fn on_clap_stack<T, F>(f: F) -> T
 where
     F: FnOnce() -> T + Send,

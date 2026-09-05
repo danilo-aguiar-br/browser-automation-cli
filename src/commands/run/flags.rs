@@ -17,6 +17,30 @@ pub struct RunFlags {
 }
 
 impl RunFlags {
+    /// Emit one step row on stdout when `--json-steps` is on, reduced.
+    ///
+    /// The four call sites that used to write the row directly bypassed the
+    /// single reduction point in [`crate::envelope::print_success_json`],
+    /// because streaming steps never build a success envelope. A step row
+    /// carries a whole `view` tree or a whole `scrape` body, so this is one of
+    /// the places where `--truncate-content` matters most — and it did nothing.
+    ///
+    /// Reduction is per row on purpose: each line is its own document, so
+    /// row-set operations (`--limit-rows`, `--count-only`) apply within the
+    /// step, and the final envelope still reduces the collected `steps`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates reduction failures and stdout write failures as
+    /// [`crate::error::CliError`].
+    pub fn emit_step_row(self, row: &serde_json::Value) -> Result<(), crate::error::CliError> {
+        if !self.json_steps {
+            return Ok(());
+        }
+        let (reduced, _) = crate::agent_ops::apply_process_ops(row.clone())?;
+        crate::output::write_json_line_ser(&reduced)
+    }
+
     /// Project CLI global gates into the multi-step dispatcher.
     // One parameter per global gate flag; a struct here would just duplicate
     // `GlobalOpts` fields.

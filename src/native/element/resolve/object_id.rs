@@ -47,6 +47,27 @@ pub(crate) async fn resolve_object_in_same_process_frame(
 ///
 /// The returned session id can differ from the one passed in when the element
 /// lives in an iframe.
+///
+/// # Errors
+///
+/// For a durable `role=…[name="…"]` locator, fails with
+/// `"durable locator <loc> did not resolve: …"` when the live accessibility
+/// tree carries no such node, and with `"durable locator <loc> resolved to no
+/// object"` when `DOM.resolveNode` returns no handle.
+///
+/// For a `@eN` ref, fails with `"Unknown ref: <id>"` when `ref_map` never
+/// recorded it — the usual cause is a snapshot invalidated by an intervening
+/// `eval` or navigation — and with `"No objectId for ref <id>"` when the
+/// accessibility re-query succeeds but the node no longer resolves. A stale
+/// `backend_node_id` is not an error: the fast path is abandoned and the
+/// re-query runs.
+///
+/// For a CSS or XPath selector, fails with
+/// `"Element not found: <selector> (<detail>)"` when nothing matches or the
+/// query itself throws — a malformed XPath lands here — and with
+/// `"Element not found in the selected frame: <selector>"` under an active
+/// same-process `frame` selection. Any underlying `Runtime.evaluate`,
+/// `Runtime.callFunctionOn` or `DOM.resolveNode` refusal is propagated as-is.
 pub async fn resolve_element_object_id(
     client: &CdpClient,
     session_id: &str,

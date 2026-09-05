@@ -7,14 +7,23 @@
 
 ## Near term (local quality)
 
-- v0.1.8 is the CURRENT release and the lines below describe the live state
-- v0.1.8 shipped the anti-detection family and closed gaps G2, G4, G8, G9, G11 and G13
-- Live XDG surface: 204 keys documented in `docs/CONFIGURATION.md`
-- Live agent inventory: 69 names via `commands --json`
+- v0.1.9 is the CURRENT release and the lines below describe the live state
+- v0.1.8 shipped the anti-detection family and closed gaps G2, G4, G8, G9, G11 and G13; v0.1.9 closed identity/screen/FTL, closes screen-only emulate CDP, the `--no-stealth` webdriver plan, and the README current-release card, names the live fingerprint recorte and adds chrome-mac / eval-nav gates
+- Live XDG surface: 217 keys documented in `docs/CONFIGURATION.md`
+- Live agent inventory: 71 names via `commands --json`
 - The inventory includes `submit`, `storage`, `image`, `video`, `audio`, `record`, `locale` and `man`
+- v0.1.9 added the verbs `sitemap` and `feed`, which took the live inventory from 69 to **71**
+- Both delegate to an engine that already answered, with no line of duplicated logic
+- `map --sitemap-only` already returned the sitemap URLs and `scrape --formats feed` already returned the parsed feed
+- The reason to name them as verbs was discoverability, never new behaviour
+- `download`, `agent` and `stats` are NOT implemented
+- The PRD gives one line of description for each, with no signature, no envelope and no acceptance criterion
+- That is a declared boundary, not hidden debt
 - Product settings are flags plus XDG `config` only, never product environment variables
 - Discover keys with `config list-keys --json` instead of trusting any static list
 - Delivered since v0.1.7: `scrape --format attributes` with `--attribute-selector` and `--attribute-name`
+- Delivered: `parse --format` derives scrape formats from the parsed file
+- Non-HTML `parse` input has no DOM, so it accepts only text, markdown and summary
 - Keep `scripts/*-check.sh` gates green on every audit pass
 - Residual-zero disk gates are `scripts/residual-check.sh` and `scripts/residual-stress.sh`
 - Optional confidence suite: rerun `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate` and `scrape_step_gate`
@@ -72,7 +81,7 @@
 
 - **GAP-021 partial:** lighthouse parser confidence is unit fixtures (minimal + chrome-captured LHR); e2e mock remains **SKIP** — never claim full e2e lighthouse parser PASS
 - **GAP-022 residual dups:** ~53 multi-version dependency duplicates measured; cheap prune exhausted; residual accepted
-- **GAP-023 / GAP-024:** PRD wishlist flags/commands remain intentional divergences in `parity_intentional_divergences.json` — not full PRD parity
+- **GAP-023 / GAP-024:** PRD wishlist flags/commands remain intentional divergences — not full PRD parity
 - **AVIF encode:** removed from `grab` (webp remains); document as intentional breaking residual of 0.1.6
 - AVIF decode stays closed by physical limit, not by priority
 - HEIC encode stays closed by the same physical limit
@@ -80,29 +89,32 @@
 - Any feature that depends on a remote service stays closed by design
 - Anti-detection is best effort, and NO stealth profile guarantees evasion of a given detector
 
+### Local scrape capability vs frontier
+
+- Local and shipped: multi-format scrape, crawl, map, LLM extract (OpenRouter via XDG), one-shot webhook, local MITM + HAR, local `change_status` (`fresh`/`unchanged`), opt-in `--with-content-hash`
+- Frontier (not a 0.1.9 debt): remote change service, HTTP-engine JA4 (needs C TLS), HTTP-engine header order (`reqwest` `HeaderMap` iteration is not insertion order), challenge solvers
+- In-process image text recognition is not frontier work; it was excised on purpose and is not coming back, because every calling model already has vision
+
 ## Open, no committed date
 - `scrape` has no `changeTracking` format
 - `search` has no temporal filter, and ten dimensions are still missing
-- `crawl` include and exclude take no regex, and there is no `regexOnFullURL`
-- `parse` does not apply scrape formats to the parsed file
-- `crawl` and `batch-scrape` have no `--webhook-url`, which `scrape` already has
 - `browser_mode` is reachable only through XDG, because no CLI flag exposes it
 - These items carry no date and MUST NOT be read as a promise
 
-## Full agent inventory (69)
+## Full agent inventory (71)
 
 Discover live: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
-crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
 net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
-scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **67** (69 agent names − 2 run-only).
+Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **69** (71 agent names − 2 run-only).
 
 ### Local media (image/video) — intentional non-goals (Wave C TREATED)
 

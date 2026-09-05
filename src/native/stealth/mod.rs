@@ -5,7 +5,7 @@
 //!
 //! A headless Chrome driven over CDP announces itself in about ten places at
 //! once. `navigator.webdriver` is defined where a real Chrome leaves it
-//! `undefined`; `navigator.plugins` is empty where a real Chrome lists three;
+//! `false`; `navigator.plugins` is empty where a real Chrome lists three;
 //! `chrome.runtime` is missing; `window.outerHeight` reads `0`; WebGL renders
 //! through a software rasteriser instead of the host GPU.
 //!
@@ -28,13 +28,28 @@
 //! says so rather than implying the transport is covered — see
 //! `tls_impersonation` in the scrape envelope.
 
+mod chrome_geometry;
+mod coherence;
 mod identity;
+mod screen;
 mod script;
 mod seed_cache;
+mod signal_source;
+mod webgl;
 
-pub use identity::Identity;
+pub use coherence::{
+    agent_os_from_ua, assess_signals, bug01_deleted_webdriver, bug02_windows_ua_linux_platform,
+    planned_stealth_signals, planned_vs_live, signals_from_live, ua_chrome_major,
+    ua_contradicts_profile, CoherenceMismatch, FingerprintSignals,
+};
+pub use identity::{chrome_major_from_version_line, Identity};
+pub use screen::{
+    current_screen_override, current_screen_source, device_metrics_override, parse_screen_spec,
+    resolve_screen, resolved_screen_source, set_screen_override, ScreenSource,
+};
+pub use signal_source::{signal_sources, SignalSource, SignalSources};
 
-use spider_fingerprint::configs::{AgentOs, Tier};
+use spider_fingerprint::configs::Tier;
 use spider_fingerprint::{EmulationConfiguration, Fingerprint};
 
 use std::sync::OnceLock;
@@ -48,7 +63,7 @@ static SCRIPT: OnceLock<Option<String>> = OnceLock::new();
 ///
 /// # Why this is cached rather than rebuilt
 ///
-/// Not an optimisation — a correctness requirement. [`build_script`] draws a
+/// Not an optimisation — a correctness requirement. Building the script draws a
 /// fresh random identity on every call: measured across two consecutive calls
 /// it produced a different GPU vendor (`Mesa`/`llvmpipe` against
 /// `NVIDIA Corporation`/`GeForce GTX 1050`), a different `hardwareConcurrency`
@@ -138,11 +153,32 @@ pub fn wire_headers() -> Option<Vec<(&'static str, String)>> {
 /// Separated from [`script_for_process`] so it is testable without publishing
 /// process-global policy first.
 #[must_use]
-pub fn build_script(identity: &Identity) -> Option<String> {
+pub(crate) fn build_script(identity: &Identity) -> Option<String> {
     let mut config = EmulationConfiguration::setup_defaults(&identity.user_agent);
-    // `NativeGPU` reports the real adapter instead of inventing one. A claimed
-    // vendor the driver cannot back is worse than an honest one, and a headed
-    // launch inside a virtual display already has a real GPU behind it.
+    // `NativeGPU` selects which CANVAS payload to install; it does NOT hand the
+    // real adapter to WebGL, and the comment that used to sit here said it did.
+    //
+    // Measured 2026-08-17 against spider_fingerprint 2.39.0: the WebGL lie rides
+    // on the TIER, not on this enum. `Tier::BasicWithConsole` (chosen below)
+    // expands to `{chrome};{worker};{concurrency};{gpu_adapter};{NAVIGATOR}`,
+    // and `worker` is `unified_worker_override(.., webgl_patch = true)`, which
+    // rewrites `getParameter(37445/37446)` on the main window. So the reported
+    // vendor and renderer come from a table in the crate, drawn at random.
+    //
+    // The spoof stays, and the reason is the opposite of the old comment's:
+    // `GpuProfile` is an ATOMIC bundle. One row carries webgl vendor, webgl
+    // renderer, webgpu vendor, webgpu architecture, canvas format AND
+    // `hardware_concurrency` together — a GTX 1050 ships 8 cores, an RX 580
+    // ships 12. Detectors cross-check exactly that pair ("improbable
+    // configuration": strong GPU, few cores). Switching to a NoWebgl tier would
+    // report the honest SwiftShader renderer while `spoof_concurrency` kept
+    // announcing a core count drawn from the GPU we stopped reporting, which
+    // desynchronises the correlation the crate deliberately built.
+    //
+    // What the product owes the caller is not an honest GPU; it is an honest
+    // LABEL. `doctor --fingerprint` reports `gpu_source: "stealth"`, derived
+    // through `signal_source::signal_sources`, so nobody has to read this
+    // comment to learn the value is synthetic.
     config.fingerprint = Fingerprint::NativeGPU;
     config.agent_os = identity.agent_os;
 
@@ -178,20 +214,37 @@ pub fn build_script(identity: &Identity) -> Option<String> {
     // entries — so it goes back on here.
     config.disable_plugins = false;
 
-    // NOT patched here on purpose: `navigator.webdriver`. The crate documents
-    // that the launch switch is the right lever ("You should not need this if
-    // you use the cli args ... disabled-features=AutomationEnabled"), and
-    // `build_chrome_args` passes `--disable-blink-features=AutomationControlled`
-    // plus the matching `--disable-features` entry. A JS getter override is the
-    // weaker fix: it leaves a patched `Function.prototype.toString` behind,
-    // which is itself detectable. Killing the property at the source leaves
-    // nothing to find.
-    // The crate payload runs AFTER the product patches, so it observes a
-    // browser that already looks unautomated. See `script::PRODUCT_PATCHES` for
-    // the measurement that made this necessary: the launch switch alone left
-    // `navigator.webdriver` defined and `false`.
+    // `navigator.webdriver` is defined on Navigator.prototype in a real Chrome
+    // and the value is the boolean `false`. Deleting it makes
+    // `'webdriver' in navigator` return false — a stronger tell than `false`.
+    // The product patch keeps the property and pins the value; the crate
+    // payload runs after that, then `platform_patch` re-applies
+    // `navigator.platform` so a foreign profile cannot leave the host token.
     let emulated = spider_fingerprint::emulate(&identity.user_agent, &config, &None, &None)?;
-    Some(format!("{};{emulated}", script::PRODUCT_PATCHES))
+    // spider_fingerprint 2.39 Linux canvas noisify calls the *wrapped*
+    // `getImageData`, which re-enters noisify until the stack blows. Mac/Win
+    // already use the saved original. Fix the payload, then restore natives
+    // so a future crate regression cannot take toDataURL down with it.
+    let emulated = script::sanitize_crate_canvas(&emulated);
+    let patches = script::product_patches(identity.navigator_platform);
+    let platform = script::platform_patch(identity.navigator_platform);
+    let canvas = script::canvas_restore_native();
+    // Runs LAST so it wraps whatever the crate installed: it reads the crate's
+    // own spoofed vendor/renderer back, re-spells them the way Chrome does on
+    // this platform, and carries the resolved pair into every worker scope the
+    // crate's own `Worker` wrapper skips. See `webgl::coherence_patch` for the
+    // 10-launch measurement that showed the leak was in workers, not in the
+    // window, and never intermittent.
+    let webgl = webgl::coherence_patch(identity.navigator_platform);
+    // LAST, so it owns `outerWidth`, `screen.*` and `maxTouchPoints` outright:
+    // the crate payload defines the same getters, and the loser of that race
+    // would be whichever ran first. Seeded by the already-drawn payload, so the
+    // geometry is pinned to this identity by the caches that already exist —
+    // `OnceLock` within the process, `seed_cache` across processes.
+    let geometry = chrome_geometry::geometry_patch();
+    Some(format!(
+        "{patches};{emulated};{platform};{canvas};{webgl};{geometry}"
+    ))
 }
 
 /// Whether the browser session should also override the User-Agent over CDP.
@@ -213,12 +266,6 @@ pub fn user_agent_override() -> Option<Identity> {
     } else {
         None
     }
-}
-
-/// The `AgentOs` this process claims, for diagnostics.
-#[must_use]
-pub fn active_agent_os() -> AgentOs {
-    Identity::for_profile(browser_policy::stealth_profile()).agent_os
 }
 
 /// Whether the stealth profile contradicts the host platform.
@@ -247,16 +294,14 @@ mod tests {
     fn the_script_covers_the_markers_js_owns() {
         let identity = Identity::for_profile(StealthProfile::ChromeLinux);
         let script = build_script(&identity).expect("emulation script");
-        // These four can only be fixed from inside the page. `navigator.webdriver`
-        // is deliberately NOT in this list: the launch switch removes it at the
-        // source, and asserting the JS form here would pass while the flag
-        // regressed.
+        // These can only be fixed from inside the page. webdriver stays
+        // present (getter returns false); deleting it is the tell.
         for marker in [
             "plugins",
             "deviceMemory",
             "hardwareConcurrency",
             "cdc_",
-            "delete proto.webdriver",
+            "return false",
         ] {
             assert!(
                 script.contains(marker),
@@ -311,6 +356,20 @@ mod tests {
         assert!(
             !script.contains("console[method]=()=>{}"),
             "patch script silences console; --capture-console would go blind"
+        );
+    }
+
+    #[test]
+    fn the_linux_canvas_wrap_does_not_recurse_through_getimagedata() {
+        let identity = Identity::for_profile(StealthProfile::ChromeLinux);
+        let script = build_script(&identity).expect("emulation script");
+        assert!(
+            !script.contains("t.getImageData(0,0"),
+            "crate Linux canvas wrap still calls the wrapped getImageData"
+        );
+        assert!(
+            script.contains("toDataURL"),
+            "canvas restore must reinstall toDataURL"
         );
     }
 }

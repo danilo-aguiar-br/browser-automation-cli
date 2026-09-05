@@ -2,13 +2,10 @@
 //!
 //! Does not require Chrome. Fails closed when a semantic flag is omitted.
 
-use assert_cmd::cargo::cargo_bin_cmd;
+mod common;
 
 fn help(args: &[&str]) -> String {
-    let assert = cargo_bin_cmd!("browser-automation-cli")
-        .args(args)
-        .assert()
-        .success();
+    let assert = common::assert_bin().args(args).assert().success();
     String::from_utf8_lossy(&assert.get_output().stdout).into_owned()
 }
 

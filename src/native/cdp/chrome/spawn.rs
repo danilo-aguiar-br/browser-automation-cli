@@ -26,6 +26,7 @@ use chromiumoxide::handler::viewport::Viewport;
 use chromiumoxide::handler::HandlerConfig;
 use chromiumoxide::Handler as OxideHandler;
 
+use super::args::{materialize_profile_dir, profile_postmortem, reassert_profile_dir};
 use super::process::ChromeProcess;
 use super::{build_chrome_args, find_chrome, LaunchOptions};
 use crate::native::cdp::spawn::{
@@ -99,19 +100,27 @@ fn pin_debugging_port(args: &mut Vec<String>, port: u16) {
 }
 
 /// BORN: fork Chrome, wait for CDP, and attach.
+///
+/// # Errors
+///
+/// Returns a human-readable reason when `build_chrome_args` rejects the
+/// options, when the temp profile directory cannot be created, when neither
+/// `options.executable_path` nor [`find_chrome`] locates a browser, when the
+/// resolved path is not a spawn-safe binary (`.bat` / `.cmd` / `.ps1` or
+/// missing), when no loopback port can be reserved, when the fork itself fails
+/// or its `spawn_blocking` task panics, when the stdio drainers cannot be
+/// started, when Chrome does not announce a DevTools endpoint inside
+/// [`CHROME_STARTUP_TIMEOUT_SECS`](crate::xdg::policy::key::CHROME_STARTUP_TIMEOUT_SECS),
+/// or when `Browser::connect_with_config` cannot attach to the announced
+/// websocket. A missing private X server is **not** an error: the launch
+/// degrades to a plain headed window and warns.
+///
+/// Every failure after the fork reaps the child before returning, so a failed
+/// launch leaves no residual Chrome.
 pub async fn launch_self_spawned(options: &LaunchOptions) -> Result<ChromeLaunch, String> {
     let mut chrome_args = build_chrome_args(options)?;
 
-    if let Some(ref dir) = chrome_args.temp_user_data_dir {
-        crate::concurrency::create_dir_all_blocking(dir.clone())
-            .await
-            .map_err(|e| format!("Failed to create temp profile dir: {e}"))?;
-        // GAP-052: stamp the owning CLI pid so residual GC resolves liveness by
-        // exact pid instead of substring-matching whole command lines.
-        if let Err(e) = crate::residual::write_owner_pid(dir) {
-            tracing::debug!(error = %e, dir = %dir.display(), "owner-pid marker not written");
-        }
-    }
+    materialize_profile_dir(&chrome_args).await?;
 
     let executable = options
         .executable_path
@@ -157,6 +166,19 @@ pub async fn launch_self_spawned(options: &LaunchOptions) -> Result<ChromeLaunch
         .map(|g| vec![("DISPLAY".to_string(), g.display_value())])
         .unwrap_or_default();
 
+    // Re-establish the precondition immediately before the fork.
+    //
+    // Materialization happened before the executable lookup, the port reservation
+    // and the Xvfb start, so the directory has been sitting on disk unattended
+    // for that whole stretch. Meanwhile `Lifecycle::new` runs residual GC over
+    // `chrome_profiles_dir` at the BORN of EVERY invocation, and `cargo test`
+    // runs test binaries concurrently, so a sibling process sweeps the very
+    // ground this launch is standing on. The age floors make that sweep safe in
+    // the ordinary case; this call makes the precondition true rather than
+    // probable. It is not a retry — nothing is relaunched, and a genuine I/O
+    // failure still surfaces as itself.
+    reassert_profile_dir(&chrome_args)?;
+
     let request = SpawnRequest {
         program: executable,
         args: chrome_args.args.clone(),
@@ -189,11 +211,13 @@ pub async fn launch_self_spawned(options: &LaunchOptions) -> Result<ChromeLaunch
             // Poll cadence is engine-independent: these name a readiness slice,
             // not a Lightpanda policy, and the Chrome budget above is what
             // actually differs between the two engines.
-            ready_slice: Duration::from_millis(crate::constants::LIGHTPANDA_READY_SLICE_MS),
+            ready_slice: Duration::from_millis(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::LIGHTPANDA_READY_SLICE_MS,
+            )),
             poll_interval: Duration::from_millis(crate::constants::LIGHTPANDA_POLL_INTERVAL_MS),
-            discovery_timeout: Duration::from_millis(
-                crate::constants::LIGHTPANDA_DISCOVERY_TIMEOUT_MS,
-            ),
+            discovery_timeout: Duration::from_millis(crate::xdg::policy::policy_u64(
+                crate::xdg::policy::key::LIGHTPANDA_DISCOVERY_TIMEOUT_MS,
+            )),
         },
     )
     .await
@@ -202,7 +226,7 @@ pub async fn launch_self_spawned(options: &LaunchOptions) -> Result<ChromeLaunch
         Err(e) => {
             // Reap through the owner so the drainers are joined exactly once.
             ChromeProcess::new(child, pgid, drainers).kill();
-            return Err(e);
+            return Err(format!("{e}{}", profile_postmortem(&chrome_args)));
         }
     };
 

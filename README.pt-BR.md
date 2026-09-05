@@ -12,6 +12,12 @@
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-blue)](https://www.rust-lang.org)
 [![GitHub](https://img.shields.io/badge/github-browser--automation--cli-black.svg)](https://github.com/danilo-aguiar-br/browser-automation-cli)
 
+```bash
+cargo install browser-automation-cli
+```
+
+Mapa de descoberta para agentes: [llms.pt-BR.txt](llms.pt-BR.txt) (curto) e [llms-full.pt-BR.txt](llms-full.pt-BR.txt) (expandido).
+
 ## O que é
 - CLI de automação de browser em um único processo para agentes de IA
 - Fala com Chrome ou Chromium do sistema via chromiumoxide CDP
@@ -33,13 +39,14 @@
 - Refs de acessibilidade `@eN` só valem dentro daquele processo
 - Envelopes `--json` estáveis para agentes programáticos
 - Caminho de install é Rust puro via cargo
-- v0.1.7 é a release atual: mantém residual-zero de disco (0.1.5 RES-01…12 ainda verdadeiro) e fecha dialog settle, isolamento multi-aba de diálogos, eventos nativos de select/pick, campos wait/scrape no `run`, lock de formatos do grab e fixtures unitárias de lighthouse; inventário de **69** nomes de agente via `commands --json`
+- v0.1.9 é a release atual: residual-zero de disco permanece; 0.1.9 fecha identidade stealth e acrescenta `measurement_scope` / `unmeasured_os` no `doctor --fingerprint` e gates live `chrome-mac` / eval-nav; inventário de **71** nomes de agente via `commands --json`; **217** chaves XDG
 
 ## Superpoderes
 - Navegação e ciclo de página: `goto`, `back`, `forward`, `reload`, `page`
 - Input: `press`, `write`, `type`, `keys`, `hover`, `drag`, `fill-form`, `select-option`, `pick` (select nativo + HIG badge/popover / `role=option` com eventos de pick), `submit`, `upload`
-- Observação: `view`, `grab` (formatos `png|jpeg|webp` apenas; AVIF removido), `extract`, `text`, `attr`, `scroll`, `assert`
+- Observação: `view` (recusa about:blank vazio a menos que `--allow-empty`), `grab` (formatos `png|jpeg|webp` apenas; AVIF removido), `extract`, `text`, `attr`, `scroll`, `assert`
 - Wait: múltiplos `--text` resolvem como OR; multi-seletor CSS OR (`#a, #b` / `selectors`); `url` / `url_contains` / `navigation` / `wait_timeout_ms` no `run`
+- Assert: `url` / `text` / `console` mais `console_empty` / `console_no_match` (na CLI `console-empty` / `console-no-match`)
 - Scrape: `scrape` com `--format` / `--formats` multi/CSV e `--engine http|browser`; 15 formatos vivos `text|markdown|html|rawHtml|links|metadata|screenshot|summary|product|branding|images|jsonld|json|feed|attributes` (`raw-html` continua alias aceito de `rawHtml`); engine browser aplica formatos via outerHTML; `format`/`formats` também no passo scrape do `run`
 - Superfície local scrape/crawl/map/search/parse: `batch-scrape` (`--engine http|browser`), `crawl` (`--engine http|browser`), `map`, `search` (limpa redirects SERP `uddg=`), `parse` (PDF/DOCX/xlsx/ods + `--redact-pii`)
 - Extract LLM: `extract --llm --question --schema-json` (XDG `openrouter_api_key`, `llm_base_url`, `llm_model`)
@@ -58,13 +65,22 @@
 - MITM one-shot: `mitm start` / `mitm capture-url` escuta só em `127.0.0.1` (hudsucker); flags globais `--mitm*`
 - Workflow DAG: `workflow run|resume|status` com journal SQLite (resume pula ok)
 - Config XDG: `config path|init|show|set|get|unset|list-keys` para config.toml (descubra todas as chaves com `config list-keys --json`)
-- Descoberta: `doctor` (browsers_dir, origem lighthouse, `cache_redis`, `residual_disk`), `commands` (**69** nomes), `schema <cmd>` ou `schema --cmd` (goto/eval/type/scroll/assert expandidos), `version`, `locale`, `man`, `completions`
-- Flags globais: o help global declara **43** flags longas, sendo **41** delas flags de produto mais `--help` e `--version`; `browser-automation-cli --help` é a fonte da verdade
-- Fail-fast multi-passo: `run` devolve `data.steps` parciais em envelopes de erro; `--json-steps` streama NDJSON por passo
+- Descoberta: `doctor` (browsers_dir, origem lighthouse, `cache_redis`, `residual_disk`), `commands` (**71** nomes), `schema <cmd>` ou `schema --cmd` (goto/eval/type/scroll/assert expandidos), `version`, `locale`, `man`, `completions`
+- Flags globais: o help global declara **57** flags longas, sendo **55** delas flags de produto mais `--help` e `--version`; `browser-automation-cli --help` é a fonte da verdade
+- Observabilidade multi-passo: o envelope final de `run --json` inclui `ok` mais os `steps[].data` completos; a global `--json-steps` streama uma linha NDJSON por passo
+- Fail-fast multi-passo: `run` devolve `data.steps` parciais em envelopes de erro
 - Residual-zero de disco (ainda verdadeiro desde 0.1.5 RES-01…12): BORN faz auto-GC de dirs Chromium Singleton-only em `/tmp` com mais de 60s; FINALIZE dual scavenge + re-scan; nunca mata Chrome Flatpak do host; prefixo de marker `browser-automation-cli-chrome-`
 - Ciclo de vida: BORN + FINALIZE fazem scavenge de órfãos Chromium em `/tmp` owned; product law é residual-zero de processo + disco
 - Cache: XDG `cache_backend` (`sqlite|memory|redis`) e `cache_redis_url`; `rediss://` fail-closed
 - Residual intencional: GAP-022 ~53 dups multi-versão transitivos; GAP-023/024 divergências de PRD registradas
+
+## Novidades da 0.1.9
+- `sitemap` e `feed` entram no inventário, levando-o a **71** nomes; nenhum dos dois acrescenta capacidade, os dois acrescentam descobribilidade
+- `doctor --fingerprint` pontua a página viva e declara `measurement_scope`, então um sistema não medido é declarado em vez de subentendido
+- `--min-delay-ms` torna o piso de cortesia por origem uma decisão da invocação, e não do host
+- `cookie clear` exige `--all` e `mitm block` exige um alvo: verbo irreversível toma o escopo do argv, nunca de uma flag ausente
+- Todo verbo com efeito colateral publica `target_resolved` e `target_source`, tornando auditável a Explicit Target Designation
+- Histórico completo em [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md)
 
 ## Início Rápido
 ```bash
@@ -81,8 +97,7 @@ browser-automation-cli view --json
 - Install de desenvolvimento local:
 ```bash
 git clone https://github.com/danilo-aguiar-br/browser-automation-cli
-cd browser-automation-cli
-cargo install --path . --locked
+cargo install --path browser-automation-cli --locked
 ```
 - Do crates.io após o primeiro publish:
 ```bash
@@ -96,16 +111,19 @@ cargo install browser-automation-cli --locked
 - Passe sempre `--json` em pipelines de agente
 - Mantenha diagnósticos humanos no stderr com `-q` ao pipar
 - Use `--timeout` para orçamento wall-clock do processo em segundos
-- Use `run --script` (linhas NDJSON ou um array JSON de passos) para sessões multi-passo que compartilham refs `@eN`; adicione `--json-steps` para stream por passo
+- Use `run --script` (linhas NDJSON ou um array JSON de passos) para sessões multi-passo que compartilham refs `@eN`
+- Streame o progresso por passo com a global `--json-steps` (linhas NDJSON: `step`, `cmd`, `ok`, `result`)
 - Prefira flags de CLI em chamadas one-off; use `config` para defaults XDG duráveis
 - Detalhe de logging: `--verbose` / `--debug` / `-q`, ou `config set log_level`
 - Localize sugestões humanas com `--lang pt-BR` ou `config set lang pt-BR`
 - Opcional: scrape `--webhook-url` faz POST único do resultado para URL do operador (não é telemetria de produto)
+- MITM opcional: global `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
 
 ```bash
 browser-automation-cli config set openrouter_api_key sk-or-...
 browser-automation-cli --json goto https://example.com
 browser-automation-cli --json wait --text Hello --text Welcome --ms 5000
+browser-automation-cli --json schema run
 browser-automation-cli --json schema --cmd wait
 browser-automation-cli --json mitm capture-url https://example.com --seconds 30
 browser-automation-cli --json mitm capture-url https://example.com --seconds 30 --har /tmp/browser-automation-cli-artifacts/cap.har
@@ -113,8 +131,9 @@ browser-automation-cli --json mitm har --out /tmp/browser-automation-cli-artifac
 browser-automation-cli --json scrape https://example.com --format markdown --engine http
 browser-automation-cli --json scrape https://example.com --format markdown,html,links --engine browser
 browser-automation-cli --json scrape https://example.com --format markdown --engine http --webhook-url https://example.com/hook
+browser-automation-cli --json sitemap https://example.com --limit 200
+browser-automation-cli --json feed https://example.com/feed.xml
 browser-automation-cli --json extract --llm --question "What is the title?" https://example.com
-browser-automation-cli --capture-network --json net list --resource-types Document,XHR
 browser-automation-cli --category-memory heap summary --path snap.heapsnapshot --json
 browser-automation-cli --json mitm start --seconds 30
 browser-automation-cli --json workflow resume --manifest workflow.toml
@@ -152,15 +171,15 @@ browser-automation-cli --capture-network --json run --script /tmp/net.jsonl
 ```
 
 ## Comandos
-Inventário completo de agente (**69** nomes via `commands --json`, ordenados):
-`assert`, `attr`, `audio`, `back`, `batch-scrape`, `click-at`, `commands`, `completions`, `config`, `console`, `cookie`, `crawl`, `devtools3p`, `dialog`, `doctor`, `drag`, `emulate`, `eval`, `exec`, `extension`, `extract`, `find-paths`, `fill-form`, `forward`, `goto`, `grab`, `heap`, `hover`, `image`, `keys`, `lighthouse`, `locale`, `man`, `map`, `mitm`, `monitor`, `net`, `page`, `parse`, `perf`, `pick`, `press`, `print-pdf`, `qr`, `record`, `reload`, `resize`, `run`, `schema`, `scrape`, `screencast`, `scroll`, `search`, `select-option`, `sg-rewrite`, `sg-scan`, `sheet-write`, `storage`, `submit`, `text`, `type`, `upload`, `video`, `version`, `view`, `wait`, `webmcp`, `workflow`, `write`
+Inventário completo de agente (**71** nomes via `commands --json`, ordenados):
+`assert`, `attr`, `audio`, `back`, `batch-scrape`, `click-at`, `commands`, `completions`, `config`, `console`, `cookie`, `crawl`, `devtools3p`, `dialog`, `doctor`, `drag`, `emulate`, `eval`, `exec`, `extension`, `extract`, `feed`, `find-paths`, `fill-form`, `forward`, `goto`, `grab`, `heap`, `hover`, `image`, `keys`, `lighthouse`, `locale`, `man`, `map`, `mitm`, `monitor`, `net`, `page`, `parse`, `perf`, `pick`, `press`, `print-pdf`, `qr`, `record`, `reload`, `resize`, `run`, `schema`, `scrape`, `screencast`, `scroll`, `search`, `select-option`, `sg-rewrite`, `sg-scan`, `sheet-write`, `sitemap`, `storage`, `submit`, `text`, `type`, `upload`, `video`, `version`, `view`, `wait`, `webmcp`, `workflow`, `write`
 
 Agrupados para humanos:
 - Descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `man`, `completions`
 - Navegação: `goto`, `back`, `forward`, `reload`
 - Interação: `press`, `write`, `type`, `keys`, `wait`, `hover`, `drag`, `fill-form`, `select-option`, `pick`, `submit`, `upload`, `click-at`
 - Observação: `view`, `extract`, `text`, `scroll`, `attr`, `assert`, `grab`
-- Scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+- Scrape: `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`
 - Captura: `console`, `net`, `print-pdf`, `monitor`, `screencast`
 - Abas/Diálogos: `page`, `dialog`, `cookie`, `storage`
 - Utilitários: `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
@@ -169,12 +188,17 @@ Agrupados para humanos:
 - Multi-passo: `run`, `exec`, `record`
 - Ensino de record: `browser-automation-cli --json record --url https://example.com --path /tmp/steps.jsonl --seconds 30 --max-events 200` grava as interações da página como NDJSON reproduzível, e `browser-automation-cli --json run --script /tmp/steps.jsonl` reproduz tudo em um processo só
 - Ensino de audio: `browser-automation-cli --json audio info|download|convert|trim` roda o pipeline local de áudio sem Chrome
-- Nota de inventário: **69** nomes de agente via `commands --json` (inclui `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`); e2e DevTools cobre 53 tools (lighthouse mock SKIP)
+- Ensino de sitemap: `browser-automation-cli --json sitemap https://example.com --limit 200` lê o sitemap DECLARADO — as dicas `Sitemap:` do `robots.txt`, o próprio documento e a descida em `sitemapindex` aninhado — e nunca percorre o grafo de links, então não existe `--depth` para passar
+- Ensino de feed: `browser-automation-cli --json feed https://example.com/feed.xml` parseia RSS, Atom e JSON Feed a partir do corpo BRUTO pelo motor HTTP; as flags que moldam HTML estão ausentes porque um seletor destruiria o documento, e o Chrome não é oferecido porque renderizaria o visualizador XML do navegador em vez do feed
+- Nota de inventário: **71** nomes de agente via `commands --json` (inclui `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`); e2e DevTools cobre 53 tools (lighthouse mock SKIP)
 
 ## Anti-detecção, Proxy e Modelagem de Input
 - Stealth é LIGADO por padrão e mascara os marcadores de automação que um Chrome real nunca expõe
 - `--no-stealth` desliga os patches anti-detecção nesta execução
-- `--stealth-profile <PROFILE>` escolhe a identidade personificada: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`
+- `--stealth-profile <PROFILE>` escolhe a identidade personificada: `auto`, `chrome-linux`, `chrome-win`, `chrome-mac` (`list` imprime os tokens)
+- `--stealth-seed <SEED>` fixa `hardwareConcurrency`, `deviceMemory`, vendor/renderer da GPU, `history.length` e o build do Chrome — não UA, platform, idiomas, fuso, tela nem plugins
+- `doctor --fingerprint` compara webdriver, platform vs UA e screen vs viewport; sem `--quick` pontua a página ao vivo e falha se ela contradisser o plano
+- O launch aplica métricas 1920×1080 para `screen` não ficar no padrão headless 800×600; `config set screen WxH` e o passo `screen` do `run` são os knobs explícitos
 - `auto` segue o host e quase sempre está certo
 - `--stealth-seed <SEED>` fixa essa identidade entre processos
 - Sem a semente cada execução sorteia identidade nova, então um crawl de 50 URLs em 50 processos one-shot se apresenta como 50 máquinas distintas
@@ -182,6 +206,8 @@ Agrupados para humanos:
 - `--proxy-bypass <HOSTS>` lista os hosts que ignoram o proxy, na sintaxe de bypass-list do Chrome
 - `--input-profile <PROFILE>` é `human` (padrão) ou `direct`
 - `human` interpola trajetórias do ponteiro, aplica dwell entre press e release e ritma a digitação
+- Medido em 2026-09-04 nesta árvore: o custo do ritmo `human` cresce de forma superlinear com o tamanho digitado, em 2281 ms para 1 caractere, 14236 ms para 2 e 95781 ms para 4, então um `type` longo pode esgotar o `--timeout` e devolver exit 124
+- Passe `--input-profile direct` quando o campo for longo e o ritmo não importar; este é um defeito ABERTO, registrado no `gaps.md`, e a contramedida está declarada aqui em vez de ficar para o operador descobrir por um timeout
 - `--input-seed <SEED>` semeia o jitter de input para que uma execução `human` reproduza exatamente
 - `--warmup` visita a raiz da origem antes da URL alvo, então a sessão já carrega cookies e cadeia de referrer
 - `--warmup-url <URL>` aquece essa URL em vez da raiz da origem alvo
@@ -198,6 +224,13 @@ Agrupados para humanos:
 - Chaves de fingerprint HTTP/2: `http2_enabled` (`true`), `http2_initial_stream_window_size` (`6291456`), `http2_initial_connection_window_size` (`15663105`), `http2_max_header_list_size` (`262144`), `http2_max_frame_size` (`16384`), `http2_adaptive_window` (`false`)
 - `http2_adaptive_window` fica desligado para manter o fingerprint constante
 - Chaves de cinemática de input: `input_move_steps` (`24`), `input_move_gap_ms` (`12`), `input_click_dwell_ms` (`65`), `input_key_dwell_ms` (`45`), `input_type_delay_ms` (`95`), `input_scroll_tick_px` (`100`), `input_scroll_max_ticks` (`40`), `input_target_jitter_px` (`3`), `input_scroll_settle_rounds` (`3`)
+- Chaves de dispersão e ritmo de input: `input_timing_distribution` (`lognormal`), `input_move_steps_stddev` (`6`), `input_move_gap_stddev_ms` (`5`), `input_click_dwell_stddev_ms` (`26`), `input_key_dwell_stddev_ms` (`18`), `input_type_delay_stddev_ms` (`40`), `input_scroll_tick_stddev_px` (`25`), `input_word_pause_ms` (`320`), `input_word_pause_permille` (`120`), `input_typo_permille` (`0`)
+- `input_timing_distribution` é `lognormal|normal|uniform` e governa só o ritmo rápido, porque a cauda de pausa longa é `input_word_pause_permille`
+- `input_word_pause_permille` aceita `0` como valor legítimo, que remove por completo a cauda de pausa longa entre palavras
+- `input_typo_permille` fica em `0` porque um erro de digitação corrigido com Backspace muda o que a página vê no meio da palavra
+- `user_data_dir` não tem padrão e fica ausente, e essa ausência é o que sustenta a garantia de residual-zero em disco
+- Ativar `user_data_dir` é opt-in e abre mão dessa garantia, porque o perfil do Chrome passa a persistir entre execuções
+- `capture_preserved_rings` (`3`) é o número de fronteiras de navegação preservadas para `console` e `net --include-preserved`
 
 ```bash
 browser-automation-cli --json --stealth-seed fleet-01 goto https://example.com
@@ -257,8 +290,9 @@ browser-automation-cli --json config unset stealth_seed
 
 ## Padrões de Integração
 - Claude Code, Codex, Cursor e agentes de shell disparam um processo por ação
-- Planos multi-passo de agentes devem usar `run --script` (NDJSON ou array JSON; opcional `--json-steps`) em vez de encadear processos separados
+- Planos multi-passo de agentes devem usar `run --script` (NDJSON ou array JSON) em vez de encadear processos separados
 - Parseie stdout com `jaq` e ignore stderr salvo em diagnóstico
+- Streame o progresso dos passos com `--json-steps` quando o agente precisar de feedback progressivo
 - Persista defaults duráveis com `config set` sob XDG
 - Veja [INTEGRATIONS.pt-BR.md](INTEGRATIONS.pt-BR.md) e [docs/AGENTS.pt-BR.md](docs/AGENTS.pt-BR.md)
 
@@ -284,25 +318,33 @@ browser-automation-cli --json config unset stealth_seed
 - Exit 2 usage: confira flags com `browser-automation-cli help <cmd>`
 - Refs `@eN` inválidas entre comandos: mantenha passos dentro de um `run`; refs não atravessam processos
 - Network vazio: passe `--capture-network` no mesmo processo que navega
-- Leitura de payload de API: `net get <IDX>` grava corpos com `--response-path` e `--request-path`, mas `net list` e `net get` só enxergam tráfego capturado no mesmo processo, então um `net get 0` avulso depois de um `goto` separado devolve exit 65 com `count=0`; ponha o passo `net` ao lado do passo `goto` em um script só e rode `browser-automation-cli --capture-network --json run --script /tmp/net.jsonl`
-- Wait multi-text: repita `--text` para semântica OR; multi-seletor CSS OR e `url`/`url_contains`/`navigation` no `run`
+- Leitura de payload de API: `net get <IDX>` grava corpos com `--response-path` e `--request-path`, mas `net list` e `net get` só enxergam tráfego capturado no mesmo processo, então um `net get 0` avulso depois de um `goto` separado recusa com exit 2; ponha o passo `net` ao lado do passo `goto` em um script só e rode `browser-automation-cli --capture-network --json run --script /tmp/net.jsonl`
+- Wait multi-text: repita `--text` para semântica OR (qualquer texto listado desbloqueia)
+- Wait multi-seletor / URL: OR de CSS `#a, #b`; no `run` use `url` / `url_contains` / `navigation`
+- View blank vazio: um about:blank vazio recusa sucesso silencioso a menos que você passe `--allow-empty` / `allow_empty:true`
 - Bind MITM: `mitm start` / `mitm capture-url` escuta só em `127.0.0.1` com porta efêmera; flags globais `--mitm*`
+- HAR do MITM: `mitm har --out <path>` (obrigatório); ou a global `--mitm-har` no FINALIZE; ou `capture-url --har`
+- Redação MITM: `mitm redact` MOSTRA a política efetiva, `mitm redact --secrets true|false` persiste um default, e a global `--mitm-redact-secrets` vence as duas; a CA fica sob o diretório de dados XDG
 - Workflow resume: `workflow resume` pula passos já `ok` no journal
-- Formatos scrape browser: `--engine browser` aplica `--format` via outerHTML; os 15 formatos vivos são `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed`, `attributes` (`raw-html` continua alias aceito de `rawHtml`)
+- Scrape multi-formato: `--format markdown,html,links` (CSV ou repetível) devolve campos por formato; os 15 formatos vivos são `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed`, `attributes` (`raw-html` continua alias aceito de `rawHtml`)
+- Formatos scrape browser: `--engine browser` aplica `--format` via outerHTML
+- Engine browser em batch/crawl: `batch-scrape --engine browser` e `crawl --engine browser` (GAP-010)
 - Aliases de scroll: em scripts `run` use `dy`/`dx` como aliases de `delta_y`/`delta_x`
 - Descoberta de schema: `schema <cmd>` ou `schema --cmd goto|eval|type|scroll|assert` expõe flags tool-ref expandidas
 - Lang: `--lang pt-BR` ou `config set lang pt-BR` localiza sugestões humanas
-- Fail-fast com steps parciais: envelopes de erro de `run` podem incluir `data.steps` parciais; `--json-steps` streama NDJSON por passo
+- Fail-fast com steps parciais: envelopes de erro de `run` podem incluir `data.steps` parciais
+- Stream de JSON steps: `--json-steps` emite um objeto NDJSON por passo; o envelope final `--json` continua incluindo os `steps[]` completos
 - Path do Lighthouse: flag, `config set lighthouse_path`, ou PATH; envelope `binary_source` é `real` ou `mock` (mock é honestidade de e2e, não produção)
 - Redirects de search: `search` limpa wrappers `uddg=` para URLs de destino
 - Parse de documentos: `parse` suporta PDF/DOCX/xlsx/ods e `--redact-pii`
 - Extract LLM: exige XDG `openrouter_api_key` (opcionais `llm_base_url`, `llm_model`)
 - Print PDF: `print-pdf --url <url> --path <file>` one-shot CDP
 - Baseline de monitor: `monitor check --url <url> --baseline <file> [--write-baseline]`
+- Assert de console: `assert console-empty` / `assert console-no-match --pattern …` (exige `--capture-console`)
 - Aliases de assert: `url_contains` / `text_contains`; kinds `console_empty` / `console_no_match`; `attr` usa fallback de property DOM quando o atributo HTML é null
 - Pick / select-option: nomes no inventário de agente; select nativo dispara input+change; HIG badge/popover / `role=option` via `pick`
 - Submit / storage: `submit` para submit de formulário; `storage export|import` para cookies + estado por origem
-- Tamanho do inventário: `commands --json` lista **69** nomes de agente (inclui `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`)
+- Tamanho do inventário: `commands --json` lista **71** nomes de agente (inclui `select-option`, `pick`, `submit`, `storage`, `image`+`video`+`audio`+`record`)
 - Locale: `locale --json` diagnostica o idioma resolvido; defina com `--lang pt-BR` ou `config set lang pt-BR`
 - `file://` + `scrape --engine http`: erro Usage — use engine browser ou `parse` para arquivos locais
 - `reload --ignore-cache`: CDP `Page.reload` com `ignoreCache` (não é no-op em JS)
@@ -320,6 +362,7 @@ browser-automation-cli --json config unset stealth_seed
 - Residual intencional: GAP-022 ~53 dups multi-versão transitivos; GAP-023/024 divergências de PRD registradas
 - Utils de planilha/lint: `sheet-write <input> --out <arquivo>`, `sg-scan <paths>`, `sg-rewrite <paths>` recebem entradas posicionais; `find-paths --glob` para globs shell
 - A ordem posicional de `find-paths` é `[PATTERN] [PATHS]...`, então um posicional solitário é lido como PATTERN regex e as raízes caem em silêncio no diretório atual; passe um pattern vazio para mirar uma raiz: `find-paths --glob '**/*.rs' '' src`
+- Caminho soft de diálogo: `dialog accept --if-present` / `if_present:true` no run devolvem soft-ok quando nenhum diálogo está aberto
 
 ## Códigos de Saída
 - `0` sucesso
@@ -341,6 +384,7 @@ browser-automation-cli --json config unset stealth_seed
 - [docs/COOKBOOK.pt-BR.md](docs/COOKBOOK.pt-BR.md) receitas práticas
 - [docs/CONFIGURATION.pt-BR.md](docs/CONFIGURATION.pt-BR.md) cada chave XDG, seu padrão e seu propósito
 - [docs/CROSS_PLATFORM.pt-BR.md](docs/CROSS_PLATFORM.pt-BR.md) matriz de plataformas
+- [docs/STEALTH_PARITY.pt-BR.md](docs/STEALTH_PARITY.pt-BR.md) paridade anti-detecção contra as implementações de referência
 - [docs/MIGRATION.pt-BR.md](docs/MIGRATION.pt-BR.md) notas de migração
 - [docs/TESTING.pt-BR.md](docs/TESTING.pt-BR.md) categorias de teste
 - [docs/schemas/README.md](docs/schemas/README.md) índice de JSON schemas
@@ -364,6 +408,13 @@ browser-automation-cli --json config unset stealth_seed
 
 ## Changelog
 - O histórico de versões vive somente em [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md)
+
+## Agradecimentos
+- A equipe do Chrome DevTools Protocol, cujo contrato publicado é o que torna possível um cliente CDP one-shot sem daemon
+- `chromiumoxide`, `hudsucker`, `clap`, `tokio`, `reqwest` e `feed-rs`, os crates sobre os quais esta CLI é construída
+- O projeto Rust, por uma toolchain em que `clippy -D warnings` e `cargo deny` são baratos o bastante para rodar em todo gate
+- Quem reporta falhas de segurança é creditado em [SECURITY.pt-BR.md](SECURITY.pt-BR.md) após divulgação coordenada; ainda ninguém
+- Ainda não há contribuidores externos a creditar; o [CONTRIBUTING.pt-BR.md](CONTRIBUTING.pt-BR.md) descreve como isso muda
 
 ## Licença
 - Dual license sob MIT OR Apache-2.0

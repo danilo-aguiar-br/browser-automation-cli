@@ -7,7 +7,9 @@ use super::args_interact::{DragArgs, EmulateArgs, ScrollArgs, WaitArgs};
 use super::args_page::{
     ClickAtArgs, EvalArgs, ExtractArgs, GotoArgs, GrabArgs, RecordArgs, TypeArgs, ViewArgs,
 };
-use super::args_scrape::{BatchScrapeArgs, CrawlArgs, MapArgs, ScrapeArgs, SearchArgs};
+use super::args_scrape::{
+    BatchScrapeArgs, CrawlArgs, FeedArgs, MapArgs, ScrapeArgs, SearchArgs, SitemapArgs,
+};
 use super::args_small::{
     DoctorArgs, FillFormArgs, HoverArgs, KeysArgs, PressArgs, ReloadArgs, SchemaArgs, SubmitArgs,
     UploadArgs, WriteArgs,
@@ -182,6 +184,10 @@ pub enum Commands {
     Crawl(CrawlArgs),
     /// Map site URLs from a seed (HTTP)
     Map(MapArgs),
+    /// List URLs declared by a site's sitemap.xml (HTTP)
+    Sitemap(SitemapArgs),
+    /// Read an RSS / Atom / JSON Feed document (HTTP)
+    Feed(FeedArgs),
     /// Local search (HTTP SERP links or URL map)
     Search(SearchArgs),
     /// Parse a local file (html/md/txt/pdf/docx/xlsx text extract)
@@ -192,6 +198,13 @@ pub enum Commands {
         /// Mask email/phone/card-like patterns in text output
         #[arg(long, action = ArgAction::SetTrue)]
         redact_pii: bool,
+        /// Scrape formats to derive from the parsed file (CSV or repeatable).
+        ///
+        /// HTML input accepts every `scrape` format. Non-HTML input (pdf, docx,
+        /// spreadsheets, csv, txt) has no DOM, so it accepts only the
+        /// text-derived ones: text, markdown, summary.
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        format: Vec<String>,
     },
     /// QR encode/decode one-shot (no Chrome)
     Qr {
@@ -225,7 +238,7 @@ pub enum Commands {
         #[arg(num_args = 0..)]
         paths: Vec<String>,
         /// Max findings (0 = unlimited)
-        #[arg(long, default_value_t = 500)]
+        #[arg(long, default_value_t = crate::constants::SG_SCAN_FINDINGS_LIMIT)]
         limit: usize,
     },
     /// Structural rewrite for known-safe fixes (dry-run default; `--apply` writes)

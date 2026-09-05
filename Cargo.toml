@@ -1,6 +1,6 @@
 [package]
 name = "browser-automation-cli"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 rust-version = "1.88.0"
 authors = ["Danilo Aguiar <daniloaguiarbr@proton.me>"]
@@ -14,7 +14,6 @@ homepage = "https://github.com/danilo-aguiar-br/browser-automation-cli"
 documentation = "https://docs.rs/browser-automation-cli"
 exclude = [
     ".github/",
-    "base_conhecimento_chrome-devtools-mcp-main/",
     "docs_prd/",
     "docs_rules/",
     "/gaps.md",
@@ -120,6 +119,102 @@ rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [badges]
 maintenance = { status = "actively-developed" }
+
+# Lint policy for the whole PACKAGE, not for one target.
+#
+# These lived as `#![warn(..)]` / `#![deny(..)]` at the top of `src/lib.rs`,
+# where a crate attribute reaches exactly one crate: the library. `src/main.rs`
+# is a second crate and every file under `tests/` is another, so the policy never
+# arrived at any of them. `cargo clippy --all-targets -- -D warnings` was green
+# because the rule was absent, not because the code obeyed — forcing the clone
+# lints on the command line surfaced two real `redundant_clone` hits in
+# `tests/residual_report_contract.rs` that the green gate had never seen, while
+# the identical pattern in `src/residual/tests.rs` was caught the day before
+# because that file compiles INSIDE the lib. The `[lints]` table (Cargo 1.74+) is
+# the only mechanism Cargo injects into every target of the package.
+[lints.rust]
+missing_docs = "warn"
+# Safety hygiene: `unsafe` inside an `unsafe fn` still needs its own block.
+unsafe_op_in_unsafe_fn = "deny"
+# `static mut` references are a silent aliasing bug factory
+# (rules_rust_const_static_inicializacao).
+static_mut_refs = "deny"
+
+[lints.rustdoc]
+missing_crate_level_docs = "warn"
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "warn"
+invalid_html_tags = "deny"
+invalid_rust_codeblocks = "deny"
+bare_urls = "deny"
+redundant_explicit_links = "warn"
+
+[lints.clippy]
+# Document every `unsafe` block (rules: English + crates.io safety docs).
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+# Interior-mutable `const` duplicates state per use site, silently.
+declare_interior_mutable_const = "deny"
+borrow_interior_mutable_const = "deny"
+# Ownership / borrowing hygiene (rules_rust_ownership_borrowing_lifetimes).
+redundant_clone = "warn"
+needless_pass_by_value = "warn"
+ptr_arg = "warn"
+implicit_clone = "warn"
+unnecessary_to_owned = "warn"
+cloned_instead_of_copied = "warn"
+map_clone = "warn"
+mut_mut = "warn"
+needless_lifetimes = "warn"
+
+# Product rules the compiler can enforce, instead of six shell scripts and one
+# home-grown regex scanner grepping for them after the fact. Every one below was
+# measured at zero or near-zero violations before being switched on, so this is
+# ratcheting a rule the code already follows — not a migration.
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+exit = "deny"
+mem_forget = "deny"
+panic_in_result_fn = "deny"
+float_cmp = "warn"
+# All agent-consumable output goes through `src/output.rs`, which writes to a
+# locked `io::stdout()` handle rather than through the print macros.
+print_stdout = "warn"
+print_stderr = "warn"
+# `# Panics` on anything public that can panic. Switching this on found a real
+# one: `retry_blocking` panicked when `max_attempts` was zero, a value reachable
+# from an unvalidated XDG key.
+missing_panics_doc = "warn"
+# Zero `unwrap()` in production is a product rule that until now only a regex
+# scanner enforced. `allow-unwrap-in-tests = true` in clippy.toml keeps fixtures
+# out of it, where an unwrap IS the assertion.
+unwrap_used = "warn"
+
+# NOT enabled, with the measurement that decided it. Every count below names its
+# cut, because the two cuts differ by more than an order of magnitude and an
+# unqualified number is exactly what went wrong here: the previous version of
+# this comment recorded 535 and 777, and re-measuring on 2026-08-25 reproduced
+# neither under `--all-targets` nor under `--lib`. A number written without the
+# command that produced it cannot be checked, only believed.
+#
+# Measured 2026-08-25 with `cargo clippy <cut> --all-features --locked
+# --message-format=json -- -W clippy::<lint>`, counting `message.code.code`:
+#
+# `expect_used` — 503 across all targets, 19 in the library. The 19 are the
+# production ones and they are infallible by construction: a literal regex in a
+# `LazyLock`, `as_object_mut()` on a `json!` built two lines above,
+# `DropAnchor::parse("center")`. Each is already documented at its line. Enabling
+# the lint would add 19 `#[allow]` attributes that repeat what the doc comment
+# already says, and would train reviewers to scroll past them. The other 484 are
+# fixtures, where `allow-expect-in-tests = true` in clippy.toml would exempt them
+# anyway.
+#
+# `indexing_slicing` — 1548 across all targets, 241 in the library. This is a
+# `restriction` lint for codebases that must not panic at all; adopting it here
+# is a rewrite of the codebase, not a configuration change. Recorded as an open
+# item rather than switched on and blanket-allowed, which would be the same as
+# not adopting it while pretending otherwise.
 
 [[bin]]
 name = "browser-automation-cli"
@@ -243,7 +338,14 @@ robotstxt = "0.3"
 # docs.rs enables it via all-features = true.
 aquamarine = { version = "0.6", optional = true }
 directories = "5"
-scraper = "0.22"
+# 0.27 rather than 0.22 for `fxhash`: 0.22 pinned `selectors 0.26`, whose only
+# hasher was `fxhash 0.2.1` — unmaintained since 2025-09-05 (RUSTSEC-2025-0057)
+# and, until this bump, carried as a named exception in `deny.toml`. 0.27
+# resolves `selectors 0.38`, which dropped `fxhash` outright, so the exception
+# is retired rather than renewed. The API this crate touches is the stable core
+# — `Html::parse_document`, `Selector::parse`, `select`, `text`, `value`, `attr`
+# and `html` across 15 files — and none of it changed over the five minors.
+scraper = "0.27"
 encoding_rs = "0.8"
 quick-xml = "0.41"
 # RSS 0.9/1.0/2.0 + Atom + JSON Feed parsing for scrape `--format feed`.
@@ -271,7 +373,20 @@ csv = "1.3"
 ignore = "0.4"
 regex = "1"
 qrcode = "0.14"
-rqrr = "0.9"
+# 0.10 rather than 0.9 for `lru`: 0.9.3 pinned `lru 0.12.5`, which carries two
+# RustSec `unsound` advisories — RUSTSEC-2026-0002 (`IterMut` invalidates an
+# internal pointer, violating Stacked Borrows) and RUSTSEC-2026-0253 (missing
+# panic safety in `LruCache::pop`, a potential use-after-free). 0.10.1 resolves
+# `lru 0.16.4`, which clears the first and NOT the second: RUSTSEC-2026-0253 is
+# patched only in `>= 0.18.2`, and `rqrr 0.10.1` declares `lru = "^0.16"`, so no
+# resolution of this manifest can reach the fix. That one advisory is upstream-
+# bound until rqrr widens its requirement — measured 2026-08-29, not assumed,
+# because the previous note in `deny.toml` called the whole `lru` pair upstream-
+# bound and a bump cleared half of it.
+# The API this crate touches — `PreparedImage::prepare`, `detect_grids` and
+# `Grid::decode` in `src/qr_local.rs` — is unchanged across the bump, which is
+# why a pre-1.0 minor was affordable here.
+rqrr = "0.10"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 # Pure-Rust EXIF reader for `image info` / `image exif` (no FFI; multiplatform).
 kamadak-exif = "0.6"
@@ -438,6 +553,14 @@ media-manifest = ["dep:m3u8-rs", "dep:dash-mpd"]
 # Mermaid lifecycle diagrams in rustdoc via aquamarine (docs.rs / cargo doc only).
 # Not on default: aquamarine → proc-macro-error2 currently emits future-incompat.
 docs-mermaid = ["dep:aquamarine"]
+# Turn every announced skip in the integration suite into a hard failure.
+#
+# The suite prints "This is NOT a pass" and then returns normally, so libtest
+# counts the test as passed. `scripts/ci-check.sh` runs `--all-features`, which
+# enables this flag, so a declined gate now fails the run instead of hiding
+# inside a green summary. Measured 2026-08-18: zero skips on a host with Chrome
+# and a built binary, so enabling it changed nothing but what a green means.
+strict-gates = []
 # Scaffold only — additional FTL packs land behind these flags when translated.
 i18n-cjk = []
 i18n-rtl = []

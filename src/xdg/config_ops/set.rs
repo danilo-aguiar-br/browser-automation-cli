@@ -5,11 +5,22 @@ use serde_json::{json, Value};
 
 use super::super::config_io::{load_config, write_config};
 use super::super::config_model::ProductConfig;
-use super::validate::{parse_boolish, parse_positive_u64, parse_quality_u8, parse_u64};
+use super::validate::{
+    parse_boolish, parse_positive_u64, parse_quality_u8, parse_u64, reject_untransportable_value,
+};
 use crate::error::{CliError, ErrorKind};
 
 /// Apply a strict `config set` mutation (validates ranges).
+///
+/// The first check is format-level and applies to every key, present and
+/// future: a value carrying a quote or a newline cannot be stored, because the
+/// writer interpolates it between quotes and the reader parses line by line.
+/// Without it a value can close its own string and declare a key of its
+/// choosing, which for a key naming an executable is code execution. It runs
+/// here, at the one funnel every key passes through, rather than in the family
+/// setters, so a key added later is covered without anyone remembering to.
 fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliError> {
+    super::validate::reject_unrepresentable_value(key, value)?;
     if super::set_media::apply_media_set(cfg, key, value)? {
         return Ok(());
     }
@@ -107,6 +118,20 @@ fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliE
             }
             cfg.input_profile = Some(normalized);
         }
+        "input_timing_distribution" => {
+            // Validated on write for the same reason as input_profile, and the
+            // stakes are higher: an unparsable token falls back to `lognormal`
+            // at interaction time, so an operator asking for `uniform` to
+            // reproduce an old trace would get the new shape and never be told.
+            let normalized = value.trim().to_ascii_lowercase();
+            if crate::native::interaction::TimingDistribution::parse(&normalized).is_none() {
+                return Err(CliError::new(
+                    ErrorKind::Usage,
+                    "input_timing_distribution must be `lognormal`, `normal` or `uniform`",
+                ));
+            }
+            cfg.input_timing_distribution = Some(normalized);
+        }
         "browser_mode" => {
             // Same reason input_profile validates on write: a bad token would
             // otherwise resolve to the default at launch, so the operator sets
@@ -133,6 +158,17 @@ fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliE
             }
             cfg.stealth_profile = Some(normalized);
         }
+        "screen" => {
+            let trimmed = value.trim();
+            crate::native::stealth::parse_screen_spec(trimmed).map_err(|e| {
+                CliError::with_suggestion(
+                    ErrorKind::Usage,
+                    e,
+                    crate::i18n::suggestion_key("screen_spec_format", None),
+                )
+            })?;
+            cfg.screen = Some(trimmed.to_string());
+        }
         "robots_user_agent" => {
             let trimmed = value.trim();
             if trimmed.is_empty() {
@@ -146,6 +182,7 @@ fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliE
         "cache_backend" => cfg.cache_backend = Some(value.to_string()),
         "cache_redis_url" => cfg.cache_redis_url = Some(value.to_string()),
         "search_base_url" => cfg.search_base_url = Some(value.to_string()),
+        "user_data_dir" => cfg.user_data_dir = Some(value.to_string()),
         "lightpanda_startup_timeout_secs" => {
             cfg.lightpanda_startup_timeout_secs = Some(value.parse().map_err(|_| {
                 CliError::new(
@@ -273,7 +310,19 @@ fn apply_set(cfg: &mut ProductConfig, key: &str, value: &str) -> Result<(), CliE
 }
 
 /// Set one string key in config and persist.
+///
+/// # Errors
+///
+/// [`ErrorKind::Usage`] when the value carries a character that cannot survive
+/// the config round-trip (see `reject_untransportable_value`), when `key` is
+/// outside the catalog, or when the value fails its family validator
+/// (`apply_media_set`, `apply_network_set` and `apply_scrape_set`).
+/// [`ErrorKind::Config`] propagated from [`load_config`] when the file already
+/// on disk carries an unreadable value for a known key.
+/// [`ErrorKind::Io`] from [`load_config`] or [`write_config`] when the config
+/// path cannot be resolved, read, or atomically rewritten.
 pub fn config_set(key: &str, value: &str) -> Result<Value, CliError> {
+    reject_untransportable_value(key, value)?;
     let mut cfg = load_config()?;
     apply_set(&mut cfg, key, value)?;
     let path = write_config(&cfg)?;

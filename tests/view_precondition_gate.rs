@@ -41,39 +41,17 @@
 //!
 //! No binary or no Chrome means SKIP LOUDLY.
 
-use std::path::PathBuf;
-use std::process::Command;
+mod common;
+use common::{binary, binary_or_skip, chrome_not_ready};
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn binary() -> Option<PathBuf> {
-    let p = root().join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
+const GATE: &str = "view_precondition_gate";
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    let Some(bin) = binary() else {
-        eprintln!(
-            "SKIP view_precondition_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    let Some(bin) = binary_or_skip(GATE) else {
         return true;
     };
-    let chrome_ok = Command::new(&bin)
-        .args(["-q", "--json", "doctor", "--offline", "--quick"])
-        .output()
-        .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if !chrome_ok {
-        eprintln!(
-            "SKIP view_precondition_gate: doctor reports the host is not ready for Chrome. \
-             This is NOT a pass."
-        );
+    if chrome_not_ready(GATE, &bin) {
         return true;
     }
     false
@@ -82,7 +60,7 @@ fn cannot_run() -> bool {
 /// Run the CLI and return (exit code, parsed envelope).
 fn run(args: &[&str]) -> Option<(i32, serde_json::Value)> {
     let bin = binary()?;
-    let out = Command::new(&bin)
+    let out = common::isolated_cmd(&bin)
         .args(["-q", "--timeout", "90", "--json"])
         .args(args)
         .output()
@@ -166,7 +144,11 @@ fn view_with_allow_empty_succeeds_on_a_blank_page() {
 #[test]
 fn malformed_argv_still_answers_usage() {
     if binary().is_none() {
-        eprintln!("SKIP view_precondition_gate: binary absent. This is NOT a pass.");
+        common::skip_with_remedy(
+            "view_precondition_gate",
+            "target/debug/browser-automation-cli absent.",
+            "run `cargo build` first.",
+        );
         return;
     }
     // No Chrome needed: clap rejects before any browser work.

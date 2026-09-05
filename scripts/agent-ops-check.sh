@@ -21,6 +21,12 @@
 # CLEAN STDOUT: one status line per assertion on stdout; diagnostics on stderr.
 set -uo pipefail
 
+# Gate determinism: the user's ripgrep config is outside version control and
+# changes RESULTS, not formatting (`--smart-case` widens matches, `--max-columns`
+# truncates them away). Clearing the variable neutralizes the whole file; `-s`
+# would close only one of those doors.
+export RIPGREP_CONFIG_PATH=
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -150,9 +156,10 @@ scan_scope_violations locales/pt-BR.ftl "pt-BR"
 # checks every citation in the catalogs against that universe, and forbids
 # suggestion prose from being assembled outside `src/i18n/` at all.
 # The scan now lives in `tests/phantom_flag_gate.rs`, which `ci-check` runs under
-# `cargo test --tests`. It moved on 2026-08-10 because it was a Python script,
-# and this line made `ci-check` — the product's own closure criterion — fail on
-# any host without python3, under `set -euo pipefail`, with no guard. The tool is
+# `cargo test --tests`. It moved on 2026-08-10 because it was an interpreted
+# script, and this line made `ci-check` — the product's own closure criterion —
+# fail on any host without that interpreter, under `set -euo pipefail`, with no
+# guard. The tool is
 # Rust end to end, so its gates are too. Coverage is unchanged: the three
 # properties are the same three, and the port resolves the binary through
 # `CARGO_BIN_EXE_` instead of guessing between debug and release.

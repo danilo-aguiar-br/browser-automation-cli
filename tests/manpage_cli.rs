@@ -1,12 +1,10 @@
 //! Man page generation (clap_mangen) integration.
 
-use std::process::Command;
-
-const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
+mod common;
 
 #[test]
 fn man_stdout_is_roff() {
-    let out = Command::new(BIN)
+    let out = common::cmd()
         .args(["man"])
         .env("NO_COLOR", "1")
         .output()
@@ -28,7 +26,7 @@ fn man_stdout_is_roff() {
 fn man_out_writes_file_atomically() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("browser-automation-cli.1");
-    let out = Command::new(BIN)
+    let out = common::cmd()
         .args(["man", "--out"])
         .arg(&path)
         .env("NO_COLOR", "1")
@@ -45,7 +43,7 @@ fn man_out_writes_file_atomically() {
 
 #[test]
 fn man_rejects_path_traversal() {
-    let out = Command::new(BIN)
+    let out = common::cmd()
         .args(["man", "--out", "../evil.1"])
         .env("NO_COLOR", "1")
         .output()

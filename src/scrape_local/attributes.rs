@@ -24,6 +24,42 @@
 use scraper::{Html, Selector};
 use serde_json::{json, Value};
 
+/// Read `name` from `el` as an attribute, falling back to a DOM property.
+///
+/// # Why the fallback exists
+///
+/// `textContent`, `innerText`, `innerHTML` and `outerHTML` are *properties*,
+/// not attributes, so `getAttribute` returns null for all four. Until 0.1.9
+/// this path was `el.value().attr(name)` alone, which meant
+/// `--attribute-name textContent` answered `count: 0` with `ok: true` — the
+/// envelope said "nothing matched" when the truth was "the elements matched and
+/// the name is not an attribute". The caller then debugged a CSS selector that
+/// was already correct.
+///
+/// The browser-side sibling of this function, `native::element::queries::
+/// attributes`, has tried the property since it was written: it does
+/// `getAttribute(n)` and falls through to `this[n]`. So the product already
+/// agreed on the behaviour and only one of the two readers implemented it.
+/// This closes that split rather than inventing a new rule.
+///
+/// Returns `None` when neither an attribute nor a known property is present, so
+/// an absent value still drops out of the result instead of becoming `""`.
+fn read_attribute_or_property(el: &scraper::ElementRef<'_>, name: &str) -> Option<String> {
+    if let Some(value) = el.value().attr(name) {
+        return Some(value.to_string());
+    }
+    match name {
+        // `text()` yields every descendant text node, which is what the DOM
+        // returns for both of these; `innerText` differs from `textContent`
+        // only by layout-dependent whitespace collapsing, and there is no
+        // layout in a parsed-document scrape to make that distinction real.
+        "textContent" | "innerText" => Some(el.text().collect::<String>()),
+        "innerHTML" => Some(el.inner_html()),
+        "outerHTML" => Some(el.html()),
+        _ => None,
+    }
+}
+
 /// One row per requested `(selector, attribute)` pair, in the order asked.
 ///
 /// Order is preserved so the caller can zip the result against its own input
@@ -37,9 +73,9 @@ pub(super) fn extract_attributes(html: &str, targets: &[(String, String)]) -> Ve
         .iter()
         .map(|(selector, attribute)| match Selector::parse(selector) {
             Ok(parsed) => {
-                let values: Vec<&str> = document
+                let values: Vec<String> = document
                     .select(&parsed)
-                    .filter_map(|el| el.value().attr(attribute))
+                    .filter_map(|el| read_attribute_or_property(&el, attribute))
                     .collect();
                 json!({
                     "selector": selector,

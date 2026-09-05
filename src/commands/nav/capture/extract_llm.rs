@@ -63,13 +63,23 @@ pub(crate) fn handle_extract_llm_text(
     schema_json: Option<&std::path::Path>,
     json: bool,
 ) -> Result<(), CliError> {
+    // Ceiling AND allowed-roots, not a bare read: `--schema-json` names a path
+    // the caller controls, exactly like `run --script`'s include arm, which
+    // calls `ensure_read_allowed` before reading through this same helper.
+    //
+    // Only half of that symmetry was here. The byte ceiling was applied, so the
+    // allocation was bounded; the roots check was not, so the PATH was not — the
+    // flag could read a file the workspace policy refuses to any other read in
+    // the product. A ceiling answers "how much", and the roots check answers
+    // "which file"; they are different questions and this one went unasked.
     let schema_body = match schema_json {
-        Some(p) => Some(std::fs::read_to_string(p).map_err(|e| {
-            CliError::new(
-                ErrorKind::Io,
-                format!("read schema-json {}: {e}", p.display()),
-            )
-        })?),
+        Some(p) => {
+            crate::fs_roots::ensure_read_allowed(p)?;
+            Some(crate::json_util::read_text_file_limited(
+                p,
+                crate::xdg::resolve_max_json_file_bytes(),
+            )?)
+        }
         None => None,
     };
     if source_text.trim().is_empty() {

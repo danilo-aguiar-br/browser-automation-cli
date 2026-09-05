@@ -12,6 +12,28 @@ use crate::robots::RobotsPolicy;
 
 use super::super::super::RunFlags;
 use super::super::helpers::step_beforeunload_action;
+
+/// Actions the `page` arm below accepts, aliases included.
+///
+/// The empty string is a real member: the dispatcher treats `"action": ""` as
+/// `info`, so omitting it from the slice would make preflight reject a step the
+/// dispatcher runs. See [`COOKIE_ACTIONS`](super::state::COOKIE_ACTIONS) for
+/// why the slice lives beside the `match` instead of in the preflight.
+pub(crate) const PAGE_ACTIONS: &[&str] = &[
+    "info",
+    "",
+    "list",
+    "new",
+    "select",
+    "close",
+    "tab-id",
+    "tab_id",
+    "get_tab_id",
+];
+
+/// Actions the `dialog` arm below accepts.
+pub(crate) const DIALOG_ACTIONS: &[&str] = &["accept", "dismiss"];
+
 pub(super) async fn handle(
     session: &mut OneShotSession,
     cmd: &str,
@@ -114,16 +136,35 @@ pub(super) async fn handle(
                 .or_else(|| step.get("ifPresent"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let result = match action {
-                "accept" => session.dialog(true, text).await,
-                "dismiss" => session.dialog(false, None).await,
-                other => {
-                    return Err(CliError::new(
+            let result =
+                match action {
+                    "accept" => session.dialog(true, text).await,
+                    // Refuse the pair rather than drop half of it.
+                    //
+                    // `text` is the prompt response, and CDP only carries it when
+                    // the dialog is ACCEPTED: dismissing cancels the prompt, so
+                    // there is nothing to submit. Passing `None` here is therefore
+                    // the right BEHAVIOUR, but it used to be silent — a step
+                    // reading `{"action":"dismiss","text":"..."}` answered
+                    // `ok: true` with the text gone and no word about it.
+                    //
+                    // Same shape as `perf insight --path` beside
+                    // `--insight-set-id`: two keys of one action that cannot both
+                    // be honoured, where answering the half you can serve looks
+                    // like success for a request nobody made.
+                    "dismiss" if text.is_some() => return Err(CliError::new(
                         ErrorKind::Usage,
-                        format!("unknown dialog action: {other}"),
-                    ))
-                }
-            };
+                        "dialog dismiss cancels the prompt and sends no text; drop `text`, or use \
+                         action `accept` to submit it",
+                    )),
+                    "dismiss" => session.dialog(false, None).await,
+                    other => {
+                        return Err(CliError::new(
+                            ErrorKind::Usage,
+                            format!("unknown dialog action: {other}"),
+                        ))
+                    }
+                };
             match result {
                 Ok(v) => Ok(v),
                 Err(e) if if_present => {

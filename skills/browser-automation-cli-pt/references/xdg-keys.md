@@ -20,7 +20,7 @@
 - `lang` — override de idioma das mensagens (`en|pt-BR`; `pt` puro é rejeitado). Padrão: nenhum.
 - `timeout` — timeout global em segundos. Padrão: `0`.
 - `artifacts_dir` — diretório de saída de artefatos. Padrão: nenhum.
-- `ignore_robots` — ignorar robots por padrão (as flags continuam obrigatórias). Padrão: nenhum.
+- `ignore_robots` — ignorar robots por padrão (as flags continuam obrigatórias). Padrão: `false`.
 - `namespace` — namespace isolado de estado. Padrão: nenhum.
 - `encryption_key` — material da chave de criptografia de sessão. Padrão: nenhum.
 - `color` — cores ANSI no stderr humano. Padrão: nenhum.
@@ -30,12 +30,13 @@
 - `stealth` — patches anti-detecção antes da primeira navegação (`--no-stealth` desliga). Padrão: `true`.
 - `stealth_profile` — identidade personificada: `auto|chrome-linux|chrome-win|chrome-mac`. Padrão: `auto`.
 - `stealth_seed` — fixa a identidade de stealth entre processos (ausente é redesenhada por processo). Padrão: nenhum.
+- `screen` — tela padrão `WxH` para device metrics (ausente = espelha o viewport). Padrão: nenhum.
 - `browser_mode` — modo de janela: `auto|headed|headless` (auto resolve para headless; o doctor reporta). Padrão: `auto`.
 
 
 ## Logging Local
 - `log_level` — `EnvFilter` de tracing quando as flags de argv silenciam (sem `RUST_LOG`). Padrão: `error`.
-- `log_to_file` — logs JSON locais rotacionados sob XDG state (nunca remotos). Padrão: nenhum.
+- `log_to_file` — logs JSON locais rotacionados sob XDG state (nunca remotos). Padrão: `false`.
 - `max_log_files` — número de arquivos de log rotacionados retidos (1..=90). Padrão: `14`.
 - `log_rotation` — política de rotação: `daily|hourly|never`. Padrão: `daily`.
 
@@ -59,7 +60,7 @@
 ## Cache e Redis
 - `cache_backend` — backend de cache: `sqlite|memory|redis`. Padrão: `sqlite`.
 - `cache_redis_url` — URL do Redis quando o backend é `redis`. Padrão: nenhum.
-- `redis_allow_remote` — permitir hosts Redis fora de loopback (padrão falso). Padrão: nenhum.
+- `redis_allow_remote` — permitir hosts Redis fora de loopback (padrão falso). Padrão: `false`.
 - `redis_connect_timeout_secs` — timeout de conexão TCP com o Redis (segundos). Padrão: `2`.
 - `redis_io_timeout_secs` — timeout de I/O do stream Redis ou RESP (segundos). Padrão: `3`.
 - `cache_max_resp_bulk_bytes` — teto de tamanho da bulk string RESP do Redis (bytes). Padrão: `16777216`.
@@ -70,6 +71,7 @@
 
 ## Busca Web
 - `search_base_url` — base do endpoint de busca HTML (`?q=` é anexado). Padrão: `https://html.duckduckgo.com/html/`.
+- `user_data_dir` — diretório de perfil persistente do Chrome, opt-in; ausente preserva residual-zero. Mode 0700 em Unix; `--profile` vence. Padrão: ausente.
 
 
 ## Limites de Payload e Raízes
@@ -114,6 +116,16 @@
 - `input_scroll_max_ticks` — teto de ticks de roda por gesto de rolagem (uma ida e volta CDP cada). Padrão: `40`.
 - `input_target_jitter_px` — raio do deslocamento aleatório aplicado ao alvo do clique (pixels CSS). Padrão: `3`.
 - `input_scroll_settle_rounds` — rodadas extras permitidas para entregar um delta de roda descartado pelo renderizador. Padrão: `3`.
+- `input_timing_distribution` — forma da dispersão em torno dos atrasos de input: `lognormal|normal|uniform`; governa só o ritmo rápido, e a cauda de pausas longas é `input_word_pause_permille`. Padrão: `lognormal`.
+- `input_move_steps_stddev` — desvio padrão do orçamento de amostras de ponteiro por gesto. Padrão: `6`.
+- `input_move_gap_stddev_ms` — desvio padrão do atraso entre posições de ponteiro (milissegundos). Padrão: `5`.
+- `input_click_dwell_stddev_ms` — desvio padrão da retenção entre pressionar e soltar (milissegundos). Padrão: `26`.
+- `input_key_dwell_stddev_ms` — desvio padrão da retenção entre `keyDown` e `keyUp` (milissegundos). Padrão: `18`.
+- `input_type_delay_stddev_ms` — desvio padrão do atraso entre caracteres (milissegundos). Padrão: `40`.
+- `input_scroll_tick_stddev_px` — desvio padrão da distância que um tick de roda carrega (pixels CSS). Padrão: `25`.
+- `input_word_pause_ms` — média da pausa extra tomada em limite de palavra ou de frase (milissegundos). Padrão: `320`.
+- `input_word_pause_permille` — chance em mil de um limite de palavra ganhar uma pausa longa. Padrão: `120`.
+- `input_typo_permille` — chance em mil de um caractere ser digitado errado, apagado com `Backspace` e redigitado; o campo termina com o texto pedido. `0` por padrão porque esta muda o FLUXO DE CARACTERES que a página lê, e não apenas o tempo. Padrão: `0`.
 
 
 ## CDP e Sessão Chrome
@@ -125,8 +137,10 @@
 - `cdp_target_event_wait_ms` — espera curta por evento de target no CDP (milissegundos). Padrão: `600`.
 - `cdp_discovery_timeout_secs` — timeout de descoberta HTTP do CDP para sondas `/json/version` (segundos). Padrão: `2`.
 - `event_tracker_max_entries` — tamanho do anel em memória do rastreador de console e rede por sessão de página. Padrão: `1000`.
+- `capture_preserved_rings` — fronteiras de navegação mantidas para `--include-preserved` de console e rede. Padrão: `3`.
 - `chrome_default_timeout_ms` — timeout padrão por operação do motor Chrome (milissegundos). Padrão: `25000`.
 - `extension_attach_poll_ms` — fatia de polling de attach de extensão (milissegundos). Padrão: `150`.
+- `extension_attach_poll_iters` — iterações de polling de attach de extensão; fatia vezes iterações é a espera total. Padrão: `20`.
 
 
 ## HTTP e Segurança de Rede
@@ -157,9 +171,8 @@
 ## Robots
 - `robots_loopback_exempt` — hosts de loopback pulam o robots.txt (defina falso para impor contra localhost). Padrão: `true`.
 - `robots_user_agent` — token de user-agent contra o qual as regras do robots.txt são casadas. Padrão: nenhum.
-- `robots_probe_timeout_secs` — timeout de HEAD ou sonda do robots.txt (segundos). Padrão: `5`.
+- `robots_probe_timeout_secs` — timeout da requisição do robots.txt (segundos). Padrão: `5`.
 - `robots_max_body_bytes` — máximo de bytes do corpo do robots.txt (anti-OOM). Padrão: `524288`.
-- `robots_fetch_timeout_secs` — timeout para buscar o robots.txt (segundos). Padrão: `30`.
 
 
 ## Imagem e SVG
@@ -204,10 +217,10 @@
 - `scrape_delay_jitter_ratio` — razão de jitter do atraso de cortesia 0.0..=1.0 (0 desliga). Padrão: `0.2`.
 - `scrape_summary_chars` — máximo de caracteres do formato summary de scrape. Padrão: `400`.
 - `scrape_feed_max_entries` — máximo de entradas mantidas pelo formato feed de scrape (RSS, Atom, JSON Feed). Padrão: `50`.
-- `scrape_follow_rel_next` — seguir links de paginação `rel=next` durante o crawl. Padrão: nenhum.
-- `scrape_dedup_similar` — colapsar páginas quase duplicadas por similaridade de conteúdo em crawl e batch-scrape. Padrão: nenhum.
+- `scrape_follow_rel_next` — seguir links de paginação `rel=next` durante o crawl. Padrão: `false`.
+- `scrape_dedup_similar` — colapsar páginas quase duplicadas por similaridade de conteúdo em crawl e batch-scrape. Padrão: `false`.
 - `scrape_dedup_similar_distance` — distância de Hamming SimHash (0..=64) abaixo da qual as páginas são quase duplicadas. Padrão: `3`.
-- `scrape_sitemap_max_bytes` — máximo de bytes do corpo do sitemap. Padrão: `524288`.
+- `scrape_sitemap_max_bytes` — máximo de bytes do corpo do sitemap. Padrão: `2000000`.
 - `scrape_charset_peek_bytes` — janela de inspeção para detectar charset (bytes). Padrão: `4096`.
 - `scrape_crawl_limit_max` — orçamento máximo de páginas no crawl (clamp anti-DoS para `--limit`). Padrão: `500`.
 - `scrape_crawl_max_depth` — profundidade máxima de BFS em crawl e map. Padrão: `10`.
@@ -241,11 +254,11 @@
 - `chrome_startup_timeout_secs` — espera de prontidão CDP no self-spawn do Chrome (segundos). Padrão: `20`.
 - `residual_orphan_min_age_secs` — idade mínima antes que um perfil marcador de dono morto seja coletável (segundos). Padrão: `60`.
 - `platform_child_wait_secs` — prazo de espera do processo filho da plataforma (segundos). Padrão: `5`.
-- `shutdown_poll_ms` — intervalo de polling cooperativo de shutdown (milissegundos). Padrão: `5`.
+- `platform_child_poll_ms` — intervalo de sondagem de saída do processo filho durante o FINALIZE (milissegundos). Padrão: `50`.
 - `shutdown_deadline_secs` — prazo duro de shutdown aguardando a saída do browser (segundos). Padrão: `30`.
-- `chrome_legacy_oxide_launch` — lançar o Chrome via chromiumoxide em vez do caminho de self-spawn (fallback de estabilização; perde o alvo de kill residual). Padrão: nenhum.
-- `default_viewport_width` — largura padrão da janela do Chrome headless quando as opções de launch omitem viewport. Padrão: `1280`.
-- `default_viewport_height` — altura padrão da janela do Chrome headless quando as opções de launch omitem viewport. Padrão: `720`.
+- `chrome_legacy_oxide_launch` — lançar o Chrome via chromiumoxide em vez do caminho de self-spawn (fallback de estabilização; perde o alvo de kill residual). Padrão: `false`.
+- `default_viewport_width` — largura padrão da janela do Chrome headless (`--window-size`) quando as opções de launch omitem viewport. Padrão: `1920`.
+- `default_viewport_height` — altura padrão da janela do Chrome headless (`--window-size`) quando as opções de launch omitem viewport. Padrão: `1080`.
 
 
 ## Lightpanda

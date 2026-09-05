@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use super::super::validate::{normalize_codec, OutputContainer};
+use super::super::container_matrix::{normalize_codec, OutputContainer};
 
 /// Options for container convert / remux.
 #[derive(Debug, Clone)]

@@ -1,0 +1,44 @@
+# Clippy configuration for the whole package.
+#
+# `msrv` is NOT set here: Clippy reads `package.rust-version` from `Cargo.toml`
+# since 1.74, and declaring it twice invites the two to drift apart.
+#
+# `too-many-arguments-threshold` is NOT set here either, and that absence is a
+# decision rather than an oversight. The 42 `#[allow(clippy::too_many_arguments)]`
+# attributes in `src/` sit on functions carrying between 7 and 33 parameters
+# (measured 2026-08-25); the top of that distribution is the CLI dispatch layer,
+# where each parameter is one clap flag. A threshold that retired those 42
+# attributes would have to be 33, which switches the lint off for the entire
+# crate — including every function written from here on. A local `#[allow]` marks
+# the debt at the exact line that owes it and shows up in review; a global
+# threshold hides the same debt in a file nobody opens. The attributes stay.
+
+# `clippy::unwrap_used` is enabled package-wide in `Cargo.toml`. Production code
+# holds zero `unwrap()` calls; the ~415 that exist are all fixtures, where an
+# unwrap IS the assertion and rewriting them would only bury the failure. This
+# switch is what makes the lint state the real rule — "no unwrap in production"
+# — instead of a rule nobody could adopt.
+allow-unwrap-in-tests = true
+# Print macros inside `#[test]` functions address the human running the suite,
+# not an agent parsing stdout, so `print_stdout` / `print_stderr` do not apply
+# there. Helpers that are NOT themselves `#[test]` — `skip_with_reason` and
+# friends — fall outside this switch and carry a local `#[allow]` instead, which
+# is the correct split: the announcement surface is named, everything else is
+# still caught.
+allow-print-in-tests = true
+# Same reasoning for `expect()` inside fixtures. Note that `expect_used` itself
+# is deliberately NOT enabled (see Cargo.toml); this setting is here so that
+# turning it on later is a one-line change rather than a 500-site migration.
+allow-expect-in-tests = true
+
+# The product bans mutating its own process environment. `std::env::set_var` and
+# `std::env::remove_var` are unsound in a multi-threaded program on every
+# platform except Windows — the std docs require that no other thread even READS
+# the environment concurrently, and libc reads it without announcing (address
+# resolution is the example the docs themselves give). Both become `unsafe` in
+# edition 2024. The two remaining call sites carry a local `#[allow]` with the
+# reason written next to them; a third one must not appear by accident.
+disallowed-methods = [
+    { path = "std::env::set_var", reason = "unsound off Windows; parameterize the function or use Command::env on the child" },
+    { path = "std::env::remove_var", reason = "unsound off Windows; parameterize the function or use Command::env_remove on the child" },
+]

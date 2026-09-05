@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Measure RSS baseline for release binary (rules_rust_economia_de_recursos).
+# NOT a ci-check verifier: a MEASUREMENT tool with no pass/fail contract. Its
+# numbers depend on the host — cores, load, thermal state — so a bundle step
+# built on it would report the machine rather than the product, which is the
+# one thing a gate must never do.
 # Ground truth: "Maximum resident set size" from /usr/bin/time -v (or GNU time).
 # No GitHub Actions / CD — local / operator script only.
 set -euo pipefail

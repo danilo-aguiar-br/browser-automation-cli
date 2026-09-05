@@ -38,15 +38,26 @@
 //! 2. No file outside `src/i18n/` may pass an inline literal containing `--` as
 //!    the suggestion argument of `with_suggestion`. That removes the escape
 //!    hatch that let a suggestion be built by `format!` in the first place.
-//! 3. Every `pub fn name()` published by `src/browser_policy.rs` must have at
-//!    least one production call site. `--headed` was declared, resolved into a
-//!    process global, and read at zero call sites for three releases.
+//! 3. Every top-level `pub fn` published by a module that also holds
+//!    process-wide state must have at least one production call site. `--headed`
+//!    was declared, resolved into a process global, and read at zero call sites
+//!    for three releases. The set of such modules is DISCOVERED from the source,
+//!    not listed: a hand-kept list of three files was the reason
+//!    `src/mitm_local/policy.rs` could publish a getter nobody read.
+//!
+//!    Arity was a declared limitation of that property until 2026-09-04: it read
+//!    only `pub fn name()`, so a published `pub fn name(arg)` that nobody calls
+//!    was invisible, and hiding a dead getter behind one parameter was enough to
+//!    walk out of the gate. Inherent methods inside `impl` blocks stay out of
+//!    scope on purpose — they are reached through a receiver whose type this
+//!    line-based scan cannot resolve, and guessing at it would either report the
+//!    whole crate or ratify it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
+mod common;
+use common::root;
 
 /// Files whose literals are user-facing advice. Everything else in `src/` is
 /// allowed to spell foreign argv — Chrome switches, `redis-server` options, the
@@ -56,8 +67,67 @@ const CATALOG_FILES: &[&str] = &["src/i18n/en.rs", "src/i18n/pt_br.rs"];
 /// Where suggestion text is allowed to live at all.
 const SUGGESTION_HOME: &str = "src/i18n/";
 
-/// Where the resolved policy is published to the rest of the process.
-const POLICY_FILE: &str = "src/browser_policy.rs";
+/// The types whose `static` declaration marks a module as publishing state to
+/// the whole process rather than to its own caller.
+///
+/// A `static X: AtomicBool` or a `static X: OnceLock<T>` is resolved once and
+/// then read from anywhere, which is precisely the shape that can be published
+/// and never read. A plain `const` is not here: it is inlined at every use and
+/// cannot drift away from its readers.
+const PROCESS_STATE_TYPES: &[&str] = &[
+    "AtomicBool",
+    "AtomicUsize",
+    "AtomicU32",
+    "AtomicU64",
+    "AtomicI64",
+    "OnceLock",
+    "LazyLock",
+    "Lazy",
+];
+
+/// Path prefixes that may spell those types without owning readable state.
+///
+/// Written out so that `std::sync::OnceLock<T>` and `once_cell::sync::Lazy<T>`
+/// are recognised as the same declaration as their bare form.
+const STATE_TYPE_PREFIXES: &[&str] = &[
+    "std::sync::atomic::",
+    "std::sync::",
+    "core::sync::atomic::",
+    "once_cell::sync::",
+    "once_cell::",
+];
+
+/// A near-empty published-name set means the walk failed.
+///
+/// Re-pinned 2026-09-01. The old floor of 8 was calibrated against a hand-kept
+/// list of three files under `src/browser_policy/`, so it could not have
+/// detected the structural miss it was supposed to guard: the discovery found
+/// 17 modules publishing 56 zero-argument getters, and a floor of 8 would have
+/// been satisfied by a walk that read one file and gave up on the rest.
+///
+/// The floor stays at 40 after the 2026-09-04 arity widening. Dropping the
+/// zero-argument restriction can only ADD names, so a floor calibrated on the
+/// narrower scan still fails loudly on a broken walk and never on a healthy one.
+const MIN_POLICY_GETTERS: usize = 40;
+
+/// Likewise for the module set itself. Measured 2026-09-01: 17 modules.
+///
+/// The getter floor alone does not prove the DISCOVERY worked — one very large
+/// module could carry it. This pins the fan-out separately.
+const MIN_POLICY_MODULES: usize = 14;
+
+/// Where the XDG policy knobs are declared by the `policy_knobs!` macro.
+///
+/// The macro generates `POLICY_KEYS`, `policy_set` and `policy_list_entries`
+/// from this table, so a row here is enough to make `config set <key>` return
+/// `ok` and `config list-keys` advertise the key. Reaching the RUNTIME is a
+/// separate act: some call site has to ask for `key::NAME`. Nothing tied the
+/// two together until property 4 below.
+const KNOBS_TABLE_FILE: &str = "src/xdg/policy/knobs/table.rs";
+
+/// A near-empty knob table means the parse failed, and every knob would then
+/// look phantom. Measured 2026-08-17: 107 rows after the 0.1.9 cleanup.
+const MIN_KNOBS: usize = 90;
 
 /// A near-empty universe means the walk failed, and every citation would then
 /// look phantom. Refuse rather than emit a wall of false alarms.
@@ -70,13 +140,9 @@ const POLICY_FILE: &str = "src/browser_policy.rs";
 /// hand, not absorbed.
 const MIN_UNIVERSE: usize = 200;
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
 /// Capture stdout plus stderr of a help invocation; clap may use either.
 fn run_help(args: &[&str]) -> String {
-    let out = Command::new(BIN).args(args).arg("--help").output();
+    let out = common::cmd().args(args).arg("--help").output();
     match out {
         Ok(o) => format!(
             "{}{}",
@@ -202,6 +268,55 @@ fn cited_flags(line: &str) -> BTreeSet<String> {
             i = end;
         } else {
             i += 1;
+        }
+    }
+    out
+}
+
+/// Drop every `#[cfg(test)]` region from `text`, returning production lines only.
+///
+/// A gate that promises a PRODUCTION call site has to measure production. This
+/// scanner used to read all of `src/`, so a `key::NAME` written inside
+/// `mod tests` satisfied it — and that is exactly how `shutdown_poll_ms`
+/// survived a property built to catch it. The gate ratified the phantom it was
+/// meant to reject, and the debt could be paid by writing a test instead of
+/// wiring the knob.
+///
+/// Brace counting starts at the first `{` after the attribute, so it handles
+/// both `#[cfg(test)] mod tests { … }` and a single `#[cfg(test)] fn helper()`.
+fn strip_test_regions(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim_start();
+        let is_test_attr = trimmed.starts_with("#[cfg(test)]")
+            || (trimmed.starts_with("#[cfg(all(test") || trimmed.starts_with("#[cfg(any(test"));
+        if !is_test_attr {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        // Consume the attributed item: count braces from the first `{` onward.
+        let mut depth = 0usize;
+        let mut opened = false;
+        for body in lines.by_ref() {
+            for ch in body.chars() {
+                match ch {
+                    '{' => {
+                        depth += 1;
+                        opened = true;
+                    }
+                    '}' => depth = depth.saturating_sub(1),
+                    _ => {}
+                }
+            }
+            // A `#[cfg(test)] use …;` has no braces at all: stop at its `;`.
+            if !opened && body.trim_end().ends_with(';') {
+                break;
+            }
+            if opened && depth == 0 {
+                break;
+            }
         }
     }
     out
@@ -432,75 +547,227 @@ fn check_no_inline_suggestions() -> Vec<String> {
 /// `tests` module, and outside a comment. Test-only callers are excluded on
 /// purpose: a getter whose sole reader is its own unit test is exactly the shape
 /// `chrome_header_order` had.
-fn check_policy_getters_have_callers() -> Vec<String> {
-    let root = root();
-    let policy_path = root.join(POLICY_FILE);
-    let Ok(policy_text) = std::fs::read_to_string(&policy_path) else {
-        return vec![format!(
-            "{POLICY_FILE} not found; cannot audit policy getters"
-        )];
+/// True when `line` DECLARES a `static` of one of `PROCESS_STATE_TYPES`.
+///
+/// The declaration is matched, never the mention: a doc comment that names
+/// `AtomicBool` and a `let flag: AtomicBool` inside a function both fail here,
+/// because only `static NAME: TYPE` publishes a value to the whole process. A
+/// `const` is deliberately out: it is inlined at every use and cannot drift
+/// away from its readers.
+fn declares_process_state(line: &str) -> bool {
+    let mut head = line.trim_start();
+    for vis in ["pub(crate) ", "pub(super) ", "pub "] {
+        if let Some(tail) = head.strip_prefix(vis) {
+            head = tail.trim_start();
+        }
+    }
+    let Some(rest) = head.strip_prefix("static ") else {
+        return false;
     };
+    let Some((_, ty)) = rest.split_once(':') else {
+        return false;
+    };
+    let mut ty = ty.trim_start();
+    // `std::sync::OnceLock<T>` is the same declaration as a bare `OnceLock<T>`.
+    for prefix in STATE_TYPE_PREFIXES {
+        if let Some(tail) = ty.strip_prefix(prefix) {
+            ty = tail;
+        }
+    }
+    PROCESS_STATE_TYPES.iter().any(|t| {
+        ty.strip_prefix(t)
+            .is_some_and(|tail| tail.is_empty() || tail.starts_with(['<', ' ', '=']))
+    })
+}
 
-    // `^pub fn ([a-z_][a-z0-9_]*)\(\)` at line start, taking only zero-arg fns.
-    let getters: BTreeSet<String> = policy_text
-        .lines()
-        .filter_map(|line| line.strip_prefix("pub fn "))
-        .filter_map(|rest| {
+/// `pub fn` names published at the TOP LEVEL of `text`, at ANY arity.
+///
+/// Mirrors `^pub (?:const |async |unsafe )*fn ([a-z_][a-z0-9_]*)(?:<…>)?\(`,
+/// flush left, so an inherent method inside an `impl` block is out of scope by
+/// indentation alone — see the module header for why methods are excluded.
+///
+/// # Why the arity restriction was removed
+///
+/// This read `\(\)` until 2026-09-04, and the restriction was load-bearing in
+/// the wrong direction: `auto_headed()` was caught because it happened to take
+/// nothing, while the identical defect one parameter wider was invisible. The
+/// property being tested is "published and read by nobody", and nothing in that
+/// sentence mentions how many arguments the thing takes.
+///
+/// Setters are dropped: the resolver calls them by construction, so a setter
+/// without an outside caller proves nothing about a dead flag.
+fn top_level_pub_fns(text: &str) -> BTreeSet<String> {
+    text.lines()
+        .filter_map(|line| {
+            let mut rest = line.strip_prefix("pub ")?;
+            for modifier in ["const ", "async ", "unsafe "] {
+                if let Some(tail) = rest.strip_prefix(modifier) {
+                    rest = tail;
+                }
+            }
+            let rest = rest.strip_prefix("fn ")?;
             let name: String = rest
                 .chars()
                 .take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_')
                 .collect();
-            rest[name.len()..].starts_with("()").then_some(name)
+            if name.is_empty() {
+                return None;
+            }
+            // `name(` or `name<T>(`; anything else is not a function header.
+            let tail = &rest[name.len()..];
+            let opens =
+                tail.starts_with('(') || tail.strip_prefix('<').is_some_and(|t| t.contains(">("));
+            opens.then_some(name)
         })
-        // Setters are called by the resolver in the same file by construction.
-        .filter(|n| !n.starts_with("set_") && n != "publish" && !n.is_empty())
-        .collect();
+        .filter(|n| !n.starts_with("set_") && n != "publish")
+        .collect()
+}
 
-    if getters.is_empty() {
-        return vec![format!(
-            "{POLICY_FILE} declares no policy getters; the scan would pass vacuously"
-        )];
-    }
-
-    let mut counts: std::collections::BTreeMap<String, usize> =
-        getters.iter().map(|g| (g.clone(), 0)).collect();
-
+/// Every module under `src/` that holds process-wide state AND publishes a
+/// top-level `pub fn`, paired with the names it publishes.
+///
+/// # Why this is discovered and not listed
+///
+/// The list this replaced held three files under `src/browser_policy/`, which
+/// is the module that happened to be audited when the property was written.
+/// Measured 2026-09-01: 17 modules match the structural criterion, and one of
+/// the 14 the list never mentioned — `src/mitm_local/policy.rs` — published
+/// `redact_secrets()` to zero readers. The list was not incomplete by accident;
+/// a list is incomplete by construction the moment a module is added.
+fn policy_modules() -> Vec<(String, BTreeSet<String>)> {
+    let root = root();
     let mut files = Vec::new();
     rust_files(&root.join("src"), &mut files);
+    let mut out = Vec::new();
     for path in files {
+        // A dedicated `tests.rs` is test code in full; state declared there is
+        // not process state the product publishes.
+        if path.file_name().is_some_and(|n| n == "tests.rs") {
+            continue;
+        }
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let text = strip_test_regions(&raw);
+        if !text.lines().any(declares_process_state) {
+            continue;
+        }
+        let getters = top_level_pub_fns(&text);
+        if getters.is_empty() {
+            continue;
+        }
         let rel = path
             .strip_prefix(&root)
             .unwrap_or(&path)
             .display()
             .to_string();
-        if rel == POLICY_FILE || rel.ends_with("tests.rs") {
+        out.push((rel, getters));
+    }
+    out
+}
+
+/// True when `line` READS `name`: calls it, path-qualifies it, or hands it over
+/// as a value.
+///
+/// # Why the needle is the bare identifier and not `name(`
+///
+/// The old needle was `name(`, which was sound while property 3 only looked at
+/// zero-argument getters. Widening to any arity made it wrong in both
+/// directions at once. `crate::policy::allow(x)`, `super::allow(x)` and a `use`
+/// plus a bare `allow(x)` all still end in `allow(`, so paths were never the
+/// problem; but `iter.map(allow)` and `fut.then(allow)` hand the function over
+/// WITHOUT calling it, and that is a reader. A needle demanding the parenthesis
+/// would have reported every such function as dead — twenty false accusations
+/// are indistinguishable from no gate at all.
+///
+/// Both boundaries are checked. `line.contains("redact_secrets")` also matches
+/// `mitm_redact_secrets`, so a dead name could borrow a live one's call site.
+/// A trailing `:` is excluded twice over: `name:` is a struct field or a type
+/// ascription, and `name::x` is a module path — neither reaches the function.
+fn references(line: &str, name: &str) -> bool {
+    let bytes = line.as_bytes();
+    line.match_indices(name).any(|(idx, _)| {
+        let left_ok = idx == 0 || {
+            let prev = bytes[idx - 1];
+            !(prev.is_ascii_alphanumeric() || prev == b'_')
+        };
+        if !left_ok {
+            return false;
+        }
+        !matches!(bytes.get(idx + name.len()),
+            Some(c) if c.is_ascii_alphanumeric() || *c == b'_' || *c == b':')
+    })
+}
+
+/// Drop every `use` item from `text`.
+///
+/// A re-export is not a reader: `pub use policy::allow;` republishes the name
+/// without ever asking for its value, and a plain `use` only brings it into
+/// scope — the CALL that follows is the reader, and it is counted on its own
+/// line. Multi-line `use crate::x::{a, b};` is consumed through to its `;`,
+/// because a bare `a,` on a continuation line is indistinguishable by shape from
+/// a function handed to `map`.
+fn strip_use_items(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        let head = line.trim_start();
+        let is_use = ["use ", "pub use ", "pub(crate) use ", "pub(super) use "]
+            .iter()
+            .any(|p| head.starts_with(p));
+        if !is_use {
+            out.push_str(line);
+            out.push('\n');
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&path) else {
+        if line.trim_end().ends_with(';') {
             continue;
-        };
-        let mut in_tests = false;
-        let mut brace_depth = 0i32;
-        for line in text.lines() {
-            let stripped = line.trim_start();
-            if stripped.starts_with("//") {
+        }
+        for body in lines.by_ref() {
+            if body.trim_end().ends_with(';') {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Property 3 as a PURE function over text already in memory.
+///
+/// # Why it is split out from the disk walk
+///
+/// A gate that has never failed is a gate nobody has tested, and the only
+/// honest way to make this one fail on demand is to hand it a module that does
+/// not exist on disk. `the_detector_*` tests below feed it synthetic sources;
+/// `check_policy_getters_have_callers` feeds it `src/`. Same function, so a
+/// detector that stops biting breaks the synthetic tests first, loudly, instead
+/// of passing the real scan vacuously and silently.
+fn find_unread_published_fns(
+    modules: &[(String, BTreeSet<String>)],
+    sources: &[(String, String)],
+) -> Vec<String> {
+    // A name can legitimately be declared by more than one module (`enabled`,
+    // `active`), so ownership is a SET. A caller only proves the name is read
+    // when it sits outside every module that declares that name.
+    let mut owners: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (rel, published) in modules {
+        for name in published {
+            owners.entry(name.clone()).or_default().insert(rel.clone());
+        }
+    }
+
+    let mut counts: BTreeMap<&str, usize> = owners.keys().map(|n| (n.as_str(), 0)).collect();
+    for (rel, text) in sources {
+        let readable = strip_use_items(text);
+        for line in readable.lines() {
+            if line.trim_start().starts_with("//") {
                 continue;
             }
-            if line.contains("mod tests") && !line.contains("#[cfg(test)]") {
-                in_tests = true;
-                brace_depth = 0;
-            }
-            if in_tests {
-                brace_depth += line.matches('{').count() as i32 - line.matches('}').count() as i32;
-                if brace_depth <= 0 && line.contains('}') {
-                    in_tests = false;
+            for (name, homes) in &owners {
+                if homes.contains(rel) || !references(line, name) {
+                    continue;
                 }
-                continue;
-            }
-            for getter in &getters {
-                if line.contains(&format!("{getter}()")) {
-                    *counts.get_mut(getter).expect("getter seeded above") += 1;
-                }
+                *counts.get_mut(name.as_str()).expect("name seeded above") += 1;
             }
         }
     }
@@ -508,13 +775,61 @@ fn check_policy_getters_have_callers() -> Vec<String> {
     counts
         .into_iter()
         .filter(|(_, c)| *c == 0)
-        .map(|(g, _)| {
+        .map(|(name, _)| {
+            let home: Vec<&str> = owners[name].iter().map(String::as_str).collect();
             format!(
-                "{POLICY_FILE}: `{g}()` is published and read by ZERO production \
-                 call sites — the flag it carries changes nothing"
+                "{}: `{name}` is published and read by ZERO production call sites \
+                 — the value it carries changes nothing",
+                home.join(", ")
             )
         })
         .collect()
+}
+
+/// Every production `.rs` file under `src/`, test regions already removed.
+///
+/// A dedicated `tests.rs` is test code in full, so it is dropped whole: a name
+/// whose only reader is its own unit test still has no production reader, and
+/// counting that reader is exactly how `chrome_header_order` survived.
+fn production_sources() -> Vec<(String, String)> {
+    let root = root();
+    let mut files = Vec::new();
+    rust_files(&root.join("src"), &mut files);
+    files
+        .into_iter()
+        .filter(|path| path.file_name().is_none_or(|n| n != "tests.rs"))
+        .filter_map(|path| {
+            let rel = path
+                .strip_prefix(&root)
+                .unwrap_or(&path)
+                .display()
+                .to_string();
+            let raw = std::fs::read_to_string(&path).ok()?;
+            Some((rel, strip_test_regions(&raw)))
+        })
+        .collect()
+}
+
+fn check_policy_getters_have_callers() -> Vec<String> {
+    let modules = policy_modules();
+    if modules.len() < MIN_POLICY_MODULES {
+        return vec![format!(
+            "discovered only {} modules publishing process state (expected at least \
+             {MIN_POLICY_MODULES}); the walk failed and the scan would pass vacuously",
+            modules.len()
+        )];
+    }
+
+    let published: BTreeSet<&String> = modules.iter().flat_map(|(_, names)| names).collect();
+    if published.len() < MIN_POLICY_GETTERS {
+        return vec![format!(
+            "policy modules publish only {} names (expected at least {MIN_POLICY_GETTERS}); \
+             the scan would pass vacuously",
+            published.len()
+        )];
+    }
+
+    find_unread_published_fns(&modules, &production_sources())
 }
 
 #[test]
@@ -551,6 +866,192 @@ fn every_published_policy_value_has_a_production_call_site() {
     assert!(
         problems.is_empty(),
         "a published policy value nobody reads is a flag that changes nothing:\n{}",
+        problems.join("\n")
+    );
+}
+
+/// The module text both detector tests audit: one published function that takes
+/// an argument, which the pre-2026-09-04 scan could not see at all.
+const SYNTHETIC_MODULE: &str = "\
+static FLAG: AtomicBool = AtomicBool::new(false);
+pub fn com_argumentos(x: u8) -> u8 {
+    x
+}
+";
+
+fn synthetic_modules() -> Vec<(String, BTreeSet<String>)> {
+    let published = top_level_pub_fns(SYNTHETIC_MODULE);
+    assert!(
+        published.contains("com_argumentos"),
+        "extraction missed a one-argument `pub fn`, so the widening never happened: {published:?}"
+    );
+    vec![("src/synthetic/policy.rs".to_string(), published)]
+}
+
+/// The gate must BITE. Re-export and import are deliberately present: neither is
+/// a reader, and a detector that counted them would pass this test while letting
+/// the real defect through.
+#[test]
+fn the_detector_reports_a_published_fn_with_arguments_that_nobody_calls() {
+    let sources = vec![
+        (
+            "src/synthetic/policy.rs".to_string(),
+            SYNTHETIC_MODULE.to_string(),
+        ),
+        (
+            "src/synthetic/reexport.rs".to_string(),
+            "pub use crate::synthetic::policy::com_argumentos;\n\
+             use crate::synthetic::policy::{\n    com_argumentos,\n};\n\
+             // com_argumentos(1) inside a comment is not a call site\n"
+                .to_string(),
+        ),
+    ];
+    let problems = find_unread_published_fns(&synthetic_modules(), &sources);
+    assert_eq!(
+        problems.len(),
+        1,
+        "the detector must accuse a published one-argument fn whose only mentions \
+         are a re-export, an import and a comment; got {problems:?}"
+    );
+    assert!(problems[0].contains("com_argumentos"), "{problems:?}");
+}
+
+/// The gate must NOT bite a function that is used. Both shapes of use are here
+/// because widening past zero arguments made them diverge: one calls the
+/// function, the other only hands it over.
+#[test]
+fn the_detector_stays_silent_when_a_production_call_site_exists() {
+    for reader in [
+        "fn caller() {\n    let _ = crate::synthetic::policy::com_argumentos(1);\n}\n",
+        "fn caller() {\n    let _ = [1u8].iter().copied().map(com_argumentos);\n}\n",
+    ] {
+        let sources = vec![
+            (
+                "src/synthetic/policy.rs".to_string(),
+                SYNTHETIC_MODULE.to_string(),
+            ),
+            ("src/synthetic/reader.rs".to_string(), reader.to_string()),
+        ];
+        let problems = find_unread_published_fns(&synthetic_modules(), &sources);
+        assert!(
+            problems.is_empty(),
+            "a real reader was reported as absent, which is the false positive that \
+             makes a gate get deleted:\n{reader}\n{problems:?}"
+        );
+    }
+}
+
+/// Every knob name declared by `policy_knobs!`, read out of the macro table.
+///
+/// A row looks like `NAME => xdg_key_name,` followed by its description line.
+/// Only the constant name matters here, because that is the identifier call
+/// sites spell as `key::NAME`.
+fn declared_knobs() -> BTreeSet<String> {
+    let Ok(text) = std::fs::read_to_string(root().join(KNOBS_TABLE_FILE)) else {
+        return BTreeSet::new();
+    };
+    text.lines()
+        .filter_map(|line| {
+            let t = line.trim();
+            if t.starts_with("//") {
+                return None;
+            }
+            let name = t.split_once("=>")?.0.trim();
+            let ok = !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+            ok.then(|| name.to_string())
+        })
+        .collect()
+}
+
+/// Property 4: fail when a published XDG knob is read by nobody.
+///
+/// # Why property 3 cannot catch it
+///
+/// Property 3 scans zero-argument getters of the modules that hold process
+/// state, `src/xdg/policy/access.rs` among them. The knob
+/// table is a different surface with a different call shape: knobs are reached
+/// through `policy_u64(key::NAME)` rather than through a generated getter, so
+/// they were invisible to that scan no matter how many of them were dead.
+///
+/// Measured 2026-08-17, before this property existed: the table declared 107
+/// knobs and `src/` spelled only 89 of them. The eighteen survivors were whole
+/// families — seven `heap_*`, five `mitm_*`, two `robots_*`, two `http_*`, two
+/// `lightpanda_*`. Every one of them accepted `config set`, echoed the value
+/// back through `config get`, and changed nothing at runtime, because the code
+/// kept reading the compile-time constant the knob was supposed to override.
+///
+/// That is worse than an absent feature. An operator who raises
+/// `mitm_proxy_seconds_max` and watches the capture still stop at the old
+/// ceiling has no way to tell a misconfiguration from a lie.
+fn check_knobs_have_call_sites() -> Vec<String> {
+    let knobs = declared_knobs();
+    if knobs.len() < MIN_KNOBS {
+        return vec![format!(
+            "{KNOBS_TABLE_FILE} parsed to only {} knobs (expected at least {MIN_KNOBS}); \
+             the table scan failed and every knob would look phantom",
+            knobs.len()
+        )];
+    }
+
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut files = Vec::new();
+    rust_files(&root().join("src"), &mut files);
+    for path in files {
+        let rel = path
+            .strip_prefix(root())
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        // The table declares them; declaring is not reading.
+        if rel == KNOBS_TABLE_FILE {
+            continue;
+        }
+        // A dedicated `tests.rs` module is test code in full; reading a knob
+        // there proves nothing about the runtime.
+        if path.file_name().is_some_and(|n| n == "tests.rs") {
+            continue;
+        }
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let text = strip_test_regions(&raw);
+        for line in text.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            for (idx, _) in line.match_indices("key::") {
+                let name: String = line[idx + "key::".len()..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
+                    .collect();
+                if !name.is_empty() {
+                    seen.insert(name);
+                }
+            }
+        }
+    }
+
+    knobs
+        .difference(&seen)
+        .map(|k| {
+            format!(
+                "{KNOBS_TABLE_FILE}: `{k}` is published to `config set` and read by ZERO \
+                 call sites — the operator can set it and the runtime will ignore them"
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn every_published_xdg_knob_has_a_production_call_site() {
+    let problems = check_knobs_have_call_sites();
+    assert!(
+        problems.is_empty(),
+        "config that accepts a value and ignores it is worse than config that \
+         refuses it:\n{}",
         problems.join("\n")
     );
 }

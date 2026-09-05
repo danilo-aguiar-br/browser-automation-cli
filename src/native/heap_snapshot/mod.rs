@@ -5,10 +5,11 @@
 //! # Workload / parallelism
 //!
 //! **CPU-bound** graph algorithms. Dominator phases stay sequential (N-142 / N-152).
-//! File size hard-capped by [`limits::MAX_HEAP_SNAPSHOT_BYTES`].
+//! File size hard-capped by [`limits::max_heap_snapshot_bytes`], which resolves
+//! the `heap_snapshot_max_bytes` XDG knob rather than a compile-time constant.
 
 mod graph;
-mod limits;
+pub mod limits;
 mod ops;
 mod parse;
 

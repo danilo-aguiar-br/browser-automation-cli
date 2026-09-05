@@ -137,7 +137,7 @@ pub(super) fn sha256_file(path: &Path) -> Result<String, CliError> {
     let mut f =
         std::fs::File::open(path).map_err(|e| crate::audio_local::magic::io_open_err(path, &e))?;
     let mut hasher = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
+    let mut buf = vec![0u8; crate::constants::MEDIA_STREAM_CHUNK_BYTES];
     loop {
         let n = f
             .read(&mut buf)

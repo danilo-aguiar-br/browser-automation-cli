@@ -88,6 +88,21 @@ fn csv_cell(v: &Value) -> String {
 ///
 /// `seed` is only consulted by the `llms-txt` mode, which needs the crawl
 /// origin to pick an H1 when no page offers a title.
+///
+/// # Payload reduction
+///
+/// The cut is applied HERE, before the mode dispatch, so all three modes
+/// inherit it from one place. This path runs *instead of* the success
+/// envelope, so it used to bypass the single reduction point in
+/// [`crate::envelope::print_success_json`] entirely: measured, a crawl with
+/// `--truncate-content 50 --output-mode ndjson` emitted the same 588 bytes as
+/// without the flag, exit 0. These are the largest payloads the product
+/// produces, which makes them the worst place to drop the cut.
+///
+/// # Errors
+///
+/// Propagates reduction failures (malformed filter, byte budget) and stdout
+/// write failures as [`CliError`].
 pub fn emit_scrape_collection(
     data: &Value,
     arr_key: &str,
@@ -96,6 +111,12 @@ pub fn emit_scrape_collection(
     seed: &str,
 ) -> Result<bool, CliError> {
     let mode = output_mode.trim().to_ascii_lowercase();
+    // Only pay the clone on a mode this function actually handles.
+    if !matches!(mode.as_str(), "ndjson" | "csv" | "llms-txt" | "llmstxt") {
+        return Ok(false);
+    }
+    let (reduced, _) = crate::agent_ops::apply_process_ops(data.clone())?;
+    let data = &reduced;
     match mode.as_str() {
         "ndjson" => {
             emit_ndjson_array(data, arr_key, json)?;

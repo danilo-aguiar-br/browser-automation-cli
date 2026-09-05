@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Product network policy helpers (SSRF, body caps, loopback addressing).
+//! Product network policy helpers (SSRF, body caps, loopback addressing, and
+//! the CDP resource-type vocabulary the capture filters validate against).
 //!
 //! # Product law
 //!
@@ -8,6 +9,7 @@
 //! env. Reqwest system proxy env (`HTTP_PROXY` / …) is disabled via `no_proxy()`.
 
 mod body;
+pub mod resource_type;
 mod ssrf;
 
 pub use body::read_body_limited;
@@ -37,6 +39,16 @@ pub fn loopback_bind_ephemeral() -> String {
 
 /// Ensure a Redis host is allowed (loopback by default; remote only when XDG says so).
 pub fn assert_redis_host_allowed(host: &str) -> Result<(), CliError> {
+    assert_redis_host_allowed_with(host, crate::xdg::resolve_redis_allow_remote())
+}
+
+/// Parameterized core: the same policy against an explicit `allow_remote`.
+///
+/// Exists so a test can pin the DENY path. Through the facade the answer
+/// depends on the operator's `redis_allow_remote`, and a host with it enabled
+/// inverts every "remote is rejected" assertion — the test would report a pass
+/// while the rejection it exists to prove never ran.
+pub fn assert_redis_host_allowed_with(host: &str, allow_remote: bool) -> Result<(), CliError> {
     let host = host.trim();
     if host.is_empty() {
         return Err(CliError::with_suggestion(
@@ -45,7 +57,7 @@ pub fn assert_redis_host_allowed(host: &str) -> Result<(), CliError> {
             crate::i18n::suggestion_key("redis_config_required", None),
         ));
     }
-    if crate::xdg::resolve_redis_allow_remote() {
+    if allow_remote {
         return Ok(());
     }
     let lower = host.to_ascii_lowercase();
@@ -89,10 +101,31 @@ mod tests {
 
     #[test]
     fn redis_host_remote_rejected_by_default() {
-        // Default XDG has redis_allow_remote=false (or unset).
-        let err = assert_redis_host_allowed("example.com").expect_err("remote");
+        // Parameterized core with an explicit `false`, never the facade: the
+        // facade reads the operator's real `redis_allow_remote`, and on a host
+        // with it enabled both `expect_err` calls below would panic on an
+        // `Ok(())`. The previous version only said "default XDG has it false"
+        // in a comment, which is an assumption about the machine, not a fact
+        // about the code under test.
+        let err = assert_redis_host_allowed_with("example.com", false).expect_err("remote");
         assert_eq!(err.kind(), ErrorKind::Usage);
-        let err = assert_redis_host_allowed("8.8.8.8").expect_err("public ip");
+        let err = assert_redis_host_allowed_with("8.8.8.8", false).expect_err("public ip");
         assert_eq!(err.kind(), ErrorKind::Usage);
+    }
+
+    #[test]
+    fn redis_remote_allowed_when_operator_opts_in() {
+        // The positive control the suite lacked: without it, a core that
+        // rejected UNCONDITIONALLY would pass the test above unnoticed.
+        assert!(assert_redis_host_allowed_with("example.com", true).is_ok());
+        assert!(assert_redis_host_allowed_with("8.8.8.8", true).is_ok());
+    }
+
+    #[test]
+    fn redis_empty_host_rejected_in_both_modes() {
+        // Empty is a usage error before the policy branch, so `allow_remote`
+        // must not rescue it.
+        assert!(assert_redis_host_allowed_with("", false).is_err());
+        assert!(assert_redis_host_allowed_with("   ", true).is_err());
     }
 }

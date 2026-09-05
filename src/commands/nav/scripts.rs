@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::browser::{block_on_browser_timeout, CaptureOpts};
-use crate::commands::common::emit_ok;
+use crate::commands::common::{emit_ok, emit_ok_summary};
 use crate::commands::nav::goto::handle_goto;
 use crate::error::{CliError, ErrorKind};
 use crate::lifecycle::Lifecycle;
@@ -89,7 +89,7 @@ pub(crate) fn handle_exec(
         return Err(CliError::with_suggestion(
             ErrorKind::Usage,
             "exec requires a subcommand (e.g. goto)",
-            "browser-automation-cli exec goto about:blank",
+            crate::i18n::suggestion_key("exec_goto_example", None),
         ));
     }
     // Single-step path for simple argv forms; multi-step uses run --script.
@@ -99,7 +99,7 @@ pub(crate) fn handle_exec(
                 CliError::with_suggestion(
                     ErrorKind::Usage,
                     "exec goto requires a URL",
-                    "browser-automation-cli exec goto about:blank",
+                    crate::i18n::suggestion_key("exec_goto_example", None),
                 )
             })?;
             handle_goto(
@@ -126,9 +126,7 @@ pub(crate) fn handle_exec(
                 crate::commands::run::run_one_step(life, step, robots, capture, flags),
                 timeout_secs,
             )?;
-            emit_ok(data, json, |d| {
-                crate::output::writeln_stdout(format!("ok exec {d}"))
-            })
+            emit_ok_summary(data, json, "exec")
         }
         other => Err(CliError::with_suggestion(
             ErrorKind::Usage,

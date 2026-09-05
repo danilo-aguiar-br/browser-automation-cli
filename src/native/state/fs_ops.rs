@@ -28,6 +28,13 @@ pub(crate) fn is_encrypted_state(path: &std::path::Path) -> bool {
 }
 
 /// List saved state files with their metadata.
+///
+/// # Errors
+///
+/// Fails with `"Failed to read sessions dir: …"` when the state directory
+/// exists but cannot be read. A directory that does not exist is not an
+/// error: it answers with an empty list, because "no sessions yet" is a
+/// legitimate state. Per-file metadata failures are absorbed as zeroes.
 pub fn state_list() -> Result<Value, String> {
     let dir = get_sessions_dir();
     if !dir.exists() {
@@ -73,6 +80,18 @@ pub fn state_list() -> Result<Value, String> {
 ///
 /// Reports counts and origins, never the cookie or storage VALUES: showing a
 /// state file must not print the credentials it exists to carry.
+///
+/// # Errors
+///
+/// For an encrypted file (`.json.enc`), fails with
+/// `"Encrypted state file requires config set encryption_key (XDG config)"`
+/// when no key is configured, with the decryption error when the key is wrong
+/// or the file is corrupt, and with `"Decrypted state is not valid UTF-8: …"`
+/// when the plaintext is not text.
+///
+/// For either kind, fails with `"Failed to read state file: …"` on I/O
+/// failure and `"Invalid state file: …"` when the JSON does not deserialize
+/// into a `StorageState`.
 pub fn state_show(path: &str) -> Result<Value, String> {
     let encrypted = is_encrypted_state(std::path::Path::new(path));
     let json_str = if encrypted {
@@ -113,6 +132,14 @@ pub fn state_show(path: &str) -> Result<Value, String> {
 }
 
 /// Delete one state file, or every one when `path` is `None`.
+///
+/// # Errors
+///
+/// Fails with `"Failed to delete state: …"` only when `path` is `Some` and
+/// that file cannot be removed — missing, or permission denied. The
+/// delete-everything form cannot fail: a missing directory answers
+/// `deleted: 0`, an unreadable one is skipped, and each individual removal is
+/// best-effort, so the reported count can exceed the files actually gone.
 pub fn state_clear(path: Option<&str>) -> Result<Value, String> {
     if let Some(p) = path {
         fs::remove_file(p).map_err(|e| format!("Failed to delete state: {e}"))?;
@@ -139,6 +166,13 @@ pub fn state_clear(path: Option<&str>) -> Result<Value, String> {
 }
 
 /// Delete state files older than `max_age_days`.
+///
+/// # Errors
+///
+/// Never returns `Err`. A missing state directory answers `cleaned: 0`, an
+/// unreadable one is skipped, and each removal is best-effort — a file whose
+/// metadata or deletion fails is counted as kept. The `Result` is kept so
+/// this shares the dispatch signature of its neighbours.
 pub fn state_clean(max_age_days: u64) -> Result<Value, String> {
     let dir = get_sessions_dir();
     if !dir.exists() {
@@ -176,6 +210,14 @@ pub fn state_clean(max_age_days: u64) -> Result<Value, String> {
 }
 
 /// Rename a state file, keeping it inside the state directory.
+///
+/// # Errors
+///
+/// Fails with `"State file not found: <path>"` when `old_path` does not
+/// exist, and with `"Failed to rename state: …"` when the rename is refused —
+/// permission denied, or a cross-device move. An existing destination is
+/// **not** an error: `fs::rename` overwrites it, so a `new_name` that is
+/// already taken silently replaces that state file.
 pub fn state_rename(old_path: &str, new_name: &str) -> Result<Value, String> {
     let old = PathBuf::from(old_path);
     if !old.exists() {

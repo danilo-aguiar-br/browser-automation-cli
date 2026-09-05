@@ -19,21 +19,18 @@ Esta CLI é **local-first** e **agent-first**. Ela **não** implementa telemetri
 | Chaves de LLM | Apenas XDG (`openrouter_api_key`, `llm_base_url`, `llm_model`) — nunca em hardcode |
 
 ## O que nunca fazemos
-
 - Nenhum envio automático de dados de navegação, capturas de tela, HAR ou heap snapshots
 - Nenhuma chamada de verificação de versão para servidor externo
 - Nenhum identificador de publicidade
 - Nenhuma mistura de segredos nos envelopes JSON de stdout além do que você passa como argumento
 
 ## Configuração é XDG, nunca variável de ambiente
-
 - O produto não lê variável de ambiente de produto para configuração durável
 - Toda configuração vive no arquivo `config.toml` sob o diretório XDG de configuração
 - Segredos como `openrouter_api_key` e `encryption_key` são gravados com permissão 0600
 - Consulte [docs/CONFIGURATION.pt-BR.md](docs/CONFIGURATION.pt-BR.md) para a referência completa das chaves
 
 ## Responsabilidade do operador
-
 - Você controla quais URLs e páginas a ferramenta abre
 - Você controla se a captura MITM e de rede está habilitada
 - Você é responsável pela conformidade ao automatizar sites de terceiros (robots, termos de uso, dados pessoais)

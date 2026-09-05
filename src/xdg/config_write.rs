@@ -10,6 +10,15 @@ use super::paths::{config_dir, config_file, ensure_dir};
 use crate::error::{CliError, ErrorKind};
 
 /// Write config atomically (temp + rename).
+///
+/// # Errors
+///
+/// [`ErrorKind::Io`] from [`config_dir`] / [`config_file`] when no home
+/// directory resolves, from [`ensure_dir`] when the config directory cannot be
+/// created, and from each step of the atomic write: `File::create` of the
+/// `.toml.tmp` sibling, `write_all` of the body, `sync_all`, and the final
+/// `fs::rename` into place. Tightening the mode to `0o600` on Unix is
+/// best-effort and never turns into an error.
 pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError> {
     let dir = config_dir()?;
     ensure_dir(&dir)?;
@@ -26,6 +35,7 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
          color = {color}\n\
          log_level = \"{log_level}\"\n\
          input_profile = \"{input_profile}\"\n\
+         input_timing_distribution = \"{input_timing_distribution}\"\n\
          log_to_file = {log_to_file}\n\
          max_log_files = {max_log_files}\n\
          log_rotation = \"{log_rotation}\"\n\
@@ -40,6 +50,7 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
          cache_backend = \"{cache_backend}\"\n\
          cache_redis_url = \"{cache_redis_url}\"\n\
          search_base_url = \"{search_base_url}\"\n\
+         user_data_dir = \"{user_data_dir}\"\n\
          lightpanda_startup_timeout_secs = {lp_startup}\n\
          lightpanda_session_timeout_secs = {lp_session}\n\
          max_json_file_bytes = {max_json_file}\n\
@@ -98,6 +109,7 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
         color = cfg.color.unwrap_or(false),
         log_level = cfg.log_level.as_deref().unwrap_or(""),
         input_profile = cfg.input_profile.as_deref().unwrap_or(""),
+        input_timing_distribution = cfg.input_timing_distribution.as_deref().unwrap_or(""),
         log_to_file = cfg.log_to_file.unwrap_or(false),
         max_log_files = cfg
             .max_log_files
@@ -117,6 +129,7 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
         cache_backend = cfg.cache_backend.as_deref().unwrap_or("sqlite"),
         cache_redis_url = cfg.cache_redis_url.as_deref().unwrap_or(""),
         search_base_url = cfg.search_base_url.as_deref().unwrap_or(""),
+        user_data_dir = cfg.user_data_dir.as_deref().unwrap_or(""),
         lp_startup = cfg.lightpanda_startup_timeout_secs.unwrap_or(0),
         lp_session = cfg.lightpanda_session_timeout_secs.unwrap_or(0),
         max_json_file = cfg.max_json_file_bytes.unwrap_or(0),
@@ -226,7 +239,11 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
     }
     let tmp = path.with_extension("toml.tmp");
     {
-        let mut f = fs::File::create(&tmp)
+        // Born `0600`: the temp file holds `proxy_password` while it is written,
+        // and `File::create` would honour the umask and expose it until the chmod
+        // that used to follow the rename. Creating it private removes the window
+        // entirely instead of shortening it.
+        let mut f = crate::platform::create_private_file(&tmp)
             .map_err(|e| CliError::new(ErrorKind::Io, format!("create temp config: {e}")))?;
         f.write_all(body.as_bytes())
             .map_err(|e| CliError::new(ErrorKind::Io, format!("write temp config: {e}")))?;
@@ -235,10 +252,14 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
     }
     fs::rename(&tmp, &path)
         .map_err(|e| CliError::new(ErrorKind::Io, format!("rename config into place: {e}")))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
-    }
+    // The temp file above is already `0600` (see `create_private_file`), and the
+    // mode survives the rename, so this call is belt-and-braces for a config
+    // file that already existed with looser permissions. It reports failure
+    // rather than discarding it: this file holds `proxy_password`, and the
+    // product's own key catalog tells operators to keep the credential HERE
+    // precisely because argv is visible in the process table. A permission
+    // failure that stayed silent would betray that instruction.
+    crate::platform::restrict_to_owner(&path, 0o600)
+        .map_err(|e| CliError::new(ErrorKind::Io, format!("restrict config permissions: {e}")))?;
     Ok(path)
 }

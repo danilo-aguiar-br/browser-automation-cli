@@ -6,7 +6,7 @@ use crate::native::cdp::client::CdpClient;
 use crate::native::cdp::types::*;
 use serde_json::Value;
 
-/// Object handle for the <iframe> element that owns a frame, resolved on the
+/// Object handle for the `<iframe>` element that owns a frame, resolved on the
 /// parent session. Works for same-process frames where no dedicated CDP
 /// session exists.
 pub(crate) async fn frame_owner_object_id(

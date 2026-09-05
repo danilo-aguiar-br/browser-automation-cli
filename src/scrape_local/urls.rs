@@ -18,9 +18,27 @@ use crate::error::{CliError, ErrorKind};
 ///
 /// # Errors
 ///
-/// [`ErrorKind::Usage`] when the file exceeds `max_urls_file_bytes` or holds no
-/// URLs; [`ErrorKind::Io`] when it cannot be read.
+/// [`crate::fs_roots::ensure_read_allowed`] when `path` falls outside the
+/// allowed roots (GAP-026); [`ErrorKind::Usage`] when the file exceeds
+/// `max_urls_file_bytes` or holds no URLs; [`ErrorKind::Io`] when it cannot be
+/// read.
 pub fn read_urls_file(path: &Path) -> Result<Vec<String>, CliError> {
+    // GAP-026, read axis. The doc above already called this list "user-supplied
+    // input", and the size ceiling exists for exactly that reason — but only the
+    // SIZE axis was ever bounded, never the LOCATION one.
+    //
+    // MEASURED 2026-08-31: `batch-scrape --urls-file /etc/passwd` exited 0 with
+    // `ok: true` and all 59 lines echoed back inside `data.errors[].error`,
+    // because every unfetchable line is reported verbatim. That turns this flag
+    // into a file-disclosure oracle for any readable path. The control that
+    // proves the policy was active: `parse` refused the same path with exit 64.
+    //
+    // The check sits at entry, before `metadata`, so a refused path is never
+    // even stat'd — the same ordering `write_bytes_atomic` uses on the write
+    // axis. It belongs here rather than in `json_util`, because this is where an
+    // operator-supplied path stops being trustworthy; the shared readers also
+    // serve the product reading its own config, which lives outside the roots.
+    crate::fs_roots::ensure_read_allowed(path)?;
     let max = crate::xdg::policy::policy_u64(crate::xdg::policy::key::MAX_URLS_FILE_BYTES);
     let meta = fs::metadata(path).map_err(|e| {
         CliError::new(

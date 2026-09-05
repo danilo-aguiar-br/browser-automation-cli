@@ -8,13 +8,13 @@
 use std::process::Command;
 use tempfile::TempDir;
 
-const BIN: &str = env!("CARGO_BIN_EXE_browser-automation-cli");
+mod common;
 
 fn build_doctor_cmd(tmp: &TempDir, args: &[&str]) -> Command {
     let home = tmp.path().join("home");
-    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&home).expect("create isolated HOME");
 
-    let mut cmd = Command::new(BIN);
+    let mut cmd = common::cmd();
     cmd.args(args)
         .env("HOME", &home)
         .env("USERPROFILE", &home)
@@ -120,6 +120,7 @@ fn doctor_help_describes_flags_and_examples() {
         "--offline",
         "--quick",
         "--fix",
+        "--fingerprint",
         "--json",
     ] {
         assert!(

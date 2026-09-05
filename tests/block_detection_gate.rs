@@ -30,21 +30,16 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::Path;
 use std::thread;
 
-fn binary() -> Option<PathBuf> {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
+mod common;
+use common::{binary, missing_binary};
+
+const GATE: &str = "block_detection_gate";
 
 fn cannot_run() -> bool {
-    if binary().is_none() {
-        eprintln!(
-            "SKIP block_detection_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    if missing_binary(GATE) {
         return true;
     }
     false
@@ -109,16 +104,25 @@ fn serve_one(mut stream: TcpStream) {
 }
 
 /// An isolated XDG config dir so the gate never reads the developer's config.
-fn config_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("bac-block-{name}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create isolated config dir");
-    dir
+///
+/// The guard is returned, not the path: dropping it removes the directory, and a
+/// caller holding only the path would hand the CLI a config home that no longer
+/// exists. The old body used a pid-keyed name with no removal at all.
+fn config_dir(name: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("bac-block-{name}-"))
+        .tempdir()
+        .expect("create isolated config dir")
 }
 
 /// Run the CLI under an isolated config; returns parsed stdout.
-fn run(cfg: &PathBuf, args: &[&str]) -> serde_json::Value {
+fn run(cfg: &Path, args: &[&str]) -> serde_json::Value {
     let bin = binary().expect("binary");
-    let out = Command::new(&bin)
+    let out = common::isolated_cmd(&bin)
+        // `HOME` is what isolates config on macOS: `directories` resolves to
+        // ~/Library/Application Support and never reads `XDG_CONFIG_HOME`.
+        // Full measurement (2026-09-04) lives in `tests/scrape_wave6_gate.rs`.
+        .env("HOME", cfg)
         .env("XDG_CONFIG_HOME", cfg)
         .args(args)
         .output()
@@ -130,13 +134,13 @@ fn run(cfg: &PathBuf, args: &[&str]) -> serde_json::Value {
 ///
 /// The defaults refuse loopback on purpose, so this is the gate adapting to the
 /// product's own policy rather than the product relaxing for the gate.
-fn prepare(name: &str) -> PathBuf {
+fn prepare(name: &str) -> tempfile::TempDir {
     let cfg = config_dir(name);
     for (k, v) in [
         ("http_ssrf_mode", "allow_loopback"),
         ("robots_loopback_exempt", "true"),
     ] {
-        let out = run(&cfg, &["-q", "--json", "config", "set", k, v]);
+        let out = run(cfg.path(), &["-q", "--json", "config", "set", k, v]);
         assert_eq!(out["ok"], serde_json::json!(true), "config set {k}={v}");
     }
     cfg
@@ -146,8 +150,10 @@ fn prepare(name: &str) -> PathBuf {
 fn scrape_on(name: &str, port: u16, path: &str, engine: &str) -> (Option<i32>, serde_json::Value) {
     let bin = binary().expect("binary");
     let url = format!("http://127.0.0.1:{port}{path}");
-    let out = Command::new(&bin)
-        .env("XDG_CONFIG_HOME", prepare(name))
+    let cfg = prepare(name);
+    let out = common::isolated_cmd(&bin)
+        .env("HOME", cfg.path())
+        .env("XDG_CONFIG_HOME", cfg.path())
         .args([
             "-q",
             "--timeout",
@@ -173,7 +179,7 @@ fn scrape(name: &str, port: u16, path: &str) -> (Option<i32>, serde_json::Value)
 /// True when Chrome is not discoverable; the browser-engine case needs one.
 fn chrome_missing() -> bool {
     let Some(bin) = binary() else { return true };
-    let probe = Command::new(bin)
+    let probe = common::isolated_cmd(&bin)
         .args(["-q", "--json", "doctor", "--offline", "--quick"])
         .output();
     let found = probe
@@ -291,10 +297,7 @@ fn browser_engine_also_reports_the_block() {
         return;
     }
     if chrome_missing() {
-        eprintln!(
-            "SKIP browser_engine_also_reports_the_block: no usable Chrome. \
-             This is NOT a pass."
-        );
+        common::skip_with_reason("browser_engine_also_reports_the_block", "no usable Chrome.");
         return;
     }
     let port = start_fixture_server();

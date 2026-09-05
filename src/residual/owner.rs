@@ -24,6 +24,13 @@ pub fn owner_pid_path(dir: &Path) -> PathBuf {
 ///
 /// Best-effort: a failure only degrades the collector back to the cmdline
 /// fallback, so the error is returned for tracing but never fatal.
+///
+/// # Errors
+///
+/// `std::io::Error` from `std::fs::write` when the marker cannot be created — a
+/// profile directory that no longer exists, permission denied, or a full disk.
+/// The caller treats this as best-effort: losing the marker only degrades the
+/// collector back to the cmdline fallback described in the module docs.
 pub fn write_owner_pid(dir: &Path) -> std::io::Result<()> {
     std::fs::write(owner_pid_path(dir), std::process::id().to_string())
 }

@@ -42,7 +42,7 @@ impl BrowserManager {
                 .send_command_typed(
                     "Target.createTarget",
                     &CreateTargetParams {
-                        url: "about:blank".to_string(),
+                        url: crate::constants::ABOUT_BLANK.to_string(),
                         browser_context_id: None,
                     },
                     None,
@@ -68,7 +68,7 @@ impl BrowserManager {
                 label: None,
                 target_id: result.target_id,
                 session_id: attach_result.session_id.clone(),
-                url: "about:blank".to_string(),
+                url: crate::constants::ABOUT_BLANK.to_string(),
                 title: String::new(),
                 target_type: "page".to_string(),
             });
@@ -76,7 +76,8 @@ impl BrowserManager {
             self.enable_domains(&attach_result.session_id).await?;
         } else {
             // Parallel attach (I/O CDP) then assign tab ids in stable target order.
-            let cdp_limit = crate::concurrency::effective_limit_capped(32);
+            let cdp_limit =
+                crate::concurrency::effective_limit_capped(crate::concurrency::CDP_FANOUT_CAP);
             let client = std::sync::Arc::clone(&self.client);
             let attach_futs: Vec<_> = page_targets
                 .iter()

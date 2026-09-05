@@ -122,6 +122,19 @@
       ],
       "type": "boolean"
     },
+    "screen": {
+      "argv": "--screen",
+      "description": "Screen size `WxH`. Defaults to the viewport so screen cannot stay 800x600",
+      "required": false,
+      "source": "parser",
+      "step_key": "screen",
+      "surfaces": [
+        "argv",
+        "run_step",
+        "exec"
+      ],
+      "type": "string"
+    },
     "timezone": {
       "argv": "--timezone",
       "description": "IANA timezone reported to the page (for example `America/Sao_Paulo`)",

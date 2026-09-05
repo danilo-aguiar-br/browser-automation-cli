@@ -10,6 +10,16 @@ use super::super::OneShotSession;
 
 impl OneShotSession {
     /// Cookies for `url`, or for the current page when `url` is `None`.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when no page is active, and with `"cookie list failed: …"` when
+    /// `Network.getCookies` / `Network.getAllCookies` is refused — usually a
+    /// session where the `Network` domain was never enabled.
+    ///
+    /// No cookies is not an error: the envelope reports `empty: true`, so an
+    /// agent never has to infer absence from the shape of the payload.
     pub async fn cookie_list(&mut self, url: Option<&str>) -> Result<Value, CliError> {
         self.drain_events();
         let session_id = self
@@ -34,6 +44,20 @@ impl OneShotSession {
     }
 
     /// Set cookies from a JSON array, in one CDP call.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when no page is active, and with
+    /// [`ErrorKind::Usage`] when
+    /// `cookies_json` is not valid JSON or is not an ARRAY of cookie objects —
+    /// a single object is refused rather than wrapped, because guessing here
+    /// would hide a payload the caller built wrong.
+    ///
+    /// Fails with [`ErrorKind::Browser`] —
+    /// `"cookie set failed: …"` — when `Network.setCookies` rejects the batch,
+    /// which is what happens when an entry carries neither `url` nor `domain`
+    /// and the current page URL could not be read to fill it in.
     pub async fn cookie_set(&mut self, cookies_json: &str) -> Result<Value, CliError> {
         self.drain_events();
         let session_id = self
@@ -76,6 +100,12 @@ impl OneShotSession {
     }
 
     /// Remove every cookie from the browser profile.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when no page is active, and with `"cookie clear failed: …"` when
+    /// `Network.clearBrowserCookies` is refused.
     pub async fn cookie_clear(&mut self) -> Result<Value, CliError> {
         self.drain_events();
         let session_id = self

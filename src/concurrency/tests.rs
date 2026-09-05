@@ -74,7 +74,7 @@ async fn join_bounded_ordered_preserves_order() {
 #[test]
 fn semaphore_has_effective_permits() {
     install_limit(4);
-    let s = io_semaphore();
+    let s = semaphore_with(effective_limit());
     assert_eq!(s.available_permits(), 4);
     install_limit(0);
 }

@@ -206,6 +206,26 @@ pub fn search_base_url() -> String {
         .unwrap_or_else(|| crate::constants::DEFAULT_SEARCH_BASE_URL.to_string())
 }
 
+/// Persistent Chrome profile directory from XDG, or `None`.
+///
+/// # Why `None` is the answer that matters
+///
+/// Absent is the default and absent means residual-zero: the launch gets a
+/// throwaway profile and the run leaves nothing behind. A caller only reaches
+/// the other branch by writing the key, which is the point — the trade is
+/// visible in the config file rather than buried in a launch heuristic.
+///
+/// Whitespace-only is treated as absent, matching `search_base_url` above, so
+/// `config set user_data_dir ""` clears the opt-in instead of asking Chrome to
+/// use a profile directory named the empty string.
+pub fn user_data_dir() -> Option<String> {
+    load_config()
+        .ok()
+        .and_then(|c| c.user_data_dir)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// HTTP SSRF mode from XDG (`strict` | `allow_loopback` | `off`); default `strict`.
 pub fn resolve_http_ssrf_mode() -> String {
     load_config()
@@ -235,8 +255,29 @@ pub fn resolve_http_connect_timeout_secs() -> u64 {
 }
 
 /// Byte ceiling for the `monitor check --diff-mode` payload.
+///
+/// No `.filter(|&n| n > 0)` here because there is nothing to filter: the value
+/// comes from `policy_u64`, which already drops a stored zero and falls back to
+/// the named default. The guard lives one layer down, which is why this function
+/// is allowed to be a single expression.
+///
+/// The narrowing goes through `usize::try_from`, not `as usize`, for the reason
+/// spelled out in `resolve_scrape.rs`: on a 32-bit target the cast truncates in
+/// silence, and a byte ceiling that silently becomes tiny is the worst of the
+/// available failures.
+///
+/// It saturates instead of falling back to a default, which is where it departs
+/// from its siblings, and the departure is deliberate: there is no named default
+/// in scope here — `policy_u64` already applied it — so the only choice left is
+/// what to do when the operator asked for more bytes than the machine can
+/// address. Saturating grants the largest ceiling that exists, which is the
+/// closest honest reading of "more than `usize::MAX`". The value still comes
+/// from a validated layer, so this is not a way for a zero to slip through.
 pub fn resolve_monitor_diff_max_bytes() -> usize {
-    crate::xdg::policy::policy_u64(crate::xdg::policy::key::MONITOR_DIFF_MAX_BYTES) as usize
+    usize::try_from(crate::xdg::policy::policy_u64(
+        crate::xdg::policy::key::MONITOR_DIFF_MAX_BYTES,
+    ))
+    .unwrap_or(usize::MAX)
 }
 
 /// Whether loopback is bypassed when Chrome is launched behind `--proxy`.
@@ -337,6 +378,15 @@ pub fn resolve_stealth_seed() -> Option<String> {
         .and_then(|c| c.stealth_seed)
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+/// Explicit screen `WxH` from XDG, or `None` to mirror the viewport.
+#[must_use]
+pub fn resolve_screen_spec() -> Option<(i32, i32)> {
+    load_config()
+        .ok()
+        .and_then(|c| c.screen)
+        .and_then(|raw| crate::native::stealth::parse_screen_spec(raw.trim()).ok())
 }
 
 /// LLM/webhook blocking HTTP timeout (seconds).

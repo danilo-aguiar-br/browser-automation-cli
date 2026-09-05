@@ -71,6 +71,19 @@ pub(super) fn content_path(baseline: &Path) -> PathBuf {
 /// Never fails the run: a missing or unreadable sidecar means the caller gets
 /// the hash answer they always got, plus `diff_available: false` saying why.
 /// Failing here would turn a first run with a new flag into an error.
+///
+/// # Why there is no root check here
+///
+/// GAP-026 asked for one and the answer is that it would be a second copy of a
+/// check that already ran. `baseline` reaches this function from exactly one
+/// place, `handle_monitor`, which bounds it with `ensure_read_allowed` before
+/// the fetch; `content_path` derives the sidecar from that same bounded value,
+/// so a refused `--baseline` never produces a path to read here.
+///
+/// Adding a check anyway would also break the contract stated above: this
+/// function has no error channel, so a refusal would have to be laundered into
+/// `diff_available: false`, reporting "no previous content recorded" for a path
+/// that was rejected on policy. A wrong reason is worse than no reason.
 pub(super) fn build_diff(mode: DiffMode, baseline: &Path, current: &str) -> Value {
     if !mode.wants_content() {
         return Value::Null;

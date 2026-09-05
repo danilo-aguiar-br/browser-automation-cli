@@ -5,11 +5,13 @@
 //!
 //! | Module | Responsibility |
 //! |--------|----------------|
+//! | `all` | the `UiMessage::ALL` variant list |
 //! | `ftl_ids` | variant → stable FTL id |
 //! | `mapping` | legacy suggestion / error-kind keys → variant |
 
 use super::ui_locale::UiLocale;
 
+mod all;
 mod ftl_ids;
 mod mapping;
 
@@ -48,6 +50,18 @@ pub enum UiMessage {
     ThirdPartyFlag,
     /// Network capture flag required before net tools.
     CaptureNetwork,
+    /// Resource type outside the CDP vocabulary accepted by capture filters.
+    ResourceTypeVocabulary,
+    /// Capture buffer read attempted outside the process that filled it.
+    CaptureNeedsRun,
+    /// Console filter asked for an attribution the buffer does not carry.
+    ConsoleNoWorkerAttribution,
+    /// A run step omitted a key the action requires.
+    StepMissingArgument,
+    /// A run step named an action the family does not have.
+    UnknownStepAction,
+    /// A path reached that only a product defect can reach.
+    InternalDefect,
     /// Console capture flag required before console tools.
     CaptureConsole,
     /// Run script failed fast.
@@ -92,6 +106,8 @@ pub enum UiMessage {
     PageSelectTarget,
     /// A WAF or bot-check served a challenge instead of the requested content.
     BlockedByWaf,
+    /// Continuous client attestation refused the request. Not a solvable challenge.
+    BlockedByAttestation,
     /// Offline perf insight needs a trace file this product wrote.
     PerfTracePath,
     /// SSRF policy blocked a URL host.
@@ -121,7 +137,17 @@ pub enum UiMessage {
     /// Raise the byte ceiling via config set, or use a smaller input
     RaiseSizeLimit,
     /// Raise --timeout or --step-timeout, or reduce the work per step
+    ///
+    /// The GLOBAL wall clock only. Navigation, submit and wait have ceilings of
+    /// their own, and pointing at the wrong one costs the caller an attempt
+    /// that fails identically — see [`Self::RaiseNavigationTimeout`].
     RaiseTimeout,
+    /// Raise --navigation-timeout-ms, or navigation_timeout_ms on the goto step
+    RaiseNavigationTimeout,
+    /// Raise the submit budget, or check that the form actually navigates
+    RaiseSubmitTimeout,
+    /// Raise ms on the wait step, or relax the condition being waited on
+    RaiseWaitTimeout,
     /// Filter grammar for --filter: key=value, key!=value or key~substring
     AgentOpsFilterSyntax,
     /// Row operations need a list this command does not have
@@ -176,12 +202,22 @@ pub enum UiMessage {
     SheetInputFormat,
     /// Format: `WxHxDPR[,mobile][,touch][,landscape]`
     ViewportSpecFormat,
+    /// Format: `WxH` for `--screen`
+    ScreenSpecFormat,
+    /// User-Agent must match the active stealth profile
+    StealthProfileUa,
+    /// `--include-regex` / `--exclude-regex` must be a valid regex
+    PathRegexInvalid,
+    /// Eval failed because the inspected target navigated in the same expression
+    EvalNavigated,
     /// Run: browser-automation-cli commands --json to list the live surface
     CommandsDiscovery,
     /// Use: `browser-automation-cli schema <cmd>` or `schema --cmd <cmd>`
     SchemaCommandRequired,
     /// Use --engine http for one-shot baselines, or --engine browser / parse for local files
     ScrapeEngineChoice,
+    /// LLM extract runs only under --engine http with a single --format json
+    ScrapeLlmExtractScope,
     /// Download the file and read it with parse, or pick a command for this media type
     ScrapeOpaqueContent,
     /// Check the Chrome install and Xvfb availability on Linux headed launches
@@ -262,133 +298,67 @@ pub enum UiMessage {
     HttpStatusScrape,
     /// Page blocked by meta robots / X-Robots-Tag noindex.
     MetaRobotsNoindex,
+    /// `assert url` ran before any navigation in this one-shot.
+    AssertUrlNavigateFirst,
+    /// `assert text` did not find the needle in the page text.
+    AssertTextSubstring,
+    /// Console message id out of range.
+    ConsoleListIds,
+    /// Network request index out of range.
+    NetGetIndexOrRequestId,
+    /// Network requestId not present in the capture.
+    NetGetExactRequestId,
+    /// `Browser.close` failed; the child is still reaped by FINALIZE.
+    BrowserCloseReaped,
+    /// WebMCP tool name not exposed by the page.
+    WebmcpListFirst,
+    /// Navigation failed at the CDP level.
+    NavigationFailedCheck,
+    /// `pick` could not match an option in the popover.
+    PickOptionTarget,
+    /// `exec` invoked without a usable subcommand or URL.
+    ExecGotoExample,
+    /// Output path rejected for `..` traversal.
+    PathNoParentComponents,
+    /// lighthouse CLI exited non-zero.
+    LighthouseRunFailed,
+    /// `assert` step of kind `url` without a value.
+    AssertUrlExample,
+    /// `assert` step of kind `text` without a value.
+    AssertTextExample,
+    /// `assert` step of kind `console_no_match` without a pattern.
+    AssertConsoleNoMatchExample,
+    /// `assert` step without a recognised kind.
+    AssertStepExample,
+    /// `print-pdf` step refused a blank page.
+    PrintPdfNeedsNavigation,
+    /// Script starts with `[` but is not an array of step objects.
+    RunScriptArrayShape,
+    /// A script array element is not a step object.
+    RunArrayElementObject,
+    /// A script NDJSON line is not a JSON object.
+    RunNdjsonLineObject,
+    /// A nested array appeared in NDJSON mode.
+    RunScriptArrayOrNdjson,
+    /// A normalized step value is not an object.
+    RunStepObjectExample,
+    /// The expanded script produced zero steps.
+    RunScriptEmpty,
+    /// `--lang` / `config set lang` rejected the token.
+    LangTokenValues,
+    /// Inline CLI JSON payload above `max_cli_json_payload_bytes`.
+    CliJsonPayloadTooLarge,
+    /// Input file above the resolved byte ceiling.
+    SplitInputOrRaiseLimit,
+    /// Input file holds bytes that are not valid UTF-8.
+    FileNotUtf8,
+    /// NDJSON line above `max_ndjson_line_bytes`.
+    NdjsonLineTooLarge,
+    /// `sheet-write` JSON input is not an array of row objects.
+    SheetJsonRowsExample,
 }
 
 impl UiMessage {
-    /// All variants (for parity / exhaustiveness tests).
-    pub const ALL: &'static [UiMessage] = &[
-        UiMessage::UsageSuggestion,
-        UiMessage::BrokenPipeSuggestion,
-        UiMessage::UnavailableSuggestion,
-        UiMessage::DataSuggestion,
-        UiMessage::BrowserSuggestion,
-        UiMessage::VisionRequired,
-        UiMessage::RobotsDual,
-        UiMessage::CategoryMemory,
-        UiMessage::CategoryExtensions,
-        UiMessage::ScreencastFlag,
-        UiMessage::WebmcpFlag,
-        UiMessage::ThirdPartyFlag,
-        UiMessage::CaptureNetwork,
-        UiMessage::CaptureConsole,
-        UiMessage::RunFailFast,
-        UiMessage::LighthouseMissing,
-        UiMessage::LighthouseTimeout,
-        UiMessage::FfmpegTimeout,
-        UiMessage::BinaryUnsafeWindows,
-        UiMessage::VisionCoordinates,
-        UiMessage::EvalArgsUids,
-        UiMessage::ExtractLlmUsage,
-        UiMessage::MitmBlockTarget,
-        UiMessage::Devtools3pListFirst,
-        UiMessage::WebmcpInputJson,
-        UiMessage::Devtools3pParamsJson,
-        UiMessage::RunScriptFile,
-        UiMessage::InitScriptJavascript,
-        UiMessage::RaiseStepTimeout,
-        UiMessage::WorkflowRunFirst,
-        UiMessage::CookieJsonExample,
-        UiMessage::GotoRunScript,
-        UiMessage::ConsoleCaptureRun,
-        UiMessage::PageSelectTarget,
-        UiMessage::BlockedByWaf,
-        UiMessage::PerfTracePath,
-        UiMessage::SsrfBlocked,
-        UiMessage::HttpBodyTooLarge,
-        UiMessage::HttpConnectTimeout,
-        UiMessage::ProxyUrlInvalid,
-        UiMessage::RedisHostBlocked,
-        UiMessage::LocaleResolved,
-        UiMessage::LocaleSource,
-        UiMessage::UrlAbsoluteHttp,
-        UiMessage::TargetRefFromView,
-        UiMessage::NavigateFirst,
-        UiMessage::JsonArrayObjects,
-        UiMessage::JsonObjectPayload,
-        UiMessage::RaiseSizeLimit,
-        UiMessage::RaiseTimeout,
-        UiMessage::AgentOpsFilterSyntax,
-        UiMessage::AgentOpsNoRows,
-        UiMessage::AgentOpsManyRows,
-        UiMessage::AgentOpsOverBudget,
-        UiMessage::UrlsFileTooLarge,
-        UiMessage::ExternalBinaryPath,
-        UiMessage::LlmConfigRequired,
-        UiMessage::RedisConfigRequired,
-        UiMessage::ConfigListKeys,
-        UiMessage::ConfigBoolValue,
-        UiMessage::UseListedValue,
-        UiMessage::FilePathInvalid,
-        UiMessage::HeapSnapshotInput,
-        UiMessage::ExtensionUnpackedDir,
-        UiMessage::ExtensionListFirst,
-        UiMessage::RunScriptMultiStep,
-        UiMessage::CdpKeyName,
-        UiMessage::DialogOpenRequired,
-        UiMessage::ConsoleAssertThreshold,
-        UiMessage::RetryAfterCancel,
-        UiMessage::WorkflowCycle,
-        UiMessage::ChromeSearchPathsFormat,
-        UiMessage::WebhookUnreachable,
-        UiMessage::QrImageQuality,
-        UiMessage::PdfInputInvalid,
-        UiMessage::SheetInputFormat,
-        UiMessage::ViewportSpecFormat,
-        UiMessage::CommandsDiscovery,
-        UiMessage::SchemaCommandRequired,
-        UiMessage::ScrapeEngineChoice,
-        UiMessage::ScrapeOpaqueContent,
-        UiMessage::ChromeLaunchFailed,
-        UiMessage::StepFieldUnknown,
-        UiMessage::XdgHomeRequired,
-        UiMessage::HeapCaptureFailed,
-        UiMessage::PathIsProcessSubstitution,
-        UiMessage::PathOutsideRoots,
-        UiMessage::MitmCapturePath,
-        UiMessage::DragSameFrame,
-        UiMessage::DragDestinationRequired,
-        UiMessage::SubmitNeedsForm,
-        UiMessage::SubmitValidationFailed,
-        UiMessage::IncludeCycle,
-        UiMessage::IncludeDepth,
-        UiMessage::IncludePathRequired,
-        UiMessage::AssertStepPath,
-        UiMessage::AssertStepOrder,
-        UiMessage::AssertStepOperator,
-        UiMessage::AssertStepInspect,
-        UiMessage::ImageTooLarge,
-        UiMessage::ImageMagicInvalid,
-        UiMessage::ImageFeatureDisabled,
-        UiMessage::ImageHeicEncodeUnavailable,
-        UiMessage::SvgRejected,
-        UiMessage::VideoTooLarge,
-        UiMessage::VideoMagicInvalid,
-        UiMessage::VideoSiteExtractionRejected,
-        UiMessage::VideoManifestNotAFile,
-        UiMessage::VideoFormatUnsupported,
-        UiMessage::VideoCodecContainerMismatch,
-        UiMessage::FfmpegMissing,
-        UiMessage::FfmpegFailed,
-        UiMessage::FfmpegIoFailed,
-        UiMessage::ImageFormatUnsupported,
-        UiMessage::AudioTooLarge,
-        UiMessage::AudioMagicInvalid,
-        UiMessage::AudioFormatUnsupported,
-        UiMessage::AudioLossyTranscode,
-        UiMessage::HttpStatusScrape,
-        UiMessage::MetaRobotsNoindex,
-    ];
-
     /// Resolve text for an explicit UI locale (no process global). Preferred in tests.
     pub fn text(self, ui_locale: UiLocale) -> &'static str {
         match ui_locale {

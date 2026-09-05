@@ -73,7 +73,7 @@ fn available_langids() -> &'static [LanguageIdentifier] {
 /// Normalize raw OS / user locale strings into a [`LanguageIdentifier`].
 ///
 /// Accepts `pt_BR.UTF-8`, `pt-BR`, `en_US.utf8`, etc.
-pub fn parse_langid(raw: &str) -> Option<LanguageIdentifier> {
+pub(crate) fn parse_langid(raw: &str) -> Option<LanguageIdentifier> {
     let mut s = raw.trim().replace('_', "-");
     if s.is_empty() {
         return None;
@@ -95,7 +95,7 @@ pub fn parse_langid(raw: &str) -> Option<LanguageIdentifier> {
 /// `fluent-langneg` may map bare `pt` → available `pt-BR`. Product rules forbid
 /// treating bare `pt` (or non-BR Portuguese regions) as a `pt-BR` substitute, so
 /// we only keep the PtBr pack when a request explicitly carries region `BR`.
-pub fn negotiate(requested: &[LanguageIdentifier]) -> UiLocale {
+pub(crate) fn negotiate(requested: &[LanguageIdentifier]) -> UiLocale {
     let available = available_langids();
     let default = UiLocale::En.language_identifier();
     let matched = negotiate_languages(
@@ -119,12 +119,6 @@ pub fn negotiate(requested: &[LanguageIdentifier]) -> UiLocale {
         }
     }
     ui
-}
-
-/// Read OS locale once via `sys-locale` (never direct `LANG` reads in portable code).
-pub fn detect_system_langid() -> Option<LanguageIdentifier> {
-    let raw = sys_locale::get_locale()?;
-    parse_langid(&raw)
 }
 
 /// Full 4-layer resolution (product-law: no product env vars):

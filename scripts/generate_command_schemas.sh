@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Generate static JSON Schema files for every CLI command from live meta.rs surface.
+# NOT a ci-check verifier by glob, and that is deliberate: this is a GENERATOR.
+# The bundle invokes it BY NAME as a fixed step in `--check` mode, so discovery
+# would run it twice and the second run would assert nothing new.
 # Source of truth: `browser-automation-cli schema --cmd <name> --json`
 # Usage:
 #   bash scripts/generate_command_schemas.sh           # write docs/schemas/<cmd>.schema.json
@@ -59,17 +62,17 @@ mkdir -p "$OUT_DIR"
 REPO_ID_BASE="https://github.com/danilo-aguiar-br/browser-automation-cli/docs/schemas"
 
 # Inventory from live CLI (must match meta::COMMANDS)
-mapfile -t COMMANDS < <(
-  "$BIN" --json commands 2>/dev/null | python3 -c '
-import json, sys
-raw = sys.stdin.read()
-data = json.loads(raw)
-cmds = data.get("data", data).get("commands")
-if not isinstance(cmds, list) or not cmds:
-    sys.exit("commands --json missing data.commands")
-for c in cmds:
-    print(c)
-'
+# `mapfile` is a bash 4 builtin and macOS ships bash 3.2, so the read loop
+# below is the portable equivalent (2026-09-04).
+COMMANDS=()
+while IFS= read -r __line; do COMMANDS+=("$__line"); done < <(
+  "$BIN" --json commands 2>/dev/null | jaq -r '
+    ((.data // .).commands) as $cmds
+    | if ($cmds | type) != "array" or ($cmds | length) == 0
+      then error("commands --json missing data.commands")
+      else $cmds[] | (if type == "object" then .name else . end)
+      end
+  '
 )
 
 if [[ ${#COMMANDS[@]} -lt 1 ]]; then
@@ -90,56 +93,41 @@ for cmd in "${COMMANDS[@]}"; do
     exit 2
   fi
 
+  # RENDERED BY jaq, NOT BY AN INTERPRETER
+  #   `jaq` preserves object key order and its two-space pretty form is
+  #   byte-identical to what this step used to emit, so `docs/schemas/*.json`
+  #   does not move. The swap removes a Python dependency from a generator that
+  #   `schema-drift-check.sh` calls, which on a host without the interpreter
+  #   turned a drift gate into an unconditional error.
   rendered="$(
-    CMD_NAME="$cmd" REPO_ID_BASE="$REPO_ID_BASE" python3 -c '
-import json, os, sys
-
-cmd = os.environ["CMD_NAME"]
-base = os.environ["REPO_ID_BASE"]
-raw = sys.stdin.read()
-try:
-    envelope = json.loads(raw)
-except json.JSONDecodeError as e:
-    sys.stderr.write(f"invalid json for {cmd}: {e}\n")
-    sys.exit(2)
-
-data = envelope.get("data", envelope)
-# Prefer nested schema object from meta schema_for_cmd
-schema = data.get("schema")
-if not isinstance(schema, dict):
-    schema = {
-        "type": data.get("type", "object"),
-        "description": data.get("description", f"{cmd} command input"),
-        "properties": data.get("properties") or {},
-        "required": data.get("required") or [],
-        "additionalProperties": False,
-    }
-
-props = schema.get("properties")
-if props is None:
-    props = {}
-required = schema.get("required")
-if required is None:
-    required = []
-description = schema.get("description") or f"{cmd} command input"
-stype = schema.get("type") or "object"
-additional = schema.get("additionalProperties", False)
-
-doc = {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": f"{base}/{cmd}.schema.json",
-    "title": f"{cmd} command input",
-    "type": stype,
-    "description": description,
-    "properties": props,
-    "required": required,
-    "additionalProperties": additional,
-}
-
-print(json.dumps(doc, indent=2, ensure_ascii=False, sort_keys=False))
-print()  # trailing newline
-' <<<"$live_json"
+    printf '%s' "$live_json" | jaq --indent 2 --arg cmd "$cmd" --arg base "$REPO_ID_BASE" '
+      (.data // .) as $data
+      | (if ($data.schema | type) == "object"
+         then $data.schema
+         else {
+           type: ($data.type // "object"),
+           description: ($data.description // ($cmd + " command input")),
+           properties: (if ($data.properties // {}) == null then {} else ($data.properties // {}) end),
+           required: ($data.required // []),
+           additionalProperties: false
+         }
+         end) as $schema
+      | {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "$id": ($base + "/" + $cmd + ".schema.json"),
+          "title": ($cmd + " command input"),
+          "type": (if ($schema.type // "") == "" then "object" else $schema.type end),
+          "description": (if ($schema.description // "") == "" then ($cmd + " command input") else $schema.description end),
+          "properties": ($schema.properties // {}),
+          "required": ($schema.required // []),
+          "additionalProperties": (if ($schema | has("additionalProperties")) then $schema.additionalProperties else false end)
+        }
+    '
   )"
+  if [[ -z "$rendered" ]]; then
+    echo "invalid json for $cmd: schema --cmd produced no renderable document" >&2
+    exit 2
+  fi
 
   if [[ "$CHECK" -eq 1 ]]; then
     if [[ ! -f "$outfile" ]]; then

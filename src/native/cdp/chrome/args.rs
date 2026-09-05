@@ -46,17 +46,158 @@ pub fn merge_proxy_bypass(operator: Option<&str>, add_loopback: bool) -> Option<
     }
 }
 
-/// Create the temp profile dir on the **current** thread (unit tests / sync callers).
+/// Create the profile dir on the **current** thread (unit tests / sync callers).
 ///
 /// Production async launch uses [`crate::concurrency::create_dir_all_blocking`] instead.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn materialize_temp_user_data_dir_sync(args: &ChromeArgs) -> Result<(), String> {
+///
+/// # Why `user_data_dir` and not `temp_user_data_dir`
+///
+/// The two are not the same set. `temp_user_data_dir` marks OWNERSHIP — the
+/// profiles this one-shot deletes at FINALIZE — while `user_data_dir` is what
+/// Chrome is actually handed. Under an explicit `--profile` the first is `None`
+/// and the second still names a directory, so keying materialization off
+/// ownership meant nobody created the operator's profile: Chrome received a
+/// path the product never made and answered `Failed to create
+/// <profile>/SingletonLock: No such file or directory`. Creating a directory
+/// and deleting it are different questions, and only the second one is about
+/// ownership.
+pub(crate) fn materialize_user_data_dir_sync(args: &ChromeArgs) -> Result<(), String> {
+    let preexisting = args.user_data_dir.is_dir();
+    std::fs::create_dir_all(&args.user_data_dir)
+        .map_err(|e| format!("Failed to create profile dir: {e}"))?;
+    restrict_named_profile(args, preexisting);
+    Ok(())
+}
+
+/// Lock a NAMED profile to `0700`, but only the run that created it.
+///
+/// # Why the ownership test is `temp_user_data_dir.is_none()`
+///
+/// A throwaway profile already lives under the product's own XDG cache and is
+/// deleted at FINALIZE, so tightening it buys nothing. A NAMED one — reached
+/// through `--profile` or the `user_data_dir` key — persists on purpose and
+/// holds cookies and session tokens, which on a shared host a default umask
+/// publishes to every other account.
+///
+/// # Why only the run that created it
+///
+/// A directory the operator already had is a directory whose permissions the
+/// operator already chose, and silently rewriting them is the CLI modifying a
+/// host it was asked to observe. Creating one is a different question, and it
+/// is the only one this answers.
+///
+/// # Why a failure here is not fatal
+///
+/// The profile is usable at the default mode; only its exposure is worse. A
+/// launch refused over a `chmod` would trade a real capability for a warning,
+/// and on a filesystem with no Unix modes there is nothing to trade for.
+///
+/// MEASURED 2026-09-04: the first shape of this guard ran the `chmod` BEFORE
+/// `create_dir_all` and skipped it when the directory was absent, so the very
+/// first run — the one that creates the directory and receives the first
+/// cookie — left it at `0755`. The documentation promised `0700` and the code
+/// delivered it only from the second run onward.
+fn restrict_named_profile(args: &ChromeArgs, preexisting: bool) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if args.temp_user_data_dir.is_none() && !preexisting {
+            let _ = std::fs::set_permissions(
+                &args.user_data_dir,
+                std::fs::Permissions::from_mode(0o700),
+            );
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (args, preexisting);
+    }
+}
+
+/// Create the profile dir off the Tokio worker and stamp ownership at once.
+///
+/// # Why the marker is written here and not later
+///
+/// The owner-pid marker is what tells residual GC that a profile has a living
+/// owner. A profile that exists WITHOUT one is exactly the shape the sweep is
+/// built to collect, so every instruction between the `mkdir` and the stamp is
+/// a window in which this launch's own directory looks abandoned. The two
+/// belong to one step, and the failure to stamp is now a launch failure rather
+/// than a `debug!` line: a profile the GC may reap out from under Chrome is not
+/// a degraded launch, it is a launch that has not happened yet.
+pub(crate) async fn materialize_profile_dir(args: &ChromeArgs) -> Result<(), String> {
+    let preexisting = args.user_data_dir.is_dir();
+    crate::concurrency::create_dir_all_blocking(args.user_data_dir.clone())
+        .await
+        .map_err(|e| format!("Failed to create profile dir: {e}"))?;
+    // This is the path a real launch takes; the sync twin above exists for the
+    // pre-fork re-assertion. Both must tighten the mode, or the promise holds
+    // on one path and not the other.
+    restrict_named_profile(args, preexisting);
+    // GAP-052: stamp the owning CLI pid so residual GC resolves liveness by
+    // exact pid instead of substring-matching whole command lines. Only owned
+    // temp profiles are ever swept, so an operator's own `--profile` is left
+    // unmarked on purpose.
     if let Some(ref dir) = args.temp_user_data_dir {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("Failed to create temp profile dir: {e}"))?;
+        crate::residual::write_owner_pid(dir)
+            .map_err(|e| format!("Failed to stamp profile owner pid: {e}"))?;
     }
     Ok(())
 }
+
+/// Re-create the profile dir if it vanished, and count it when it did.
+///
+/// Returns `Ok` unchanged in the overwhelmingly common case where the directory
+/// is still there. The counter exists so the race stops being invisible: today
+/// it shows up only as a Chrome exit 21 in an unrelated test, which is the
+/// worst possible place to read it.
+pub(crate) fn reassert_profile_dir(args: &ChromeArgs) -> Result<(), String> {
+    if args.user_data_dir.is_dir() {
+        return Ok(());
+    }
+    tracing::warn!(
+        target: "browser_automation_cli::launch",
+        dir = %args.user_data_dir.display(),
+        "profile dir vanished between materialization and fork; recreating"
+    );
+    PROFILE_DIR_RECREATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    materialize_user_data_dir_sync(args)?;
+    if let Some(ref dir) = args.temp_user_data_dir {
+        crate::residual::write_owner_pid(dir)
+            .map_err(|e| format!("Failed to stamp profile owner pid: {e}"))?;
+    }
+    Ok(())
+}
+
+/// State of the profile dir at the moment a launch died, as a message suffix.
+///
+/// # Why measure this at all
+///
+/// Chrome answers a missing profile with `Failed to create
+/// <profile>/SingletonLock: No such file or directory` and exit 21 — the truth,
+/// but only about the symptom. Whether the directory was there when the launch
+/// gave up is the fact that separates "the product never created it" from
+/// "something removed it afterwards", and it is unrecoverable once the process
+/// is gone. Reading it here costs one `stat` on a path already at hand, on a
+/// path that is already failing.
+///
+/// This changes no `kind` and no exit code: the launch already failed, and it
+/// already failed correctly as `unavailable`.
+pub(crate) fn profile_postmortem(args: &ChromeArgs) -> String {
+    let present = args.user_data_dir.is_dir();
+    let recreated = PROFILE_DIR_RECREATED.load(std::sync::atomic::Ordering::Relaxed);
+    format!(
+        "\nProfile dir at failure: {} (exists: {present}, recreated_before_fork: {recreated})",
+        args.user_data_dir.display()
+    )
+}
+
+/// How many times [`reassert_profile_dir`] had to rebuild a vanished profile.
+///
+/// Process-local, and reported by the launch diagnostics rather than logged
+/// once and forgotten.
+pub(crate) static PROFILE_DIR_RECREATED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 
 /// Build Chrome flags from [`LaunchOptions`] (used by oxide one-shot path).
 ///
@@ -185,6 +326,23 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
         args.push("--disable-quic".to_string());
     }
 
+    // NOT XDG keys, decided 2026-08-31 after an audit proposed making both
+    // configurable.
+    //
+    // `--disable-quic` above is a security decision with its reasoning attached:
+    // QUIC runs over UDP and goes around an HTTP proxy, so a configurable
+    // version of it is a switch whose ON position silently leaks traffic past
+    // the egress the caller chose. A knob that can only be set wrongly is not a
+    // knob.
+    //
+    // The four ANGLE flags below are one BUNDLE, not four values. `vulkan`,
+    // `swiftshader` as the Vulkan implementation, `swiftshader` as the WebGPU
+    // adapter and the surface being disabled only make sense together; setting
+    // one to something else yields a combination no real browser ships. Same
+    // argument `native::stealth` records for `GpuProfile`, where vendor,
+    // renderer, adapter and `hardware_concurrency` are correlated and detectors
+    // cross-check them — breaking the bundle desynchronises the very pair the
+    // check compares.
     if options.webgpu {
         args.push("--enable-unsafe-webgpu".to_string());
         if cfg!(target_os = "linux") {
@@ -237,9 +395,26 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
         args.push(format!("--proxy-bypass-list={bypass}"));
     }
 
-    let (user_data_dir, temp_user_data_dir) = if let Some(ref profile) = options.profile {
+    // Precedence: `--profile` on argv, then the `user_data_dir` XDG key, then a
+    // throwaway profile. The middle step exists because a one-shot CLI cannot
+    // satisfy a detector that attests SESSION — fifty invocations present as
+    // fifty machines, and the tokens the first one earned die at DIE. Naming
+    // the directory once in the config file is what makes them one machine.
+    //
+    // Both named branches yield `temp_user_data_dir: None`, which is not an
+    // omission: `None` is exactly how this crate says "the operator owns this
+    // directory, never sweep it". Residual GC already reads it that way, so an
+    // operator profile reached through the key inherits the same protection the
+    // flag has always had, with no second vocabulary.
+    let named_profile = options.profile.clone().or_else(crate::xdg::user_data_dir);
+    let (user_data_dir, temp_user_data_dir) = if let Some(ref profile) = named_profile {
         let expanded = super::tooling::expand_tilde(profile);
         let dir = PathBuf::from(&expanded);
+        // Mode is NOT set here. This function only builds argv; the directory
+        // does not exist yet on a first run, so a `chmod` at this point is a
+        // no-op on exactly the run that matters. It lives in
+        // `restrict_named_profile`, called right after creation on both the
+        // async launch path and its sync pre-fork twin.
         args.push(format!("--user-data-dir={expanded}"));
         (dir, None)
     } else {
@@ -304,11 +479,49 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
         args.push("--disable-dev-shm-usage".to_string());
     }
 
+    // Publish what this launch ACTUALLY passed, once per process.
+    //
+    // # The defect this closes
+    //
+    // An audit tried the experiment that decides whether a launch switch hurts
+    // fidelity — remove one, repeat the measurement — and could not run it,
+    // because the switches were invisible from the product's own surface. The
+    // CLI exposed the SYMPTOM, since the flags show up in `ps`, and hid the
+    // CONTROL. Reading argv out of `ps` is not a contract; this is.
+    //
+    // # Why publishing beats adding a knob per flag
+    //
+    // The refusal recorded above still holds: `--disable-quic` is a security
+    // decision whose ON position leaks traffic past the caller's proxy, and the
+    // four ANGLE switches are one correlated BUNDLE that a detector
+    // cross-checks. A knob that can only be set wrongly is not a knob. What the
+    // operator actually lacked was the ability to SEE the set and correlate it
+    // with the flags that already govern it — `--no-stealth` removes the QUIC
+    // decision, `--webgpu` gates the ANGLE bundle.
+    //
+    // `--ozone-override-screen-size`, the third switch that audit named, is
+    // absent from this tree entirely as of 2026-09-04.
+    //
+    // `set` and not `get_or_init`: a second call in one process would mean two
+    // launches with possibly different argv, and silently keeping the first is
+    // how a witness starts lying. The value is read by `doctor --fingerprint`.
+    let _ = LAUNCH_ARGS.set(args.clone());
     Ok(ChromeArgs {
         args,
         user_data_dir,
         temp_user_data_dir,
     })
+}
+
+/// The argv this process handed Chrome, or `None` before any launch.
+static LAUNCH_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// What [`build_chrome_args`] produced for this process.
+///
+/// `None` means no launch has happened yet, which is a different answer from
+/// "launched with no flags" and must stay distinguishable.
+pub(crate) fn launch_args() -> Option<&'static [String]> {
+    LAUNCH_ARGS.get().map(Vec::as_slice)
 }
 pub(crate) fn should_disable_sandbox(existing_args: &[String]) -> bool {
     if existing_args.iter().any(|a| a == "--no-sandbox") {

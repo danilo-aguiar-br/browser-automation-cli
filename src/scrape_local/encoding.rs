@@ -16,6 +16,25 @@ pub struct DecodedBody {
 
 /// Decode body using BOM → Content-Type charset → meta charset → UTF-8 → Windows-1252.
 pub fn decode_html_body(bytes: &[u8], content_type: Option<&str>) -> DecodedBody {
+    decode_html_body_with(
+        bytes,
+        content_type,
+        crate::xdg::resolve_scrape_charset_peek_bytes(),
+    )
+}
+
+/// Parameterized core: the same cascade against an explicit sniffing window.
+///
+/// `peek_bytes` decides how far into the document the `<meta charset>` search
+/// looks. A test that goes through the facade inherits the operator’s
+/// `scrape_charset_peek_bytes`, so a small value silently moves the answer from
+/// the meta-charset branch to the Windows-1252 fallback — the decode still
+/// “works”, which is precisely what makes the coupling hard to notice.
+pub fn decode_html_body_with(
+    bytes: &[u8],
+    content_type: Option<&str>,
+    peek_bytes: usize,
+) -> DecodedBody {
     if let Some((enc, bom_len)) = Encoding::for_bom(bytes) {
         let (cow, _, had_errors) = enc.decode(&bytes[bom_len..]);
         return DecodedBody {
@@ -37,8 +56,7 @@ pub fn decode_html_body(bytes: &[u8], content_type: Option<&str>) -> DecodedBody
     }
 
     // Peek meta charset from a lossy UTF-8 view of the head (HTML5 sniffing window).
-    let peek = crate::xdg::resolve_scrape_charset_peek_bytes();
-    let head_end = bytes.len().min(peek);
+    let head_end = bytes.len().min(peek_bytes);
     let head_lossy = String::from_utf8_lossy(&bytes[..head_end]);
     if let Some(label) = charset_from_meta_html(&head_lossy) {
         if let Some(enc) = Encoding::for_label(label.as_bytes()) {
@@ -140,7 +158,33 @@ mod tests {
     #[test]
     fn meta_charset_detected() {
         let html = b"<html><head><meta charset=\"iso-8859-1\"></head><body>\xe9</body></html>";
-        let d = decode_html_body(html, None);
-        assert!(d.text.contains('é') || d.charset.contains("1252") || d.charset.contains("8859"));
+        // Explicit window, and an assertion that names ONE branch. The previous
+        // version went through the facade and accepted a three-way disjunction
+        // — meta detected OR windows-1252 fallback OR 8859 — so it passed
+        // whether the meta tag was honoured or missed entirely. It could not
+        // fail for the reason it exists.
+        let d = decode_html_body_with(html, None, 1024);
+        assert_eq!(
+            d.charset, "windows-1252",
+            "iso-8859-1 is labelled windows-1252 by the WHATWG encoding standard"
+        );
+        assert!(
+            d.text.contains('é'),
+            "byte 0xE9 must decode to é, got {:?}",
+            d.text
+        );
+    }
+
+    #[test]
+    fn meta_charset_missed_when_window_is_too_small() {
+        // The other side of the same knob: with a window that stops before the
+        // meta tag, the cascade MUST fall through instead of finding it. This
+        // is what pins `peek_bytes` as load-bearing rather than decorative.
+        let html = b"<html><head><meta charset=\"iso-8859-1\"></head><body>\xe9</body></html>";
+        let d = decode_html_body_with(html, None, 8);
+        assert!(
+            !d.text.is_empty(),
+            "a missed meta charset must still decode, not return empty"
+        );
     }
 }

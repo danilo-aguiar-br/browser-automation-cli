@@ -49,17 +49,10 @@
 //! No binary, no fixture or no Chrome means SKIP LOUDLY. A silent green here
 //! would rebuild the blind spot this gate exists to remove.
 
-use std::path::PathBuf;
-use std::process::Command;
+mod common;
+use common::{binary, chrome_not_ready, missing_binary, root};
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn binary() -> Option<PathBuf> {
-    let p = root().join("target/debug/browser-automation-cli");
-    p.exists().then_some(p)
-}
+const GATE: &str = "submit_form_gate";
 
 fn fixture_url(name: &str, query: &str) -> Option<String> {
     let p = root().join("scripts/fixtures/submit_form").join(name);
@@ -79,19 +72,25 @@ fn fixture_url(name: &str, query: &str) -> Option<String> {
 /// overwrite each other.
 fn run_script(lines: &[String]) -> Option<serde_json::Value> {
     let bin = binary()?;
-    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("submit-form-gate-{}-{n}", std::process::id()));
-    std::fs::create_dir_all(&dir).ok()?;
+    // A `TempDir` and not a pid+counter path: the counter only ever resolved
+    // COLLISION between the threads of this one binary, never cleanup, so an
+    // assertion that panicked left the directory behind for good. The guard is
+    // bound to a NAMED variable on purpose — `let _ = ...` drops it on the spot
+    // and deletes the script before the child process can read it.
+    let scratch = tempfile::Builder::new()
+        .prefix("bac-submit-form-gate-")
+        .tempdir()
+        .ok()?;
+    let dir = scratch.path();
     let script = dir.join("steps.jsonl");
     std::fs::write(&script, lines.join("\n")).ok()?;
 
-    let out = Command::new(&bin)
+    let out = common::isolated_cmd(&bin)
         .args(["-q", "--timeout", "120", "--json", "run", "--script"])
         .arg(&script)
         .output()
         .ok()?;
-    let _ = std::fs::remove_dir_all(&dir);
+
     serde_json::from_slice(&out.stdout).ok()
 }
 
@@ -121,35 +120,19 @@ fn last_eval_result(env: &serde_json::Value) -> String {
 
 /// True when the host cannot run the gate. Prints why; never silently passes.
 fn cannot_run() -> bool {
-    if binary().is_none() {
-        eprintln!(
-            "SKIP submit_form_gate: target/debug/browser-automation-cli absent. \
-             This is NOT a pass; run `cargo build` first."
-        );
+    if missing_binary(GATE) {
         return true;
     }
     for fixture in ["login.html", "landed.html"] {
         if fixture_url(fixture, "").is_none() {
-            eprintln!(
-                "SKIP submit_form_gate: fixture scripts/fixtures/submit_form/{fixture} absent. \
-                 This is NOT a pass."
+            common::skip_with_reason(
+                "submit_form_gate",
+                &format!("fixture scripts/fixtures/submit_form/{fixture} absent."),
             );
             return true;
         }
     }
-    let probe = Command::new(binary().expect("binary"))
-        .args(["-q", "--json", "doctor", "--offline", "--quick"])
-        .output();
-    let chrome_ok = probe
-        .ok()
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if !chrome_ok {
-        eprintln!(
-            "SKIP submit_form_gate: doctor reports the host is not ready for Chrome. \
-             This is NOT a pass."
-        );
+    if chrome_not_ready(GATE, &binary().expect("binary")) {
         return true;
     }
     false

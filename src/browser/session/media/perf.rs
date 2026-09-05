@@ -11,6 +11,17 @@ use super::super::OneShotSession;
 
 impl OneShotSession {
     /// Start Chrome Tracing / performance collection.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Browser`]
+    /// when no page is active and when `Tracing.start` is refused
+    /// (`"perf start: …"`) — an engine with no `Tracing` domain, or a trace
+    /// already running. `Performance.enable` is best-effort.
+    ///
+    /// With `reload`, propagates [`reload`](Self::reload); with `auto_stop`,
+    /// propagates [`perf_stop`](Self::perf_stop), so a failed trace write
+    /// fails this call even though collection already started.
     pub async fn perf_start(
         &mut self,
         path: Option<&Path>,
@@ -24,6 +35,7 @@ impl OneShotSession {
             .map_err(|e| CliError::new(ErrorKind::Browser, e))?
             .to_string();
         self.trace_chunks.clear();
+        self.trace_dropped = 0;
         self.manager
             .client
             .send_command(
@@ -69,6 +81,18 @@ impl OneShotSession {
     }
 
     /// Stop performance collection and optionally write a trace file.
+    ///
+    /// # Errors
+    ///
+    /// Fails only with [`ErrorKind::Io`] —
+    /// `"perf stop write: …"` — when the trace file cannot be written. With
+    /// `path` as `None` it still writes `trace-<millis>.ndjson` in the current
+    /// directory, so [`perf_insight`](Self::perf_insight) always has a file to
+    /// read.
+    ///
+    /// `Tracing.end` is best-effort, and a budget that elapses with no
+    /// `tracingComplete` is **not** an error: the collected chunks are written
+    /// as they stand, so a trace can come back empty rather than failing.
     pub async fn perf_stop(&mut self, path: Option<&Path>) -> Result<Value, CliError> {
         self.pump_events().await;
         self.tracing_complete = false;
@@ -138,6 +162,13 @@ impl OneShotSession {
             "perf": "stop",
             "path": out_path.map(|p| p.to_string_lossy().to_string()),
             "events": chunks,
+            // Declared, never silent. `Tracing.dataCollected` can deliver tens
+            // of thousands of events for a few seconds of recording, and a ring
+            // that quietly forgets its oldest rows answers with a subset while
+            // calling it the whole set. A caller reading `events` alone cannot
+            // tell a complete trace from a truncated one; this field is what
+            // makes the difference readable.
+            "dropped_oldest": self.trace_dropped,
             "available_insight_sets": [{
                 "insight_set_id": set_id,
                 "insights": [
@@ -153,6 +184,19 @@ impl OneShotSession {
     }
 
     /// Analyse the last in-session trace (or `path`) into agent-ready insights.
+    ///
+    /// # Errors
+    ///
+    /// Fails only with
+    /// [`ErrorKind::Browser`] when no page
+    /// is active.
+    ///
+    /// Everything else is best-effort: a refused `Performance.getMetrics`
+    /// leaves `live_metrics` null, and a trace that cannot be read or parsed
+    /// leaves `trace_insight` null. No trace at all — `perf stop` never ran in
+    /// this process — is likewise reported as nulls rather than as an error,
+    /// so the caller must check those fields instead of relying on the exit
+    /// code.
     pub async fn perf_insight(
         &mut self,
         name: Option<&str>,
@@ -191,7 +235,23 @@ impl OneShotSession {
     }
 
     /// Offline insight from a previously written trace path (no browser required).
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`ErrorKind::Io`], carrying the
+    /// `perf_trace_path` suggestion, when `path` cannot be read or exceeds the
+    /// `max_json_file_bytes` ceiling, and when an NDJSON line exceeds the
+    /// `max_ndjson_line_bytes` ceiling.
+    ///
+    /// An empty trace is not an error: it answers `event_count: 0` with a
+    /// note. A line that does not parse as JSON is skipped, so a truncated
+    /// trace analyses as a shorter one.
     pub fn perf_insight_file(path: &Path, name: Option<&str>) -> Result<Value, CliError> {
+        // GAP-026, read axis. Bounded HERE and not inside `analyze_file`: the
+        // caller above passes `last_trace_path`, a path this product generated
+        // itself, and guarding the shared analyser would refuse the product its
+        // own artifact. The operator-supplied path arrives through this wrapper.
+        crate::fs_roots::ensure_read_allowed(path)?;
         crate::native::perf_insight::analyze_file(path, name).map_err(|e| {
             // Routed through the catalog rather than spelled here: an inline
             // literal stays English under `--lang pt-BR`, and it also escapes

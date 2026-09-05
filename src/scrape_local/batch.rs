@@ -30,9 +30,12 @@ pub async fn batch_scrape_http(
     let mut results = Vec::with_capacity(urls.len());
     let mut errors = Vec::new();
     use std::sync::Arc;
-    use tokio::sync::Semaphore;
+
     use tokio::task::JoinSet;
-    let sem = Arc::new(Semaphore::new(concurrency));
+    // `semaphore_with` clamps to the process bounds; constructing the Semaphore
+    // by hand here skipped that, so a caller-supplied permit count reached the
+    // pool unchecked.
+    let sem = crate::concurrency::semaphore_with(concurrency);
     tracing::debug!(
         available_permits = sem.available_permits(),
         concurrency,
@@ -120,7 +123,18 @@ pub async fn batch_scrape_http(
         }
     }
     Ok(json!({
-        "ok": errors.is_empty(),
+        // NOT `ok`. The envelope already carries a top-level `ok` meaning "the
+        // command ran", and this one means "every URL in the batch succeeded".
+        // Both are defensible alone; sharing one name in one payload is not.
+        // Measured before 0.1.9: a batch of 8 URLs with one 403 answered
+        // `ok: true` at the top and `ok: false` here, so the documented agent
+        // policy — check the exit code, validate `.ok`, read `.data` — passed
+        // all three checks and never saw the partial failure. A 200-URL crawl
+        // with 40 blocked presented itself as a success.
+        "all_succeeded": errors.is_empty(),
+        // Promoted alongside `error_count` so a caller can branch on partial
+        // failure without counting an array itself.
+        "partial_failure": !errors.is_empty() && !results.is_empty(),
         "count": results.len(),
         "error_count": errors.len(),
         "results": results,

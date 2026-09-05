@@ -143,20 +143,30 @@ pub(crate) fn compact_tree(tree: &str, interactive: bool) -> String {
 
     let mut keep = vec![false; lines.len()];
 
-    for (i, line) in lines.iter().enumerate() {
+    // One backward pass, where the previous shape rescanned every preceding
+    // line for every kept line — quadratic on a deep accessibility tree.
+    //
+    // `deepest_kept` carries the largest indentation among the content lines
+    // already visited that are still reachable from the current line. A line is
+    // marked as an ancestor exactly when some later content line sits deeper
+    // than it and no top-level line stands between the two. That is the rule the
+    // nested loop encoded — mark every earlier line shallower than the content
+    // line, stop at the first column-zero one — stated once instead of once per
+    // pair, so the output is unchanged (see the reference-comparison test).
+    let mut deepest_kept: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate().rev() {
+        let indent = count_indent(line);
+        if deepest_kept.is_some_and(|deepest| deepest > indent) {
+            keep[i] = true;
+        }
         if line.contains("ref=") || line.contains(": ") {
             keep[i] = true;
-            // Mark ancestors
-            let my_indent = count_indent(line);
-            for j in (0..i).rev() {
-                let ancestor_indent = count_indent(lines[j]);
-                if ancestor_indent < my_indent {
-                    keep[j] = true;
-                    if ancestor_indent == 0 {
-                        break;
-                    }
-                }
-            }
+            deepest_kept = Some(deepest_kept.map_or(indent, |deepest| deepest.max(indent)));
+        }
+        if indent == 0 {
+            // A top-level line ends the reach of everything above it, which is
+            // what the old inner loop's `break` did on the first column-zero hit.
+            deepest_kept = None;
         }
     }
 

@@ -35,6 +35,8 @@ browser-automation-cli --json view
 - Capture screenshot com `grab --path /tmp/page.png` (flag, não caminho posicional; encode **png|jpeg|webp** apenas — **AVIF removido** na v0.1.6)
 - Envie formulário com `submit <target>` (form ou qualquer campo dentro dele; espera navegação/requisição)
 - Exporte/importe estado de auth portátil com `storage export|import --path <arquivo>` (cookies + localStorage + sessionStorage)
+- Limpe o jar inteiro de cookies com `cookie clear --all`, onde a flag é OBRIGATÓRIA e um `cookie clear` sem ela é erro de uso com exit 2 antes de qualquer lançamento
+- O envelope então reporta `target_source` como `argv`, porque o CDP não tem limpeza parcial e o chamador declara o escopo em vez de herdá-lo
 - Imprima a página em PDF com `print-pdf --url <url> --path /tmp/page.pdf` (também válido dentro de `run`)
 - Extraia conteúdo com multi-formato `scrape --format markdown,html,links` quando precisar de várias formas de uma vez
 - Parseie arquivos locais com `parse` (html/md/txt/pdf/docx/xlsx/ods; opcional `--redact-pii`)
@@ -48,7 +50,7 @@ browser-automation-cli --json view
 - Escreva XLSX a partir de CSV/JSON com `sheet-write <input> -o <out.xlsx>` (sem Chrome)
 - Lint estrutural com `sg-scan [paths…]` e rewrite dry-run com `sg-rewrite [paths…]` (`--apply` para gravar)
 - Verifique mudança de página contra baseline com `monitor check`
-- Liste o inventário vivo (**69** nomes de agente) com `commands --json`
+- Liste o inventário vivo (**71** nomes de agente) com `commands --json`
 - Descubra formatos de argv com `schema <name> --json` ou `schema --cmd <name> --json`
 - Imprima a versão do produto com `version`
 - Inspecione o locale de UI resolvido com `locale --json` (só sugestões humanas)
@@ -122,6 +124,7 @@ printf '%s\n' \
 - Preencha formulários multi-campo em run: `{"cmd":"fill-form","fields":[{"target":"…","value":"…"}]}`
 - Envie formulário em run: `{"cmd":"submit","target":"form"}` (ou um campo dentro do form)
 - Envelope de dados de dialog accept/dismiss inclui **`dialog_settled`** (booleano). No happy path é `true` após `Page.javascriptDialogClosed`; **não invente wait artificial** antes do próximo passo de página quando settled for true (GAP-054)
+- Beforeunload em run: `handle_before_unload` em `goto` / `reload`; página isolada: `{"cmd":"page","action":"new","isolated_context":true}`
 - `view --allow-empty` / `allow_empty:true` só quando about:blank vazio for intencional
 - Nota: `pick` / `select-option` **não** são subcomandos clap standalone
 - Flags globais como `--timeout` e `--step-timeout` valem para o script inteiro
@@ -139,7 +142,7 @@ printf '%s\n' \
   - `emulate --network-conditions "Slow 3G"`
 - Espere qualquer um de vários textos (semântica OR): `wait --text A --text B --ms 5000`
 - Espere multi-seletor CSS OR: `wait --selector '#a, #b' --ms 5000`
-- Formatos de scrape: `--format text|markdown|html|links|metadata|summary|product|branding|raw-html|screenshot` (CSV ou multi-formato repetível)
+- Formatos de scrape: `--format text|markdown|html|links|metadata|summary|product|branding|raw-html|screenshot` (CSV ou multi-formato repetível; alias `--formats`)
 - Engines de scrape: `--engine http` (reqwest + scraper) ou `--engine browser` (CDP; formatos aplicam ao HTML capturado)
 - Webhook opcional de operador com POST one-shot do resultado do scrape: `scrape ... --webhook-url https://127.0.0.1:9000/hook` (destino do operador, não telemetria de produto)
 - Prefira heurística de conteúdo principal: `scrape ... --only-main-content`
@@ -151,6 +154,11 @@ printf '%s\n' \
 - MITM export HAR: `mitm har --out /tmp/capture.har` (`--out` **obrigatório**)
 - Superfície completa MITM: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
 - Flags globais MITM: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`, `--mitm-no-redact-secrets`
+- `--mitm-ws` reafirma o default: frames WebSocket são sempre capturados sob `--mitm`, então passar a flag não muda nada
+- Regra de bloqueio MITM: `mitm block --host example.com --path /ads` exige o alvo no argv, seja `--host` ou `--path`
+- A requisição que casa uma regra é curto-circuitada com `204 No Content` antes de qualquer DNS ou conexão, e a recusa fica registrada na captura
+- O host casa sem diferenciar maiúsculas, o path casa por prefixo ancorado, e regra com os dois exige AMBOS
+- `--mitm-max-body-bytes` corta o corpo RETIDO, enquanto um teto distinto de 8 MiB limita o corpo LIDO, então um corpo `chunked` acima dele chega VAZIO
 - Journal de workflow em DAG: `workflow run|resume|status` (SQLite sob XDG state)
 - Ferramentas profundas de heap exigem `--category-memory`
 - Ferramentas de extension exigem `--category-extensions`
@@ -170,7 +178,14 @@ printf '%s\n' \
 - Settle de diálogo (GAP-054): accept/dismiss real devolve booleano `dialog_settled`; ajuste o orçamento com `config set dialog_settle_ms <ms>` (só XDG)
 - Diálogos multi-aba isolam por `session_id` CDP (forwarders de página carimbam `Page::session_id`; browser-level `None` cai no active tab)
 - Beforeunload: `goto` / `reload` com `--handle-before-unload accept|dismiss`
+- Opções de goto: `--init-script`, `--handle-before-unload`, `--navigation-timeout-ms`
+- Reload ignorando cache (GAP-005): `reload --ignore-cache`
 - Página isolada: `page new --isolated-context` (contexto isolado)
+- Erros de usage do clap com `--json` emitem envelopes JSON de erro (GAP-002)
+- `print-pdf` recusa PDF em branco sem conteúdo navegado ou `url` (GAP-013)
+- `install` / `uninstall` de extension ficam de propósito fora do `run` (GAP-007); descubra por `schema` / `commands`
+- Superfície dupla de assert (GAP-014): CLI `assert url|text|console|console-empty|console-no-match` contra os kinds de run (`url` / `text` / `console` / `console_empty` / `console_no_match`)
+- Scrape multi-formato (GAP-018): `--format` multi/CSV e alias `--formats` onde houver suporte
 
 
 ## Anti-detecção, Proxy e Modelagem de Input
@@ -180,14 +195,28 @@ printf '%s\n' \
 - `auto` segue o host e quase sempre está certo
 - `--stealth-seed <SEED>` fixa essa identidade entre processos
 - Sem a semente cada execução sorteia identidade nova, então um crawl de 50 URLs em 50 processos one-shot se apresenta como 50 máquinas distintas
+- `doctor --fingerprint` reporta `planned_version_source` com três valores: `null`, `chrome_binary` e `crate_table`
+- Ele é `null` sob stealth, que é o padrão, porque ali a tabela da crate É a identidade projetada e nada é sondado
+- Ele é `chrome_binary` sob `--no-stealth` quando o major planejado foi lido do binário Chrome/Chromium que este host lançaria
+- Ele é `crate_table` sob `--no-stealth` quando o binário não pôde ser sondado, então o plano é palpite e não medição
 - `--proxy <URL>` define o proxy de saída para o Chrome e para o motor HTTP, aceitando `http`, `https` e `socks5`
 - `--proxy-bypass <HOSTS>` lista os hosts que ignoram o proxy, na sintaxe de bypass-list do Chrome
 - `--input-profile <PROFILE>` é `human` (padrão) ou `direct`
+- MEDIDO em 2026-09-04 e rastreado como defeito ABERTO em `gaps.md`: o custo do ritmo `human` cresce de forma superlinear com o tamanho digitado
+- Um caractere custa 2281 ms, dois caracteres custam 14236 ms e quatro caracteres custam 95781 ms, então cada dobra multiplica o custo por cerca de 6,5
+- Um `type` longo esgota o `--timeout` e devolve exit `124` com `kind: timeout`, e o envelope não dá ao operador nenhuma pista do motivo
+- Contramedida para campos longos: passe `--input-profile direct` e reserve `human` só para interações curtas
 - `human` interpola trajetórias do ponteiro, aplica dwell entre press e release e ritma a digitação
 - `--input-seed <SEED>` semeia o jitter de input para que uma execução `human` reproduza exatamente
 - `--warmup` visita a raiz da origem antes da URL alvo, então a sessão já carrega cookies e cadeia de referrer
 - `--warmup-url <URL>` aquece essa URL em vez da raiz da origem alvo
 - `--no-xvfb` pula o display virtual privado no Linux e usa o display atual; só faz sentido em modo headed no Linux
+- Todo envelope de browser publica um grupo witness de cinco chaves, e quatro delas estão documentadas aqui enquanto `runtime_enable_used` vive em `docs/STEALTH_PARITY.md`
+- `browser_mode_requested` é o modo que foi pedido, exatamente como `mode().as_str()` o escreve
+- `browser_mode_effective` é o que o launch vai de fato fazer, `headless` ou `headed`, e ele difere de `browser_mode_requested` exatamente sob `auto`, que é o caso que o chamador não consegue ver de outro jeito
+- `browser_mode_source` é o degrau de precedência que venceu, `default`, `xdg` ou `flag`
+- `display_backend` é a superfície sobre a qual o browser desenha, `headless`, `xvfb` ou `host`, e ele não é derivado do modo do browser sozinho, porque headed num display virtual privado não é a tela do operador
+- `host` é o único backend que alcança o compositor do operador, e ele exige headed com o display virtual recusado
 - `--expect <EXPR>` afirma que o payload emitido casa com `key=value`, `key!=value` ou `key~substring`; ela é repetível e cada expressão é conjugada por AND
 - `--expect-exit-code` sai com `65` quando alguma expectativa falha, em vez de apenas reportar
 - Ela fica desligada por padrão porque mudar exit code por conteúdo de dado quebraria em silêncio os chamadores que já ramificam nele
@@ -371,7 +400,7 @@ browser-automation-cli --json --fields checks --max-output-bytes 8 doctor --offl
 - Caminho não resolvido nunca reprova a chamada, então sempre leia esse array
 
 ```bash
-browser-automation-cli --json --fields residual.ghost_marker_processes,residual.campo_inexistente \
+browser-automation-cli --json --fields residual.ghost_marker_processes,residual.no_such_field \
   doctor --offline --quick
 ```
 
@@ -398,7 +427,7 @@ browser-automation-cli --json --count-only map https://example.com --limit 5
 - Resolva paths vivos de config/data/state com `config path --json`
 - Logging de produto é controlado por `--verbose` / `--debug` / `-q` e XDG `log_level`
 - Idioma das sugestões humanas: só `--lang` ou XDG `lang` (sem catálogos de env de produto)
-- Leia a referência completa de chaves XDG em `docs/CONFIGURATION.pt-BR.md`, que documenta as 204 chaves
+- Leia a referência completa de chaves XDG em `docs/CONFIGURATION.pt-BR.md`, que documenta as 217 chaves
 - Confirme o conjunto vivo com `config list-keys --json` antes de gravar chave desconhecida
 - Nunca fixe uma contagem de chaves, porque o conjunto cresce a cada release
 - Chaves comuns incluem: `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`, `dialog_settle_ms`
@@ -490,6 +519,10 @@ browser-automation-cli --json sg-rewrite .
 - `batch-scrape` default HTTP; passe `--engine browser` para CDP por URL
 - `crawl` default HTTP BFS; passe `--engine browser` quando renderização JS for necessária
 - `crawl` permanece no host da semente quando você passa `--same-host`
+- `--no-same-host` desativa isso, então o crawl segue links fora do host da semente; passar `--same-host false` é recusado, porque o clap deriva a flag positiva como interruptor
+- O `search` publica `serp_endpoint` como `known` quando o `search_base_url` configurado é um endpoint que o produto sabe interpretar, e como `unknown` caso contrário
+- Leia `serp_endpoint` quando você apontar `search_base_url` para um endpoint próprio, para saber que está fora do caminho conhecido em vez de receber resultado silenciosamente pior
+- O envelope de falha também carrega `serp_endpoint` e `search_base_url` em `data`, então endpoint desconhecido e web realmente vazia são dois diagnósticos distintos em vez de um único `kind: data`
 - `parse` extrai texto de paths locais `html`, `md`, `txt`, `pdf`, `docx`, `xlsx` e `ods`
 - `--redact-pii` redige padrões comuns de PII na saída do parse
 - `--webhook-url` em `scrape` faz POST one-shot dos dados do resultado para URL do operador (não telemetria de produto)
@@ -533,7 +566,7 @@ browser-automation-cli --json mitm status
 browser-automation-cli --json mitm list
 browser-automation-cli --json mitm har --out /tmp/capture.har
 browser-automation-cli --json mitm capture-url https://example.com --seconds 30 --har /tmp/cap.har
-browser-automation-cli --json mitm redact --secrets
+browser-automation-cli --json mitm redact
 browser-automation-cli --json mitm graphql
 browser-automation-cli --json mitm ws
 
@@ -730,7 +763,7 @@ browser-automation-cli --json batch-scrape --urls-file /tmp/urls.txt --format te
 - Passe `--json` em toda chamada programática
 - Parseie só envelopes do stdout; trate stderr como diagnóstico
 - Ramifique no campo `ok` do envelope e no exit code do processo
-- Descubra inventário com `commands --json` (**69** nomes de agente)
+- Descubra inventário com `commands --json` (**71** nomes de agente)
 - Descubra argv com `schema <name> --json` ou `schema --cmd <name> --json`
 - Após trabalho browser, confirme higiene residual com `doctor --json` → `residual` / check `residual_disk`
 - Colapse trabalho browser multi-passo em um processo `run --script` quando refs importam (opcional `--json-steps`)
@@ -785,11 +818,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Veja notas orientadas a crates em [docs/AGENTS.pt-BR.md](AGENTS.pt-BR.md) e [INTEGRATIONS.pt-BR.md](../INTEGRATIONS.pt-BR.md)
 
 
-## Inventário Completo de Comandos (69)
-- Fonte viva: `browser-automation-cli commands --json` (**69** nomes voltados a agentes)
-- Superfície clap de produto é **67** nomes (exclui `select-option` / `pick` de inventário de agente; esses dois usam-se via run/exec/schema)
+## Inventário Completo de Comandos (71)
+- Fonte viva: `browser-automation-cli commands --json` (**71** nomes voltados a agentes)
+- Superfície clap de produto é **69** nomes (exclui `select-option` / `pick` de inventário de agente; esses dois usam-se via run/exec/schema)
 - O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53; lighthouse mock = **SKIP**, não PASS)
-- Lista completa de comandos de agente (todos os **69** nomes):
+- Lista completa de comandos de agente (todos os **71** nomes):
   - Meta / descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
@@ -797,12 +830,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   - Observação: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Captura: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-passo: `run`, `exec`, `record`
-  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`
+  - Extract/scrape: `extract`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`
   - IO local (sem Chrome): `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`
   - Infra: `config`, `mitm`, `workflow`
   - Emulação/perf: `emulate`, `resize`, `perf`, `heap`
   - Portões de categoria: `extension`, `devtools3p`, `webmcp`
-- Lista plana completa: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
+- Lista plana completa: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Descubra argv com `schema <name> --json` para qualquer nome acima
 
 ## Próximos Passos

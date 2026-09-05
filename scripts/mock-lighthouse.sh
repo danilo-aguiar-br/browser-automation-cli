@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Minimal mock lighthouse binary for browser-automation-cli tests (GAP-006/014).
+# NOT a ci-check verifier: an executable FIXTURE that gates invoke as a stand-in
+# for the real binary. It has no assertions of its own to run.
 # Echoes argv so e2e can assert --gather-mode=snapshot vs navigation.
 set -euo pipefail
 url="${1:-}"

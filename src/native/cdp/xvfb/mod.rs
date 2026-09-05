@@ -28,10 +28,16 @@
 //! launch there is already invisible-capable without a virtual display, and
 //! Xvfb does not exist on either.
 //!
-//! This never runs on the default path. `Auto` still resolves to headless, so
-//! no ordinary command pays the spawn cost or acquires a host dependency; the
-//! display is started only when the caller asked for headed. Inverting that
-//! default is a separate decision with a latency bill attached.
+//! Since 2026-09-04 this DOES run on the default path, but only where it can:
+//! `browser_policy::set_auto_headed` resolves `Auto` to headed on a Linux host
+//! that has `Xvfb` on `PATH` and did not pass `--no-xvfb`. Everywhere else
+//! `Auto` stays headless, so macOS and Windows pay neither the spawn cost nor a
+//! host dependency, and a Linux box without the package degrades to the old
+//! behaviour instead of failing.
+//!
+//! The latency bill is real and is the point: an `Auto` that resolves headless
+//! is cheaper and strictly more detectable, and the whole reason this module
+//! exists is that the help text promised the expensive answer.
 //!
 //! # What this deliberately does not do
 //!
@@ -50,7 +56,9 @@ pub use spawn::{start_private_display, xvfb_available, XvfbGuard};
 ///
 /// # The cascade, and the two steps it deliberately omits
 ///
-/// 1. Not headed → no. Headless has no window to hide.
+/// 1. Not headed → no. Headless has no window to hide. `Auto` reaches this as
+///    headed only where `browser_policy::set_auto_headed` already found Xvfb,
+///    so step 4 below cannot fail for the reason step 1 just admitted.
 /// 2. `--no-xvfb` → no. The operator asked to see the window.
 /// 3. Not Linux → no. There is no Xvfb, and none is needed.
 /// 4. Otherwise → yes, if a server can be started.

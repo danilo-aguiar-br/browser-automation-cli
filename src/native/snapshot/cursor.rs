@@ -156,7 +156,7 @@ pub(super) async fn find_cursor_interactive_elements(
         .unwrap_or_default();
 
     // Resolve backendNodeIds for each DOM node (bounded concurrent CDP).
-    let cdp_limit = crate::concurrency::effective_limit_capped(32);
+    let cdp_limit = crate::concurrency::effective_limit_capped(crate::concurrency::CDP_FANOUT_CAP);
     let describe_futures: Vec<_> = node_ids
         .iter()
         .map(|&node_id| {

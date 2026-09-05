@@ -17,33 +17,12 @@
 // expander — trades legibility for nothing. Entries are still pushed rather
 // than nested where that keeps expansion flat.
 #![recursion_limit = "256"]
-#![warn(missing_docs)]
-#![warn(rustdoc::missing_crate_level_docs)]
-#![deny(rustdoc::broken_intra_doc_links)]
-#![warn(rustdoc::private_intra_doc_links)]
-#![deny(rustdoc::invalid_html_tags)]
-#![deny(rustdoc::invalid_rust_codeblocks)]
-#![deny(rustdoc::bare_urls)]
-#![warn(rustdoc::redundant_explicit_links)]
-// Document every `unsafe` block (rules: English + crates.io safety docs).
-#![deny(clippy::undocumented_unsafe_blocks)]
-#![deny(clippy::multiple_unsafe_ops_per_block)]
-#![deny(unsafe_op_in_unsafe_fn)]
-// Const / static hygiene (rules_rust_const_static_inicializacao).
-// Deny: `static mut` refs + interior-mutable `const` (silent duplication bugs).
-#![deny(static_mut_refs)]
-#![deny(clippy::declare_interior_mutable_const)]
-#![deny(clippy::borrow_interior_mutable_const)]
-// Ownership / borrowing hygiene (rules_rust_ownership_borrowing_lifetimes).
-#![warn(clippy::redundant_clone)]
-#![warn(clippy::needless_pass_by_value)]
-#![warn(clippy::ptr_arg)]
-#![warn(clippy::implicit_clone)]
-#![warn(clippy::unnecessary_to_owned)]
-#![warn(clippy::cloned_instead_of_copied)]
-#![warn(clippy::map_clone)]
-#![warn(clippy::mut_mut)]
-#![warn(clippy::needless_lifetimes)]
+// The lint policy is NOT here. It lives in the `[lints.rust]`,
+// `[lints.rustdoc]` and `[lints.clippy]` tables of `Cargo.toml`, because a
+// `#![warn(..)]` attribute in this file governs exactly one crate — the library
+// — and leaves `src/main.rs` and each of the integration test binaries
+// unprotected. See the comment above `[lints.rust]` in the manifest for the
+// measurement that motivated the move.
 
 /// Chrome one-shot session: launch, actions, reap.
 pub mod agent_context;
@@ -78,6 +57,8 @@ pub mod doctor;
 pub mod envelope;
 /// Typed CLI errors and exit codes.
 pub mod error;
+/// Explicit Target Designation: publish what a side-effecting verb acted on.
+pub mod etd;
 /// JSON success/error envelopes for agents.
 pub mod failure_dump;
 /// One-shot filesystem path discovery (`find-paths`).

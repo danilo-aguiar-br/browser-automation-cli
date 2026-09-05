@@ -10,6 +10,7 @@ pub(crate) mod derive;
 mod ops_tools;
 pub(crate) mod output;
 mod run_exec;
+mod scrape_collect;
 mod scrape_tools;
 
 /// Build a JSON Schema object fragment (shared helper).
@@ -34,6 +35,7 @@ pub(crate) fn catalog_schema_for(cmd: &str) -> Option<Value> {
     core::schema_for(cmd)
         .or_else(|| browser_nav::schema_for(cmd))
         .or_else(|| run_exec::schema_for(cmd))
+        .or_else(|| scrape_collect::schema_for(cmd))
         .or_else(|| scrape_tools::schema_for(cmd))
         .or_else(|| ops_tools::schema_for(cmd))
 }

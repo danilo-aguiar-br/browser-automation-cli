@@ -51,6 +51,14 @@ impl DomainFilter {
     ///
     /// A URL that does not parse, or that carries no host, is REFUSED rather
     /// than waved through: an unparseable target cannot be shown to be allowed.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Ok(())` unconditionally while `allowed_domains` is empty.
+    /// Otherwise fails with `"Invalid URL: <url>"` when the string does not
+    /// parse, `"No hostname in URL: <url>"` for a host-less scheme such as
+    /// `data:` or `about:`, and `"Domain '<host>' is not in the allowed
+    /// domains list"` when the host matches no pattern.
     pub fn check_url(&self, url: &str) -> Result<(), String> {
         if self.allowed_domains.is_empty() {
             return Ok(());
@@ -70,11 +78,9 @@ impl DomainFilter {
 }
 
 pub(crate) fn parse_domain_list(input: &str) -> Vec<String> {
-    input
-        .split(',')
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty())
-        .collect()
+    // ASCII fold, not Unicode: DNS is case-insensitive over ASCII only
+    // (RFC 4343), and an internationalised name reaches us already punycoded.
+    crate::agent_ops::path::split_csv_lower(input)
 }
 
 /// Navigate any already-open page that violates the filter to `about:blank`.
@@ -90,7 +96,7 @@ pub async fn sanitize_existing_pages(
     let to_blank: Vec<&crate::native::browser::PageInfo> = pages
         .iter()
         .filter(|page| {
-            if page.url.is_empty() || page.url == "about:blank" {
+            if page.url.is_empty() || page.url == crate::constants::ABOUT_BLANK {
                 return false;
             }
             url::Url::parse(&page.url)
@@ -102,7 +108,7 @@ pub async fn sanitize_existing_pages(
     if to_blank.is_empty() {
         return;
     }
-    let cdp_limit = crate::concurrency::effective_limit_capped(32);
+    let cdp_limit = crate::concurrency::effective_limit_capped(crate::concurrency::CDP_FANOUT_CAP);
     let futs: Vec<_> = to_blank
         .iter()
         .map(|page| {
@@ -111,7 +117,7 @@ pub async fn sanitize_existing_pages(
                 let _ = client
                     .send_command(
                         "Page.navigate",
-                        Some(json!({ "url": "about:blank" })),
+                        Some(json!({ "url": crate::constants::ABOUT_BLANK })),
                         Some(sid),
                     )
                     .await;
@@ -125,6 +131,17 @@ pub async fn sanitize_existing_pages(
 ///
 /// Runs on every new document, so it also covers pages created after this call.
 /// A no-op when the list is empty.
+///
+/// # Errors
+///
+/// Returns `Ok(())` immediately when `allowed_domains` is empty. Otherwise
+/// fails with the CDP error raised by
+/// `Page.addScriptToEvaluateOnNewDocument` or by the `Runtime.evaluate` that
+/// applies the same guard to the CURRENT document, and with
+/// `"Failed to apply domain filter to the current execution context: …"` when
+/// that evaluation reports a JavaScript exception. The already-loaded page is
+/// the reason the second install exists: the new-document hook alone would
+/// leave it unguarded.
 pub async fn install_domain_filter_script(
     client: &CdpClient,
     session_id: &str,
@@ -185,6 +202,12 @@ async fn install_domain_filter_runtime_script(
 ///
 /// This is the network-side half of the filter: the page-side script cannot see
 /// requests the page did not make through JavaScript.
+///
+/// # Errors
+///
+/// Fails with the CDP error raised by `Fetch.enable` — an engine that does not
+/// implement the `Fetch` domain, which is how Lightpanda refuses this half of
+/// the filter.
 pub async fn install_domain_filter_fetch(
     client: &CdpClient,
     session_id: &str,
@@ -206,6 +229,13 @@ pub async fn install_domain_filter_fetch(
 /// 1. Fetch-based network interception
 /// 2. JS patching for APIs outside Fetch interception, including workers,
 ///    WebSocket, EventSource, sendBeacon, and RTCPeerConnection.
+///
+/// # Errors
+///
+/// Propagates [`install_domain_filter_fetch`] first, then
+/// [`install_domain_filter_script`]. The order matters for failure too: a
+/// refusal of the second layer leaves `Fetch.enable` armed, so requests are
+/// still intercepted while the JavaScript APIs it does not cover are not.
 pub async fn install_domain_filter(
     client: &CdpClient,
     session_id: &str,

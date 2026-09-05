@@ -111,6 +111,9 @@ pub(super) fn append_optional_keys(body: &mut String, cfg: &ProductConfig) {
     if let Some(v) = cfg.proxy_password.as_deref() {
         body.push_str(&format!("proxy_password = \"{v}\"\n"));
     }
+    if let Some(v) = cfg.screen.as_deref() {
+        body.push_str(&format!("screen = \"{v}\"\n"));
+    }
     if let Some(v) = cfg.stealth_seed.as_deref() {
         body.push_str(&format!("stealth_seed = \"{v}\"\n"));
     }

@@ -11,6 +11,12 @@ impl BrowserManager {
     ///
     /// Shares cookies and storage with the existing tabs; use
     /// [`tab_new_in_context`](Self::tab_new_in_context) when isolation is wanted.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`tab_new_in_context`](Self::tab_new_in_context): a
+    /// malformed or already-used `label`, or a refused
+    /// `Target.createTarget` / `Target.attachToTarget` / domain enable.
     pub async fn tab_new(
         &mut self,
         url: Option<&str>,
@@ -20,6 +26,18 @@ impl BrowserManager {
     }
 
     /// Create a tab, optionally inside a BrowserContext (cookie/storage isolation).
+    ///
+    /// # Errors
+    ///
+    /// Fails before touching CDP when `label` does not start with a letter or
+    /// carries anything outside letters, digits, `-` and `_`, and when another
+    /// tab in this session already claims it. Then fails with the CDP error
+    /// raised by `Target.createTarget` — which is what rejects an unknown
+    /// `browser_context_id` — by `Target.attachToTarget`, or by the
+    /// `Page` / `Runtime` / `Network` enable that follows the attach.
+    ///
+    /// The tab is registered only after all three succeed, so a failure here
+    /// leaves `pages` and `active_page_index` untouched.
     pub async fn tab_new_in_context(
         &mut self,
         url: Option<&str>,
@@ -41,7 +59,7 @@ impl BrowserManager {
             }
         }
 
-        let target_url = url.unwrap_or("about:blank");
+        let target_url = url.unwrap_or(crate::constants::ABOUT_BLANK);
 
         let result: CreateTargetResult = self
             .client
@@ -100,6 +118,13 @@ impl BrowserManager {
     }
 
     /// Create an isolated BrowserContext and return its id.
+    ///
+    /// # Errors
+    ///
+    /// Fails with the CDP error raised by `Browser.createBrowserContext` — an
+    /// engine that does not implement browser contexts — or with
+    /// `"Browser.createBrowserContext missing browserContextId"` when the
+    /// response omits the id the caller needs to open tabs in it.
     pub async fn create_browser_context(&self) -> Result<String, String> {
         let result = self
             .client

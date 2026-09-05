@@ -11,6 +11,14 @@ impl BrowserManager {
     ///
     /// A browser can be connected with zero pages, and every page-scoped
     /// command would then fail on a precondition the caller never set.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Ok(())` immediately when a tab is already tracked. Otherwise
+    /// fails with the CDP error raised by `Target.createTarget`,
+    /// `Target.attachToTarget`, or the `Page` / `Runtime` / `Network` enable
+    /// that follows. The `about:blank` tab is pushed before the enable, so a
+    /// failed enable still leaves the page tracked.
     pub async fn ensure_page(&mut self) -> Result<(), String> {
         if !self.pages.is_empty() {
             return Ok(());
@@ -21,7 +29,7 @@ impl BrowserManager {
             .send_command_typed(
                 "Target.createTarget",
                 &CreateTargetParams {
-                    url: "about:blank".to_string(),
+                    url: crate::constants::ABOUT_BLANK.to_string(),
                     browser_context_id: None,
                 },
                 None,
@@ -47,7 +55,7 @@ impl BrowserManager {
             label: None,
             target_id: result.target_id,
             session_id: attach_result.session_id.clone(),
-            url: "about:blank".to_string(),
+            url: crate::constants::ABOUT_BLANK.to_string(),
             title: String::new(),
             target_type: "page".to_string(),
         });
@@ -101,6 +109,14 @@ impl BrowserManager {
 
     /// Resolve a user-supplied `TabRef` (either `t<N>` or a label) to the
     /// stable numeric `tab_id`. Returns a teaching error for unknown tabs.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"Tab tN not found; run …"` when [`TabRef::Id`] names a tab
+    /// this session does not track, and with ``"No tab with label `name`; run
+    /// …"`` when [`TabRef::Label`] matches none. Both messages carry the
+    /// listing command, because the remediation is to look the tab up rather
+    /// than to guess another id.
     pub fn resolve_tab_ref(&self, tab_ref: &TabRef) -> Result<u32, String> {
         match tab_ref {
             TabRef::Id(id) => {

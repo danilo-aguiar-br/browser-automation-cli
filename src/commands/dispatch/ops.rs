@@ -81,8 +81,16 @@ pub(crate) fn heap(ctx: &DispatchCtx<'_>, action: HeapAction) -> i32 {
     // The previous inline `matches!` also exempted `summary` and `close`, which
     // the reference surface gates.
     result_code(
-        gates::require_capabilities(ctx, "heap", Some(heap_action_key(&action)))
-            .and_then(|()| handle_heap(ctx.life, action, ctx.capture, ctx.timeout_secs, ctx.json)),
+        gates::require_capabilities(ctx, "heap", Some(heap_action_key(&action))).and_then(|()| {
+            handle_heap(
+                ctx.life,
+                action,
+                ctx.capture,
+                ctx.timeout_secs,
+                ctx.robots,
+                ctx.json,
+            )
+        }),
         ctx.json,
     )
 }
