@@ -53,6 +53,15 @@ pub struct LaunchOptions {
     pub no_xvfb: bool,
     /// Restrict WebRTC to proxied transports.
     pub restrict_webrtc: bool,
+    /// Whether a private Xvfb display ACTUALLY started for this launch.
+    ///
+    /// Set by the self-spawn launcher from the outcome of the Xvfb start, never
+    /// by callers. The X11 pin in `build_chrome_args` reads it, so the pin and
+    /// the display can no longer disagree: before this field the pin followed
+    /// the INTENT to use a display, and a launch whose Xvfb failed to start was
+    /// forced onto X11 with no X server, dying with `Missing X server or
+    /// $DISPLAY` on a Wayland host.
+    pub private_display: bool,
 }
 
 impl Default for LaunchOptions {
@@ -79,6 +88,7 @@ impl Default for LaunchOptions {
             webgpu: false,
             no_xvfb: false,
             restrict_webrtc: false,
+            private_display: false,
         }
     }
 }

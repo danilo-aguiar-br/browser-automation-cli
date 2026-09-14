@@ -125,5 +125,5 @@ assert_eq!(exit_code_for(&err), 69);
 
 - Crate README and `docs/HOW_TO_USE.md`
 - `docs/schemas/` for JSON contracts
-- `skill/browser-automation-cli-en/SKILL.md` for agent skill surface
-- Local validation: `scripts/docs-check.sh` (HTML + optional rustdoc JSON; no CI/GHA)
+- `skills/browser-automation-cli-en/SKILL.md` for agent skill surface
+- Local validation: `cargo doc --no-deps`

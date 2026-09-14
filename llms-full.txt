@@ -32,11 +32,21 @@ Product settings are commands, flags, and XDG via `config path|init|show|set|get
 - [CODE_OF_CONDUCT](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CODE_OF_CONDUCT.md): Contributor Covenant 2.1
 - [LICENSE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/LICENSE): dual license pointer
 
-## Command Surface (v0.1.9)
+## What's New in 0.2.0
+- A self-spawned Chrome opens no DevTools TCP port and runs with `--remote-debugging-pipe` behind a one-client loopback bridge
+- The private Xvfb of a headed Linux launch requires a `MIT-MAGIC-COOKIE-1` kept in a mode 0600 file removed at teardown
+- A headed Linux launch that starts the private Xvfb pins `--ozone-platform=x11`, so a Wayland session no longer draws the window on the desktop
+- Concurrent headed launches get distinct display numbers, and a lock left by a dead server is reused
+- `display_backend` reports the display actually used: `headless`, `xvfb` or `host`
+- A failed Chrome launch kills the whole process group, and `--timeout` during that teardown exits `124`
+- Validated live on Linux under Wayland only; the Windows pipe path was never compiled, and macOS, KDE and Sway were not tested
+- Lightpanda and `chrome_legacy_oxide_launch` still use a loopback DevTools port
+
+## Command Surface (v0.2.0)
 - Full inventory (**71** agent names via `commands --json`, sorted): assert, attr, audio, back, batch-scrape, click-at, commands, completions, config, console, cookie, crawl, devtools3p, dialog, doctor, drag, emulate, eval, exec, extension, extract, feed, fill-form, find-paths, forward, goto, grab, heap, hover, image, keys, lighthouse, locale, man, map, mitm, monitor, net, page, parse, perf, pick, press, print-pdf, qr, record, reload, resize, run, schema, scrape, screencast, scroll, search, select-option, sg-rewrite, sg-scan, sheet-write, sitemap, storage, submit, text, type, upload, version, video, view, wait, webmcp, workflow, write
 - Note: `select-option`, `pick`, `submit`, and `storage` are agent inventory names (no longer documented as multi-step-only / omitted)
 - Discovery: doctor (browsers_dir, lighthouse source, cache_redis, residual_disk + residual JSON ResidualDiskReport), commands, schema `<cmd>` or schema --cmd (goto/eval/type/scroll/assert/wait expanded), version, locale, man, completions
-- Global flags: **57** long flags in the global help, being **55** product flags plus `--help` and `--version`; source of truth is `browser-automation-cli --help`
+- Global flags: **59** long flags in `<cmd> --help`, being **57** product flags plus `--help` and `--version`, and `--max-items` is an accepted alias of `--limit-rows`; the root `--help` lists no global flag
 - Config XDG: config init|path|show|get|set|unset|list-keys
   - Important keys: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, lang, log_level, stealth, stealth_profile, stealth_seed, browser_mode, input_profile, proxy_url, proxy_bypass, proxy_username, proxy_password, http2_enabled, robots_user_agent, scrape_no_cache — complete reference with all **217** keys in `docs/CONFIGURATION.md`; machine-readable via `config list-keys --json`
   - `config unset <KEY>` restores a key to its built-in default and is the inverse of `set`; `config set <key> ""` is NOT the inverse, because for a string key it stores an empty value the normal path never produces and for a numeric key it is a parse error
@@ -77,6 +87,84 @@ Product settings are commands, flags, and XDG via `config path|init|show|set|get
 - Lang: --lang pt-BR or config set lang localizes human suggestions
 - e2e: 53 DevTools parity tools (PASS=52 SKIP=1 lighthouse mock contract-only)
 - Clap: GlobalOpts Args+flatten; clap usage errors emit JSON when --json on argv; tests/clap_command_debug_assert.rs + parity_run_inventory
+
+### Global Flag Reference
+- Global flags are listed by `<cmd> --help`, for example `version --help`, and the root `--help` lists none of them
+- Persist a durable default with `browser-automation-cli config set <key> <value>` in XDG instead of repeating a flag
+- Output and payload reduction
+  - `--json` emits machine-readable JSON success and error envelopes on stdout
+  - `--json-steps` streams one NDJSON object per `run` step on stdout with `step`, `cmd`, `ok` and `result`
+  - `--correlation-id <ID>` sets an id echoed on JSON envelopes and NDJSON steps, and it is not a secret
+  - `--fields <PATHS>` projects `data` down to ONE CSV of dotted paths relative to `data`, and repeating the flag exits 2
+  - `--filter-rows <EXPR>` keeps rows matching `key=value`, `key!=value` or `key~substring`, repeatable and ANDed
+  - A missing field never matches a `--filter-rows` expression, including under `!=`
+  - `--dedupe-by <PATH>` drops rows whose dotted-path value repeats and keeps the first
+  - `--sort-rows <PATH>` sorts rows by a dotted path and compares numbers numerically
+  - `--limit-rows <N>` emits at most N rows after filter, dedupe and sort
+  - `--max-items <N>` is an accepted alias of `--limit-rows` and limits what is EMITTED, while a command's `--limit` limits what is FETCHED
+  - `--count-only` emits only `{"count": N}` instead of the rows
+  - `--truncate-content <CHARS>` cuts every string in the payload to N characters and marks `truncated`
+  - `--max-output-bytes <BYTES>` is a hard ceiling on emitted bytes that sheds rows from the end and marks `truncated`
+  - `--expect <EXPR>` asserts the emitted payload with the `--filter-rows` grammar, repeatable and ANDed
+  - `--expect` is evaluated AFTER `--fields` and `--filter-rows`, over the payload the caller actually receives
+  - An unmet `--expect` is listed in `agent_ops.expectation_unmet` and the exit code stays 0
+  - `--expect-exit-code` exits 65 when any `--expect` is unmet
+  - `--help` prints help and `--version` prints the version
+- Time and concurrency
+  - `--timeout <SECS>` sets the global wall-clock timeout in seconds, where 0 means no override and the maximum is 86400
+  - `--step-timeout <SECS>` sets the per-step timeout of `run` scripts, where 0 inherits the global timeout and the maximum is 86400
+  - `--max-concurrency <N>` caps concurrent I/O tasks for batch, crawl and CDP fan-out, where 0 means auto
+  - `--min-delay-ms <MS>` sets a per-invocation floor between same-origin requests in milliseconds
+  - The effective wait of `--min-delay-ms` is the maximum of the flag, XDG `scrape_min_delay_ms` and the site `Crawl-delay`
+- Window and display
+  - `--browser-mode <MODE>` picks `auto`, `headless` or `headed` for this run and wins over XDG `browser_mode`
+  - `--headed` shows the browser window on your own display for debugging
+  - `--headless` requires a headless browser for this run and overrides any persisted mode
+  - `--no-xvfb` skips the private virtual display on Linux and uses the current display
+- Capture and artifacts
+  - `--artifacts-dir <DIR>` sets the directory for screenshots, PDFs and other one-shot artifacts
+  - `--capture-console` captures console messages during browser commands
+  - `--capture-network` captures network requests during browser commands
+  - `--dump-on-failure` writes the captured console and network evidence to the artifacts dir when the command fails
+- Robots and roots
+  - `--ignore-robots` skips robots.txt policy checks and requires risk acceptance for blocked hosts
+  - `--i-accept-robots-risk` explicitly accepts the robots.txt override risk together with `--ignore-robots`
+  - `--allow-outside-roots` permits local reads and artifact writes outside the allowed roots
+- Stealth and input
+  - `--no-stealth` turns off the anti-detection patches for this run
+  - `--stealth-profile <PROFILE>` picks `auto`, `chrome-linux`, `chrome-win` or `chrome-mac` as the impersonated identity
+  - `--stealth-seed <SEED>` pins the stealth identity across processes
+  - `--warmup` visits the origin root before the target URL so the session carries cookies
+  - `--warmup-url <URL>` warms this URL instead of the origin root and implies `--warmup`
+  - `--input-profile <PROFILE>` picks `human` (default) or `direct` input shaping
+  - `--input-seed <SEED>` seeds the input jitter so a `human` run reproduces exactly
+- Proxy
+  - `--proxy <URL>` sets the egress proxy for Chrome and the HTTP engine with `http`, `https` or `socks5`
+  - `--proxy-bypass <HOSTS>` lists the hosts that bypass the proxy in Chrome bypass-list syntax
+  - Proxy credentials belong in XDG through `config set proxy_url`, never in argv
+- MITM
+  - `--mitm` enables the one-shot local MITM proxy and routes Chrome through it
+  - `--mitm-ca-dir <DIR>` sets the directory for the MITM CA key and cert PEM, defaulting to XDG data
+  - `--mitm-har <FILE>` writes HAR 1.2 to this path on FINALIZE when `--mitm` is active
+  - `--mitm-hosts <HOSTS>` lists the comma-separated hosts to decrypt, and empty means all
+  - `--mitm-ws` restates the default, because WebSocket frames are always captured under `--mitm`
+  - `--mitm-max-body-bytes <BYTES>` caps the body bytes retained per exchange
+  - `--mitm-no-media-bodies` drops image, video and audio bodies from the capture
+  - `--mitm-redact-secrets` restates the default redaction of Authorization and Cookie secrets
+  - `--mitm-no-redact-secrets` keeps Authorization and Cookie values readable in the capture
+- Category gates
+  - `--category-memory` enables the deep heap analysis tools
+  - `--category-extensions` enables the extension management tools
+  - `--category-third-party` enables the third-party developer tool surface
+  - `--category-webmcp` enables the `webmcp` tool surface
+  - `--experimental-screencast` enables the experimental screencast, which may require ffmpeg for file export
+  - `--experimental-vision` enables the coordinate `click-at` vision tools
+- Language and log
+  - `--lang <LANG>` forces the UI language `en` or `pt-BR`, and machine JSON stays English
+  - `-q, --quiet` suppresses non-error human logs on stderr
+  - `-v, --verbose` raises stderr verbosity to info
+  - `--debug` turns on maximum tracing detail on stderr
+  - `--plain` forces plain stderr with no ANSI colors
 
 ## Settings Contract
 - Product settings: commands, flags, XDG via `config path|init|show|set|get|unset|list-keys` only
@@ -127,5 +215,5 @@ Product settings are commands, flags, and XDG via `config path|init|show|set|get
 - Clap usage errors with `--json` on argv also emit JSON error envelopes (GAP-002)
 - `run --json` success includes `ok` and full `steps[].data` (GAP-020)
 - `run --json-steps` streams one NDJSON line per step: `step`, `cmd`, `ok`, `result`
-- Exit codes include 0, 2, 65, 66, 69, 70, 74, 78, 124, 130, 141, 255; the live `error.kind` enum is usage, data, no-input, unavailable, software, browser, protocol, timeout, cancelled, broken-pipe, config, io, so 255 is a fatal path NOT mapped by any `error.kind`
+- Exit codes include 0, 2, 6, 64, 65, 66, 69, 70, 74, 75, 78, 124, 130, 141, 255; the live `error.kind` enum is usage, blocked, capability-disabled, precondition, data, no-input, unavailable, software, browser, protocol, timeout, cancelled, broken-pipe, config, io, so 255 is a fatal path NOT mapped by any `error.kind`
 - Live schema fragments: `browser-automation-cli schema <name> --json` or `schema --cmd <name> --json`

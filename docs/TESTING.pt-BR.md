@@ -2,37 +2,36 @@
 
 # Testes — browser-automation-cli
 
-> Rode a suite certa para o risco, não todo path de browser por default.
+- Rode a suíte certa para o risco, não todo path de browser por default
 
 
 ## Por que Testes Categorizados
 - Testes de runtime de browser são mais lentos e dependentes do host
 - Testes de schema e inventário pegam drift de contrato sem Chrome
 - Manter categorias explícitas protege a velocidade de iteração local
-- Prefira validação local com cargo e scripts e2e
+- Prefira validação local com `cargo test`, e use os scripts e2e só para caminhos que nenhum gate de `cargo test` cobre
 
 
 ## Categorias de Teste
 - Testes unitários e de library em `src/` (`cargo test --lib`)
 - Smokes de CLI como `tests/doctor_cli.rs` e `tests/goto_smoke.rs`
 - Gates de envelope e schema como `tests/envelope_schema.rs` e `tests/parity_toolref_schema.rs`
-- Testes de inventário e matriz de paridade (`tests/parity_inventory.rs`, `tests/parity_matrix.rs`)
+- Testes de matriz de paridade (`tests/parity_matrix.rs`)
 - Gate de inventário run: `tests/parity_run_inventory.rs` enforce `RUN_DISPATCHED_CMDS` ∪ exclude intencional (inclui `print-pdf`, `select-option`, `pick`)
 - Gate de superfície clap: `tests/clap_command_debug_assert.rs` roda `Cli::command().debug_assert()`
 - Testes de robots e comportamento de pipe (`tests/robots_http.rs`, `tests/pipe_broken.rs`)
 - Helpers de golden i18n e cold-start (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Cobertura e2e opcional de eventos CDP quando Chrome está disponível (`tests/e2e_cdp_events.rs`)
-- Script e2e completo das **53 tools** DevTools (nome legado do arquivo): `scripts/e2e_all_52_tools.sh`
-- Inventário vivo da CLI é **71 nomes de agente** (`commands --json`) — mais amplo que o conjunto e2e de 53 tool-ref; inclui inventário de agente `select-option` e `pick` (run/exec/schema, não clap), meta `locale` e `man`, mais clap `submit` e `storage`
-- Gates de produto introduzidos na v0.1.7 e ainda vigentes na 0.1.9 (locais; Chrome serial quando necessário):
+- Script e2e completo das 53 tools DevTools (nome legado do arquivo): `scripts/e2e_all_52_tools.sh`
+- Inventário vivo da CLI é 71 nomes de agente (`commands --json`) — mais amplo que o conjunto e2e de 53 tool-ref; inclui inventário de agente `select-option` e `pick` (run/exec/schema, não clap), meta `locale` e `man`, mais clap `submit` e `storage`
+- Gates de produto introduzidos na v0.1.7 e ainda vigentes na 0.2.0 (locais; Chrome serial quando necessário):
   - `tests/dialog_multitab_gate.rs` — isolamento multi-aba de diálogo + `dialog_settled` (GAP-054)
   - `tests/option_pick_gate.rs` — select nativo `input`+`change` (GAP-055)
   - `tests/wait_conditions_gate.rs` — honesty de prazo `wait_timeout_ms` (GAP-053)
   - `tests/scrape_step_gate.rs` — scrape `format`/`formats` em run sem monstro HTML (GAP-057)
   - Fixtures unit de lighthouse: `scripts/fixtures/lighthouse/minimal_lhr.json` + `chrome_captured_lhr.json` (parse LHR real de scores_from_lhr; GAP-021 parcial)
-- Suite de integração residual: `tests/residual_one_shot.rs` (marker zero, não-crescimento de Singleton, wipe de fixture no BORN, campos residual no doctor)
+- Suíte de integração residual: `tests/residual_one_shot.rs` (marker zero, não-crescimento de Singleton, wipe de fixture no BORN, campos residual no doctor)
 - Gates locais residual: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (só scripts locais do mantenedor)
-- Fixture vendored de tool-ref: `tests/fixtures/tool-reference.md`
 - A suíte EXIGE `--test-threads=1`; nada no código impõe isso
 - Medido: lançamentos concorrentes de Chrome produzem `SingletonLock: No such file or directory`, `No chromiumoxide Page for session_id` e `Page.navigate: Request timed out`
 - Serial também é mais rápido aqui: 101s serial contra 148s paralelo
@@ -49,7 +48,8 @@
 - É a mesma distinção que `strict-gates` faz: inalcançável por construção é desculpado, ferramenta ausente não é
 - Teste que não pode rodar declina por `skip_with_reason` ou `skip_with_remedy` (`tests/common/mod.rs`), nunca por `eprintln!` cru
 - Sob `--features strict-gates` esses helpers dão `panic!` em vez de retornar, então gate que declina FALHA em vez de reportar pass
-- `scripts/ci-check.sh` roda com `--all-features`, o que liga `strict-gates`
+- O runner local `scripts/ci-check.sh` roda com `--all-features`, o que liga `strict-gates`
+- O passo de teste dele é `cargo test --tests --all-features --quiet -- --test-threads=1`, que você roda direto em qualquer plataforma
 - Declínio no lado unit usa `skip_unit_test` (`src/test_utils.rs`)
 - Como declinar ali é falhar, `strict-gates` transforma toda ferramenta de host que um teste precisa em PRÉ-REQUISITO DURO
 - Exigido no PATH para um run verde com `--all-features`: um Chrome ou Chromium que `find_chrome` resolva, `ffmpeg`, `ffprobe`, `Xvfb` (Linux), `/bin/sh` e `redis-server`
@@ -76,9 +76,10 @@ timeout 120 cargo clippy --all-targets --locked -- -D warnings
 cargo fmt --check
 ```
 - Rode um arquivo com `cargo test --test doctor_cli --locked`
-- Se `cargo test` abortar com stack overflow ao montar a árvore clap / schema, eleve a stack da thread de teste: `RUST_MIN_STACK=8388608 cargo test --locked` (8 MiB; threads de teste Rust costumam ser 2 MiB). Prefira isso a pular a suite
 - Use `-- --nocapture` só durante debug
 - Prefira library e gates de schema primeiro ao iterar contratos
+- Um stack overflow de thread durante `cargo test` não tem remédio medido nesta página
+- Rode de novo só o alvo que falhou com `cargo test --test <nome> --locked`, guarde o nome do teste e a saída de erro, e reporte como defeito em vez de pular a suíte
 
 
 ## E2E 53 Tools
@@ -91,12 +92,14 @@ bash scripts/e2e_all_52_tools.sh
 - Escreve relatório em workdir temp e imprime contagens PASS/FAIL/SKIP
 - Evidência do mantenedor para v0.1.4: 53 PASS / 0 FAIL em host local com Chrome (residual A001 fechado; GAP-001…025 hard-close)
 - Evidência do mantenedor para v0.1.5: residual-zero em disco fechado (RES-01…12); `cargo test --lib residual::` + `cargo test --test residual_one_shot` + residual-check local PASS
-- **Evidência do mantenedor para v0.1.6 (honesta):** `TOTAL=53 PASS=52 FAIL=0 SKIP=1` — caminho mock de lighthouse é **SKIP** (CONTRACT-ONLY). Nunca alegue PASS completo do parser lighthouse em e2e
+- Evidência do mantenedor para v0.1.6: `TOTAL=53 PASS=52 FAIL=0 SKIP=1`
+- O caminho mock de lighthouse é SKIP (CONTRACT-ONLY)
+- Nunca alegue PASS completo do parser lighthouse em e2e
 - Confiança do parser lighthouse é em unit: `scores_from_lhr` contra `minimal_lhr.json` e `chrome_captured_lhr.json` real sanitizado (forma Lighthouse 13.4.1)
-- A suite de 52-tools não substitui smokes residuais de comandos fora do conjunto tool-ref
+- A suíte de 52-tools não substitui smokes residuais de comandos fora do conjunto tool-ref
 
 
-## Gates Residual-Zero de Disco (lei da v0.1.5 — ainda corrente na 0.1.9)
+## Gates Residual-Zero de Disco (lei da v0.1.5 — ainda corrente na 0.2.0)
 ```bash
 cargo build --release --locked
 cargo test --lib residual:: --locked
@@ -111,7 +114,7 @@ bash scripts/residual-check.sh
 - Check id do doctor sob teste: `residual_disk` (higiene residual de disco path-light)
 - Campo JSON de topo do doctor sob teste: `residual` (`ResidualDiskReport`)
 - Campos residual do doctor sob teste: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legado), `sibling_live_processes`, `orphan_marker_dirs`, `ghost_marker_processes`, `foreign_root_orphans`, `scanned_roots`
-- Contrato residual-zero de agente: `residual_disk` não pode ser `fail` (zeros em `orphan_marker_dirs` + `ghost_marker_processes`); após DIE sozinho também zero `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes>0` é concorrência saudável; **não** exija zero `live_cli_marker_processes`
+- Contrato residual-zero de agente: `residual_disk` não pode ser `fail` (zeros em `orphan_marker_dirs` + `ghost_marker_processes`); após DIE sozinho também zero `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes>0` é concorrência saudável; NÃO exija zero `live_cli_marker_processes`
 - Age floor do GC stale de produção é 60s; testes podem usar helpers de library com age zero para fixtures
 
 
@@ -131,13 +134,50 @@ bash scripts/residual-check.sh
 - `wait_conditions_gate`: prazo honra `wait_timeout_ms` (~2s, não default silencioso) (GAP-053)
 - `scrape_step_gate`: scrape em run com `format=text` sem dump de HTML (GAP-057)
 - Lighthouse e2e mock permanece SKIP; fixtures unit são o gate honesto do parser (GAP-021 parcial)
-- **Encode do `grab`:** só png|jpeg|webp; AVIF removido (breaking) — smokes residuais não devem passar `--format avif`
-- **Residual intencional GAP-024:** divergências wishlist de PRD seguem intencionais (não alegue paridade PRD completa)
-- **Não** trate dashboards remotos de orquestração como superfície de produto; use só cargo local e `scripts/*-check.sh`
+- Encode do `grab`: só png|jpeg|webp; AVIF removido (breaking) — smokes residuais não devem passar `--format avif`
+- Residual intencional GAP-024: divergências wishlist de PRD seguem intencionais (não alegue paridade PRD completa)
+- NÃO trate dashboards remotos de orquestração como superfície de produto; use só cargo local e `scripts/*-check.sh`
+
+
+## Gates Introduzidos na v0.2.0 (Display Privado e Pipe de DevTools)
+- Estes gates cobrem os defeitos que o `CHANGELOG.md` lista em `0.2.0`
+- Nenhum deles precisa de um Chrome real
+```bash
+timeout 900 cargo test --test cdp_pipe_sigpipe_gate --locked
+timeout 900 cargo test --test chrome_failed_launch_group_gate --locked
+timeout 900 cargo test --lib native::cdp::pipe --locked
+timeout 900 cargo test --lib native::cdp::xvfb --locked
+timeout 900 cargo test --lib native::cdp::chrome::args --locked
+```
+### Gates de Integração da v0.2.0
+- `tests/cdp_pipe_sigpipe_gate.rs` prova que um Chrome que sai na hora nunca mata a CLI por `SIGPIPE`
+- Ele define `chrome_path` como `/usr/bin/false` com `config set` dentro da própria árvore XDG temporária
+- Ele lança `goto about:blank` 20 vezes e reprova se alguma execução morrer por sinal ou não deixar envelope JSON
+- Ele roda só em Unix e faz skip em voz alta sem o binário ou sem `/usr/bin/false`
+- `tests/chrome_failed_launch_group_gate.rs` prova que um lançamento que falha não deixa vivo nenhum membro do grupo de processos do Chrome
+- O navegador falso dele inicia `sleep 60` no próprio grupo, grava esse pid e sai antes de o DevTools responder
+- Ele reprova se esse pid ainda estiver vivo e não for zumbi quando a CLI retorna
+- Ele roda só em Linux e faz skip em voz alta sem o binário ou sem `/bin/sh`
+### Testes Unitários do Pipe de DevTools
+- `native::cdp::pipe::tests::the_port_switches_are_replaced_by_the_pipe` prova que os switches de porta e de endereço somem e que `--remote-debugging-pipe` aparece exatamente uma vez
+- `native::cdp::pipe::bridge::tests::messages_are_split_on_the_zero_byte` prova que as mensagens do Chrome são separadas no byte zero e que a resposta da sonda de prontidão é consumida
+- `native::cdp::pipe::bridge::tests::a_message_cut_by_end_of_file_is_not_forwarded` prova que uma mensagem truncada é descartada
+- `native::cdp::pipe::bridge::tests::written_messages_carry_the_terminator` prova que toda mensagem gravada para o Chrome termina com o byte zero
+- `native::cdp::pipe::bridge::tests::the_bridge_refuses_a_wrong_path_and_serves_the_right_one` prova que a ponte WebSocket recusa um caminho sem o token e aceita o caminho com token
+- `native::cdp::pipe::bridge::tests::shutdown_returns_within_its_grace_while_the_pipe_is_still_held` prova que o encerramento retorna dentro de `CDP_PIPE_SHUTDOWN_GRACE_MS` mais um segundo com o pipe ainda aberto
+- Um host onde os pipes não podem ser criados declina por `skip_unit_test`, que falha sob `strict-gates`
+### Testes Unitários do Display Privado
+- `native::cdp::xvfb::auth::tests::the_entry_follows_the_xauthority_layout` prova que a entrada `MIT-MAGIC-COOKIE-1` segue o layout Xauthority de 46 bytes
+- `native::cdp::xvfb::auth::tests::the_file_is_private_and_removed_with_its_owner` prova que o arquivo do cookie tem modo 0600 e some quando o dono é descartado
+- `native::cdp::xvfb::auth::tests::orphaned_cookies_are_swept_and_live_ones_kept` prova que o cookie de um pid morto é removido enquanto o de um pid vivo e um arquivo alheio ficam
+- `native::cdp::xvfb::display::tests::a_lock_left_by_a_dead_server_does_not_retire_the_number` prova que um lock que nomeia processo morto libera o número, enquanto socket sem lock, servidor vivo ou lock ilegível mantêm o número ocupado
+- `native::cdp::xvfb::spawn::tests::a_server_that_exits_is_reported_at_once_not_at_the_deadline` prova que um servidor que sai é reportado antes do prazo de inicialização
+- `native::cdp::chrome::args::tests::the_x11_pin_follows_the_display_outcome` prova que `--ozone-platform=x11` aparece uma vez quando o display privado subiu, nunca quando não subiu, e nunca por cima de um switch de plataforma já presente na lista de argumentos, ramo defensivo que nenhuma flag nem chave XDG alcança
+- Os testes do arquivo de cookie e da varredura rodam só em Unix
 
 
 ## Famílias de Gate Sob tests/
-- `tests/` tem 67 arquivos de gate de integração, cada um rodado com `cargo test --test <name> --locked`
+- `tests/` tem 94 arquivos de gate de integração, cada um rodado com `cargo test --test <name> --locked`
 - Cada família abaixo fecha uma classe de defeito, nunca um comando
 - Todo gate é local e não precisa de runner além do cargo
 - Um gate sem sua pré-condição faz SKIP em voz alta em vez de aprovar em silêncio
@@ -152,7 +192,7 @@ bash scripts/residual-check.sh
 - O perfil `direct` é o controle negativo e não emite wheel nem tecla sintéticos
 - `tests/xvfb_gate.rs` — a alegação do doctor sobre Xvfb precisa casar com o que o host consegue
 - Uma execução headed no Linux não pode deixar lock de display para trás
-- Um host sem Xvfb é skip impresso, nunca execução vermelha
+- Um host sem Xvfb é skip impresso num build padrão e falha sob `strict-gates`
 - `tests/compression_gate.rs` — todo content-coding anunciado precisa chegar decodificado
 - Nenhum `content-encoding` pode sobreviver no envelope, o que prova que o corpo foi descomprimido
 
@@ -203,6 +243,10 @@ bash scripts/residual-check.sh
 - `tests/lifecycle_group_kill.rs` — um sinal ceifa o grupo de processos inteiro, com fallback por árvore de pid
 - Ele recusa o nosso próprio grupo, o `init` e o grupo zero
 - `tests/lifecycle_hard_kill_gate.rs` — `SIGKILL` na CLI não deixa processo de browser do seu grupo
+- `tests/chrome_failed_launch_group_gate.rs` — um lançamento do Chrome que falha não deixa vivo nenhum membro do grupo de processos do Chrome
+- Um navegador falso cria um `sleep` que fica no grupo dele e sai antes de o DevTools responder, e esse pid precisa ter sumido quando a CLI retorna
+- `tests/cdp_pipe_sigpipe_gate.rs` — um Chrome que sai na hora nunca pode matar a CLI por `SIGPIPE` através do pipe de DevTools
+- Ele lança 20 vezes com `/usr/bin/false` como navegador e exige que toda execução termine por exit code com envelope JSON
 - `tests/signal_shutdown.rs` — SIGTERM e SIGINT contra um filho vivo da CLI não podem travar
 - `tests/residual_report_contract.rs` — pids são contados uma vez e processos impostores não são contados
 - O relatório emite as raízes que varreu e reporta órfãos de raiz estrangeira em separado
@@ -229,17 +273,13 @@ bash scripts/residual-check.sh
 - `tests/video_site_extraction_rejected.rs` — página de player e manifesto recebem erros distintos e acionáveis
 
 ### Paridade, Propriedades e Logging Local
-- `tests/parity_semantics.rs` — a terceira camada de paridade: pré-condição e efeito, não só nome
-- Ele faz SKIP em voz alta quando a árvore de referência e `docs_prd/` faltam no checkout
 - `tests/proptest_parsers.rs` — testes de propriedade para parsers offline, corpo de robots e round trip de envelope
 - `tests/tracing_local_log_schema.rs` — nomes de campo das linhas JSON rotacionadas sob `config set log_to_file`
 - As linhas são só arquivos locais; este produto não tem telemetria remota
 
 
 ## Inventário completo de agente (71)
-
-Descubra ao vivo: `browser-automation-cli commands --json`
-
+- Descubra ao vivo com `browser-automation-cli commands --json`
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
@@ -248,16 +288,18 @@ net page parse perf pick press print-pdf qr record reload resize run schema scra
 scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
+- `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`
+- A contagem de subcomandos clap de produto é portanto 69, que são 71 nomes de agente menos 2 nomes só de run
+- Depois de editar inventário ou listas planas, rode o gate local `bash scripts/inventory-flat-check.sh`
+- Ele espera que `commands --json` ao vivo devolva 71 nomes incluindo `image`, `video`, `audio` e `record`
+- O nome antigo `scripts/verify-inventory-flat.sh` permanece como shim fino que delega para ele
+- O runner local `scripts/ci-check.sh` descobre verificadores pelo glob `scripts/*-check.sh`
+- O nome antigo nunca casava com esse glob, então o gate jamais rodou no bundle
+- Os docs então derivaram para a contagem obsoleta 67 enquanto o runner reportava verde
 
-Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **69** (71 nomes de agente − 2 só-run).
-
-Gate local de honesty do inventário (sem GHA): após editar inventário ou listas planas, rode `bash scripts/inventory-flat-check.sh` (espera `commands --json` com **71** nomes incluindo `image`+`video`+`audio`+`record`).
-
-O gate agora se chama `scripts/inventory-flat-check.sh`. O nome antigo `scripts/verify-inventory-flat.sh` permanece como shim fino que delega para ele. Motivo: `scripts/ci-check.sh` descobre verificadores pelo glob `scripts/*-check.sh`, e o nome antigo nunca casava com esse glob, então o gate jamais rodou no bundle e os docs derivaram para a contagem obsoleta 67 enquanto o runner reportava verde.
 
 ## Smokes Residuais de PRD (além das 53 tools)
-Rode após o e2e ao validar o inventário completo de **71** nomes:
-
+- Rode estes após o e2e ao validar o inventário completo de 71 nomes
 ```bash
 # print-pdf artifact (one-shot + run)
 browser-automation-cli --json print-pdf --url https://example.com --path /tmp/page.pdf
@@ -413,7 +455,7 @@ browser-automation-cli --json lighthouse https://example.com \
 - Envelope reporta `binary_source` como `real` ou `mock`
 - O mock grava reports HTML/JSON mínimos para paths de smoke
 - Doctor reporta presença/origem de lighthouse como informativo quando o binário está ausente
-- **Honesty v0.1.6:** a suite e2e faz **SKIP** do caminho mock de lighthouse — nunca reporte isso como PASS completo do parser
+- Honesty v0.1.6: a suíte e2e faz SKIP do caminho mock de lighthouse — nunca reporte isso como PASS completo do parser
 - Confiança do parser: testes unit em `scripts/fixtures/lighthouse/minimal_lhr.json` e `chrome_captured_lhr.json`
 
 
@@ -504,10 +546,10 @@ bash scripts/doc-coverage-check.sh
 
 
 ## Escala da Suíte Completa de Verificadores
-- `scripts/` tem **44** arquivos `.sh` de topo; `tests/` tem **92** arquivos `.rs` de gate
-- Medido em 2026-09-01 com `fd -d 1 -e sh . scripts/` e `fd -d 1 -e rs . tests/`
+- `scripts/` tem **44** arquivos `.sh` de topo; `tests/` tem **94** arquivos `.rs` de gate
+- Medido em 2026-09-13 com `fd -d 1 -e sh . scripts/` e `fd -d 1 -e rs . tests/`
 - `tests/doc_measured_claims_gate.rs` remede os dois, porque o par de 2026-08-28 dizia 42 e 73 e envelheceu sem ninguém notar
-- O `-d 1` faz parte da medição e não é enfeite: sem ele a contagem de `scripts/` alcança subdiretórios e devolve 45
+- O `-d 1` faz parte da medição e não é enfeite: sem ele a contagem de `scripts/` alcança subdiretórios e devolve 47
 - `bash scripts/ci-check.sh` é o runner local do bundle
 - Ele descobre sozinho todo `scripts/*-check.sh` executável por esse glob
 - Um script cujo nome não termina em `-check.sh` nunca entra no bundle e precisa ser invocado pelo nome
@@ -528,14 +570,14 @@ bash scripts/doc-coverage-check.sh
 - `scripts/tracing-check.sh` — regras de logging e rotação; `--inventory-only` roda só a metade estática
 - `scripts/multiplatform-check.sh` — rejeita shell-out para `which` / `where`, que deve passar por `platform::which_bin`
 - `scripts/natives-check.sh` — allowlist de crates nativas; proíbe CLIs humanas sob `src/` fora dos binários de domínio (chrome, lightpanda, lighthouse, ffmpeg, redis-server em testes), e proíbe `openssl` (TLS permanece só rustls) e `nasm-rs` no `Cargo.lock`
-- `scripts/filesize-check.sh` — teto de 300 linhas de **código** por arquivo de produção; prosa de rustdoc não é código, então contar linhas físicas premiaria apagar documentação; exceções declaradas carregam versão de expiração e reprovam como qualquer outro arquivo depois dela
+- `scripts/filesize-check.sh` — teto de 300 linhas de CÓDIGO por arquivo de produção; prosa de rustdoc não é código, então contar linhas físicas premiaria apagar documentação; exceções declaradas carregam versão de expiração e reprovam como qualquer outro arquivo depois dela
 - `scripts/orphan-module-check.sh` — todo `src/**/*.rs` deve ser alcançável a partir de uma raiz de crate; um arquivo que nenhum pai declara com `mod` fica ausente do binário enquanto build, clippy e a suíte inteira seguem verdes
 - `scripts/reachability-check.sh` — itens `pub use` sem call site sob `src/`; o lint `dead_code` para na fronteira do crate, então um item reexportado que ninguém chama permanece silencioso
 - `scripts/split-conservation-audit.sh` — recebe pares `<original.rs> <new_dir>` e asserta que toda linha significativa de um arquivo pré-split ainda existe sob o diretório que o substituiu; dividir `commands/ops/lighthouse.rs` apagou em silêncio um doc comment `pub(crate)` enquanto build, clippy, `cargo doc -D warnings` e a suíte inteira seguiam verdes, porque `missing_docs` dispara em documentação AUSENTE de item público e é cego a documentação APAGADA de item que ele não cobre
 
 
 ## Verificadores de Superfície e Paridade de Esquema
-- `scripts/clap-schema-parity-check.sh` — compara o **parser** clap contra o esquema publicado, o eixo que o `schema-drift-check.sh` estruturalmente não enxerga porque os dois lados dele derivam do mesmo módulo de esquema; medidos 29 flags aceitos pelo clap e ausentes do `schema`, incluindo o obrigatório `storage export --path`
+- `scripts/clap-schema-parity-check.sh` — compara o PARSER clap contra o esquema publicado, o eixo que o `schema-drift-check.sh` estruturalmente não enxerga porque os dois lados dele derivam do mesmo módulo de esquema; medidos 29 flags aceitos pelo clap e ausentes do `schema`, incluindo o obrigatório `storage export --path`
 - `scripts/schema-drift-check.sh` — adaptador fino sobre o `--check` do gerador; o runtime é a fonte da verdade e `docs/schemas/*.json` é artefato derivado; a capacidade existia muito antes da ligação, e sete esquemas tinham derivado enquanto toda auditoria reportava verde
 - `scripts/config-roundtrip-check.sh` — toda chave de `CONFIG_KEYS` precisa existir no gravador e no leitor (veja v0.1.8 abaixo)
 - `scripts/phantom-flag-gate.sh` — adaptador bash sobre `tests/phantom_flag_gate.rs` (veja v0.1.8 abaixo)
@@ -566,11 +608,12 @@ bash scripts/doc-coverage-check.sh
 - `scripts/config-roundtrip-check.sh` — asserta que toda chave literal de `CONFIG_KEYS` está presente no gravador `src/xdg/config_write.rs` e no leitor `src/xdg/config_io.rs`; chaves de política promovidas ficam isentas porque uma tabela de macro as gera
 - A classe que ele fecha: `config set` reconstrói o `config.toml` inteiro a partir de um template escrito à mão, então uma chave ausente dele é descartada em vez de preservada, e o `match` escrito à mão do leitor a joga fora na carga
 - A falha era silenciosa da pior forma: `config set` respondia `ok: true` com exit `0` e o processo seguinte lia `null` de volta
-- Medido em 2026-08-09: dezessete chaves ausentes das duas metades. Medido em 2026-08-10: **mais seis** ainda ausentes — `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `stealth_seed`, `robots_user_agent`
+- Medido em 2026-08-09: dezessete chaves ausentes das duas metades
+- Medido em 2026-08-10: mais seis ainda ausentes — `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `stealth_seed`, `robots_user_agent`
 - Duas dessas seis são credenciais de proxy que a documentação manda o operador guardar na configuração justamente porque o argv é visível na tabela de processos; o canal seguro descartava o valor e deixava o canal vazado como o único que funcionava
 - Por que não um teste Rust: um teste de round-trip precisa de um valor que passe validação por chave e degenera em amostra hardcoded, que é exatamente como `tests/v018_parity_gate.rs` deixou passar as seis; a invariante é comparação estática de conjuntos e pertence a uma checagem estática
 - `scripts/phantom-flag-gate.sh` — adaptador que expõe uma propriedade de `tests/phantom_flag_gate.rs` ao runner de controles, que dirige todo controle com `bash $script`; ele não carrega asserção própria e aceita um filtro do libtest
-- Ele deliberadamente **não** se chama `*-check.sh`: esse glob rodaria as mesmas propriedades uma segunda vez, e um segundo verde não acrescenta informação e custa o link inteiro de um binário de teste
+- Ele deliberadamente NÃO se chama `*-check.sh`: esse glob rodaria as mesmas propriedades uma segunda vez, e um segundo verde não acrescenta informação e custa o link inteiro de um binário de teste
 - O scan original era um script Python de 411 linhas; foi portado para Rust e deletado, porque o produto é Rust de ponta a ponta
 - `scripts/natives-check.sh` — fixa a allowlist de crates nativas e proíbe `openssl` e `nasm-rs`; o primeiro quebraria a lei de TLS só rustls, o segundo tornaria um NASM de sistema requisito de build
 - Uma nova dependência nativa precisa entrar em `SYS_ALLOWLIST` com justificativa ou ser removida
@@ -620,7 +663,7 @@ bash scripts/doc-coverage-check.sh
 - Falhas de schema gate: atualize código e `docs/schemas/` na mesma mudança
 - Drift de schema de comando: reexecute `bash scripts/generate_command_schemas.sh` após mudar `meta.rs`
 - Drift bilíngue de fences: reexecute `bash scripts/audit_bilingual_docs.sh` e alinhe blocos de comando EN e `.pt-BR`
-- Drift de inventário: reconcilie com `commands --json` (71) e `tests/fixtures/tool-reference.md` (53 tools)
+- Drift de inventário: reconcilie com `commands --json` (71)
 - Leaks residual de disco: reexecute `cargo test --test residual_one_shot` e `bash scripts/residual-check.sh`; inspecione `residual` do doctor
 - Drift de inventário run: atualize `RUN_DISPATCHED_CMDS` e reexecute `cargo test --test parity_run_inventory`
 - Falhas de clap assert: corrija `GlobalOpts` / definições de subcomando e reexecute `cargo test --test clap_command_debug_assert`

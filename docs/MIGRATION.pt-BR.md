@@ -2,7 +2,9 @@
 
 # Migração — browser-automation-cli
 
-> Migre para o modelo de processo one-shot sem adivinhar o mapa de comandos. Ciclo de vida: BORN EXECUTE FINALIZE DIE.
+
+- Migre para o modelo de processo one-shot sem adivinhar o mapa de comandos
+- Ciclo de vida: BORN EXECUTE FINALIZE DIE
 
 
 ## O Que Muda
@@ -30,14 +32,16 @@
 - `config path --json` reporta `config_dir`, `data_dir`, `state_dir`, `mitm_ca_dir`, `mitm_capture_dir`, `workflow_dir` e paths relacionados
 - Chave de cifragem é definida com `config set encryption_key`
 - Logging de produto é flags + XDG (`--verbose` / `--debug` / `-q` ou `config set log_level`)
-- Cor é `config set color`; path do Chrome é `config set chrome_path`
+- Cor é `config set color`
+- Path do Chrome é `config set chrome_path`
 - Doctor ganha check XDG de `browsers_dir`
 
 ### MITM
 - Nova superfície MITM local em hudsucker
 - `mitm start` faz bind em `127.0.0.1` com porta efêmera em modo one-shot
 - Comandos relacionados: `status`, `init-ca`, `list`, `get`, `har`, `export`, `domains`, `apis`
-- Material de CA fica sob XDG data; capturas sob XDG state
+- Material de CA fica sob XDG data
+- Capturas sob XDG state
 
 ### Workflow
 - Novo journal DAG de workflow (petgraph + SQLite)
@@ -64,7 +68,7 @@
 
 
 ## 0.1.1 → 0.1.2
-Correções de GAP e crescimento de superfície em alto nível no `0.1.2`:
+- Correções de GAP e crescimento de superfície em alto nível chegaram no `0.1.2`
 
 ### Scrape browser e formatos
 - Scrape com engine browser captura `outerHTML` e aplica `--format` (markdown/html/links/metadata/…) em vez de text silencioso
@@ -84,7 +88,8 @@ Correções de GAP e crescimento de superfície em alto nível no `0.1.2`:
 ### Logging, Chrome e paths de Lighthouse
 - Settings de produto ficam só em flags + XDG
 - Logging usa `--verbose` / `--debug` / `-q` e XDG `log_level`
-- Path do Chrome via XDG `chrome_path`; Lighthouse via XDG `lighthouse_path` (mais flag)
+- Path do Chrome via XDG `chrome_path`
+- Lighthouse via XDG `lighthouse_path` (mais flag)
 - Cor via XDG `color`
 
 ### i18n
@@ -108,22 +113,22 @@ Correções de GAP e crescimento de superfície em alto nível no `0.1.2`:
 - Mais: `log_level`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`
 
 ### Inventário
-- O inventário em 0.1.2 era de **59 comandos** (`commands --json`)
-- Suite e2e de tool-ref DevTools permanece **53 tools** (`scripts/e2e_all_52_tools.sh`)
+- O inventário em 0.1.2 era de 59 comandos (`commands --json`)
+- Suite e2e de tool-ref DevTools permanece 53 tools (`scripts/e2e_all_52_tools.sh`)
 - Schemas estáticos regeneram via `bash scripts/generate_command_schemas.sh`
 
 
-
 ## 0.1.2 → 0.1.3
-Hard-close do scavenger residual de processo/tmp (A001–A002), honesty Redis/Lighthouse e superfície PRD de write/lint no `0.1.3`.
-A lei canônica residual-zero de disco (GC Singleton em BORN com age ≥ 60s, dual scavenge em FINALIZE, doctor `residual_disk`) é `0.1.5` — veja a seção 0.1.4 → 0.1.5.
+- Hard-close do scavenger residual de processo/tmp (A001–A002), honesty Redis/Lighthouse e superfície PRD de write/lint chegaram no `0.1.3`
+- A lei canônica residual-zero de disco (GC Singleton em BORN com age ≥ 60s, dual scavenge em FINALIZE, doctor `residual_disk`) é `0.1.5` — veja a seção 0.1.4 → 0.1.5
 
 ### Residual e2e e scavenger (A001–A002)
-- Medição residual do e2e sem self-match; harness residual seguro com pipefail
+- Medição residual do e2e sem self-match
+- O harness residual é seguro com pipefail
 - FINALIZE faz scavenge de orphans Chromium em `/tmp` owned
 
 ### Contrato `run` (A003)
-- `run --script` aceita **NDJSON** (um objeto por linha) **ou** um **array JSON** de passos
+- `run --script` aceita NDJSON (um objeto por linha) ou um array JSON de passos
 - Erros fail-fast ainda devolvem `data.steps` parcial quando presente
 
 ### Navegação / CDP honesty (A004–A006, A009, A012)
@@ -137,7 +142,8 @@ A lei canônica residual-zero de disco (GC Singleton em BORN com age ≥ 60s, du
 - Novas chaves XDG: `cache_backend`, `cache_redis_url`, além de `log_to_file`
 - `rediss://` é fail-closed (somente TCP plain)
 - Doctor reporta `cache_redis` quando cache Redis está configurado
-- Unit RESP mock always-on; redis-server real opcional se presente no host
+- Unit RESP mock always-on
+- redis-server real é opcional quando presente no host
 
 ### Lighthouse honesty (A010)
 - Ordem de resolve: flag `--lighthouse-path` → XDG `lighthouse_path` → PATH
@@ -147,21 +153,21 @@ A lei canônica residual-zero de disco (GC Singleton em BORN com age ≥ 60s, du
 ### Superfície PRD write/lint (A011)
 - `find-paths --glob` filtro glob estilo shell
 - `sheet-write` CSV/JSON → XLSX (sem Chrome)
-- `sg-scan` lint estrutural; `sg-rewrite` dry-run padrão com `--apply`
+- `sg-scan` lint estrutural
+- `sg-rewrite` dry-run padrão com `--apply`
 
 ### Outra superfície 0.1.3
-- `page tab-id` (tool-ref `get_tab_id`) expande e2e para **53** tools
+- `page tab-id` (tool-ref `get_tab_id`) expande e2e para 53 tools
 - `config list-keys` lista chaves e defaults
-- O inventário em 0.1.3 era de **59 comandos** (`commands --json`)
-- O e2e DevTools tool-ref em 0.1.3 era de **53 tools** (`scripts/e2e_all_52_tools.sh` nome legado)
+- O inventário em 0.1.3 era de 59 comandos (`commands --json`)
+- O e2e DevTools tool-ref em 0.1.3 era de 53 tools (`scripts/e2e_all_52_tools.sh` nome legado)
 
 ### Chaves de config (lista completa em 0.1.3)
 - `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 
 
-
 ## 0.1.3 → 0.1.4
-Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/assert, compose MITM e honesty clap:
+- Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/assert, compose MITM e honesty clap
 
 ### Observabilidade de run (GAP-020)
 - Global `--json-steps`: stream de uma linha NDJSON por passo (`step`, `cmd`, `ok`, `result`)
@@ -170,7 +176,7 @@ Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/
 
 ### Wait multi-seletor e URL (GAP-019, GAP-024)
 - Multi-seletor CSS OR: `#a, #b` e arrays `selectors` no run
-- Campos wait no run: `url` (exato), `url_contains`, `navigation` (**boolean** `true` para ciclo de load — não string `"load"`)
+- Campos wait no run: `url` (exato), `url_contains`, `navigation` (boolean `true` para ciclo de load — não string `"load"`)
 - Wait multi-seletor bem-sucedido pode incluir `matched_selector` nos dados do resultado
 - Multi `--text` OR existente permanece
 
@@ -191,7 +197,8 @@ Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/
 - `BeforeUnloadAction` accept|dismiss em `goto` / `reload` (`--handle-before-unload accept|dismiss`)
 - Soft path de diálogo: `dialog accept --if-present` / run `if_present:true`
 - `view` recusa about:blank vazio salvo `--allow-empty` / `allow_empty:true` (só GAP-012, não print-pdf)
-- `print-pdf` no multi-passo `run`; recusa PDF em branco sem conteúdo navegado ou `url` de step/CLI (GAP-013)
+- `print-pdf` no multi-passo `run`
+- Recusa PDF em branco sem conteúdo navegado ou `url` de step/CLI (GAP-013)
 - `parity_run_inventory` enforce `print-pdf` em `RUN_DISPATCHED_CMDS`
 
 ### Contexto isolado (GAP-004)
@@ -200,7 +207,8 @@ Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/
 
 ### Extension install/uninstall fora do run (GAP-007)
 - `extension install` / `extension uninstall` ficam intencionalmente fora do dispatch de `run`
-- Use os comandos `extension` de topo; descubra via `schema extension` / `commands --json`
+- Use os comandos `extension` de topo
+- Descubra via `schema extension` / `commands --json`
 
 ### Superfície dual de assert (GAP-014)
 - Subcomandos CLI: `assert url|text|console|console-empty|console-no-match`
@@ -210,7 +218,7 @@ Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/
 - Superfície completa MITM: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
 - `mitm capture-url <url> [--seconds N] [--har path] [--hosts …]` compose one-shot
 - Flags globais: `--mitm`, `--mitm-ca-dir`, `--mitm-har`, `--mitm-hosts`, `--mitm-ws`, `--mitm-max-body-bytes`, `--mitm-no-media-bodies`, `--mitm-redact-secrets`
-- `mitm har --out <path>` **obrigatório** para export HAR
+- `mitm har --out <path>` obrigatório para export HAR
 
 ### Scrape multi-formato e batch/crawl browser (GAP-009, GAP-010, GAP-018)
 - `scrape --format` aceita CSV ou multi-formato repetível em uma invocação
@@ -224,45 +232,57 @@ Hard-close GAP-001…025 para observabilidade agent-first, profundidade de wait/
 ### Clap / console / privacy (GAP-002, GAP-021, GAP-016)
 - Erros de usage clap emitem envelope JSON quando `--json` está no argv
 - `console dump` sempre grava um array JSON válido (`[]` quando vazio)
-- Flags de privacy no launch do Chrome; sem `metrics-recording-only`
+- Flags de privacy no launch do Chrome
+- Sem `metrics-recording-only`
 
 ### Inventário e gates de contrato
-- O inventário em 0.1.4 era de **61** nomes de agente via `commands --json` (inclui `select-option`, `pick`)
-- Honesty carregada (fechada antes, ainda obrigatória em 0.1.4): lighthouse `binary_source` real|mock (GAP-008); `extract --llm` fail-closed só com chaves XDG (GAP-015)
-- O help clap de topo em 0.1.4 listava **59** nomes (exclui `select-option` / `pick` de inventário de agente)
-- E2e DevTools tool-ref permanece **53 tools**
+- O inventário em 0.1.4 era de 61 nomes de agente via `commands --json` (inclui `select-option`, `pick`)
+- Honesty carregada (fechada antes, ainda obrigatória em 0.1.4): lighthouse `binary_source` real|mock (GAP-008)
+- `extract --llm` fail-closed só com chaves XDG (GAP-015)
+- O help clap de topo em 0.1.4 listava 59 nomes (exclui `select-option` / `pick` de inventário de agente)
+- E2e DevTools tool-ref permanece 53 tools
 - Gates: `tests/parity_run_inventory.rs`, `tests/clap_command_debug_assert.rs`
-- Auditoria clap: `GlobalOpts` usa `Args` + flatten; `ArgAction::SetTrue` explícito; `value_hint`; help headings; `after_help` examples; alias `-v`
+- Auditoria clap: `GlobalOpts` usa `Args` + flatten
+- `ArgAction::SetTrue` explícito
+- `value_hint`
+- Help headings
+- `after_help` examples
+- Alias `-v`
 
 ### Chaves de config (lista completa de 16 inalterada em 0.1.4)
 - `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 
 
 ## 0.1.4 → 0.1.5
-Hard-close de higiene residual-zero em **disco** (RES-01…12, Pass 27) e superfície meta de descoberta:
+- Hard-close de higiene residual-zero em disco (RES-01…12, Pass 27) e superfície meta de descoberta
 
 ### Residual-zero em disco (processo + GC Singleton)
 - Lei de produto residual-zero estende de processo/marker para higiene de disco Chromium tmp
-- **BORN** GC automático cross-run: `scavenge_stale_singleton_orphans` apaga owned Singleton-only `/tmp/org.chromium.Chromium.*` (e ocultos `.org.chromium.Chromium.*`) com age **≥ 60s** e sem holder vivo
-- **FINALIZE** dual scavenge: side-channels da janela de invocação + GC Singleton stale
-- Prefixos temp de Chrome Flatpak do host (`com.google.Chrome.*`) **nunca** são apagados pelo GC do produto
+- BORN GC automático cross-run: `scavenge_stale_singleton_orphans` apaga owned Singleton-only `/tmp/org.chromium.Chromium.*` (e ocultos `.org.chromium.Chromium.*`) com age ≥ 60s e sem holder vivo
+- FINALIZE dual scavenge: side-channels da janela de invocação + GC Singleton stale
+- Prefixos temp de Chrome Flatpak do host (`com.google.Chrome.*`) nunca são apagados pelo GC do produto
 - Constantes públicas residual (prefixo marker, age floor, caps de tamanho) anti-hardcode
 
 ### Superfície residual do doctor
-- Novo check id: `residual_disk` (path-light; sem launch de Chrome para o relatório em si)
+- Novo check id: `residual_disk` (path-light, sem launch de Chrome para o relatório em si)
 - Campo JSON de topo do doctor: `residual` (`ResidualDiskReport`)
 - Campos em 0.1.5: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes`
-- Status em 0.1.5: `fail` se processos marker vivos; `warn` se restam dirs marker ou orphans Singleton; senão `pass`
-- As duas linhas acima descrevem a **0.1.5** e ficam como registro histórico; o tip é diferente
-- O tip 0.1.9 carrega os seis campos acrescentados na 0.1.7: `scanned_roots`, `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
-- Status no tip 0.1.9: `fail` em `orphan_marker_dirs` ou `ghost_marker_processes`; irmã viva é saudável e nunca reprova
-- Contrato de agente no tip 0.1.9: **não** exija zero `live_cli_marker_processes` — veja `docs/AGENTS.pt-BR.md`
+- Status em 0.1.5: `fail` se processos marker vivos
+- `warn` se restam dirs marker ou orphans Singleton
+- Senão `pass`
+- As linhas de status acima descrevem a 0.1.5 e ficam como registro histórico
+- O tip é diferente
+- O tip 0.2.0 carrega os seis campos acrescentados na 0.1.7: `scanned_roots`, `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
+- Status no tip 0.2.0: `fail` em `orphan_marker_dirs` ou `ghost_marker_processes`
+- Irmã viva é saudável e nunca reprova
+- Contrato de agente no tip 0.2.0: não exija zero `live_cli_marker_processes` — veja `docs/AGENTS.pt-BR.md`
 
 ### Inventário e comandos meta
-- O inventário em 0.1.5 era de `63` nomes de agente; o tip 0.1.9 é **71** (0.1.7 acrescentou `image`+`video`+`audio`+`record`, 0.1.9 acrescentou `sitemap`+`feed`) via `commands --json`
-A superfície clap de produto no tip 0.1.9 é de **69** nomes (exclui `select-option` / `pick` de inventário de agente)
-- Meta já no binário e no inventário: `locale` (diagnósticos de locale de UI), `man` (roff via clap_mangen; sem Chrome)
-- E2e DevTools tool-ref permanece **53 tools**
+- O inventário em 0.1.5 era de `63` nomes de agente
+- O tip 0.2.0 é 71 (0.1.7 acrescentou `image`+`video`+`audio`+`record`, 0.1.9 acrescentou `sitemap`+`feed`) via `commands --json`
+- A superfície clap de produto no tip 0.2.0 é de 69 nomes (exclui `select-option` / `pick` de inventário de agente)
+- Meta já no binário e no inventário: `locale` (diagnósticos de locale de UI), `man` (roff via clap_mangen, sem Chrome)
+- E2e DevTools tool-ref permanece 53 tools
 
 ### Gates locais residual (só scripts locais do mantenedor)
 - Integração: `tests/residual_one_shot.rs`
@@ -272,61 +292,71 @@ A superfície clap de produto no tip 0.1.9 é de **69** nomes (exclui `select-op
 ### Chaves de config (lista completa de 16 inalterada em 0.1.5)
 - `lang`, `timeout`, `artifacts_dir`, `ignore_robots`, `namespace`, `encryption_key`, `color`, `log_level`, `log_to_file`, `chrome_path`, `lighthouse_path`, `openrouter_api_key`, `llm_base_url`, `llm_model`, `cache_backend`, `cache_redis_url`
 - Idioma continua só flags + XDG: `--lang` ou `config set lang` (sem catálogos de env de produto)
-- A lei residual-zero de disco introduzida aqui permanece **corrente** até a 0.1.6 (GC Singleton em BORN + FINALIZE, doctor `residual`)
+- A lei residual-zero de disco introduzida aqui permanece corrente até a 0.1.6 (GC Singleton em BORN + FINALIZE, doctor `residual`)
 
 
 ## 0.1.5 → 0.1.6
-Settle de diálogo agent-first, eventos nativos de select, format de scrape em run, honesty de prazo de wait, crescimento de inventário e notas residuais intencionais:
+- Settle de diálogo agent-first, eventos nativos de select, format de scrape em run, honesty de prazo de wait, crescimento de inventário e notas residuais intencionais
 
 ### O Que Muda
-- **`dialog_settled` (GAP-054):** envelope de dados de `dialog accept|dismiss` real inclui booleano `dialog_settled`. Happy path é `true` após `Page.javascriptDialogClosed`. Agentes **não** devem inventar wait artificial antes do próximo passo de página quando settled for true
-- **`dialog_settle_ms` (XDG):** `config set dialog_settle_ms <ms>` limita a espera por Closed após responder um diálogo JS (só flags + XDG; nunca env de produto)
-- **Isolamento multi-aba de diálogo:** forwarders de evento de página carimbam `Page::session_id`; chaves do mapa de diálogo isolam por aba; browser-level `None` cai na sessão ativa
-- **Select nativo (GAP-055):** `pick` / `select-option` em `<select>` nativo despacham `input` e depois `change` e reportam `via: native_select` (`DISPATCH_INPUT_AND_CHANGE` compartilhado)
-- **`wait_timeout_ms` (GAP-053):** passos wait de run honram a chave pública de prazo (parser não descarta mais em silêncio)
-- **Formats de scrape em run (GAP-057):** passos de run aceitam `format` / `formats`; pedidos só de texto não devem despejar campos `html` grandes
-- **Encode AVIF removido (breaking):** `grab` suporta só **png | jpeg | webp** (features do crate `image` sem avif / core2 yanked)
-- **Inventário (0.1.6 → 0.1.7):** `commands --json` listava 69 nomes (0.1.6: **`submit`**, **`storage`**; 0.1.7: **`image`**, **`video`**, **`audio`**, **`record`**); clap de topo **67** sem `select-option`/`pick` standalone
-- **`submit`:** envio de formulário por form ou campo; espera navegação/requisição
-- **`storage`:** `export|import --path` para cookies + localStorage + sessionStorage (path explícito)
-- **Descoberta de chaves de config:** **não** alegue contagem fixa de “16 chaves” — sempre descubra com `config list-keys --json` (inclui `dialog_settle_ms` e mais)
-- **Lighthouse (GAP-021 parcial↑):** fixtures unit `minimal_lhr.json` + `chrome_captured_lhr.json` (LHR real); e2e mock permanece **SKIP** — nunca alegue PASS completo do parser lighthouse em e2e
-- **GAP-022 dups residuais:** ~53 multi-versão medidas; poda barata esgotada; residual aceito na 0.1.6
-- **GAP-023/024 intencionais:** flags/comandos wishlist do PRD permanecem divergências — não paridade PRD completa
-- **Residual-zero de disco:** lei de produto da 0.1.5 (RES-01…12) **ainda corrente**
+- `dialog_settled` (GAP-054): envelope de dados de `dialog accept|dismiss` real inclui booleano `dialog_settled`
+- Happy path é `true` após `Page.javascriptDialogClosed`
+- Agentes não devem inventar wait artificial antes do próximo passo de página quando settled for true
+- `dialog_settle_ms` (XDG): `config set dialog_settle_ms <ms>` limita a espera por Closed após responder um diálogo JS (só flags + XDG, nunca env de produto)
+- Isolamento multi-aba de diálogo: forwarders de evento de página carimbam `Page::session_id`
+- Chaves do mapa de diálogo isolam por aba
+- Um `None` de nível de browser cai na sessão ativa
+- Select nativo (GAP-055): `pick` / `select-option` em `<select>` nativo despacham `input` e depois `change` e reportam `via: native_select` (`DISPATCH_INPUT_AND_CHANGE` compartilhado)
+- `wait_timeout_ms` (GAP-053): passos wait de run honram a chave pública de prazo (parser não descarta mais em silêncio)
+- Formats de scrape em run (GAP-057): passos de run aceitam `format` / `formats`
+- Pedidos só de texto não devem despejar campos `html` grandes
+- Encode AVIF removido (breaking): `grab` suporta só png | jpeg | webp (features do crate `image` sem avif / core2 yanked)
+- Inventário (0.1.6 → 0.1.7): `commands --json` listava 69 nomes (0.1.6: `submit`, `storage`, 0.1.7: `image`, `video`, `audio`, `record`)
+- Clap de topo 67 sem `select-option`/`pick` standalone
+- `submit`: envio de formulário por form ou campo
+- Espera navegação/requisição
+- `storage`: `export|import --path` para cookies + localStorage + sessionStorage (path explícito)
+- Descoberta de chaves de config: não alegue contagem fixa de “16 chaves” — sempre descubra com `config list-keys --json` (inclui `dialog_settle_ms` e mais)
+- Lighthouse (GAP-021 parcial↑): fixtures unit `minimal_lhr.json` + `chrome_captured_lhr.json` (LHR real)
+- O e2e mock permanece SKIP — nunca alegue PASS completo do parser lighthouse em e2e
+- GAP-022 dups residuais: ~53 multi-versão medidas
+- Poda barata esgotada
+- Residual aceito na 0.1.6
+- GAP-023/024 intencionais: flags/comandos wishlist do PRD permanecem divergências — não paridade PRD completa
+- Residual-zero de disco: lei de produto da 0.1.5 (RES-01…12) ainda corrente
 
-### Inventário completo de agente (71) — tip 0.1.9 (base 0.1.7 + `record`, depois 0.1.9 `sitemap` + `feed`)
-
-Descubra ao vivo: `browser-automation-cli commands --json`
-
+### Inventário completo de agente (71) — tip 0.2.0 (base 0.1.7 + `record`, depois 0.1.9 `sitemap` + `feed`)
+- Descubra ao vivo: `browser-automation-cli commands --json`
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
-crawl devtools3p dialog doctor drag emulate eval exec extension extract fill-form
+crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
 find-paths forward goto grab heap hover image video audio keys lighthouse locale man map mitm monitor
 net page parse perf pick press print-pdf qr record reload resize run schema scrape screencast
-scroll search select-option sg-rewrite sg-scan sheet-write storage submit text type
+scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
-
-Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`, então a contagem de subcomandos clap de produto é `69` no tip 0.1.9 (**71** nomes de agente menos os dois só-run). Nomes frequentemente ausentes em docs antigos: `back`, `click-at`, `completions`, `cookie`, `devtools3p`, `drag`, `fill-form`, `forward`, `hover`, `net`, `resize`, `upload`, `webmcp`.
+- `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`, então a contagem de subcomandos clap de produto é `69` no tip 0.2.0 (71 nomes de agente menos os dois só-run)
+- Nomes frequentemente ausentes em docs antigos: `back`, `click-at`, `completions`, `cookie`, `devtools3p`, `drag`, `fill-form`, `forward`, `hover`, `net`, `resize`, `upload`, `webmcp`
 
 ### Migração passo a passo para agentes
-1. Rebuild/instale `0.1.6` (`cargo install --path . --force --locked`)
-2. Confirme versão e inventário:
+- Rebuild/instale `0.1.6` (`cargo install --path . --force --locked`)
+- Confirme versão e inventário:
 ```bash
 browser-automation-cli --version   # 0.1.6
 browser-automation-cli --json commands | jaq '.data.commands | length'  # 71
 ```
-3. Após respostas reais de diálogo, parseie `dialog_settled`; remova waits inventados pós-diálogo quando true
-4. Se o host precisar de orçamento Closed maior: `config set dialog_settle_ms <ms>` (XDG)
-5. Atualize scripts wait de run para usar `wait_timeout_ms` público quando um prazo for intencional
-6. Atualize passos scrape de run para passar `format` / `formats` (espere sem monstro HTML para `text`)
-7. Substitua qualquer `grab --format avif` por `png`, `jpeg` ou `webp`
-8. Adote `submit` / `storage` quando envio de form ou estado de auth portátil for necessário
-9. Re-descubra chaves de config: `config list-keys --json` (não fixe contagens)
-10. Trate lighthouse e2e mock como SKIP honesto; confie nas fixtures unit LHR para confiança do parser
-11. Mantenha checks residual-zero da 0.1.5 (`doctor residual`, scripts residual locais)
-12. Não assuma que flags/comandos PRD de GAP-023/024 existam salvo listados por `commands --json`
+- Após respostas reais de diálogo, parseie `dialog_settled`
+- Remova waits inventados pós-diálogo quando `dialog_settled` for true
+- Se o host precisar de orçamento Closed maior: `config set dialog_settle_ms <ms>` (XDG)
+- Atualize scripts wait de run para usar `wait_timeout_ms` público quando um prazo for intencional
+- Atualize passos scrape de run para passar `format` / `formats` (espere sem monstro HTML para `text`)
+- Substitua qualquer `grab --format avif` por `png`, `jpeg` ou `webp`
+- Adote `submit` / `storage` quando envio de form ou estado de auth portátil for necessário
+- Re-descubra chaves de config: `config list-keys --json` (não fixe contagens)
+- Trate lighthouse e2e mock como SKIP honesto
+- Confie nas fixtures unit LHR para confiança do parser
+- Mantenha checks residual-zero da 0.1.5 (`doctor residual`, scripts residual locais)
+- Não assuma que flags/comandos PRD de GAP-023/024 existam salvo listados por `commands --json`
 
 ### Descoberta de chaves de config
 ```bash
@@ -336,15 +366,15 @@ browser-automation-cli --json config get dialog_settle_ms
 ```
 
 ### Notas de rollback
-- Se reverter de `0.1.6` para `0.1.5`, remova premissas de que:
-  - `dialog_settled` está sempre presente após respostas de diálogo
-  - `dialog_settle_ms` é chave de config
-  - wait de run honra `wait_timeout_ms` como chave pública de passo
-  - scrape de run honra `format`/`formats`
-  - inventário é `65` (`submit` e `storage`), porque `image`, `video`, `audio` e `record` só chegam na 0.1.7
-  - o inventário do tip é **71** na 0.1.9, e nenhuma tree 0.1.5 reporta isso
-  - grab recusa AVIF (0.1.5 pode ainda aceitar conforme features do build)
+- Ao reverter de `0.1.6` para `0.1.5`, remova a premissa de que `dialog_settled` está sempre presente após respostas de diálogo
+- Remova a premissa de que `dialog_settle_ms` é chave de config
+- Remova a premissa de que wait de run honra `wait_timeout_ms` como chave pública de passo
+- Remova a premissa de que scrape de run honra `format`/`formats`
+- Remova a premissa de que o inventário é `65` (`submit` e `storage`), porque `image`, `video`, `audio` e `record` só chegam na 0.1.7
+- Remova a premissa de que o inventário do tip é 71 na 0.2.0, que nenhuma tree 0.1.5 reporta
+- Remova a premissa de que grab recusa AVIF (0.1.5 pode ainda aceitar conforme features do build)
 - Campos residual-zero de disco permanecem válidos ao reverter só se permanecer em 0.1.5+
+
 
 ## 0.1.6 → 0.1.7
 ### Breaking: `rawHtml` deixou de ser alias de `html`
@@ -404,7 +434,8 @@ browser-automation-cli --json config get dialog_settle_ms
 - `chrome_default_timeout_ms` define o timeout padrão do Chrome, default `25000`
 - `drag_move_steps` define os passos intermediários de `drag`, default `6`
 - `drag_move_gap_ms` define o intervalo entre movimentos de drag, default `16`
-- `robots_fetch_timeout_secs` limitava o fetch de robots, default `30`. REMOVIDA em 0.1.9: era publicada pela tabela de knobs e lida por ninguém, e a única requisição de robots é governada por `robots_probe_timeout_secs`
+- `robots_fetch_timeout_secs` limitava o fetch de robots, default `30`
+- REMOVIDA em 0.1.9: era publicada pela tabela de knobs e lida por ninguém, e a única requisição de robots é governada por `robots_probe_timeout_secs`
 - O total de chaves em 0.1.7 era `176`, documentado em `docs/CONFIGURATION.md`
 - Descubra a lista viva com `config list-keys --json`
 
@@ -460,7 +491,7 @@ browser-automation-cli --json config get dialog_settle_ms
 - A superfície cresceu de `176` chaves na `0.1.7` para `204` na `0.1.8`
 - Nenhuma chave foi removida, então a migração é aditiva e nenhuma configuração existente quebra
 - Anti-detecção: `stealth`, `stealth_profile`, `stealth_seed`
-- Janela: `browser_mode` aceita `auto|headed|headless`, `auto` resolve para headless, e o `doctor` reporta o modo efetivo
+- Janela: `browser_mode` aceita `auto|headed|headless`, `auto` resolve para headed dentro de um display virtual privado no Linux com Xvfb no PATH e sem `--no-xvfb` e para headless em qualquer outro caso, e o `doctor` reporta o modo efetivo
 - Proxy de saída: `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `cdp_proxy_bypass_loopback`
 - Fingerprint HTTP/2: `http2_enabled`, `http2_initial_stream_window_size`, `http2_initial_connection_window_size`, `http2_max_header_list_size`, `http2_max_frame_size`, `http2_adaptive_window`
 - Input: `input_profile`, `input_move_steps`, `input_move_gap_ms`, `input_click_dwell_ms`, `input_key_dwell_ms`, `input_type_delay_ms`, `input_scroll_tick_px`, `input_scroll_max_ticks`, `input_target_jitter_px`, `input_scroll_settle_rounds`
@@ -538,7 +569,7 @@ browser-automation-cli --json config get dialog_settle_ms
 - Não fixe esse número no código: descubra a lista viva no host em que você executa
 
 ### Inventário
-- O inventário cresce de `69` nomes na `0.1.8` para **71** na `0.1.9`
+- O inventário cresce de `69` nomes na `0.1.8` para 71 na `0.1.9`
 - Os dois nomes novos são `sitemap` e `feed`
 - Nenhum dos dois acrescenta capacidade, os dois acrescentam descoberta
 
@@ -556,6 +587,102 @@ browser-automation-cli --json mitm block --host example.com --path /ads
 browser-automation-cli --json sg-rewrite . --apply
 browser-automation-cli --json config set robots_probe_timeout_secs 10
 browser-automation-cli --json config list-keys
+```
+
+
+## 0.1.9 → 0.2.0
+### Breaking: o Chrome lançado pelo próprio produto não abre mais porta TCP de DevTools
+- Antes da `0.2.0`, um Chrome lançado por este CLI escutava numa porta de loopback escolhida por `--remote-debugging-port=0`
+- Essa porta respondia `/json/version` sem autenticação enquanto o comando vivesse
+- Na `0.2.0` esse Chrome roda com `--remote-debugging-pipe` e não abre nenhum listener de DevTools
+- O CLI chega nele por uma ponte WebSocket em loopback, num caminho com os 122 bits aleatórios de um UUID v4
+- A ponte aceita um único cliente válido e depois fecha o listener
+- A ponte responde `403` a qualquer outro caminho e não serve `/json/version`
+- Nenhuma flag, chave XDG ou campo de envelope publicado expunha essa porta, medido com `--help`, `config list-keys --json` e uma busca em `src/`
+- Uma ferramenta externa que achava a porta por conta própria e se prendia a ela deixa de funcionar
+- Nada substitui esse ponto de conexão, porque fechá-lo é a correção
+- A ponte limita cada mensagem de DevTools a 256 MiB nas duas direções
+- A ponte espera no máximo 2 segundos pelas threads do pipe no encerramento
+- Antes desse limite, um descendente do Chrome que herdou o pipe foi medido segurando um comando com `--timeout 10` por 40 segundos
+- Os drenadores de stdout e stderr do Chrome e do Lightpanda também esperam no máximo 2 segundos no encerramento
+- Antes desse limite, um descendente que segurava a saída foi medido segurando o mesmo comando por 30 segundos
+- O motor Lightpanda e o caminho legado do `chromiumoxide` mantêm o transporte anterior
+- O comportamento do pipe por plataforma vive em `docs/CROSS_PLATFORM.pt-BR.md`, seção `Pipe do DevTools por plataforma`
+
+### `display_backend` informa o display que foi usado
+- Antes da `0.2.0`, `display_backend` era derivado só da política
+- Uma execução headed cujo Xvfb não conseguia subir ainda informava `xvfb` enquanto o Chrome rodava no display do host
+- Na `0.2.0` o campo informa o resultado do lançamento: `headless`, `xvfb` ou `host`
+- Antes de qualquer lançamento ele continua informando a intenção
+- Ramifique em `host` quando seu requisito for nunca pintar janela na tela do operador
+
+### Execuções headed com extensão sobem o Xvfb privado
+- Antes da `0.2.0`, o caminho de lançamento com extensão passava `--headless` para a decisão de display
+- Isso pulava o Xvfb em toda execução headed com extensão
+- Na `0.2.0` uma execução headed com extensão sobe o display privado como qualquer outra execução headed
+- Leia `display_backend` para confirmar qual display a execução usou
+
+### Endurecimento do display privado
+- Antes da `0.2.0`, o Xvfb privado rodava sem controle de acesso, e um cliente sem cookie foi medido conectando nele
+- Na `0.2.0` o Xvfb privado exige um `MIT-MAGIC-COOKIE-1`, guardado num arquivo com modo 0600 removido no encerramento
+- O servidor recebe esse arquivo por `-auth`, e o Chrome o recebe por `XAUTHORITY`
+- O nome do arquivo carrega o pid de quem o criou, então o próximo lançamento remove um cookie deixado por uma CLI morta com `SIGKILL`
+- Quem chama não precisa fazer nada
+
+### O display privado continua privado sob Wayland
+- Antes da `0.2.0`, um Chrome headed lançado no Xvfb privado desenhava a janela no desktop Wayland do operador enquanto o Xvfb não desenhava nada
+- Isso foi medido no Fedora 44 sob Wayland com Chromium 152
+- Na `0.2.0` esse Chrome é fixado em `--ozone-platform=x11`, e `--no-xvfb` é o jeito de manter o display atual
+- O pino segue se o display privado realmente subiu, e não se ele foi pedido
+- Antes da `0.2.0`, um Xvfb ausente ainda forçava X11 e o lançamento falhava com `Missing X server or $DISPLAY`
+- O caminho legado do `chromiumoxide`, que nunca sobe Xvfb, não recebe mais o pino
+- Por isso `config set chrome_legacy_oxide_launch true` traz de volta os dois defeitos que esta versão fecha, porque esse caminho abre uma porta DevTools em loopback sem autenticação e desenha a janela headed no display do host
+- Quem chama não precisa fazer nada
+
+### Execuções headed simultâneas e encerramento do Xvfb
+- Antes da `0.2.0`, duas execuções headed simultâneas podiam dividir o mesmo número de display, e o encerramento da perdedora apagava o lock e o socket da vencedora
+- Na `0.2.0` a prontidão exige que o arquivo de lock nomeie o pid do Xvfb que este lançamento subiu
+- Um servidor que sai é tentado de novo no próximo número livre
+- O lock e o socket só são removidos quando este lançamento é o dono deles
+- O Xvfb privado para com `SIGTERM` e um período de carência antes do `SIGKILL`, então o servidor remove o próprio lock e o socket
+- Um número de display cujo lock nomeia um processo morto é reaproveitado, em vez de ser pulado para sempre
+- O Xvfb privado grava a saída no dispositivo nulo em vez de num pipe que ninguém lia, porque pipe cheio bloqueia quem escreve
+- Quem chama não precisa fazer nada
+
+### Um lançamento com falha sob `--timeout` sai com `124`
+- Antes da `0.2.0`, um lançamento do Chrome com falha cujo encerramento passava do `--timeout` terminava com exit `69`
+- Na `0.2.0` esse caso termina com exit `124`, o mesmo código de qualquer outro timeout
+- Um lançamento com falha também mata o grupo de processos inteiro do Chrome, e não só o pid
+- Um descendente que chama `setsid` sai do grupo e fica fora do alcance desse kill
+- O encerramento de um lançamento com falha roda numa thread bloqueante, e é isso que deixa o `--timeout` encerrar o comando
+- Trate `124` como resultado de timeout nos scripts que ramificavam em `69` para esse caso
+
+### Um lançamento cancelado não deixa mais o Chrome sem dono
+- Antes da `0.2.0`, um lançamento cancelado entre o fork e a primeira espera de prontidão deixava um Chrome vivo sem dono até o processo sair
+- Na `0.2.0` o dono que mata o Chrome no drop é construído dentro da tarefa bloqueante de spawn
+- Quem chama não precisa fazer nada
+
+### O `doctor` nomeia para onde `auto` resolve
+- Antes da `0.2.0`, a mensagem `virtual_display` dizia que `auto` resolve para headless num host em que `browser_mode_auto_resolves` dizia headed
+- Na `0.2.0` a mensagem nomeia o valor resolvido
+- Leia `browser_mode_auto_resolves` quando um script precisar do valor, e nunca parseie a mensagem
+
+### Superfície XDG e inventário na 0.2.0
+- A superfície continua com `217` chaves na `0.2.0`, medida com `config list-keys --json`
+- Nenhuma chave foi acrescentada e nenhuma foi removida
+- O inventário continua com `71` nomes na `0.2.0`, medido com `commands --json`
+- Nenhum comando foi acrescentado e nenhum foi removido
+
+### Migração passo a passo para agentes
+- Pare de prender ferramentas externas à porta de DevTools de um Chrome que este CLI lançou
+- Leia `display_backend` em vez de deduzir o display a partir de `--headed`
+- Trate o exit `124` como resultado de timeout de um lançamento com falha
+- Leia `browser_mode_auto_resolves` do `doctor` em vez da mensagem `virtual_display`
+- Redescubra a lista de chaves em vez de confiar numa contagem copiada
+
+```bash
+browser-automation-cli --json config list-keys
+browser-automation-cli --json commands
 ```
 
 
@@ -593,7 +720,6 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Confirme inventário com `commands --json` (59) e regenere schemas se empacotar docs
 - Reexecute validação local com cargo e scripts e2e: `cargo test --lib`, script e2e de 53 tools, smokes residuais que importam
 
-
 ### De 0.1.2 para 0.1.3
 - Rebuild/instale `0.1.3`
 - Atualize agentes: `run --script` pode usar array JSON de passos além de NDJSON
@@ -604,7 +730,6 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Espere envelopes lighthouse com `binary_source`
 - Confirme inventário com `commands --json` (59) e regenere schemas se empacotar docs
 - Reexecute validação local: `cargo test --lib`, script e2e de 53 tools, smokes residuais de PRD
-
 
 ### De 0.1.3 para 0.1.4
 - Rebuild/instale `0.1.4`
@@ -617,8 +742,10 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Prefira scrape `--format` multi/CSV ou o alias `--formats` (GAP-018)
 - Use `select-option` / `pick` só dentro de `run` / `exec` (não como cmds clap standalone)
 - Adote assert console kinds: `console_empty` / `console_no_match` (CLI `console-empty` / `console-no-match`)
-- Prefira `schema run` posicional; `schema --cmd run` ainda funciona
-- Para MITM one-shot navega+captura: `mitm capture-url <url>`; exporte com `mitm har --out <path>`
+- Prefira `schema run` posicional
+- `schema --cmd run` ainda funciona
+- Para MITM one-shot navega+captura: `mitm capture-url <url>`
+- Exporte com `mitm har --out <path>`
 - Flags globais MITM opcionais ao rotear Chrome: `--mitm`, `--mitm-har`, `--mitm-redact-secrets`, …
 - Passe scrape multi-formato: `--format markdown,html,links`
 - Prefira `batch-scrape --engine browser` / `crawl --engine browser` quando render JS for necessário (default continua http)
@@ -631,7 +758,7 @@ browser-automation-cli --json extract https://example.com --llm --question 'What
 - Espere residual-zero em disco após cada one-shot: BORN + FINALIZE scavenge Singleton-only Chromium tmp
 - Parseie JSON do doctor para topo `residual` e check `residual_disk` ao diagnosticar leaks
 - Não dependa do GC residual apagar temp de Chrome Flatpak do host (nunca é alvo)
-- Descubra comandos meta: `locale`, `man` (já no inventário; confirme com `commands --json`)
+- Descubra comandos meta: `locale`, `man` (já no inventário, confirme com `commands --json`)
 - Confirme inventário com `commands --json` (`69`) e regenere schemas se empacotar docs
 - Prefira gates residual ao validar paths browser:
 ```bash
@@ -645,14 +772,16 @@ bash scripts/residual-check.sh
 
 ### De 0.1.5 para 0.1.6
 - Rebuild/instale `0.1.6`
-- Leia `dialog_settled` após respostas reais de diálogo; remova waits inventados quando true
+- Leia `dialog_settled` após respostas reais de diálogo
+- Remova waits inventados quando true
 - Defina `dialog_settle_ms` só via XDG quando necessário
 - Use `wait_timeout_ms` em passos wait de run para prazos públicos
 - Passe `format`/`formats` em passos scrape de run
 - Pare de usar `grab --format avif` (só png|jpeg|webp)
 - Descubra `submit` e `storage` via `commands --json` / `schema`
-- Confirme inventário **71**; regenere schemas se empacotar docs
-- Espere lighthouse e2e mock **SKIP** (não PASS)
+- Confirme inventário 71
+- Regenere schemas se empacotar docs
+- Espere lighthouse e2e mock SKIP (não PASS)
 - Mantenha a lei residual-zero de disco da 0.1.5
 - Reexecute gates locais: `dialog_multitab_gate`, `option_pick_gate`, `wait_conditions_gate`, suite residual, script e2e 53 tools
 
@@ -680,6 +809,7 @@ bash scripts/residual-check.sh
 - Redescubra chaves de config com `config list-keys --json` (total vivo `217`)
 - Confirme que o inventário continua `69` com `commands --json`
 
+
 ## Mudanças de JSON Schema
 - Antes: prosa livre ou JSON ad-hoc sem `schema_version`
 - Depois no sucesso:
@@ -693,17 +823,29 @@ bash scripts/residual-check.sh
 - Envelopes de erro também carregam `kind` e `exit_code` para ramificação programática
 - Erros multi-passo fail-fast podem incluir `data` parcial (por exemplo `data.steps`)
 - Fragments vivos de input por comando vêm de `schema <cmd>` ou `schema --cmd`
-- Prefira `schema <cmd>` posicional após upgrades para confirmar o binário instalado
 - Snapshots estáticos em `docs/schemas/` são um índice de conveniência e podem atrasar o binário
 - Adições estáticas de v0.1.1 incluem `config`, `mitm`, `workflow`, `scrape`, `batch-scrape`, `crawl`, `map`, `search`, `parse` e `wait`
 - Adições estáticas de v0.1.2 incluem `print-pdf`, `monitor`, `qr`, `find-paths` (regenere com o gerador)
-- Adições estáticas de v0.1.3 incluem `sheet-write`, `sg-scan`, `sg-rewrite`; `find-paths` ganha `glob`; chaves de config incluem cache/log_to_file
-- v0.1.4: fragments wait/assert/schema/run expandem multi-seletor, wait url, console asserts, json-steps; inventário adiciona `select-option`/`pick` como nomes run/schema
-- v0.1.5: campos residual do doctor; inventário adiciona `locale` / `man` (meta); contrato residual-zero em disco
-- v0.1.6: settle de diálogo / `dialog_settled`; `dialog_settle_ms`; run `wait_timeout_ms` + scrape `format`/`formats`; inventário **65** (`submit`, `storage`); grab remove AVIF; fixtures unit LHR de lighthouse; e2e lighthouse mock SKIP
-- 0.1.7: inventário 69 adiciona pipelines locais `image` + `video` + `audio` (image info|convert|resize|download|exif; video info|download|convert|to-mp3|trim|thumbnail|manifest)
+- Adições estáticas de v0.1.3 incluem `sheet-write`, `sg-scan`, `sg-rewrite`
+- v0.1.3: `find-paths` ganha `glob`
+- v0.1.3: chaves de config incluem cache/log_to_file
+- v0.1.4: fragments wait/assert/schema/run expandem multi-seletor, wait url, console asserts, json-steps
+- v0.1.4: inventário adiciona `select-option`/`pick` como nomes run/schema
+- v0.1.5: campos residual do doctor
+- v0.1.5: inventário adiciona `locale` / `man` (meta)
+- v0.1.5: contrato residual-zero em disco
+- v0.1.6: settle de diálogo / `dialog_settled`
+- v0.1.6: `dialog_settle_ms`
+- v0.1.6: run `wait_timeout_ms` + scrape `format`/`formats`
+- v0.1.6: inventário 65 (`submit`, `storage`)
+- v0.1.6: grab remove AVIF
+- v0.1.6: fixtures unit LHR de lighthouse
+- v0.1.6: e2e lighthouse mock SKIP
+- 0.1.7: inventário 69 adiciona pipelines locais `image` + `video` + `audio` (image info|convert|resize|download|exif, video info|download|convert|to-mp3|trim|thumbnail|manifest)
 - 0.1.7: envelopes de sucesso podem carregar `agent_ops` com `unresolved_paths` quando operadores de envelope rodam
-- 0.1.7: `scrape --format rawHtml` emite a chave `rawHtml`; `--format html` emite a chave `html`
+- 0.1.7: `scrape --format rawHtml` emite a chave `rawHtml`
+- `--format html` emite a chave `html`
+- Prefira `schema <cmd>` posicional após upgrades para confirmar o binário instalado
 
 
 ## Notas de Compatibilidade
@@ -713,11 +855,11 @@ bash scripts/residual-check.sh
 - Agentes que hardcoded settings fora de flags/`config` devem migrar para flags + `config set`
 - Agentes que controlavam verbosity de produto fora de flags/`log_level` devem migrar para `--verbose` / `--debug` / `config set log_level`
 - Integração por subprocesso permanece o único path de agente suportado
-- Exit codes permanecem no estilo sysexits: `0`, `2`, `65`, `66`, `69`, `70`, `74`, `78`, `124`, `130`, `141`
+- Exit codes permanecem no estilo sysexits: `0`, `2`, `6`, `64`, `65`, `66`, `69`, `70`, `74`, `75`, `78`, `124`, `130`, `141`
 - Agentes que assumiam `batch-scrape` só HTTP devem aceitar `--engine browser` opcional em 0.1.4
-- Agentes que só checavam residual de processo em 0.1.3/0.1.4 devem também parsear campos de disco `residual` do doctor em 0.1.5
-- Tamanho do inventário move 61 → **63** (`locale`, `man`) em 0.1.5, depois **63 → 65** (`submit`, `storage`) em 0.1.6, depois **65 → 66** (`image`), depois **66 → 67** (`video`), depois **67 → 68** (`audio`), depois **68 → 69** (`record`) na 0.1.7, depois **69 → 71** (`sitemap`, `feed`) na 0.1.9
 - Agentes que tratavam `select-option`/`pick` como subcomandos clap devem usar passos `run`/`exec`
+- Agentes que só checavam residual de processo em 0.1.3/0.1.4 devem também parsear campos de disco `residual` do doctor em 0.1.5
+- Tamanho do inventário move 61 → 63 (`locale`, `man`) em 0.1.5, depois 63 → 65 (`submit`, `storage`) em 0.1.6, depois 65 → 66 (`image`), depois 66 → 67 (`video`), depois 67 → 68 (`audio`), depois 68 → 69 (`record`) na 0.1.7, depois 69 → 71 (`sitemap`, `feed`) na 0.1.9
 - Agentes que hardcoded “16 chaves de config” devem migrar para `config list-keys --json`
 - Duplicatas residuais GAP-022 e divergências wishlist PRD GAP-023/024 são intencionais na 0.1.6 (não paridade PRD completa)
 - Agentes que chamavam `image ocr` devem parar: a ação foi REMOVIDA na 0.1.7

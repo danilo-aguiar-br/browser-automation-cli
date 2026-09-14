@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-13
+
+### Added
+- `scrape` envelopes on both engines carry `user_agent_major_source`, always present. `projected` means the User-Agent is overridden and its major comes from the identity crate's table; `host_binary` means the major came from this host's Chrome, through the launch reply to `Browser.getVersion`, `--version` in `doctor`, or the major a seeded earlier launch stored; `host_unprobed` means the crate table stood in because no major was known and nothing was probed. It is `null` under `--no-stealth`, and on the browser engine also before a launch
+- `doctor --fingerprint` gains the mismatch `ua_data_brands_vs_user_agent`, which compares only the Chrome major in `navigator.userAgentData.brands` with the major in the User-Agent, and the live probe publishes `ua_data_brands`
+
+### Changed
+- The stealth patch no longer emulates `navigator.userAgentData` in any mode. Headed on the host profile, where no User-Agent override applies, the page exposes Chrome's native object, which agrees with the real `sec-ch-ua`, and the page User-Agent is the installed Chrome's. Headless launches and profiles that claim another platform get the object Chrome builds from the `userAgentMetadata` the override sends. As in a real Chrome, the object exists only in a secure context and is `null` on `about:blank`
+- `doctor --fingerprint` reports `planned_version_source` as `null` only when the plan overrides the User-Agent. With stealth and no override it is `chrome_binary` when the binary was probed, as it already was under `--no-stealth`, and `crate_table` when the probe failed. With stealth `planned.ua_data_platform` is always `null`, because the `about:blank` probe page exposes no `userAgentData`. The documents that said `null` under default stealth were wrong on Linux with Xvfb, where `auto` resolves to headed
+- The HTTP engine shares the Chrome major of `user-agent` and `sec-ch-ua` with the page, not the brand list. Without a seed the major comes from the crate table and Chrome is never looked for. With a seed it is the major the last launch stored, so the first run after a Chrome upgrade that sends HTTP before launching the browser in the same process can announce the old major. Known limit: the HTTP `sec-ch-ua` is always the fixed list Chromium, Google Chrome and a GREASE brand, which may not match the native list of a browser without an override, such as a Chromium with no Google Chrome brand; `user_agent_major_source` describes only where the major came from
+- `stealth_seed_fields` no longer lists `chrome.build`, and the `--stealth-seed` help no longer says the seed varies the Chrome build. With a User-Agent override the build is the full version the identity crate associates with the major, and without one it is the installed Chrome's own
+- The host major is stored in `state_dir/stealth/host-major-<hash>.txt`, read and written only with stealth on and `--stealth-seed` or XDG `stealth_seed`. Without a seed nothing goes to disk, and under `--no-stealth` never, so a run without a seed still leaves no residue
+- The seeded script cache key is `{profile}-{major}` for `host_binary` and `{profile}-native` for `host_unprobed` and `projected`. Scripts stored by an earlier version, which still emulated `userAgentData`, are redrawn once
+- The warning `Chrome cache directory exists but no Chrome binary found inside` left the default stderr and appears only as a WARN line under `--debug`
+
+### Fixed
+- The User-Agent override sent incomplete `userAgentMetadata`, so Chrome leaked the real binary's version in `sec-ch-ua-full-version`, `sec-ch-ua-full-version-list` and `getHighEntropyValues`, while the JavaScript emulation published a GREASE brand and randomly drawn builds that differed from the headers. The override now sends `brands` and `fullVersionList` from the same source, a `fullVersion` the identity crate associates with the User-Agent major, `platformVersion` (empty on Linux, `10.0` on Windows), `bitness` `64` and `wow64` false. JavaScript, `getHighEntropyValues` and the headers `sec-ch-ua`, `sec-ch-ua-full-version`, `sec-ch-ua-full-version-list`, `sec-ch-ua-platform-version`, `sec-ch-ua-bitness` and `sec-ch-ua-wow64` now tell the same version
+- The legacy `chrome_legacy_oxide_launch` path records the major of the Chrome it launched too. It has no pipe bridge to read the readiness reply from, so its patch script was built from the crate table while the page showed the host User-Agent
+- `v019_identity_gate` pins `--headless` or `--headed`, so its assertions no longer depend on what `auto` resolves to on the host
+- The screen test compares against the envelope, where `screen_source: floor` is intentional
+- The round-trip test `rqrr_decodes_what_qrcode_encodes` guards the `rqrr` API that `qr decode` depends on, because nothing else in the suite decoded a QR across the dependency bumps
+- A headed Chrome launched into the private Xvfb display no longer opens a window on the operator's Wayland desktop. Measured on Fedora 44 under Wayland with Chromium 152: the renderers ran with `--ozone-platform=wayland` although the child received `DISPLAY` for the Xvfb server, so the window was drawn on the real compositor while Xvfb drew nothing. The cause is not `WAYLAND_DISPLAY`: Chromium's `SetOzonePlatformForLinuxIfNeeded` picks Wayland from `XDG_SESSION_TYPE`, and `InspectWaylandDisplay` finds `$XDG_RUNTIME_DIR/wayland-0` when the variable is missing, which a launch with the variable removed and no switch reproduced. `build_chrome_args` pins `--ozone-platform=x11`, which that function honours before any detection; a platform switch already in the argument list is kept, but no flag or XDG key fills that list, so `--no-xvfb` is the way to keep the host display. `SpawnRequest` gains `env_remove` and the spawn still drops `WAYLAND_DISPLAY`, so wrappers such as Fedora's `/etc/chromium/chromium.conf` do not add Wayland-only GPU switches
+- Two concurrent headed launches no longer share one private display. Measured with four simultaneous runs: two lost the race for `:99` and drew into another run's server, and the loser's teardown deleted the winner's lock and socket. Readiness now requires the lock file to name the pid of the server this launch started, a server that exits is retried on the next free number, and the lock and socket are removed only when this launch owns them
+- The private Xvfb is stopped with `SIGTERM` and a grace period before `SIGKILL`, so the server removes its own lock and socket. `SIGKILL` left both behind, which is what made the manual cleanup above necessary
+- A display number whose lock names a dead process is reused. A CLI killed with `SIGKILL` kills its Xvfb the same way, which leaves the lock and socket behind, and the search used to skip that number for good; the X server started on it replaces the stale lock, and readiness still requires the lock to name the pid this launch spawned
+- The private Xvfb writes to the null device instead of a pipe nobody read. It was measured writing 2340 bytes over two sessions, and a full pipe blocks the writer
+- The `--ozone-platform=x11` pin follows whether the private display actually started, not whether it was requested. A missing Xvfb used to force X11 onto a launch with no X server, which failed with `Missing X server or $DISPLAY`; the legacy `chromiumoxide` launch path, which never starts Xvfb, no longer receives the pin either
+- `display_backend` reports the display that was used. With every display number taken it still said `xvfb` while Chrome ran on the host display
+- The extension launch path starts the private display too. It passed `--headless` to the display decision and skipped Xvfb on every headed extension run
+- A launch cancelled between the fork and the first readiness wait no longer leaves a live Chrome without an owner until the process exits. The owner that kills on drop is now built inside the blocking spawn task
+- A failed Chrome launch kills Chrome's whole process group, not only its pid. The lifecycle ledger learns the group only after a successful launch, so FINALIZE signalled nothing, and a descendant that stayed in the group was measured outliving the CLI with the DevTools and output pipes still open. The teardown of a failed launch also runs on a blocking thread now, so `--timeout` ends the command with exit 124 instead of 69 while it runs
+- The X11 pin test no longer changes the process-wide browser mode, which races with every other test reading it
+- `doctor`'s `virtual_display` message said `auto` resolves to headless on a host where its own `browser_mode_auto_resolves` field said headed. The sentence now names the resolved value, and sixteen documents carrying the same stale claim now state the Linux-with-Xvfb exception
+
+### Security
+- The private Xvfb requires a `MIT-MAGIC-COOKIE-1`. It ran with no access control, and a client with no cookie was measured connecting to it; the cookie now lives in a mode 0600 file removed at teardown, passed to the server with `-auth` and to Chrome through `XAUTHORITY`. The file name carries the creator's pid, so the next launch removes a cookie left by a CLI killed with `SIGKILL`
+- BREAKING: a self-spawned Chrome no longer opens a DevTools TCP port. Any local process could read `/json/version` on the loopback port and drive the browser for as long as the command lived. Chrome now runs with `--remote-debugging-pipe`, and a loopback WebSocket bridge that relays exactly one valid client, on a path holding the 122 random bits of a v4 UUID, between the pipe and `chromiumoxide`. The bridge caps each message at 256 MiB and waits at most two seconds for its pipe threads at teardown, because a descendant of Chrome that inherits the pipe was measured holding a `--timeout 10` command for 40 seconds. The stdout and stderr drainers of Chrome and Lightpanda got the same two-second bound: a descendant holding the output, as the `cat` helpers of Fedora's `chromium-browser.sh` do, held the same command for 30 seconds. The Lightpanda engine and the legacy `chromiumoxide` launch path are unchanged. Migration: `docs/MIGRATION.md`, section `0.1.9 → 0.2.0`
+- `rqrr` 0.10 → 0.11, which resolves `lru` 0.18.4 and removes RUSTSEC-2026-0253. `rustls` 0.23.43 → 0.23.45 for RUSTSEC-2026-0285, published 2026-09-14. RUSTSEC-2024-0436 (`paste`, feature `image-avif`) and RUSTSEC-2026-0173 (`proc-macro-error2`, feature `docs-mermaid`) remain, with no fixed version available
+
 ## [0.1.9] - 2026-09-04
 
 ### Added
@@ -714,3 +753,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 - Explicitly out of **0.1.0 only**: PRD local scrape crawl/map/search surface, MITM, and workflow SQLite journal (these landed in 0.1.1)
+
+[Unreleased]: https://github.com/danilo-aguiar-br/browser-automation-cli/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/danilo-aguiar-br/browser-automation-cli/compare/v0.1.9...v0.2.0
+[0.1.9]: https://github.com/danilo-aguiar-br/browser-automation-cli/releases/tag/v0.1.9
+[0.1.5]: https://github.com/danilo-aguiar-br/browser-automation-cli/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/danilo-aguiar-br/browser-automation-cli/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/danilo-aguiar-br/browser-automation-cli/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/danilo-aguiar-br/browser-automation-cli/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/danilo-aguiar-br/browser-automation-cli/releases/tag/v0.1.1

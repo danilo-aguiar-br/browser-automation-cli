@@ -49,6 +49,28 @@ pub struct SpawnRequest {
     /// Not a product configuration channel. Values reaching here are computed
     /// by the CLI, never read from the operator's environment.
     pub envs: Vec<(String, String)>,
+    /// Inherited environment entries to drop from the child.
+    ///
+    /// Exists for one reason: `WAYLAND_DISPLAY`. It is NOT what keeps Chrome
+    /// inside Xvfb — Chromium picks Wayland from `XDG_SESSION_TYPE` and finds
+    /// `$XDG_RUNTIME_DIR/wayland-0` on its own, which `--ozone-platform=x11`
+    /// overrides. Dropping the variable keeps the rest of the child's world
+    /// consistent with that switch: Fedora's `/etc/chromium/chromium.conf`, for
+    /// one, turns on Wayland-only GPU switches whenever it sees the variable.
+    /// Same rule as `envs`: names reaching here are computed by the CLI.
+    pub env_remove: Vec<String>,
+    /// Send the child's stdout and stderr to the null device instead of pipes.
+    ///
+    /// For children nobody drains. A pipe with no reader blocks the writer once
+    /// the kernel buffer fills, and the private Xvfb was measured writing about
+    /// a kilobyte of xkbcomp warnings per client that connected.
+    pub discard_output: bool,
+    /// Chrome's ends of the DevTools pipe, placed where Chrome looks for them.
+    ///
+    /// Held here until the fork returns and dropped with the request, which
+    /// closes them in this process: without that, the parent would never see
+    /// end-of-file when Chrome exits.
+    pub debug_pipe: Option<crate::native::cdp::pipe::ChildEnds>,
 }
 
 impl SpawnRequest {
@@ -59,6 +81,9 @@ impl SpawnRequest {
             program,
             args,
             envs: Vec::new(),
+            env_remove: Vec::new(),
+            discard_output: false,
+            debug_pipe: None,
         }
     }
 }
@@ -130,14 +155,31 @@ fn start_guard_thread() -> Sender<Job> {
 /// call site.
 fn fork_child(request: &SpawnRequest) -> Result<GuardedChild, String> {
     let mut command = Command::new(&request.program);
+    // Explicit Stdio: null stdin (automation), piped output for the drainers
+    // unless the caller declared that nobody will drain it.
+    let output = || {
+        if request.discard_output {
+            Stdio::null()
+        } else {
+            Stdio::piped()
+        }
+    };
     command
         .args(&request.args)
-        // Explicit Stdio: null stdin (automation), piped output for the drainers.
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stdout(output())
+        .stderr(output());
     for (key, value) in &request.envs {
         command.env(key, value);
+    }
+    for key in &request.env_remove {
+        command.env_remove(key);
+    }
+    // On Windows the inheritable handles need no hook: they are alive in the
+    // request, and the spawn inherits them under the values named in argv.
+    #[cfg(unix)]
+    if let Some(ends) = &request.debug_pipe {
+        crate::native::cdp::pipe::install_child_ends(&mut command, ends);
     }
     os::host().bind_child(&mut command);
 
@@ -201,9 +243,11 @@ mod tests {
             return;
         };
         let guarded = spawn_guarded(SpawnRequest {
-            program,
-            args: vec!["-c".to_string(), "test \"$BAC_PROBE\" = ok".to_string()],
             envs: vec![("BAC_PROBE".to_string(), "ok".to_string())],
+            ..SpawnRequest::new(
+                program,
+                vec!["-c".to_string(), "test \"$BAC_PROBE\" = ok".to_string()],
+            )
         })
         .expect("guard thread must fork /bin/sh");
         let status = guarded
@@ -213,6 +257,34 @@ mod tests {
         assert!(
             status.status.success(),
             "the child did not observe the env entry it was given"
+        );
+    }
+
+    /// A removed variable must not reach the child, or `WAYLAND_DISPLAY` leaks.
+    ///
+    /// Uses `PATH` because the test runner always inherits it, so the check
+    /// cannot pass merely because the variable was never there. `env` prints
+    /// the environment it received and adds nothing of its own.
+    #[test]
+    #[cfg(unix)]
+    fn removed_environment_never_reaches_the_child() {
+        let Some(program) = crate::platform::which_bin("env") else {
+            crate::test_utils::skip_unit_test("guard_thread", "env not found on this host.");
+            return;
+        };
+        let guarded = spawn_guarded(SpawnRequest {
+            env_remove: vec!["PATH".to_string()],
+            ..SpawnRequest::new(program, Vec::new())
+        })
+        .expect("guard thread must fork env");
+        let output = guarded
+            .child
+            .wait_with_output()
+            .expect("child must be reapable");
+        let printed = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            !printed.lines().any(|line| line.starts_with("PATH=")),
+            "the child still observed a variable it was told to drop: {printed}"
         );
     }
 }

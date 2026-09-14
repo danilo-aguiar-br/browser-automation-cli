@@ -3,15 +3,15 @@
 # Arquitetura — browser-automation-cli
 
 - Automação Chrome CDP one-shot para agentes de IA
-- Ciclo de vida sempre: BORN → EXECUTE → FINALIZE → DIE (um processo; sem daemon)
-- Lista completa de comandos de agente (**71** nomes): veja [docs/HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) e `browser-automation-cli commands --json`
+- Ciclo de vida sempre: BORN → EXECUTE → FINALIZE → DIE, num único processo e sem daemon
+- Lista completa de comandos de agente (71 nomes): veja [docs/HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) e `browser-automation-cli commands --json`
 
 ## Camadas
 
 | Camada | Caminho | Papel |
 |--------|---------|-------|
 | Binary thin | `src/main.rs` | panic hook, `run_from_args`, exit code |
-| Lib entry | `src/lib.rs` | `run` / `run_from_args`, hold de telemetria, lifecycle |
+| Lib entry | `src/lib.rs` | `run` / `run_from_args`, hold do guard de tracing_local, lifecycle |
 | Superfície CLI | `src/cli/` | Clap derive (`Parser` / `Subcommand`); help = UX do agente |
 | Dispatch | `src/commands/` | handlers PRD (`mod.rs` match + `meta` + `run`) |
 | Session | `src/browser/` | sessão Chrome one-shot, actions, hooks do residual ledger |
@@ -29,7 +29,7 @@
 | Constantes nomeadas | `src/constants/` | defaults de compile-time (anti-hardcode): identidade, viewport, orçamentos HTTP/CDP, layouts do Chrome |
 | Cache | `src/cache/` | cache de HTTP / parse: mapa L1 em processo + SQLite sob XDG; Redis só por `config set cache_backend` |
 | Política de rede | `src/net/` | modos SSRF, tetos de corpo, endereçamento loopback; env de proxy de sistema do reqwest desligado por `no_proxy()` |
-| Robots | `src/robots/` | robots.txt honrado por padrão; contorno exige **as duas** flags `--ignore-robots` e `--i-accept-robots-risk` |
+| Robots | `src/robots/` | robots.txt honrado por padrão; contorno exige as duas flags `--ignore-robots` e `--i-accept-robots-risk` |
 | Contenção de raízes | `src/fs_roots/` | checagem canônica de raiz permitida para leitura local e escrita de artefato; escape `--allow-outside-roots` |
 | Doctor | `src/doctor/` | probes locais sequenciais e leves de I/O, montados em ordem estável de relatório (nunca alega fan-out de CPU) |
 | Scrape local | `src/scrape_local/` | engine de scrape HTTP / browser, forma do envelope, colheita de metadados, disclosure de cobertura |
@@ -39,16 +39,14 @@
 | Agent output ops | `src/agent_ops/` | oito operações universais aplicadas sobre `data` antes do stdout |
 
 ## Lei de produto residual (processo + disco)
-
 - Residual-zero cobre árvores Chrome vivas e higiene de disco após DIE
-- Residual de processo — PID Chrome no ledger (Unix SIGTERM → grace → SIGKILL; Windows Job Object kill-on-close)
+- Residual de processo — PID Chrome no ledger, com Unix SIGTERM → grace → SIGKILL e Windows Job Object kill-on-close
 - Residual de marker — perfis temp owned da CLI sob `browser-automation-cli-chrome-*`
 - Residual Singleton Chromium tmp — `/tmp/org.chromium.Chromium.*` e `/tmp/.org.chromium.Chromium.*` owned, só Singleton (ou vazios), mesmo uid, sem processo vivo segurando o path
 - Nunca matar nem apagar árvores Chrome Flatpak do host (ex.: prefixos temp `com.google.Chrome.*`)
 - GC cross-run só por shape Singleton + uid + age + sem holder vivo
 
 ### Papel de `src/residual/`
-
 - Constantes públicas de prefixo de marker e de Chromium tmp (anti-hardcode)
 - Descoberta de side-channels da janela de invocação (atribuição pid/profile)
 - GC stale cross-run: `scavenge_stale_singleton_orphans` com age floor 60s (`STALE_MIN_AGE_SECS`)
@@ -59,34 +57,33 @@
 
 | Fase | Trabalho residual |
 |------|-------------------|
-| **BORN** (`Lifecycle::new`) | `scavenge_stale_singleton_orphans` apaga orphans Singleton-only cross-run com age > 60s |
-| **FINALIZE** (`Lifecycle::finalize`) | kill/wipe residual do ledger; redescobre side-channels da invocação; `scavenge_owned_chromium_tmp_orphans`; **segunda** `scavenge_stale_singleton_orphans` |
-| **Drop** | safety net síncrono no mesmo path de finalize idempotente |
+| BORN (`Lifecycle::new`) | `scavenge_stale_singleton_orphans` apaga orphans Singleton-only cross-run com age > 60s |
+| FINALIZE (`Lifecycle::finalize`) | kill/wipe residual do ledger; redescobre side-channels da invocação; `scavenge_owned_chromium_tmp_orphans`; segunda `scavenge_stale_singleton_orphans` |
+| Drop | safety net síncrono no mesmo path de finalize idempotente |
 
 - Dual scavenge no FINALIZE = orphans da janela de invocação mais GC Singleton stale, para o one-shot não deixar lixo de disco para o próximo processo
 
 ### Superfície residual do doctor
-
-- Check id: `residual_disk` (path-light; sem launch de Chrome só para o relatório)
+- Check id: `residual_disk`, path-light, sem launch de Chrome só para o relatório
 - Campo JSON de topo do doctor: `residual` (`ResidualDiskReport`)
-- Campos (os dez; uma lista mais curta aqui discordava da struct)
-- `scanned_roots` — as raízes realmente percorridas; um zero sem elas é infalsificável
+- Campos: os dez, porque uma lista mais curta aqui discordava da struct
+- `scanned_roots` — as raízes realmente percorridas, porque um zero sem elas é infalsificável
 - `cli_marker_dirs` — contagem de `browser-automation-cli-chrome-*` sob as raízes escaneadas
 - `chromium_tmp_singleton_orphans` — Chromium tmp Singleton-only com aparência de orphan
 - `scavenge_safe_candidates` — paths que o GC stale apagaria agora (age ≥ 60s, owned, sem holder vivo)
-- `live_cli_marker_processes` — contagem legada por processo; agentes NÃO DEVEM exigir zero
-- `sibling_live_processes` — invocações concorrentes; informativo, nunca reprova
+- `live_cli_marker_processes` — contagem legada por processo, e agentes NÃO DEVEM exigir zero
+- `sibling_live_processes` — invocações concorrentes, informativo e nunca reprova
 - `orphan_marker_dirs` — dir marker acima do piso de idade cujo owner pid está morto
 - `foreign_root_orphans` — PERFIS marker fora das raízes escaneadas, ainda segurados
 - `ghost_marker_processes` — browser CLI vivo cujo dir de perfil marker sumiu
 - `process_table_unavailable` — enumeração falhou, então todo wipe é recusado
-- Status: `fail` em `orphan_marker_dirs` ou `ghost_marker_processes`; `warn` em dirs marker ou orphans Singleton; senão `pass`
+- Status é `fail` em `orphan_marker_dirs` ou `ghost_marker_processes`
+- Status é `warn` em dirs marker ou orphans Singleton, e `pass` nos demais casos
 - Uma invocação irmã viva é saudável e nunca reprova a checagem
 
 ### Como um processo é identificado como browser
-
 - A identidade vem do caminho do executável reportado pelo kernel, nunca do argv
-- O argv é escrito pelo próprio processo; o `sysinfo` documenta `cmd[0]` como não confiável para isso
+- O argv é escrito pelo próprio processo, e o `sysinfo` documenta `cmd[0]` como não confiável para isso
 - O predicado é dividido por consequência, porque o mesmo erro custa coisas opostas
 - Veredito e reaping são ESTRITOS — executável desconhecido nunca é tratado como browser
 - Proteção de wipe é PERMISSIVA — o que puder estar segurando um perfil o mantém vivo
@@ -95,45 +92,46 @@
 - Gates locais do mantenedor (só scripts locais do mantenedor): `scripts/residual-check.sh`, `scripts/residual-stress.sh`
 
 ## i18n (sugestões humanas)
-
 - Precedência: `--lang` → XDG `lang` → locale do SO (`sys-locale` + `fluent-langneg`) → default `en`
-- Packs MVP: `en` + `pt-BR` (`Idioma` / `Mensagem` match exaustivo + paridade FTL)
+- Packs MVP: `en` + `pt-BR` (`UiLocale` / `UiMessage` match exaustivo + paridade FTL)
 - JSON máquina `error.message` e tracing ficam em inglês (contrato de agente)
 - Packs opcionais: features `i18n-cjk` / `i18n-rtl` / `i18n-europe` / `i18n-full` (scaffold)
 - Diagnóstico: subcomando `locale` (+ `--json`)
-- Man page: subcomando `man` (roff via clap_mangen; sem Chrome)
+- Man page: subcomando `man`, roff via clap_mangen, sem Chrome
 - Settings de produto (incluindo idioma) usam só flags + XDG
 - Não inventar nem promover variáveis de ambiente de produto para config durável
 
 ## Mapa de módulos (`commands`)
-
-- `mod.rs` — match `dispatch` em `Commands` + handlers browser/session  
-- `meta/` — inventário `commands` / `schema` para agentes (**71** nomes via `commands --json`; schema em dir SRP)
+- `mod.rs` — match `dispatch` em `Commands` + handlers browser/session
+- `meta/` — inventário `commands` / `schema` para agentes (71 nomes via `commands --json`, schema em dir SRP)
 - `run/` — engine multi-passo `run` / `exec` (passos NDJSON)
 
 ### Diálogo multi-aba e settle (v0.1.6)
-
-- **`dialog_map_key`:** helper puro mapeia diálogos JS abertos pela identidade de sessão CDP. O `session_id` do evento vence; browser-scoped `None` cai no id da página ativa.
-- **Forwarders de página carimbam `Page::session_id`:** assim `Page.javascriptDialogOpening` / `Closed` de abas não ativas não colidem com a entrada do mapa da aba ativa. Isolamento multi-aba via `Page::session_id` / `dialog_map_key`.
-- **`dialog_settled`:** após accept/dismiss, a sessão espera até XDG `dialog_settle_ms` por `javascriptDialogClosed` e devolve um booleano compacto (agent-first; consumidores não inventam wait pós-settle). GAP-054.
-- **`dialog_settle_ms`:** chave de config XDG apenas (`config set dialog_settle_ms`); nunca env de produto.
-- **Orçamento de domain enable em `tab_switch`:** ao trocar de aba sob diálogo modal de página, o enable de domínio é best-effort sob `TAB_SWITCH_DOMAIN_ENABLE_BUDGET_MS` para o caminho de switch não travar.
+- `dialog_map_key`: helper puro que mapeia diálogos JS abertos pela identidade de sessão CDP
+- O `session_id` do evento vence, e browser-scoped `None` cai no id da página ativa
+- Forwarders de página carimbam `Page::session_id`, assim `Page.javascriptDialogOpening` / `Closed` de abas não ativas não colidem com a entrada do mapa da aba ativa
+- Isolamento multi-aba via `Page::session_id` / `dialog_map_key`
+- `dialog_settled`: após accept/dismiss, a sessão espera até XDG `dialog_settle_ms` por `javascriptDialogClosed`
+- Depois devolve um booleano compacto, agent-first, sem wait pós-settle inventado pelos consumidores (GAP-054)
+- `dialog_settle_ms`: chave de config XDG apenas (`config set dialog_settle_ms`), nunca env de produto
+- Orçamento de domain enable em `tab_switch`: ao trocar de aba sob diálogo modal de página, o enable de domínio é best-effort sob `TAB_SWITCH_DOMAIN_ENABLE_BUDGET_MS` para o caminho de switch não travar
 
 ### Wait / scrape / select em run (v0.1.6)
-
-- **`wait_timeout_ms`:** chave pública nos passos wait de run (GAP-053); o parser a honra (não descarte silencioso).
-- **Scrape `format`/`formats` em run:** sem monstro HTML quando só texto é pedido (GAP-057).
-- **Select nativo:** `pick` / `select-option` despacham `input` e depois `change`, reportam `via: native_select` (GAP-055).
-- **Encode do `grab`:** só **png|jpeg|webp**; AVIF removido (breaking).
-- Inventário **71** inclui `submit` + `storage` + `image` + `video` + `audio` + `record`; superfície clap de produto é **69** (`pick` / `select-option` são nomes multi-passo de inventário/run).
+- `wait_timeout_ms`: chave pública nos passos wait de run (GAP-053), e o parser a honra em vez de descartá-la em silêncio
+- Scrape `format`/`formats` em run: sem monstro HTML quando só texto é pedido (GAP-057)
+- Select nativo: `pick` / `select-option` despacham `input` e depois `change`, e reportam `via: native_select` (GAP-055)
+- Encode do `grab`: só png|jpeg|webp, e o AVIF foi removido (breaking)
+- Inventário 71 inclui `submit` + `storage` + `image` + `video` + `audio` + `record`
+- A superfície clap de produto é 69, porque `pick` / `select-option` são nomes multi-passo de inventário/run
 
 ### Parse puro de LHR lighthouse (v0.1.6)
-
-- **`scores_from_lhr`:** função pura extrai scores de categorias do JSON Lighthouse Result (auditorias 0–1 ou null). Fixtures unit: `scripts/fixtures/lighthouse/minimal_lhr.json` e `chrome_captured_lhr.json` real sanitizado. Caminho mock e2e permanece SKIP (não é alegação de PASS do parser). GAP-021 parcial.
-- **GAP-022 residual:** ~53 dups multi-versão aceitos (poda barata esgotada).
-- **GAP-023/024:** divergências intencionais de PRD.
-- Lei residual-zero de disco da 0.1.5 ainda corrente.
-- Config de produto: só flags + XDG (nunca env de produto).
+- `scores_from_lhr`: função pura que extrai scores de categorias do JSON Lighthouse Result (auditorias 0–1 ou null)
+- Fixtures unit: `scripts/fixtures/lighthouse/minimal_lhr.json` e o `chrome_captured_lhr.json` real sanitizado
+- O caminho mock e2e permanece SKIP, o que não é alegação de PASS do parser (GAP-021 parcial)
+- GAP-022 residual: ~53 dups multi-versão aceitos (poda barata esgotada)
+- GAP-023/024: divergências intencionais de PRD
+- Lei residual-zero de disco da 0.1.5 ainda corrente
+- Config de produto: só flags + XDG (nunca env de produto)
 
 ## Família anti-detecção (v0.1.8)
 ### Política de browser do processo (`browser_policy`)
@@ -143,7 +141,7 @@
 - O modo de janela resolve `auto | headed | headless` por flag, depois config XDG, depois o default compilado
 - Publicar uma vez num global de processo funciona porque um processo one-shot é dono de exatamente um tempo de vida de browser
 - Todo valor é `Relaxed` e escrito uma vez antes de qualquer launch de browser
-- Nenhuma variável de ambiente de produto é lida para isso; a configuração pertence ao `config set` e ao arquivo XDG
+- Nenhuma variável de ambiente de produto é lida para isso, porque a configuração pertence ao `config set` e ao arquivo XDG
 
 ### Patches de stealth (`native/stealth`)
 - `src/native/stealth/` aplica patches em marcadores de automação antes da primeira navegação
@@ -153,12 +151,16 @@
 - Aplicá-los depois de uma navegação é inútil: o script de desafio já leu os valores que veio buscar
 - `src/native/stealth/identity.rs` resolve uma identidade única da qual User-Agent, Client Hints e ordem de headers derivam
 - A checagem de bot faz leitura cruzada dessas superfícies, então não há como mover o User-Agent sem mover os Client Hints
-- Sob o perfil padrão `auto` o browser mantém o User-Agent do próprio Chrome, que já casa com a engine e a GPU reais
+- Em headed sob o perfil padrão `auto` o browser mantém o User-Agent do próprio Chrome e o `navigator.userAgentData` nativo, que já casam com a engine, a GPU e o `sec-ch-ua` reais
+- Um lançamento headless recebe override de User-Agent para não anunciar `HeadlessChrome`
+- O patch nunca emula `navigator.userAgentData` em nenhum modo; com override, `src/native/browser/identity_override.rs` envia por CDP um `userAgentMetadata` completo, então o objeto da página, o `getHighEntropyValues` e os headers `sec-ch-ua-*` vêm de uma fonte só
 - Um perfil explícito `chrome-win` / `chrome-mac` sobrescreve, e quem chama aceita uma divergência conhecida de transporte
-- A engine HTTP não tem browser de quem tomar identidade emprestada, então recebe uma identidade sintetizada
+- A engine HTTP não tem browser de quem tomar identidade emprestada, então recebe uma identidade sintetizada: a tabela da crate sem semente, ou o major que o último lançamento com semente guardou
+- `user_agent_major_source` no envelope de `scrape` nomeia qual das fontes respondeu: `projected`, `host_binary` ou `host_unprobed`
 - `src/native/stealth/seed_cache.rs` fixa uma identidade entre processos one-shot, opt-in por `--stealth-seed` ou XDG `stealth_seed`
 - Sem ele um crawl de 50 URLs apresenta 50 máquinas diferentes de um mesmo endereço, o que cria sinal em vez de mascarar
 - Fica desligado por padrão porque escreve estado em disco, e essa é a decisão de quem chama
+- O major do Chrome do host segue o mesmo opt-in: `state_dir/stealth/host-major-<hash>.txt` só é lido e gravado com stealth ligado e semente, e nunca sob `--no-stealth`
 - `src/browser/session/launch/stealth.rs` instala a camada numa sessão recém-anexada
 - Está separado de `state.rs` por motivo de mudança: quais domínios a sessão precisa contra o que a página vê antes dos próprios scripts
 
@@ -248,8 +250,7 @@
 - O match literal impede a colheita de reportar campo que a página nunca declarou
 
 ## Inventário completo de agente (71)
-
-Descubra ao vivo: `browser-automation-cli commands --json`
+- Descubra ao vivo: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
@@ -260,31 +261,83 @@ scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submi
 upload version view wait webmcp workflow write
 ```
 
-Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`; a contagem de subcomandos clap de produto é **69**.
-
+- `pick` e `select-option` são nomes multi-passo de inventário usados em scripts `run`
+- A contagem de subcomandos clap de produto é 69
 - Superfície grande de handlers permanece em `mod.rs` de propósito (tabela match única para parity de agente)
 - Prefira extrair famílias novas de comando para módulos irmãos em vez de crescer helpers não relacionados
 - Lista completa de nomes: `docs/HOW_TO_USE.pt-BR.md` e `browser-automation-cli commands --json`
 
 ## Macros / codegen
-
 - Sem crate pública `macro_rules!` / `proc-macro`
 - Stubs de protocolo CDP: `build.rs` + `include!(concat!(env!("OUT_DIR"), "/cdp_generated.rs"))`
 - Forwarders de evento: funções genéricas (`spawn_cdp_event_forwarder`), não macros
 
 ## Descoberta de browser (multiplataforma)
-
 - Ordem: XDG `chrome_path` → cache de browsers do produto → nomes no `$PATH` → layouts absolutos conhecidos (Linux `/usr`/`/opt`/snap/flatpak, macOS `/Applications`, Windows `%ProgramFiles%` / LocalAppData incluindo Edge/Beta/Canary/Brave) → caches home Puppeteer/Playwright
 - Sem env de produto `CHROME_PATH` (lei do produto: só flags + XDG)
 - Paths Snap/Flatpak emitem warn via `tracing` e campo `sandbox` do doctor
 - Containers/root recebem Chrome `--no-sandbox` + `--disable-dev-shm-usage`
-- Probe de host: `doctor --json` → `host_environment` (wsl/container/ci/termux/snap/flatpak)
+- Probe de host: `doctor --json` → `host_environment`, que nomeia os marcadores de sandbox e de host que `HostEnvironment::detect` encontrou
+
+## Transporte DevTools e display privado (v0.2.0)
+### DevTools por pipe (`native/cdp/pipe`)
+- `launch_self_spawned` em `src/native/cdp/chrome/spawn.rs` não abre mais porta TCP de DevTools
+- A porta de loopback respondia `/json/version` sem autenticação, então qualquer processo local podia controlar o navegador enquanto o comando vivesse
+- `use_pipe_transport` em `src/native/cdp/pipe/mod.rs` remove `--remote-debugging-port` e `--remote-debugging-address` e acrescenta `--remote-debugging-pipe`
+- No POSIX, `install_child_ends` em `src/native/cdp/pipe/unix.rs` coloca as pontas do pipe do Chrome nos descritores 3 e 4
+- Cada mensagem no pipe é um texto JSON seguido de um byte zero
+- O `chromiumoxide` só fala WebSocket, então `PipeBridge::start` em `src/native/cdp/pipe/bridge.rs` serve um WebSocket em loopback
+- O caminho do WebSocket carrega os 122 bits aleatórios de um UUID v4
+- `accept_one` responde 403 a qualquer outro caminho, e a ponte não expõe `/json/version`
+- `relay` descarta o listener assim que um cliente conclui o handshake, então um segundo cliente nunca conecta
+- Cada tentativa de handshake tem `CDP_PIPE_HANDSHAKE_TIMEOUT_MS` (2000 ms) para terminar
+- `CDP_PIPE_MAX_MESSAGE_BYTES` em `src/constants/cdp.rs` limita cada mensagem a 256 MiB, no pipe e no WebSocket
+- `PipeBridge::wait_ready` espera a resposta do Chrome a uma sonda `Browser.getVersion` enfileirada antes de o relay começar
+- `PipeBridge::shutdown` espera no máximo `CDP_PIPE_SHUTDOWN_GRACE_MS` (2000 ms) pelas threads do pipe e deixa desanexada a thread ainda bloqueada
+- O limite existe porque um descendente do Chrome que herda o pipe impede o leitor de ver o fim de arquivo
+- `write_to_chrome` bloqueia `SIGPIPE` só na própria thread, então um Chrome morto gera `EPIPE` e o contrato de exit 141 continua valendo no resto
+- Os drenadores de stdout e stderr do Chrome e do Lightpanda ganham o mesmo limite por `LOG_DRAINER_JOIN_GRACE_MS` (2000 ms)
+- A metade Windows em `src/native/cdp/pipe/windows.rs` passa dois handles em `--remote-debugging-io-pipes`, e ela NÃO foi compilada nem testada
+- O motor Lightpanda e o lançamento legado atrás da chave XDG `chrome_legacy_oxide_launch` não usam o pipe e não mudaram
+
+### Dono do lançamento (`native/cdp/chrome`)
+- `launch_self_spawned` constrói o dono `ChromeProcess` de `src/native/cdp/chrome/process.rs` dentro da tarefa bloqueante do spawn, antes da primeira espera de prontidão
+- Um lançamento cancelado entre o fork e a primeira espera de prontidão por isso mata o Chrome no drop, em vez de deixá-lo sem dono
+- `with_transport` entrega a ponte a esse dono antes da primeira espera sobre ela, e `shutdown_transport` só roda depois que o Chrome é colhido
+- `ChromeProcess::kill` sinaliza o grupo de processos inteiro do Chrome por `kill_group`, e não só o pid
+- O ledger do lifecycle só aprende o grupo depois de um lançamento com sucesso, então um lançamento com falha deixava membros do grupo vivos
+- `ChromeProcess::wait_or_kill` dá aos membros restantes do grupo `CHROME_GROUP_STRAGGLER_GRACE_MS` (500 ms) entre `SIGTERM` e `SIGKILL`
+- `kill_off_the_runtime` em `spawn.rs` roda o encerramento de um lançamento com falha numa thread bloqueante, então o `--timeout` ainda termina o comando com exit 124 em vez de 69
+- Um descendente que chama `setsid` sai do grupo e fica fora do kill de grupo
+
+### Display Xvfb privado (`native/cdp/xvfb`)
+- `should_use_private_display` em `src/native/cdp/xvfb/mod.rs` pede display privado só para lançamento headed no Linux sem `--no-xvfb`
+- Ela lê o valor `headless` do próprio lançamento, então o caminho com extensão, que força headed, também recebe o display
+- `launch_self_spawned` sobe o display ANTES de montar o argv, então o pino X11 segue o servidor que realmente subiu
+- Falha ao subir não é erro de lançamento: o lançamento avisa e continua headed no display atual
+- `record_display_outcome` em `src/browser_policy/mod.rs` faz então `display_backend` informar `headless`, `xvfb` ou `host`
+- `pin_x11_for_private_display` em `src/native/cdp/chrome/args.rs` acrescenta `--ozone-platform=x11` só quando o display privado subiu
+- Nesse mesmo caso o spawn remove `WAYLAND_DISPLAY` do ambiente do Chrome por `SpawnRequest::env_remove` em `src/native/cdp/spawn/guard.rs`
+- `launch_with_oxide` em `src/native/cdp/oxide.rs`, o lançamento legado, nunca sobe display privado, então registra `private_display` como falso e nunca recebe o pino
+- `start_private_display` em `src/native/cdp/xvfb/spawn.rs` percorre `free_displays` a partir de `XVFB_DISPLAY_SEARCH_START` (99) por `XVFB_DISPLAY_SEARCH_SPAN` (32) números
+- O Xvfb roda com `-nolisten tcp` e escreve a própria saída no dispositivo nulo por `discard_output`
+- `poll_until_owned` só declara o display pronto quando `/tmp/.X{n}-lock` nomeia o pid do Xvfb que este lançamento criou e o socket existe
+- Um servidor que sai antes disso é tentado de novo no próximo número livre
+- `display_free_from` em `src/native/cdp/xvfb/display.rs` reaproveita número cujo lock nomeia pid morto, e nunca toma lock sem pid legível
+- `XvfbGuard` envia `SIGTERM` no drop e espera `XVFB_TERM_GRACE_MS` (2000 ms) antes do `SIGKILL`, para o servidor remover o próprio lock e socket
+- O guard só remove lock e socket por conta própria quando o lock ainda nomeia o próprio pid
+- `XAuthority::create` em `src/native/cdp/xvfb/auth.rs` grava um `MIT-MAGIC-COOKIE-1` de 16 bytes num arquivo com modo 0600
+- O arquivo fica em `dirs::runtime_dir()`, com o diretório temporário como reserva, e se chama `browser-automation-cli-xauth-<pid>-<uuid>`
+- O Xvfb recebe o arquivo por `-auth` e o Chrome recebe o arquivo por `XAUTHORITY`
+- O arquivo é removido quando o guard cai, e `sweep_orphans` remove no próximo lançamento os arquivos cujo pid criador morreu
+- `ChromeProcess` é dono do `XvfbGuard`, então o Chrome é colhido antes de o display parar
+- macOS, KDE e Sway NÃO foram validados ao vivo para o pipe nem para o pino X11
+- A ausência de janela no compositor foi provada por argv, ambiente e sockets, e não visualmente
 
 ## Lei de produto (não negociável)
-
 - stdout = só envelopes JSON (agent-first)
 - stderr = diagnósticos / tracing
-- zero telemetria remota / sem servidor MCP
+- zero telemetria remota
 - residual zero após DIE: processo Chrome + markers CLI + Chromium Singleton tmp (processo e disco)
 - nunca matar residual Chrome Flatpak do host
 - settings de produto: só flags + XDG (sem catálogos de env de produto)
@@ -292,11 +345,10 @@ Nota: `pick` e `select-option` são nomes multi-passo de inventário usados em s
 - Chrome CDP só no host (sem alvo de automação WASM)
 
 ## Docs relacionados
-
 - `docs/COOKBOOK.pt-BR.md` — receitas para agentes
 - `docs/TESTING.pt-BR.md` — como rodar gates
 - `docs/CROSS_PLATFORM.pt-BR.md` — matriz de SO, paths de browser, sandboxes
-- `docs/HOW_TO_USE.pt-BR.md` — inventário completo dos **71** comandos
+- `docs/HOW_TO_USE.pt-BR.md` — inventário completo dos 71 comandos
 - `docs/ARCHITECTURE.md` — espelho em inglês
-- `gaps.md` — Status v0.1.6 residual DoD + catálogo histórico da auditoria 0.1.5
+- `gaps.md` — notas de auditoria do defeito Wayland corrigido na v0.2.0
 - `PRIVACY.md` — tratamento de dados só local

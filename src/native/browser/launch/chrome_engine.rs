@@ -108,6 +108,17 @@ pub(super) async fn launch_via_oxide(
         ..
     } = launched;
     let client = Arc::new(CdpClient::from_browser(browser, handler).await?);
+    // The self-spawned path learns the launched major from the pipe bridge's
+    // readiness reply. This path has no bridge, so without one `Browser.getVersion`
+    // here the patch script was built from the crate table while the page showed
+    // the host UA — measured headed: page `Chrome/152`, envelope
+    // `user_agent_major_source: "host_unprobed"`. Best-effort: a refused reply
+    // leaves the declared fallback in place rather than failing the launch.
+    if let Ok(version) = client.browser().lock().await.version().await {
+        if let Some(major) = crate::native::stealth::chrome_major_from_product(&version.product) {
+            crate::native::stealth::record_launched_chrome_major(major);
+        }
+    }
     Ok(assemble(
         client,
         None,

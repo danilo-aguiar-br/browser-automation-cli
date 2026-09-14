@@ -30,6 +30,12 @@ pub struct ChromeProcess {
     /// It also means the display cannot leak by being forgotten at a call
     /// site: whoever owns the browser owns the screen it renders on.
     xvfb: Option<crate::native::cdp::xvfb::XvfbGuard>,
+    /// The DevTools pipe bridge, when Chrome was launched on the pipe.
+    ///
+    /// Shut down only after the child is reaped: its reader thread ends on the
+    /// end-of-file a dead Chrome produces, so joining it earlier would wait on
+    /// a browser that is still alive.
+    transport: Option<crate::native::cdp::pipe::PipeBridge>,
 }
 
 impl ChromeProcess {
@@ -45,7 +51,20 @@ impl ChromeProcess {
             pgid,
             log_drainers,
             xvfb: None,
+            transport: None,
         }
+    }
+
+    /// Hand the DevTools pipe bridge to the process whose pipe it relays.
+    #[must_use]
+    pub fn with_transport(mut self, bridge: crate::native::cdp::pipe::PipeBridge) -> Self {
+        self.transport = Some(bridge);
+        self
+    }
+
+    /// The bridge, for the readiness wait before the client connects.
+    pub fn transport_mut(&mut self) -> Option<&mut crate::native::cdp::pipe::PipeBridge> {
+        self.transport.as_mut()
     }
 
     /// Hand the private display to the process that renders into it.
@@ -63,10 +82,17 @@ impl ChromeProcess {
 
     /// Kill and reap the child (idempotent). Safe to call from Drop.
     pub fn kill(&mut self) {
+        if self.child.is_some() {
+            // The forced path: SIGKILL at once, as `child.kill()` always did. A
+            // grace here would always run out, because the unreaped leader still
+            // counts as a live member of its group.
+            self.kill_group(Duration::ZERO);
+        }
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
         }
+        self.shutdown_transport();
         self.join_log_drainers();
     }
 
@@ -74,8 +100,36 @@ impl ChromeProcess {
     pub fn wait_or_kill(&mut self, timeout: Duration) {
         if let Some(mut child) = self.child.take() {
             crate::platform::wait_child_or_kill(&mut child, timeout);
+            // Stragglers only: the leader exited or was killed just above, so
+            // they get SIGTERM and a short grace before SIGKILL.
+            self.kill_group(Duration::from_millis(
+                crate::constants::CHROME_GROUP_STRAGGLER_GRACE_MS,
+            ));
         }
+        self.shutdown_transport();
         self.join_log_drainers();
+    }
+
+    /// Kill every member of Chrome's process group, not only its leader.
+    ///
+    /// Killing the pid alone let a descendant that stayed in the group outlive
+    /// the CLI: measured after a failed launch, where the lifecycle ledger
+    /// never learned the pgid and FINALIZE therefore signalled nothing. Such a
+    /// descendant also holds the DevTools pipe and the output pipes open, which
+    /// is what the bounded joins below would otherwise have to wait out.
+    fn kill_group(&self, grace: Duration) {
+        #[cfg(unix)]
+        if let Some(pgid) = self.pgid {
+            crate::lifecycle::kill_unix_group_graceful(pgid, grace);
+        }
+        #[cfg(not(unix))]
+        let _ = grace;
+    }
+
+    fn shutdown_transport(&mut self) {
+        if let Some(mut bridge) = self.transport.take() {
+            bridge.shutdown();
+        }
     }
 
     /// Non-blocking exit probe. `true` once the child exited or was reaped.
@@ -93,6 +147,15 @@ impl ChromeProcess {
         }
     }
 
+    /// The live child for a readiness probe, or `None` after reap.
+    ///
+    /// Exists so the launcher can build this owner BEFORE its first wait and
+    /// still probe the child through it: owning first is what makes a
+    /// cancelled launch kill Chrome instead of forgetting it.
+    pub fn child_mut(&mut self) -> Option<&mut Child> {
+        self.child.as_mut()
+    }
+
     /// OS pid while the child is still owned; `None` after reap.
     #[must_use]
     pub fn id(&self) -> Option<u32> {
@@ -106,9 +169,10 @@ impl ChromeProcess {
     }
 
     fn join_log_drainers(&mut self) {
-        for handle in std::mem::take(&mut self.log_drainers) {
-            let _ = handle.join();
-        }
+        crate::native::cdp::spawn::logs::join_drainers_within(
+            std::mem::take(&mut self.log_drainers),
+            std::time::Duration::from_millis(crate::constants::LOG_DRAINER_JOIN_GRACE_MS),
+        );
     }
 }
 

@@ -6,13 +6,20 @@
 - The roadmap is intentionally short
 
 ## Near term (local quality)
-
-- v0.1.9 is the CURRENT release and the lines below describe the live state
-- v0.1.8 shipped the anti-detection family and closed gaps G2, G4, G8, G9, G11 and G13; v0.1.9 closed identity/screen/FTL, closes screen-only emulate CDP, the `--no-stealth` webdriver plan, and the README current-release card, names the live fingerprint recorte and adds chrome-mac / eval-nav gates
+- v0.2.0 is the CURRENT release and the lines below describe the live state
+- Delivered in v0.2.0: a self-spawned Chrome talks DevTools over `--remote-debugging-pipe` and opens no TCP port
+- Delivered in v0.2.0: the private Xvfb requires a `MIT-MAGIC-COOKIE-1`, and a headed Chrome on it is pinned to X11
+- Delivered in v0.2.0: concurrent headed runs no longer share a display, and `display_backend` reports the display actually used
+- Delivered in v0.2.0: a failed launch kills the whole Chrome process group, and `--timeout` during that teardown exits 124
+- Not validated live in v0.2.0: the Windows pipe path, macOS, KDE and Sway
+- Delivered in v0.1.9: `--headless` and `--browser-mode` reach every window mode from argv, so `browser_mode` is no longer XDG-only
+- v0.1.8 shipped the anti-detection family and closed gaps G2, G4, G8, G9, G11 and G13
+- v0.1.9 closed identity, screen and FTL, screen-only emulate via CDP, the `--no-stealth` webdriver plan and the README current-release card
+- v0.1.9 also named the live fingerprint recorte and added the chrome-mac and eval-nav gates
 - Live XDG surface: 217 keys documented in `docs/CONFIGURATION.md`
 - Live agent inventory: 71 names via `commands --json`
 - The inventory includes `submit`, `storage`, `image`, `video`, `audio`, `record`, `locale` and `man`
-- v0.1.9 added the verbs `sitemap` and `feed`, which took the live inventory from 69 to **71**
+- v0.1.9 added the verbs `sitemap` and `feed`, which took the live inventory from 69 to 71
 - Both delegate to an engine that already answered, with no line of duplicated logic
 - `map --sitemap-only` already returned the sitemap URLs and `scrape --formats feed` already returned the parsed feed
 - The reason to name them as verbs was discoverability, never new behaviour
@@ -33,7 +40,6 @@
 - Optional: split large `commands` handler families when a new domain lands
 
 ### Anti-detection family (v0.1.8)
-
 - v0.1.8 patches the browser before first navigation under XDG `stealth`, default true
 - v0.1.8 added `stealth_profile`, default `auto`, and `stealth_seed`, which has no default
 - `stealth_seed` pins the impersonated identity across processes when you set it
@@ -52,7 +58,8 @@
 - `input_key_dwell_ms` is 45, `input_type_delay_ms` is 95 and `input_scroll_tick_px` is 100
 - `input_scroll_max_ticks` is 40, `input_target_jitter_px` is 3 and `input_scroll_settle_rounds` is 3
 - Global flags `--input-profile` and `--input-seed` override the kinematics per process
-- v0.1.8 added `browser_mode`, default `auto`, reachable through XDG and NOT through any flag
+- v0.1.8 added `browser_mode`, default `auto`, reachable only through XDG in that release
+- Since v0.1.9 `--headless` and `--browser-mode` reach every window mode from argv, so that XDG-only reading is history
 - v0.1.8 also added `robots_user_agent`, `scrape_no_cache` and `monitor_diff_max_bytes`, default 65536
 - v0.1.8 gave real consumers to `--mitm-max-body-bytes`, `--mitm-no-media-bodies` and `--mitm-redact-secrets`
 - v0.1.8 added `--mitm-no-redact-secrets`, the only way to turn secret masking off
@@ -64,7 +71,6 @@
 - `cookie_jar_persistent` closes that telemetry block, measured 2026-08-10
 
 ### History (do NOT read as current state)
-
 - v0.1.6 closed GAP-054 dialog settle and multi-tab, with `dialog_settled` and XDG `dialog_settle_ms`
 - v0.1.6 closed GAP-055 native select, GAP-057 scrape format in run and GAP-053 `wait_timeout_ms`
 - v0.1.6 kept the residual-zero disk law inherited from v0.1.5
@@ -78,11 +84,11 @@
 - v0.1.7 added two new gates to the audit pass
 
 ## Intentional residuals (do not claim closed as full parity)
-
-- **GAP-021 partial:** lighthouse parser confidence is unit fixtures (minimal + chrome-captured LHR); e2e mock remains **SKIP** — never claim full e2e lighthouse parser PASS
-- **GAP-022 residual dups:** ~53 multi-version dependency duplicates measured; cheap prune exhausted; residual accepted
-- **GAP-023 / GAP-024:** PRD wishlist flags/commands remain intentional divergences — not full PRD parity
-- **AVIF encode:** removed from `grab` (webp remains); document as intentional breaking residual of 0.1.6
+- GAP-021 partial: lighthouse parser confidence is unit fixtures (minimal + chrome-captured LHR)
+- The GAP-021 e2e mock remains SKIP, so never claim a full e2e lighthouse parser PASS
+- GAP-022 residual dups: ~53 multi-version dependency duplicates measured, cheap prune exhausted, residual accepted
+- GAP-023 / GAP-024: PRD wishlist flags/commands remain intentional divergences — not full PRD parity
+- AVIF encode: removed from `grab` (webp remains), documented as an intentional breaking residual of 0.1.6
 - AVIF decode stays closed by physical limit, not by priority
 - HEIC encode stays closed by the same physical limit
 - Media extraction that needs obfuscated JavaScript execution stays closed
@@ -90,20 +96,18 @@
 - Anti-detection is best effort, and NO stealth profile guarantees evasion of a given detector
 
 ### Local scrape capability vs frontier
-
 - Local and shipped: multi-format scrape, crawl, map, LLM extract (OpenRouter via XDG), one-shot webhook, local MITM + HAR, local `change_status` (`fresh`/`unchanged`), opt-in `--with-content-hash`
-- Frontier (not a 0.1.9 debt): remote change service, HTTP-engine JA4 (needs C TLS), HTTP-engine header order (`reqwest` `HeaderMap` iteration is not insertion order), challenge solvers
-- In-process image text recognition is not frontier work; it was excised on purpose and is not coming back, because every calling model already has vision
+- Frontier (not a 0.2.0 debt): remote change service, HTTP-engine JA4 (needs C TLS), HTTP-engine header order (`reqwest` `HeaderMap` iteration is not insertion order), challenge solvers
+- In-process image text recognition is not frontier work, and it was excised on purpose
+- It is not coming back, because every calling model already has vision
 
 ## Open, no committed date
 - `scrape` has no `changeTracking` format
 - `search` has no temporal filter, and ten dimensions are still missing
-- `browser_mode` is reachable only through XDG, because no CLI flag exposes it
 - These items carry no date and MUST NOT be read as a promise
 
 ## Full agent inventory (71)
-
-Discover live: `browser-automation-cli commands --json`
+- Discover live: `browser-automation-cli commands --json`
 
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
@@ -114,20 +118,19 @@ scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submi
 upload version view wait webmcp workflow write
 ```
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **69** (71 agent names − 2 run-only).
+- `pick` and `select-option` are multi-step inventory names used in `run` scripts
+- The clap product subcommand count is 69 (71 agent names − 2 run-only)
 
 ### Local media (image/video) — intentional non-goals (Wave C TREATED)
-
-- **In product now:** path→path `image` / `video` (magic, download SSRF, convert/remux, to-mp3, trim, thumbnail, manifest); optional OS ffmpeg/ffprobe via XDG `ffmpeg_path` (no linked libav).
-- **In product now:** `video manifest` summarises HLS `.m3u8` and DASH `.mpd` structure without fetching any media.
-- **Not in product (honesty):** adaptive HLS/DASH playback, yt-dlp/site downloaders, pure-Rust production encode, multi-file JoinSet batch media. Agents use external tools or future optional design — do not claim these as shipped.
+- In product now: path→path `image` / `video` (magic, download SSRF, convert/remux, to-mp3, trim, thumbnail, manifest)
+- In product now: optional OS ffmpeg/ffprobe via XDG `ffmpeg_path` (no linked libav)
+- In product now: `video manifest` summarises HLS `.m3u8` and DASH `.mpd` structure without fetching any media
+- Not in product (honesty): adaptive HLS/DASH playback, yt-dlp/site downloaders, pure-Rust production encode, multi-file JoinSet batch media
+- Agents use external tools for those, and none of them may be claimed as shipped
 
 ## Explicitly out of scope
-
 - Daemon / long-lived browser service
 - Remote OpenTelemetry / SaaS dashboards
-- MCP server embedding
-- In-repo remote release orchestration / cargo-dist multi-arch matrix
 - HLS/DASH / yt-dlp core / pure-Rust video encode (see Wave C TREATED above)
 
 ## Profiling (on demand)

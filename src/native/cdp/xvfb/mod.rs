@@ -46,6 +46,7 @@
 //! observe. When the binary is missing, `doctor` reports it with the command
 //! for this distribution and the launch degrades to a plain headed window.
 
+mod auth;
 pub mod display;
 pub mod spawn;
 
@@ -68,15 +69,18 @@ pub use spawn::{start_private_display, xvfb_available, XvfbGuard};
 /// this CLI is argv plus the XDG file, and those two intents already exist as
 /// `--headless` / `--headed` and the `browser_mode` key. Adding environment
 /// variables would create a second, undiscoverable way to say the same thing.
+///
+/// # Why it reads the launch, not the global window mode
+///
+/// The inputs are the `headless` and `no_xvfb` of the launch being started.
+/// Every ordinary launch copies both from `browser_policy`, so the answer is
+/// the same there. The extension launch is the one that differs: it forces
+/// `headless: false` because Chrome loads no extension headless, and reading
+/// the global mode instead sent that headed window to the operator's desktop
+/// under `--headless` even with Xvfb installed.
 #[must_use]
-pub fn should_use_private_display() -> bool {
-    if crate::browser_policy::mode().launches_headless() {
-        return false;
-    }
-    if crate::browser_policy::no_xvfb() {
-        return false;
-    }
-    cfg!(target_os = "linux")
+pub fn should_use_private_display(headless: bool, no_xvfb: bool) -> bool {
+    !headless && !no_xvfb && cfg!(target_os = "linux")
 }
 
 #[cfg(test)]
@@ -85,19 +89,21 @@ mod tests {
 
     #[test]
     fn a_headless_launch_has_no_window_to_hide() {
-        // Reads the live policy rather than flipping it: the mode is a
-        // process-global, and a test that mutated it would race every other
-        // test in this binary.
-        if crate::browser_policy::mode().launches_headless() {
-            assert!(!should_use_private_display());
-        }
+        assert!(!should_use_private_display(true, false));
+        assert!(!should_use_private_display(true, true));
     }
 
     #[test]
-    fn a_non_linux_host_never_wants_xvfb() {
-        if !cfg!(target_os = "linux") {
-            assert!(!should_use_private_display());
-        }
+    fn refusing_xvfb_keeps_the_window_on_the_current_display() {
+        assert!(!should_use_private_display(false, true));
+    }
+
+    #[test]
+    fn a_headed_launch_wants_xvfb_exactly_on_linux() {
+        assert_eq!(
+            should_use_private_display(false, false),
+            cfg!(target_os = "linux")
+        );
     }
 
     #[test]

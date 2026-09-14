@@ -32,11 +32,21 @@ Settings de produto são comandos, flags e XDG via `config path|init|show|set|ge
 - [CODE_OF_CONDUCT](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/CODE_OF_CONDUCT.pt-BR.md): Contributor Covenant 2.1
 - [LICENSE](https://github.com/danilo-aguiar-br/browser-automation-cli/blob/main/LICENSE): ponteiro de dual license
 
-## Superfície de Comandos (v0.1.9)
+## Novidades da 0.2.0
+- O Chrome lançado pelo próprio produto não abre porta TCP de DevTools e roda com `--remote-debugging-pipe` atrás de uma ponte loopback de um cliente
+- O Xvfb privado de um lançamento headed no Linux exige um `MIT-MAGIC-COOKIE-1` guardado num arquivo com permissão 0600 removido no teardown
+- Um lançamento headed no Linux que sobe o Xvfb privado fixa `--ozone-platform=x11`, então uma sessão Wayland não desenha mais a janela no desktop
+- Lançamentos headed simultâneos recebem números de display diferentes, e o lock deixado por um servidor morto é reaproveitado
+- `display_backend` informa o display realmente usado: `headless`, `xvfb` ou `host`
+- Um lançamento do Chrome que falha mata o grupo de processos inteiro, e `--timeout` durante esse teardown sai com `124`
+- Validado ao vivo só no Linux sob Wayland; o caminho de pipe do Windows nunca foi compilado, e macOS, KDE e Sway não foram testados
+- Lightpanda e `chrome_legacy_oxide_launch` continuam usando uma porta DevTools em loopback
+
+## Superfície de Comandos (v0.2.0)
 - Inventário completo (**71** nomes de agente via `commands --json`, ordenados): assert, attr, audio, back, batch-scrape, click-at, commands, completions, config, console, cookie, crawl, devtools3p, dialog, doctor, drag, emulate, eval, exec, extension, extract, feed, fill-form, find-paths, forward, goto, grab, heap, hover, image, keys, lighthouse, locale, man, map, mitm, monitor, net, page, parse, perf, pick, press, print-pdf, qr, record, reload, resize, run, schema, scrape, screencast, scroll, search, select-option, sg-rewrite, sg-scan, sheet-write, sitemap, storage, submit, text, type, upload, version, video, view, wait, webmcp, workflow, write
 - Nota: `select-option`, `pick`, `submit` e `storage` estão no inventário de agente (não mais documentados como multi-passo-only / omitidos)
-- Descoberta: doctor (browsers_dir, origem lighthouse, cache_redis, residual_disk + JSON residual ResidualDiskReport), commands, schema <cmd> ou schema --cmd (goto/eval/type/scroll/assert expandidos), version, locale, man, completions
-- Flags globais: **57** flags longas no help global, sendo **55** de produto mais `--help` e `--version`; fonte da verdade é `browser-automation-cli --help`
+- Descoberta: doctor (browsers_dir, origem lighthouse, cache_redis, residual_disk + JSON residual ResidualDiskReport), commands, schema <cmd> ou schema --cmd (goto/eval/type/scroll/assert/wait expandidos), version, locale, man, completions
+- Flags globais: **59** flags longas em `<cmd> --help`, sendo **57** de produto mais `--help` e `--version`, e `--max-items` é apelido aceito de `--limit-rows`; o `--help` de raiz não lista flag global
 - Config XDG: config init|path|show|get|set|unset|list-keys
   - Chaves importantes: dialog_settle_ms, chrome_path, lighthouse_path, openrouter_api_key, llm_base_url, llm_model, cache_backend, cache_redis_url, lang, log_level, stealth, stealth_profile, stealth_seed, browser_mode, input_profile, proxy_url, proxy_bypass, proxy_username, proxy_password, http2_enabled, robots_user_agent, scrape_no_cache — referência completa com todas as **217** chaves em `docs/CONFIGURATION.pt-BR.md`; legível por máquina via `config list-keys --json`
   - `config unset <KEY>` restaura uma chave ao default embutido e é o inverso de `set`; `config set <key> ""` NÃO é o inverso, porque para chave string grava um vazio que o caminho normal nunca produz e para chave numérica é erro de parse
@@ -77,6 +87,84 @@ Settings de produto são comandos, flags e XDG via `config path|init|show|set|ge
 - Lang: --lang pt-BR ou config set lang localiza sugestões humanas
 - e2e: 53 tools de paridade DevTools (PASS=52 SKIP=1 lighthouse mock somente contrato)
 - Clap: GlobalOpts Args+flatten; erros de usage do clap emitem JSON quando `--json` está no argv; tests/clap_command_debug_assert.rs + parity_run_inventory
+
+### Referência de Flags Globais
+- As flags globais aparecem em `<cmd> --help`, por exemplo `version --help`, e o `--help` de raiz não lista nenhuma delas
+- Grave um padrão durável com `browser-automation-cli config set <key> <value>` no XDG em vez de repetir uma flag
+- Saída e redução de payload
+  - `--json` emite envelopes JSON de sucesso e de erro legíveis por máquina no stdout
+  - `--json-steps` transmite um objeto NDJSON por passo de `run` no stdout com `step`, `cmd`, `ok` e `result`
+  - `--correlation-id <ID>` define um id ecoado nos envelopes JSON e nos passos NDJSON, e ele não é segredo
+  - `--fields <PATHS>` projeta `data` para UM CSV de caminhos pontuados relativos a `data`, e repetir a flag sai com exit 2
+  - `--filter-rows <EXPR>` mantém as linhas que casam `key=value`, `key!=value` ou `key~substring`, repetível e combinada por AND
+  - Um campo ausente nunca casa uma expressão de `--filter-rows`, nem mesmo com `!=`
+  - `--dedupe-by <PATH>` descarta as linhas cujo valor no caminho pontuado se repete e mantém a primeira
+  - `--sort-rows <PATH>` ordena as linhas por um caminho pontuado e compara números numericamente
+  - `--limit-rows <N>` emite no máximo N linhas depois de filtro, dedupe e ordenação
+  - `--max-items <N>` é apelido aceito de `--limit-rows` e limita o que é EMITIDO, enquanto o `--limit` de um comando limita o que é BUSCADO
+  - `--count-only` emite só `{"count": N}` em vez das linhas
+  - `--truncate-content <CHARS>` corta cada string do payload em N caracteres e marca `truncated`
+  - `--max-output-bytes <BYTES>` é um teto rígido de bytes emitidos que descarta linhas do fim e marca `truncated`
+  - `--expect <EXPR>` afirma o payload emitido com a gramática de `--filter-rows`, repetível e combinada por AND
+  - `--expect` é avaliada DEPOIS de `--fields` e `--filter-rows`, sobre o payload que o chamador de fato recebe
+  - Uma `--expect` não cumprida aparece em `agent_ops.expectation_unmet` e o exit code continua 0
+  - `--expect-exit-code` sai com 65 quando alguma `--expect` não é cumprida
+  - `--help` imprime a ajuda e `--version` imprime a versão
+- Tempo e concorrência
+  - `--timeout <SECS>` define o timeout global de relógio em segundos, em que 0 significa sem override e o máximo é 86400
+  - `--step-timeout <SECS>` define o timeout por passo dos scripts de `run`, em que 0 herda o timeout global e o máximo é 86400
+  - `--max-concurrency <N>` limita as tarefas de I/O concorrentes de batch, crawl e fan-out CDP, em que 0 significa automático
+  - `--min-delay-ms <MS>` define um piso por invocação entre requisições à mesma origem em milissegundos
+  - A espera efetiva de `--min-delay-ms` é o máximo entre a flag, o XDG `scrape_min_delay_ms` e o `Crawl-delay` do site
+- Janela e display
+  - `--browser-mode <MODE>` escolhe `auto`, `headless` ou `headed` nesta execução e vence o XDG `browser_mode`
+  - `--headed` mostra a janela do navegador no seu próprio display para depuração
+  - `--headless` exige navegador headless nesta execução e sobrepõe qualquer modo persistido
+  - `--no-xvfb` pula o display virtual privado no Linux e usa o display atual
+- Captura e artefatos
+  - `--artifacts-dir <DIR>` define o diretório de screenshots, PDFs e outros artefatos one-shot
+  - `--capture-console` captura mensagens de console durante comandos de navegador
+  - `--capture-network` captura requisições de rede durante comandos de navegador
+  - `--dump-on-failure` grava a evidência capturada de console e rede no diretório de artefatos quando o comando falha
+- Robots e raízes
+  - `--ignore-robots` pula as checagens de política do robots.txt e exige aceite de risco para hosts bloqueados
+  - `--i-accept-robots-risk` aceita de forma explícita o risco de sobrepor o robots.txt junto com `--ignore-robots`
+  - `--allow-outside-roots` permite leituras locais e gravação de artefatos fora das raízes permitidas
+- Stealth e entrada
+  - `--no-stealth` desliga os patches anti-detecção nesta execução
+  - `--stealth-profile <PROFILE>` escolhe `auto`, `chrome-linux`, `chrome-win` ou `chrome-mac` como identidade personificada
+  - `--stealth-seed <SEED>` fixa a identidade stealth entre processos
+  - `--warmup` visita a raiz da origem antes da URL alvo para a sessão carregar cookies
+  - `--warmup-url <URL>` aquece essa URL em vez da raiz da origem e implica `--warmup`
+  - `--input-profile <PROFILE>` escolhe a modelagem de input `human` (padrão) ou `direct`
+  - `--input-seed <SEED>` semeia o jitter de input para uma execução `human` reproduzir exatamente
+- Proxy
+  - `--proxy <URL>` define o proxy de saída do Chrome e do motor HTTP com `http`, `https` ou `socks5`
+  - `--proxy-bypass <HOSTS>` lista os hosts que ignoram o proxy na sintaxe de bypass-list do Chrome
+  - Credenciais de proxy ficam no XDG por `config set proxy_url`, nunca em argv
+- MITM
+  - `--mitm` liga o proxy MITM local one-shot e roteia o Chrome por ele
+  - `--mitm-ca-dir <DIR>` define o diretório da chave e do certificado PEM da CA MITM, com padrão no XDG data
+  - `--mitm-har <FILE>` grava HAR 1.2 nesse caminho no FINALIZE quando `--mitm` está ativo
+  - `--mitm-hosts <HOSTS>` lista os hosts separados por vírgula a decifrar, e vazio significa todos
+  - `--mitm-ws` repete o padrão, porque frames WebSocket são sempre capturados sob `--mitm`
+  - `--mitm-max-body-bytes <BYTES>` limita os bytes de corpo retidos por troca
+  - `--mitm-no-media-bodies` descarta corpos de imagem, vídeo e áudio da captura
+  - `--mitm-redact-secrets` repete a redação padrão dos segredos de Authorization e Cookie
+  - `--mitm-no-redact-secrets` mantém legíveis os valores de Authorization e Cookie na captura
+- Gates de categoria
+  - `--category-memory` liga as ferramentas de análise profunda de heap
+  - `--category-extensions` liga as ferramentas de gestão de extensões
+  - `--category-third-party` liga a superfície de ferramentas de desenvolvedor de terceiros
+  - `--category-webmcp` liga a superfície de ferramentas `webmcp`
+  - `--experimental-screencast` liga o screencast experimental, que pode exigir ffmpeg para exportar arquivo
+  - `--experimental-vision` liga as ferramentas de visão `click-at` por coordenada
+- Idioma e log
+  - `--lang <LANG>` força o idioma da interface `en` ou `pt-BR`, e o JSON de máquina continua em inglês
+  - `-q, --quiet` suprime os logs humanos que não são erro no stderr
+  - `-v, --verbose` eleva a verbosidade do stderr para info
+  - `--debug` liga o detalhe máximo de tracing no stderr
+  - `--plain` força stderr simples sem cores ANSI
 
 ## Contrato de Settings
 - Settings de produto: comandos, flags, XDG via `config path|init|show|set|get|unset|list-keys` apenas
@@ -127,5 +215,5 @@ Settings de produto são comandos, flags e XDG via `config path|init|show|set|ge
 - Erros de usage do clap com `--json` no argv também emitem envelopes JSON de erro (GAP-002)
 - Sucesso de `run --json` inclui `ok` e o `steps[].data` completo (GAP-020)
 - Stream `--json-steps` (durante `run`): uma linha NDJSON por passo com `step`, `cmd`, `ok`, `result`
-- Exit codes incluem 0, 2, 65, 66, 69, 70, 74, 78, 124, 130, 141, 255; o enum vivo de `error.kind` é usage, data, no-input, unavailable, software, browser, protocol, timeout, cancelled, broken-pipe, config, io, então 255 é caminho fatal NÃO mapeado por nenhum `error.kind`
+- Exit codes incluem 0, 2, 6, 64, 65, 66, 69, 70, 74, 75, 78, 124, 130, 141, 255; o enum vivo de `error.kind` é usage, blocked, capability-disabled, precondition, data, no-input, unavailable, software, browser, protocol, timeout, cancelled, broken-pipe, config, io, então 255 é caminho fatal NÃO mapeado por nenhum `error.kind`
 - Fragmentos de schema ao vivo: `browser-automation-cli schema <name> --json` ou `schema --cmd <name> --json`

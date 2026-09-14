@@ -2,7 +2,10 @@
 
 # Guia de Agentes — browser-automation-cli
 
-> Corte cola de browser-tool. Mantenha um ciclo de vida de Chrome sob seu agente. Ciclo de vida: BORN EXECUTE FINALIZE DIE.
+
+- Corte cola de browser-tool
+- Mantenha um ciclo de vida de Chrome sob seu agente
+- Ciclo de vida: BORN EXECUTE FINALIZE DIE
 
 
 ## Por que Agentes Escolhem Esta CLI
@@ -13,12 +16,14 @@
 - Superfície local de scrape / crawl / map / search / parse embarca como subcomandos de primeira classe
 - Helpers de artefato (`print-pdf`, `monitor`, `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) e chaves LLM XDG estendem fluxos de agente sem daemons
 - Defaults duráveis vivem em flags e XDG `config path|init|show|set|get`
-- v0.1.9 agent-first (família anti-detecção desde 0.1.8); envelope de scrape unificado; inventário **71** vivo; **217** chaves XDG; `doctor --fingerprint` nomeia `measurement_scope` e `unmeasured_os`
-- Herdado das versões anteriores: booleano `dialog_settled` após resposta real de diálogo; XDG `dialog_settle_ms`; grab só **png|jpeg|webp** (AVIF removido); run `wait_timeout_ms` + scrape `format`/`formats` (0.1.6 adicionou `submit`/`storage`; 0.1.7 adicionou `image`+`video`+`audio`+`record`)
+- v0.2.0 agent-first (família anti-detecção desde 0.1.8); envelope de scrape unificado; inventário **71** vivo; **217** chaves XDG; `doctor --fingerprint` nomeia `measurement_scope` e `unmeasured_os`
+- Herdado das versões anteriores: booleano `dialog_settled` após resposta real de diálogo; XDG `dialog_settle_ms`; grab só png|jpeg|webp (AVIF removido); run `wait_timeout_ms` + scrape `format`/`formats` (0.1.6 adicionou `submit`/`storage`; 0.1.7 adicionou `image`+`video`+`audio`+`record`)
 - Isolamento multi-aba de diálogo via `Page::session_id` / `dialog_map_key`; select nativo `via: native_select` (input e depois change)
 - Lei residual-zero de disco da v0.1.5 permanece corrente: GC Singleton em BORN + FINALIZE, doctor `residual_disk` / JSON `residual`, cmds meta `locale` e `man`
 - Config de produto: só flags + XDG (nunca env de produto); descubra chaves via `config list-keys --json`
-- GAP-021 parcial: fixtures unit LHR; e2e lighthouse mock **SKIP**. GAP-022 residual ~53 dups multi-versão aceitos. GAP-023/024 divergências intencionais de PRD
+- GAP-021 parcial: fixtures unit LHR, e o e2e lighthouse mock é SKIP
+- GAP-022 residual ~53 dups multi-versão aceitos
+- GAP-023/024 divergências intencionais de PRD
 - Carry-forward dos contratos de agente da v0.1.4: `--json-steps`, wait multi/url, pick/select-option, assert console, schema posicional, MITM capture-url, erros de usage clap em JSON
 
 
@@ -26,7 +31,7 @@
 - Evite servers de browser long-lived que vazam entre turns do agente
 - Pague o custo de launch do Chrome só quando a tarefa precisa de página real
 - Prefira `scrape` / `batch-scrape` / `crawl` / `map` HTTP quando só conteúdo basta
-- CLEAN STDOUT scrape: use sempre `--select` (ex. `source_url,title,markdown,status_code`); engine default `http`; prefira `--format markdown` + `--only-main-content`; `--max-text-chars` / XDG; opcional `--include-selector`/`--exclude-selector`, `--redact-pii`, `--with-content-hash`, `--header "Nome: valor"`, browser `--wait-ms`; multi-format + `--select` promove campos aninhados; format `json` + `--schema-json`/`--question` (OpenRouter XDG, fail-closed); batch/crawl: `--filter http_error=false`, `--sort`, `--dedup-key`, `--output-mode json|ndjson|csv`
+- CLEAN STDOUT scrape: use sempre `--select` (ex. `source_url,title,markdown,status_code`); engine default `http`; prefira `--format markdown` + `--only-main-content`; `--max-text-chars` / XDG `scrape_max_text_chars`; opcional `--include-selector`/`--exclude-selector`, `--redact-pii`, `--with-content-hash`, `--header "Nome: valor"`, browser `--wait-ms`; multi-format + `--select` promove campos aninhados; format `json` + `--schema-json`/`--question` (OpenRouter XDG, fail-closed); batch/crawl: `--filter http_error=false` (páginas OK permanecem), `--sort`, `--dedup-key` (normalizado por URL), `--output-mode json|ndjson|csv`
 - Map/crawl: `--use-sitemap`, `--sitemap-only`, `--include-path` / `--exclude-path`, map `--search`; batch/crawl `--filter http_error=false`, opcional `--output-mode ndjson|csv`
 - Superfície local scraping-oriented one-shot — não é a hosted scraping SaaS (CAPTCHA/proxy/async SaaS TREATED fora do produto)
 - Colapse fluxos multi-passo em um processo `run` quando refs importam
@@ -68,27 +73,28 @@
 - Passe sempre `--json` para parsing por máquina
 - Leia envelopes de sucesso e erro no stdout
 - Mantenha stderr só para logs humanos ou debug
-- Use `commands --json` para descobrir o inventário vivo (**71 nomes de agente**)
+- Use `commands --json` para descobrir o inventário vivo (71 nomes de agente)
 - O inventário inclui config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, submit, storage, select-option, pick, locale, man e tools de paridade DevTools (**71** no total, inclui `image`, `video`, `audio`; e2e 53 tools com lighthouse mock SKIP)
-- Nota: `select-option` e `pick` estão no inventário de agente **71** (`commands --json`) e usam-se via `run` / `exec` / `schema`; **não** são subcomandos clap standalone (superfície clap de produto é **69** nomes, excluindo `help`)
+- Nota: `select-option` e `pick` estão no inventário de agente **71** (`commands --json`) e usam-se via `run` / `exec` / `schema`; não são subcomandos clap standalone (superfície clap de produto é **69** nomes, excluindo `help`)
 - Use `schema <name> --json` ou `schema --cmd <name> --json` antes de gerar argv de comandos pouco familiares
 - Prefira flags para controle pontual
 - Use `config init|set|get|path|show|list-keys` para defaults XDG duráveis
 - Descubra chaves vivas de config via `config list-keys --json` (não fixe contagem; inclui `dialog_settle_ms` e mais)
 - Resolva paths com `config path --json`
-- Para multi-passo que precisa de refs `@eN` compartilhadas, use um processo `run --script` (NDJSON **ou** array JSON de passos)
-- `run --script -` lê os passos NDJSON do **stdin**, um por linha, contra uma única sessão viva
+- Para multi-passo que precisa de refs `@eN` compartilhadas, use um processo `run --script` (NDJSON ou array JSON de passos)
+- `run --script -` lê os passos NDJSON do stdin, um por linha, contra uma única sessão viva
 - Prefira stdin a process substitution do shell: `run --script <(printf ...)` é recusado, porque o caminho cai em `/proc/<pid>/fd/<n>` e o jail de arquivos recusa leitura fora dos roots permitidos
 - Envelope final de `run --json` inclui `ok` e `steps[].data` completo
 - Stream por passo NDJSON com global `--json-steps` (`step`, `cmd`, `ok`, `result`)
 - Wait com texto OR: `wait --text A --text B`
-- Wait multi-seletor CSS OR e campos run `url` / `url_contains` / `navigation: true` (booleano) e o prazo público **`wait_timeout_ms`**; pode devolver `matched_selector`
-- Após `dialog accept|dismiss` real, leia **`dialog_settled`** (booleano). Quando true, **não** insira wait artificial antes do próximo passo de página
+- Wait multi-seletor CSS OR e campos run `url` / `url_contains` / `navigation: true` (booleano) e o prazo público `wait_timeout_ms`; pode devolver `matched_selector`
+- Após `dialog accept|dismiss` real, leia `dialog_settled` (booleano)
+- Quando true, não insira wait artificial antes do próximo passo de página
 - Configure o orçamento de settle de diálogo só com `config set dialog_settle_ms` (XDG; nunca env de produto)
 - Menus de opção: `{"cmd":"pick","target":"…","option":"…"}` ou `select-option` (`<select>` nativo → `input`+`change`, `via: native_select`)
 - Envie formulário: `submit <target>` ou `{"cmd":"submit","target":"…"}`
 - Storage de auth portátil: `storage export|import --path <arquivo>` (cookies + localStorage + sessionStorage)
-- Formatos de encode do grab: **png | jpeg | webp** apenas — nunca `avif`
+- Formatos de encode do grab: png | jpeg | webp apenas — nunca `avif`
 - Aliases de scroll no NDJSON: `{"cmd":"scroll","dy":1500}`
 - Aliases de assert: `{"cmd":"assert","url_contains":"example.com"}` / `text_contains`
 - Assert console: `{"cmd":"assert","kind":"console_empty"}` ou `console_no_match` + `pattern` (precisa `--capture-console`)
@@ -117,7 +123,7 @@
 - Extract LLM falha fechado sem XDG `openrouter_api_key`
 - Localize sugestões humanas com `--lang pt-BR` ou `config set lang pt-BR` (só flags + XDG)
 - Inspecione locale resolvido com `locale --json`; gere man page com `man`
-- Após trabalho browser, espere residual-zero em disco quando sozinho: check do doctor `residual_disk` não `fail` e topo `residual` com zeros em `orphan_marker_dirs`, `ghost_marker_processes`, e (após DIE sozinho) `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes` é concorrência informativa; **não** exija zero `live_cli_marker_processes`
+- Após trabalho browser, espere residual-zero em disco quando sozinho: check do doctor `residual_disk` não `fail` e topo `residual` com zeros em `orphan_marker_dirs`, `ghost_marker_processes`, e (após DIE sozinho) `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes` é concorrência informativa; não exija zero `live_cli_marker_processes`
 - Erros de usage clap emitem JSON quando `--json` já está no argv (GAP-002)
 - Diálogo soft: `dialog accept --if-present` / `dialog dismiss --if-present`
 - Beforeunload (GAP-003): `goto` / `reload` com `--handle-before-unload accept|dismiss`; campo run `handle_before_unload`
@@ -178,12 +184,12 @@ fn main() {
 ## Inventário Completo de Comandos (71)
 - Fonte viva: `browser-automation-cli commands --json` (**71** nomes voltados a agentes)
 - Superfície clap de produto é **69** nomes (exclui `select-option` / `pick` de inventário de agente)
-- O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suite executa 53; lighthouse mock SKIP)
+- O e2e DevTools tool-ref cobre **53** tools (`scripts/e2e_all_52_tools.sh` é nome legado; a suíte executa 53; lighthouse mock SKIP)
 - Lista completa de comandos de agente (todos os **71**):
   - Meta / descoberta: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navegação: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
   - Interação: `press`, `click-at`, `write`, `keys`, `type`, `hover`, `drag`, `submit`, `fill-form`, `upload`, `scroll`
-  - Agent inventory + run/exec/schema (not clap standalone): `select-option`, `pick`
+  - Inventário de agente + run/exec/schema (não é clap standalone): `select-option`, `pick`
   - Observação: `view`, `eval`, `text`, `attr`, `assert`, `cookie`, `storage`, `console`, `net`
   - Captura: `grab`, `print-pdf`, `monitor`, `screencast`, `lighthouse`
   - Multi-passo: `run`, `exec`, `record`
@@ -195,18 +201,21 @@ fn main() {
 - Lista plana completa: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Descubra argv com `schema <name> --json` para qualquer nome acima
 
+
 ## Ciclo de Vida
 - Slogan (English): BORN EXECUTE FINALIZE DIE
 - Um processo possui uma sessão Chrome do launch até o FINALIZE
 - BORN faz scavenge de Chromium tmp Singleton-only stale (age floor 60s)
 - FINALIZE é idempotente (Browser.close, wait, kill fallback) e faz dual scavenge: janela de invocação + orphans Singleton stale
 - Contrato residual para agentes: após DIE sozinho espere zero `orphan_marker_dirs`, zero `ghost_marker_processes`, zero dirs marker CLI, zero lixo Singleton-only de Chromium tmp owned; `sibling_live_processes>0` é concorrência saudável; não exija zero `live_cli_marker_processes`
-- Chrome Flatpak do host **nunca** é morto ou apagado pelo GC residual do produto
+- Chrome Flatpak do host nunca é morto ou apagado pelo GC residual do produto
+- Um lançamento do Chrome que falha mata o grupo de processos inteiro do Chrome, então um descendente que ficou nesse grupo não sobrevive ao CLI
+- Um descendente que chama `setsid` sai do grupo e fica fora desse kill
 - Não espere sessão ou refs `@eN` sobreviverem ao exit do processo
 - Verifique com `doctor --offline --quick --json` → `residual` / check `residual_disk`
 
 
-## Contrato Técnico (v0.1.9)
+## Contrato Técnico (v0.2.0)
 ### REQUIRED
 - Passe `--json` para consumo programático
 - Trate um processo como um ciclo de vida de Chrome (BORN EXECUTE FINALIZE DIE)
@@ -234,7 +243,6 @@ fn main() {
 - Não invente aliases de produto como `bac`, `click` ou `screenshot`
 - Não reutilize refs `@eN` entre launches de processo separados
 - Não parseie stderr como canal primário de sucesso
-- Não peça à CLI que mate ou apague residual de Chrome Flatpak do host
 - Não habilite bypass de robots sem a política dual-flag
 - Use só flags e `config` para settings de produto
 - Não invente variáveis de ambiente de produto para configuração (só flags + `config` XDG)
@@ -245,7 +253,8 @@ fn main() {
 - Não invente wait artificial após `dialog_settled: true`
 - Não assuma sucesso silencioso de `view` vazio em about:blank sem `--allow-empty`
 - Não assuma sucesso de `print-pdf` sem página navegada ou `url` explícito (GAP-013); smokes residual podem usar `print-pdf --url about:blank` como one-shot leve quando `url` está presente
-- Não alegue PASS completo do parser lighthouse em e2e quando a suite faz SKIP do caminho mock
+- Não peça à CLI que mate ou apague residual de Chrome Flatpak do host
+- Não alegue PASS completo do parser lighthouse em e2e quando a suíte faz SKIP do caminho mock
 - Não desligue a mascaração de segredos do MITM só para ler a captura com mais conforto
 - Não ajuste chaves de HTTP/2 ou de ritmo de input sem decisão explícita do operador
 - Não assuma que scrape multi-formato descarta diagnóstico; a forma do envelope é unificada
@@ -303,7 +312,13 @@ browser-automation-cli -q --json doctor --offline --quick
 - Ele difere do modo pedido exatamente sob `auto`, que é o caso que o chamador não enxerga de nenhuma outra forma
 - `browser_mode_source` nomeia o degrau de precedência que venceu, e vale `default`, `xdg` ou `flag`
 - Leia `browser_mode_source` primeiro quando o comportamento divergir do esperado, porque ele responde qual camada de configuração decidiu esta execução
-- `display_backend` é a superfície em que o browser desenha, e vale `headless`, `xvfb` ou `host`
+- `display_backend` é a superfície em que o browser desenhou, e vale `headless`, `xvfb` ou `host`
+- Depois de um launch ele informa o display que esse launch realmente usou, e não o display que as flags pediram
+- `xvfb` significa que o display virtual privado subiu, e `host` significa que um Chrome headed chegou ao display atual
+- Um launch headed no Linux cujo Xvfb não consegue subir ainda roda no display atual, e o campo então diz `host`
+- Um launch headed fora do Linux sempre diz `host`, porque ali não existe display privado
+- Antes de qualquer launch no processo o campo informa a intenção, porque ainda não existe resultado
+- Leia `display_backend` sempre que uma janela na tela do operador for inaceitável
 - `display_backend` NÃO se deduz de `browser_mode` sozinho, porque headed sobre display virtual privado não é a tela do operador
 - `runtime_enable_used` declara se este launch emitiu `Runtime.enable`
 - Compare duas execuções e o domínio aparece no instante em que você passa `--capture-console`, o que transforma "o caminho padrão não liga Runtime" em afirmação verificável em vez de prosa
@@ -349,6 +364,7 @@ browser-automation-cli -q --json doctor --offline --quick
 - `--fields PATHS` projeta caminhos pontilhados (CSV) e mantém o aninhamento documentado
 - `--filter-rows EXPR` mantém linhas que casam `key=value`, `key!=value` ou `key~substring`; repetível e com AND
 - `--limit-rows N` limita linhas depois de filtro, dedupe e ordenação
+- `--max-items N` é um apelido aceito de `--limit-rows`, e limita o que é EMITIDO enquanto o `--limit` local de um comando limita o que é BUSCADO
 - `--sort-rows PATH` ordena linhas; números comparam numericamente, não como texto
 - `--dedupe-by PATH` descarta repetidos, mantendo o primeiro
 - `--count-only` devolve `{"count": N}` em vez das linhas
@@ -375,6 +391,7 @@ browser-automation-cli -q --json doctor --offline --quick
 - `--expect EXPR` declara o que o payload emitido precisa conter, na gramática de `--filter-rows`
 - Repetível e conjugada com AND, então várias asserções valem ao mesmo tempo
 - Avaliada por ÚLTIMO, sobre o payload que você recebe, então projeção e truncagem não escondem falha
+- Ela roda depois de `--fields` e `--filter-rows`, e sua chave é um caminho relativo a `data`
 - Uma expectativa vale quando ao menos UMA linha a satisfaz: `--expect status=200` pergunta "existe um 200 aqui?"
 - Filtre antes quando toda linha precisa casar — `--filter-rows` estreita e `--expect` então afirma
 - Expectativas não atendidas chegam em `agent_ops.expectation_unmet`, ecoadas como você as escreveu
@@ -426,6 +443,18 @@ browser-automation-cli -q --json doctor --offline --quick
 - `--headless` EXIGE execução headless e sobrepõe qualquer modo persistido, então "eu exijo headless" e "eu não disse nada" deixam de ser o mesmo argv
 - `--headed` renderiza uma janela real; no Linux ela vai para um display virtual privado quando há `Xvfb`
 - `--no-xvfb` mantém o lançamento headed no display do próprio operador
+- No Linux um lançamento headed fica dentro do Xvfb privado mesmo numa sessão Wayland
+- O Chrome ali recebe `--ozone-platform=x11`, porque o Chromium escolhe Wayland pelo tipo de sessão e desenharia no compositor real
+- O pino só entra quando o display privado realmente subiu, e nunca por cima de uma flag de plataforma já presente no argv do Chrome
+- O Xvfb privado exige um `MIT-MAGIC-COOKIE-1`, guardado num arquivo com modo 0600 que o encerramento remove
+- O próximo lançamento remove o arquivo de cookie deixado por um CLI morto com `SIGKILL`
+- Dois lançamentos headed simultâneos recebem dois números de display diferentes
+- O Chrome lançado pelo próprio produto não abre porta TCP de DevTools e roda com `--remote-debugging-pipe`
+- Uma ponte WebSocket em loopback repassa exatamente um cliente, num caminho com 122 bits aleatórios, e responde 403 a qualquer outro caminho
+- A ponte limita cada mensagem de DevTools a 256 MiB e espera no máximo dois segundos pelas threads do pipe no encerramento
+- O motor Lightpanda e o lançamento legado escolhido por `config set chrome_legacy_oxide_launch true` mantêm o transporte anterior
+- O pipe e o pino X11 foram validados ao vivo só no Fedora 44 sob Wayland
+- O caminho do pipe no Windows nunca foi compilado nem testado, e macOS, KDE e Sway não foram validados
 - O `doctor` reporta `xvfb` com o comando de instalação da distribuição detectada; a CLI nunca instala nada
 - `--no-stealth` desliga o disfarce; `--stealth-profile` escolhe `auto`, `chrome-linux`, `chrome-win` ou `chrome-mac`
 - `auto` segue a plataforma do host, e um lançamento headless ainda recebe override de User-Agent para não anunciar `HeadlessChrome`
@@ -446,10 +475,30 @@ browser-automation-cli -q --json doctor --offline --quick
 - O envelope reporta `profile_contradicts_host: true` quando o profile de stealth alega outra plataforma
 - Leia esse campo antes de culpar um bloqueio: TLS e HTTP/2 carregam a pilha real, diga o User-Agent o que disser
 - O envelope de `doctor --fingerprint` carrega `planned_version_source`, e o campo assume TRÊS valores: `null`, `chrome_binary` e `crate_table`
-- Ele é `null` sob stealth, que é o padrão, porque ali a tabela da crate É a identidade projetada e nada é sondado, então não há fonte a declarar
-- Ele é `chrome_binary` sob `--no-stealth` quando o major planejado foi lido do binário Chrome/Chromium que ESTE host lançaria
-- Ele é `crate_table` sob `--no-stealth` quando o binário NÃO pôde ser sondado e o plano caiu para a tabela da dependência
+- Ele é `null` quando o plano sobrescreve o User-Agent, o que vale para todo lançamento headless e todo profile que alega outra plataforma, porque ali a tabela da crate de identidade É a identidade projetada
+- Ele é `chrome_binary` quando não há override e o major planejado foi lido do binário Chrome/Chromium que ESTE host lançaria, tanto sob stealth quanto sob `--no-stealth`
+- No Linux com Xvfb no PATH o `auto` resolve para headed, então a execução padrão com stealth reporta `chrome_binary` ali, e não `null`
+- Ele é `crate_table` quando não há override e o binário NÃO pôde ser sondado, então o plano caiu para a tabela da dependência
 - Leia `crate_table` como palpite e não como medição, ou você tratará um plano derivado da tabela como leitura do binário
+- Com stealth ligado, `planned.ua_data_platform` vale SEMPRE `null`, porque o patch nunca emula `navigator.userAgentData` e a página de sonda `about:blank` não é contexto seguro, onde o Chrome não expõe esse objeto
+- A sonda ao vivo publica `ua_data_brands`, e o mismatch `ua_data_brands_vs_user_agent` compara só o major do Chrome nessas brands com o major do User-Agent
+- O patch stealth NUNCA emula `navigator.userAgentData`, em nenhum modo, e o objeto só existe em contexto seguro, exatamente como num Chrome real
+- Em headed com o profile do host, sem override, a página expõe o objeto nativo do Chrome, que concorda com o `sec-ch-ua` real, e o User-Agent da página é o do Chrome instalado
+- Em headless ou num profile que alega outra plataforma, o override envia por CDP um `userAgentMetadata` completo, e o Chrome monta o objeto da página a partir dele
+- Esse metadata traz `brands` e `fullVersionList` da mesma fonte, um `fullVersion` que a crate de identidade associa ao major do User-Agent, `platformVersion` (vazio no Linux, `10.0` no Windows), `bitness` `64` e `wow64` false
+- Assim o JavaScript, o `getHighEntropyValues` e os headers `sec-ch-ua`, `sec-ch-ua-full-version`, `sec-ch-ua-full-version-list`, `sec-ch-ua-platform-version`, `sec-ch-ua-bitness` e `sec-ch-ua-wow64` contam a mesma versão
+- Todo envelope de `scrape` carrega `user_agent_major_source` nos dois motores, e a chave está sempre presente
+- `projected` significa que o User-Agent foi sobrescrito e o major veio da tabela da crate de identidade
+- `host_binary` significa que o major veio do Chrome deste host: a resposta de `Browser.getVersion` no lançamento, o `--version` no `doctor`, ou o major que um lançamento anterior com semente guardou
+- `host_unprobed` significa que nenhum major era conhecido e nada foi sondado, então a tabela da crate entrou no lugar
+- Ele vale `null` sob `--no-stealth`, e no `--engine browser` também vale `null` antes de um lançamento
+- Sem semente o motor HTTP monta `user-agent` e `sec-ch-ua` a partir da tabela da crate e nunca procura o Chrome
+- Com semente ele envia o major que o último lançamento guardou; a primeira execução depois de atualizar o Chrome que envia HTTP antes de lançar o navegador no mesmo processo ainda pode anunciar o major antigo
+- O cliente HTTP compartilha com o navegador só o MAJOR: o `sec-ch-ua` dele é sempre a lista fixa Chromium, Google Chrome e uma brand GREASE, diga o `user_agent_major_source` o que disser
+- Essa lista pode não bater com a lista nativa de um navegador sem override, como um Chromium que não traz a brand Google Chrome ou põe a brand GREASE primeiro, e `user_agent_major_source` descreve só a origem do major
+- O major guardado fica em `state_dir/stealth/host-major-<hash>.txt`, lido e gravado SOMENTE com stealth ligado E `--stealth-seed` ou a chave XDG `stealth_seed`
+- Sem semente nada sobre o major vai para o disco, e sob `--no-stealth` nunca, então a promessa de resíduo zero de uma execução sem semente continua valendo
+- A chave do cache de script por semente é `{profile}-{major}` para `host_binary` e `{profile}-native` para `host_unprobed` e `projected`, então um script guardado por versão anterior é redesenhado uma vez
 - Defaults da família anti-detecção, todos definidos por `config set` e nunca por variável de ambiente
 - `stealth` é `true`, `stealth_profile` é `auto` e `browser_mode` é `auto`
 - `stealth_seed` não tem default; defina só quando precisar de identidade estável
@@ -502,13 +551,18 @@ browser-automation-cli -q --json doctor --offline --quick
 ## Códigos de Saída
 - `0` sucesso
 - `2` usage
-- `6` blocked — a origem devolveu uma verificação antibot no lugar do conteúdo. O transporte teve sucesso (HTTP 200, HTML válido), então `status_code` e `http_error` relatam sucesso enquanto o corpo carrega o desafio. Leia `error.suggestion`; repetir a mesma requisição escala em direção a um banimento
+- `6` blocked — a origem devolveu uma verificação antibot no lugar do conteúdo
+- Sob `6` o transporte teve sucesso com HTTP 200 e HTML válido, então `status_code` e `http_error` relatam sucesso enquanto o corpo carrega o desafio
+- Leia `error.suggestion` sob `6`, porque repetir a mesma requisição escala em direção a um banimento
+- `64` capability disabled — o argv está correto e falta uma flag de gate de categoria ou experimental
 - `65` data
 - `66` no input
 - `69` unavailable
 - `70` software, browser, protocol
 - `74` I/O
+- `75` precondition — a página ou a sessão não satisfaz o comando, então navegue antes ou responda o diálogo aberto
 - `78` config
 - `124` timeout
+- Um lançamento do Chrome que falhou e ainda está encerrando quando o `--timeout` expira também termina com `124`, e não `69`
 - `130` cancelled
 - `141` broken pipe

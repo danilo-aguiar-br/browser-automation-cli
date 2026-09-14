@@ -11,8 +11,10 @@ This CLI is **local-first** and **agent-first**. It does **not** implement remot
 | Kind | Where it stays |
 |------|----------------|
 | Browser sessions | Local Chrome process + temporary profile under the OS temp dir; reaped on FINALIZE |
-| Residual temp dirs | Local only: CLI marker dirs (`browser-automation-cli-chrome-`) and stale Singleton-only Chromium dirs under `/tmp` scavenged by BORN/FINALIZE; doctor `residual_disk` inspects them locally — **never uploaded** |
-| Config | XDG config dir only via `config` (`path`, `init`, `show`, `set`, `get`, `list-keys`) |
+| Residual temp dirs | Local only: CLI marker dirs (`browser-automation-cli-chrome-`) and stale Singleton-only Chromium dirs under `/tmp` scavenged by BORN/FINALIZE; `doctor` `residual_disk` inspects them locally — **never uploaded** |
+| X authority cookie (0.2.0, headed Linux with the private Xvfb) | Local only: sixteen random bytes of `MIT-MAGIC-COOKIE-1` in a mode 0600 file named `browser-automation-cli-xauth-<pid>-<uuid>` under the per-user runtime directory, or the OS temp dir when the host has none; removed at teardown, and a file whose creator pid no longer exists is removed by the next launch — never uploaded |
+| DevTools bridge (0.2.0) | Local only: a WebSocket listener on `127.0.0.1` that accepts one client and closes after the handshake; DevTools traffic between the CLI and its own Chrome never leaves the machine |
+| Config | XDG config dir only via `config` (`path`, `init`, `show`, `set`, `get`, `unset`, `list-keys`) |
 | UI locale preference | Set with `--lang pt-BR` or `config set lang pt-BR` (XDG). Resolved once at boot for human `suggestion` strings only; machine JSON stays English. **Never uploaded.** |
 | Optional logs | Local file under XDG state when `log_to_file` is enabled |
 | Cache | Local SQLite / optional Redis URL you configure via `config set` |

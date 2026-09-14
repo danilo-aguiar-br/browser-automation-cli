@@ -3,11 +3,12 @@
 # Política de Segurança
 
 ## Versões Suportadas
-- `0.1.x` é a linha suportada atual
+- `0.2.x` é a linha suportada atual
 
 | Versão | Suportado |
 |--------|-----------|
-| 0.1.x  | sim       |
+| 0.2.x  | sim       |
+| 0.1.x  | não       |
 
 ## Reportar uma Vulnerabilidade
 - Não abra issue pública no GitHub para problemas sensíveis de segurança
@@ -36,12 +37,28 @@
 
 ## Política de Update de Segurança
 - Fixes de segurança saem em patch releases quando possível
-- Entradas do CHANGELOG marcam fixes de segurança em Fixed
+- Entradas do CHANGELOG marcam correções de segurança em Segurança
 - Usuários devem atualizar para o patch suportado mais recente
 
 ## Hall of Fame
 - Ainda não há reports públicos creditados
 - Reporters legítimos podem ser listados aqui após disclosure coordenado
+
+## Superfície de Ataque Local Fechada na 0.2.0
+- O Chrome lançado pela própria CLI não abre mais porta TCP de DevTools e roda com `--remote-debugging-pipe`
+- Em hosts POSIX o Chrome lê comandos DevTools do descritor 3 e grava respostas no descritor 4
+- Uma ponte WebSocket em `127.0.0.1` repassa exatamente um cliente válido entre esse pipe e o `chromiumoxide`
+- O caminho da ponte carrega os 122 bits aleatórios de um UUID v4
+- A ponte responde 403 a qualquer outro caminho e não expõe o endpoint `/json/version`
+- A ponte fecha o listener assim que esse cliente conclui o handshake
+- A ponte limita cada mensagem DevTools a 256 MiB e espera no máximo 2 segundos pelas threads do pipe no teardown
+- O Xvfb privado de um launch headed no Linux exige um `MIT-MAGIC-COOKIE-1`
+- O cookie fica num arquivo com permissão 0600 passado ao Xvfb por `-auth` e ao Chrome por `XAUTHORITY`
+- Esse arquivo é removido no teardown, e o launch seguinte remove o arquivo cujo pid criador não existe mais
+- Sem mudança na 0.2.0: o motor Lightpanda e o caminho legado ligado por `config set chrome_legacy_oxide_launch true` continuam usando porta TCP de DevTools em loopback
+- Não validado na 0.2.0: o caminho de pipe do Windows via `--remote-debugging-io-pipes` não foi compilado nem testado
+- Não validado na 0.2.0: o macOS não foi testado ao vivo para o transporte por pipe
+- Um descendente do Chrome que chama `setsid` sai do grupo de processos e fica fora do alcance do kill de grupo de um launch com falha
 
 ## Boas Práticas para Usuários
 - Mantenha Chrome ou Chromium atualizados no host
@@ -68,6 +85,5 @@
 - Redija segredos na exportação: `mitm redact --secrets` e/ou a global `--mitm-redact-secrets` (redação de Authorization/Cookie)
 - Não exponha o proxy MITM além da máquina do operador
 - Trate capturas, exports HAR e material privado da CA como sensíveis
-- Prefira orçamentos curtos de `--seconds` em `mitm start` e limpe artefatos de captura após a análise
-- Prefira `mitm capture-url` one-shot em vez de deixar proxy aberto além do necessário
-
+- Limpe artefatos de captura sob XDG state (`mitm/`) após a análise
+- Superfície MITM relacionada: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`

@@ -2,7 +2,9 @@
 
 # Cross Platform — browser-automation-cli
 
-> Stop rewriting browser automation for every host OS. Lifecycle: BORN EXECUTE FINALIZE DIE.
+
+- Stop rewriting browser automation for every host OS
+- Lifecycle: BORN EXECUTE FINALIZE DIE
 
 
 ## The Pain You Already Know
@@ -13,7 +15,6 @@
 
 
 ## Support Matrix
-
 | Platform | Arch | Status | Notes |
 |----------|------|--------|-------|
 | Linux | x86_64 | primary | Chromium and Google Chrome common paths |
@@ -30,24 +31,22 @@
 
 
 ## Browser Discovery Cascade
-
-Resolution order (never product env vars — product law is **flags + XDG only**):
-
-1. XDG `chrome_path` (`config set chrome_path /absolute/path`) when the file is executable
-2. Product browsers cache under XDG data (`browsers/`)
-3. **Windows only:** `HKLM` then `HKCU` `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{chrome.exe|msedge.exe|brave.exe}` (OS registry discovery via `windows-sys`, not product config)
-4. `$PATH` names: `google-chrome`, `google-chrome-stable|beta|unstable`, `chromium`, `chromium-browser`, `chrome`, `microsoft-edge`, `msedge`, `brave-browser`, …
-5. Known absolute layouts per OS (below)
-6. Home-local Puppeteer / Playwright caches under `~/.cache/`
-
-Override: `browser-automation-cli config set chrome_path /path/to/chrome`  
-Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `path`, `sandbox`, `executable`, `version` (`--version` smoke), `windows_job_object`, and `host_environment`.
+- The resolution order never reads product environment variables, because the product law is flags plus XDG only
+- Step 1 is XDG `chrome_path` (`config set chrome_path /absolute/path`) when the file is executable
+- Step 2 is the product browsers cache under XDG data (`browsers/`)
+- Step 3 runs on Windows only: `HKLM` then `HKCU` `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{chrome.exe|msedge.exe|brave.exe}` (OS registry discovery via `windows-sys`, not product config)
+- Step 4 is the `$PATH` names `google-chrome`, `google-chrome-stable|beta|unstable`, `chromium`, `chromium-browser`, `chrome`, `microsoft-edge`, `msedge`, `brave-browser` and similar
+- Step 5 is the known absolute layouts per OS listed below
+- Step 6 is the home-local Puppeteer and Playwright caches under `~/.cache/`
+- Override the cascade with `browser-automation-cli config set chrome_path /path/to/chrome`
+- Undo the override with `browser-automation-cli config unset chrome_path`
+- `browser-automation-cli doctor --offline --quick --json` reports `path`, `sandbox`, `executable`, `version` (`--version` smoke), `windows_job_object` and `host_environment`
 
 ### Linux known paths
 - `/usr/bin/google-chrome`, `google-chrome-stable|beta|unstable`, `chromium`, `chromium-browser`
 - `/opt/google/chrome/chrome`, `/opt/google/chrome/google-chrome`
 - `/usr/bin/microsoft-edge`, `/opt/microsoft/msedge/msedge`
-- Snap: `/snap/bin/chromium` (emits sandbox **warn** — prefer APT/RPM)
+- Snap: `/snap/bin/chromium` (emits sandbox warn — prefer APT/RPM)
 - Flatpak exports: `/var/lib/flatpak/exports/bin/com.google.Chrome`, `org.chromium.Chromium`, user `~/.local/share/flatpak/exports/bin/…`
 
 ### macOS known paths
@@ -56,35 +55,87 @@ Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `p
 - `~/Applications/Google Chrome.app/…` (per-user installs)
 
 ### Windows known paths
-- Registry **App Paths** for `chrome.exe` / `msedge.exe` / `brave.exe` (before `$PATH` walk)
-- `%ProgramFiles%` / `%ProgramFiles(x86)%` / `%LOCALAPPDATA%` joined with:
-  - `Google\Chrome\Application\chrome.exe`
-  - `Google\Chrome Beta\…`, `Google\Chrome SxS\…` (Canary)
-  - `Microsoft\Edge\Application\msedge.exe`
-  - `BraveSoftware\Brave-Browser\Application\brave.exe`
-- Hardcoded `C:\Program Files\…` only as last-resort fallback when env vars are missing
-- Console boot: UTF-8 code page **65001** + `ENABLE_VIRTUAL_TERMINAL_PROCESSING` for ANSI
+- Registry App Paths for `chrome.exe` / `msedge.exe` / `brave.exe` (before `$PATH` walk)
+- `%ProgramFiles%`, `%ProgramFiles(x86)%` and `%LOCALAPPDATA%` are joined with `Google\Chrome\Application\chrome.exe`
+- The same roots are joined with `Google\Chrome Beta\…` and `Google\Chrome SxS\…` (Canary)
+- The same roots are joined with `Microsoft\Edge\Application\msedge.exe` and `BraveSoftware\Brave-Browser\Application\brave.exe`
+- Hardcoded `C:\Program Files\…` only as last-resort fallback when the OS path variables are missing
+- Console boot: UTF-8 code page 65001 + `ENABLE_VIRTUAL_TERMINAL_PROCESSING` for ANSI
 - Residual Chrome trees: Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`)
 
 ### Snap / Flatpak sandboxes
 - Detected by path prefix (`/snap/`, `/var/lib/flatpak/`, `~/.var/app/`) and `$SNAP` / `$FLATPAK_ID`
-- Doctor status becomes **warn** when sandbox is restricted
-- Prefer system packages; CDP + temp user-data-dir often break under confinement
+- Doctor status becomes warn when sandbox is restricted
+- Prefer system packages
+- CDP + temp user-data-dir often break under confinement
 
 
 ## Linux Notes
 - Common binaries include `chromium-browser`, `chromium`, and `google-chrome`
 - Run `doctor` after package install to confirm discovery
 - Override discovery with `config set chrome_path /path/to/chrome` when PATH is messy
-- Headless is default for local agent runs
+- `browser_mode auto` is headless unless the host is Linux with `Xvfb` on PATH and no `--no-xvfb`, as stated in [Anti-Detection Across Platforms](#anti-detection-across-platforms)
 - On Alpine or other musl hosts, cross-compile or build natively for the musl target
-- Provide a real Chrome or Chromium binary; the CLI does not bundle a browser
+- Provide a real Chrome or Chromium binary
+- The CLI does not bundle a browser
 - Containers auto-add Chrome `--no-sandbox` and `--disable-dev-shm-usage` when root or docker/podman/k8s markers are present
-- Residual disk hygiene (v0.1.5 law still current in 0.1.9): BORN + FINALIZE scavenge owned Singleton-only Chromium tmp under process temp (commonly `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*`)
-- Stale Singleton GC age floor is **60s**; only same-uid Singleton-only (or empty) dirs with no live `/proc` holder are wiped
+- Residual disk hygiene (v0.1.5 law still current in 0.2.0): BORN + FINALIZE scavenge owned Singleton-only Chromium tmp under process temp (commonly `/tmp/org.chromium.Chromium.*` and `/tmp/.org.chromium.Chromium.*`)
+- Stale Singleton GC age floor is 60s
+- Only same-uid Singleton-only (or empty) dirs with no live `/proc` holder are wiped
 - CLI markers use prefix `browser-automation-cli-chrome-*` under the process temp dir
-- Host Flatpak Chrome temp prefixes are **never** deleted by product residual GC
+- Host Flatpak Chrome temp prefixes are never deleted by product residual GC
 - Inspect with `doctor --offline --quick --json` → top-level `residual` and check `residual_disk`
+
+### Headed launch under Wayland and the private Xvfb
+- A headed launch on Linux draws into a private Xvfb display when the `Xvfb` binary is on PATH and `--no-xvfb` is absent
+- `Xvfb` is a host package the CLI never installs, and `doctor` reports it with the install hint for the distribution
+- Without `Xvfb` the launch warns, continues headed on the current display, and `display_backend` reports `host`
+- With the private display up, `display_backend` reports `xvfb`
+- `display_backend` follows the display the launch actually used since 0.2.0, so a run whose Xvfb failed reports `host`
+- A headed run with an extension starts the private display too since 0.2.0
+- Under a Wayland session Chromium picks Wayland from `XDG_SESSION_TYPE` when no `--ozone-platform` is given
+- Removing `WAYLAND_DISPLAY` alone does not stop that, because Chromium then finds `$XDG_RUNTIME_DIR/wayland-0` by itself
+- Measured on Fedora 44 with Chromium 152, that left the window on the real compositor while Xvfb drew nothing
+- The CLI therefore adds `--ozone-platform=x11` when the private display started, and also removes `WAYLAND_DISPLAY` from Chrome's environment
+- The pin enters only when Xvfb actually came up, because forcing X11 with no X server fails with `Missing X server or $DISPLAY`
+- A platform already present in Chrome's arguments is kept
+- `--no-xvfb` starts no private display, adds no pin, and lets Chrome use the current display, Wayland included
+- `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` are host facts Chromium reads, never product configuration
+- Concurrent headed runs each get their own display, searched from `:99` over 32 numbers
+- A run owns a display only when `/tmp/.X{n}-lock` names the pid of its own Xvfb
+- A server that loses the race for a number exits, and the launch retries on the next free number
+- The lock and the socket are removed at teardown only when the lock names this run's Xvfb
+- A lock left by a dead process is reused, because a CLI killed with `SIGKILL` kills its Xvfb the same way
+- The private Xvfb stops with `SIGTERM` and a 2-second grace before `SIGKILL`, so the server removes its own lock and socket
+- A server that does not come up within 10 seconds ends the attempt
+- The private Xvfb starts with `-nolisten tcp` and writes its output to the null device
+- The private display demands a `MIT-MAGIC-COOKIE-1` held in a mode 0600 file in the per-user runtime directory, with the temp directory as fallback
+- The server receives that file through `-auth`, and Chrome receives it through `XAUTHORITY`
+- The file name carries the creator's pid, so the next launch removes a cookie left by a CLI killed with `SIGKILL`
+- The file is removed at teardown after the server that reads it is gone
+- `doctor`'s `virtual_display` message names the value `auto` resolves to on this host since 0.2.0
+- macOS and Windows never start Xvfb
+
+### DevTools pipe per platform
+- A self-spawned Chrome gets DevTools through `--remote-debugging-pipe` and opens no TCP port
+- The CLI talks to Chrome through a loopback WebSocket bridge on a path holding the 122 random bits of a v4 UUID
+- The bridge relays exactly one valid client, answers `403` on any other path, and serves no `/json/version`
+- The bridge gives a client 2 seconds to finish the WebSocket handshake
+- The bridge caps each DevTools message at 256 MiB in either direction
+- The bridge waits at most 2 seconds for its pipe threads at teardown
+- Chrome's and Lightpanda's stdout and stderr drainers get the same 2-second bound at teardown
+- On Linux and macOS Chrome reads the pipe on descriptors 3 and 4
+- On Linux both pipes are created close-on-exec atomically with `pipe2`
+- On macOS the pipes are created with `pipe` and the close-on-exec flag is set right after, which leaves a narrow window where a fork on another thread inherits the ends
+- On Windows Chrome receives two inheritable handles in `--remote-debugging-io-pipes`, and the handles the CLI keeps are marked non-inheritable
+- A host with neither POSIX descriptors nor Windows handles refuses the pipe with an error
+- On Unix a failed Chrome launch kills Chrome's whole process group, and on Windows that group kill does nothing
+- On every platform the teardown of a failed launch runs on a blocking thread through `kill_off_the_runtime` in `src/native/cdp/chrome/spawn.rs`, so `--timeout` still ends the command with exit 124 instead of 69
+- Linux is the only host where the pipe was measured
+- macOS was NOT validated live for the pipe
+- Windows was NOT compiled or tested for the pipe
+- KDE and Sway sessions were NOT validated live for the pipe or the X11 pin
+- The Lightpanda engine and the legacy launch behind `chrome_legacy_oxide_launch` keep their previous transport
 
 
 ## macOS Notes
@@ -92,18 +143,19 @@ Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `p
 - Prefer full binary path via XDG `chrome_path` only when PATH discovery fails
 - Apple Silicon and Intel both use system Chrome discovery
 - Grant accessibility or screen permissions only if you use headed debugging outside agents
-- Universal binary / notarization are **release-ops** (not required for source builds)
+- Universal binary / notarization are release-ops (not required for source builds)
 
 
 ## Windows Notes
 - Use PowerShell or cmd with explicit quoting around URLs
 - Prefer `--json` to avoid locale-dependent prose parsing
-- Keep argv UTF-8 clean; avoid mojibake when piping through legacy code pages
+- Keep argv UTF-8 clean
+- Avoid mojibake when piping through legacy code pages
 - Quote paths with spaces: `"C:\Users\me\out.png"`
 - Prefer `grab --path` with a full path rather than relying on cwd
 - Windows process helpers live behind `cfg(windows)` and do not change the JSON contract
-- Path basenames reserved on Windows (`CON`, `NUL`, `COM1`, …) are rejected on **all** hosts for portable scripts
-- Residual **process** hygiene uses Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) so Chrome trees die with the CLI process
+- Path basenames reserved on Windows (`CON`, `NUL`, `COM1`, …) are rejected on all hosts for portable scripts
+- Residual process hygiene uses Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) so Chrome trees die with the CLI process
 - Disk residual report fields (`residual` / `residual_disk`) remain available via doctor for marker and temp hygiene diagnostics
 
 
@@ -129,15 +181,15 @@ Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `p
 - A foreign profile is reported, never blocked, through `profile_contradicts_host`
 - The headless override swaps only the `HeadlessChrome` product token for `Chrome`
 - That swap keeps the real host platform and never invents another one
-- `browser_mode auto` resolves to headless on Linux, macOS and Windows alike
-- The private virtual display (Xvfb) is Linux only and needs an explicit headed launch
+- `browser_mode auto` resolves to headed inside a private virtual display on Linux with Xvfb on PATH and without `--no-xvfb`
+- In every other case, macOS and Windows included, `browser_mode auto` resolves to headless
 - macOS always has Quartz and Windows always has DWM, so neither uses Xvfb
 - `doctor` reports the `xvfb` check as info on every non-Linux host
 - Without Xvfb on PATH a headed launch falls back to the current display
 - The install hint is read from `/etc/os-release` and the CLI never installs anything
 - `DISPLAY` and `WAYLAND_DISPLAY` are host facts read only on Linux
 - Reading them is not product configuration, which stays flags plus XDG
-- The `virtual_display` check exposes `host_has_display` and `private_display_supported`
+- The `virtual_display` check exposes `host_has_display`, `browser_mode_auto_resolves` and `private_display_supported`
 - Vulkan and ANGLE flags behind `--enable-unsafe-webgpu` are emitted on Linux only
 - The proxy path does not vary by platform at any point
 - `proxy_url` feeds Chrome `--proxy-server` and the shared HTTP client alike
@@ -164,16 +216,18 @@ Diagnostics: `browser-automation-cli doctor --offline --quick --json` reports `p
 - Install Chrome or Chromium in the image before runtime tests
 - Provide enough shared memory for Chrome (`/dev/shm` or equivalent)
 - Keep one-shot process cleanup expectations under orchestration restarts
-- Do not assume a host-mounted product settings file outside XDG; use flags and XDG mounts if needed
+- Do not assume a host-mounted product settings file outside XDG
+- Use flags and XDG mounts to carry settings into the container
 - Example shape: package `browser-automation-cli` plus Chromium, then call `doctor --json`
-- Optional: Redis server when testing `cache_backend redis`; Lighthouse binary or mock for audits
-- Host probe: `doctor --json` → `host_environment.container` / `.wsl` / `.ci` / `.termux`
+- Optional: Redis server when testing `cache_backend redis`
+- Optional: Lighthouse binary or mock for audits
+- Host probe: `doctor --json` → `host_environment.container` / `.wsl` / `.termux`
 
 
 ## Host environment probe
-- Module `platform::HostEnvironment` detects WSL, container, CI markers, Termux, Flatpak, Snap
+- Module `platform::HostEnvironment` detects WSL, container, Termux, Flatpak and Snap
 - Used by doctor diagnostics and Chrome launch flags (container → sandbox/dev-shm flags)
-- CI env keys are **observability only** — never product settings
+- Host markers are observability only, and never product settings
 
 
 ## Shell Support
@@ -196,20 +250,23 @@ browser-automation-cli completions powershell
 - Related fields also include `config_file`, `cache_dir`, `browsers_dir`, `sessions_dir`, `home_dir`, and `layout`
 - Artifacts follow `--artifacts-dir` when provided (flag or config key)
 - Cache, state, sessions, and workflow journals stay under user-local XDG trees
-- MITM CA material lives under XDG data (`mitm/ca`); captures under XDG state (`mitm/`)
+- MITM CA material lives under XDG data (`mitm/ca`)
+- MITM captures live under XDG state (`mitm/`)
 - Workflow journals live under XDG state (`workflows`)
 - Encryption key is set with `config set encryption_key <value>`
-- Discover live config keys with `config list-keys --json` (includes `dialog_settle_ms`; do not hard-code a fixed count such as “16 keys”)
+- Discover live config keys with `config list-keys --json`, and do not hard-code a fixed count such as “16 keys”
 - Product settings are flags and XDG `config` only — never product environment variables
-- Product settings use flags and XDG CLI only (`config path|init|show|set|get|list-keys`)
+- Product settings use flags and the XDG CLI only (`config path|init|show|set|unset|get|list-keys`)
+- Undo any key you wrote with `config unset <key>`
 - Language for human suggestions: `--lang` or XDG `lang` only
-- Full command inventory (**71** agent names) and agent patterns: [docs/HOW_TO_USE.md](HOW_TO_USE.md)
+- Full command inventory (71 agent names) and agent patterns: [docs/HOW_TO_USE.md](HOW_TO_USE.md)
 - Redis cache: `cache_backend redis` + `cache_redis_url redis://…` only (`rediss://` fail-closed)
 - Product logging: `--verbose` / `--debug` / `-q` or XDG `log_level`
-- Color: `config set color`; Chrome path: `config set chrome_path`
+- Color: `config set color`
+- Chrome path: `config set chrome_path`
 
-## v0.1.9 agent surface (compact)
 
+## v0.2.0 agent surface (compact)
 - Anti-detection family is live: `stealth`, `stealth_profile`, `stealth_seed`, `browser_mode`, `input_profile`
 - Same family adds proxy keys, HTTP/2 `SETTINGS` keys and the ten `input_*` timing keys
 - Global anti-detection flags: `--no-stealth`, `--stealth-profile`, `--stealth-seed`, `--input-profile`, `--input-seed`
@@ -217,24 +274,31 @@ browser-automation-cli completions powershell
 - Every one of those flags parses identically on Linux, macOS and Windows
 - Scrape envelopes disclose `stealth`, `profile_contradicts_host`, `http2_profile` and `tls_impersonation`
 - Platform behaviour for the whole family lives in [Anti-Detection Across Platforms](#anti-detection-across-platforms)
-- **`dialog_settled`** boolean after real dialog accept/dismiss (GAP-054); multi-tab isolation via `Page::session_id` / `dialog_map_key`
-- **`dialog_settle_ms`** via XDG `config set` only (flags + XDG; never product env vars)
-- **`wait_timeout_ms`** public key on run wait steps (GAP-053)
+- A self-spawned Chrome uses the DevTools pipe on every platform, as stated in [DevTools pipe per platform](#devtools-pipe-per-platform)
+- `dialog_settled` boolean after real dialog accept/dismiss (GAP-054)
+- Multi-tab dialog isolation goes through `Page::session_id` / `dialog_map_key`
+- `dialog_settle_ms` via XDG `config set` only (flags + XDG, never product env vars)
+- `wait_timeout_ms` public key on run wait steps (GAP-053)
 - Scrape `format`/`formats` in run without HTML monster (GAP-057)
 - Native select `pick`/`select-option` dispatches `input` then `change`, `via: native_select` (GAP-055)
-- **Universal envelope flags:** `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes` on all 71 commands, identical on every platform
-- **`agent_ops`** appears in the success envelope only when one of those flags ran; `unresolved_paths` names a path no row carried
-- **`agent_ops` is omitted when there is nothing to report:** a flag that ran and resolved cleanly leaves the envelope shape untouched, on every platform
-- **`--select`/`--filter`/`--limit`/`--sort` are NOT global:** they are per-command flags on scrape, crawl, map, search, batch-scrape and the media `info` verbs
-- **XDG keys:** 206 documented in [CONFIGURATION.md](CONFIGURATION.md); discover live with `config list-keys --json`
-- **`grab` encode:** png|jpeg|webp only; AVIF removed (breaking)
-- Inventory **71** includes `submit` + `storage` + `image`+`video`+`audio`+`record`; residual-zero disk law from 0.1.5 still current
-- GAP-021 partial (unit LHR fixtures; e2e lighthouse mock SKIP); GAP-022 residual ~53 dups accepted; GAP-023/024 intentional divergences
+- Universal envelope flags: `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes` on all 71 commands, identical on every platform
+- `agent_ops` appears in the success envelope only when one of those flags ran
+- `unresolved_paths` names a path no row carried
+- `agent_ops` is omitted when there is nothing to report: a flag that ran and resolved cleanly leaves the envelope shape untouched, on every platform
+- `--select`/`--filter`/`--limit`/`--sort` are NOT global: they are per-command flags on scrape, crawl, map, search, batch-scrape and the media `info` verbs
+- XDG keys: 217 documented in [CONFIGURATION.md](CONFIGURATION.md)
+- Discover live with `config list-keys --json`
+- `grab` encode: png|jpeg|webp only
+- AVIF removed (breaking)
+- Inventory 71 includes `submit` + `storage` + `image`+`video`+`audio`+`record`
+- The residual-zero disk law from 0.1.5 is still current
+- GAP-021 partial (unit LHR fixtures, e2e lighthouse mock SKIP)
+- GAP-022 residual ~53 dups accepted
+- GAP-023/024 intentional divergences
+
 
 ## Full agent inventory (71)
-
-Discover live: `browser-automation-cli commands --json`
-
+- Discover live: `browser-automation-cli commands --json`
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
@@ -243,8 +307,9 @@ net page parse perf pick press print-pdf qr record reload resize run schema scra
 scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
+- `pick` and `select-option` are multi-step inventory names used in `run` scripts
+- The clap product subcommand count is 69 (71 agent names − 2 run-only)
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **69** (71 agent names − 2 run-only).
 
 ## Performance by Target
 - Linux desktop and servers are the primary optimization target

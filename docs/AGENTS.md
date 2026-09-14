@@ -2,7 +2,10 @@
 
 # Agents Guide — browser-automation-cli
 
-> Cut browser-tool glue. Keep one Chrome lifecycle under your agent. Lifecycle: BORN EXECUTE FINALIZE DIE.
+
+- Cut browser-tool glue
+- Keep one Chrome lifecycle under your agent
+- Lifecycle: BORN EXECUTE FINALIZE DIE
 
 
 ## Why Agents Choose This CLI
@@ -13,12 +16,14 @@
 - Local scrape / crawl / map / search / parse surface ships as first-class subcommands
 - Artifact helpers (`print-pdf`, `monitor`, `qr`, `image`, `video`, `audio`, `find-paths`, `sheet-write`, `sg-scan`, `sg-rewrite`) and XDG LLM keys extend agent workflows without daemons
 - Durable defaults live in flags and XDG `config path|init|show|set|get`
-- v0.1.9 agent-first (anti-detection family since 0.1.8); scrape envelope unified; inventory **71** live; **217** XDG keys; `doctor --fingerprint` names `measurement_scope` and `unmeasured_os`
-- Carried forward: `dialog_settled` boolean after real dialog answer; XDG `dialog_settle_ms`; grab **png|jpeg|webp** only (AVIF removed); run `wait_timeout_ms` + scrape `format`/`formats` (0.1.6 added `submit`/`storage`; 0.1.7 added `image`+`video`+`audio`+`record`)
+- v0.2.0 agent-first (anti-detection family since 0.1.8); scrape envelope unified; inventory **71** live; **217** XDG keys; `doctor --fingerprint` names `measurement_scope` and `unmeasured_os`
+- Carried forward: `dialog_settled` boolean after real dialog answer; XDG `dialog_settle_ms`; grab png|jpeg|webp only (AVIF removed); run `wait_timeout_ms` + scrape `format`/`formats` (0.1.6 added `submit`/`storage`; 0.1.7 added `image`+`video`+`audio`+`record`)
 - Multi-tab dialog isolation via `Page::session_id` / `dialog_map_key`; native select `via: native_select` (input then change)
 - Residual-zero disk law from v0.1.5 remains current: BORN + FINALIZE Singleton GC, doctor `residual_disk` / JSON `residual`, meta cmds `locale` and `man`
 - Product config: flags + XDG only (never product env vars); discover keys via `config list-keys --json`
-- GAP-021 partial: unit LHR fixtures; e2e lighthouse mock **SKIP**. GAP-022 residual ~53 multi-version dups accepted. GAP-023/024 intentional PRD divergences
+- GAP-021 partial: unit LHR fixtures, and the e2e lighthouse mock is SKIP
+- GAP-022 residual ~53 multi-version dups accepted
+- GAP-023/024 intentional PRD divergences
 - Carry-forward from v0.1.4 agent contracts: `--json-steps`, wait multi/url, pick/select-option, assert console, schema positional, MITM capture-url, clap JSON usage errors
 
 
@@ -68,27 +73,28 @@
 - Always pass `--json` for machine parsing
 - Read success and error envelopes from stdout
 - Keep stderr for human or debug logs only
-- Use `commands --json` to discover the live inventory (**71 agent names**)
+- Use `commands --json` to discover the live inventory (71 agent names)
 - Inventory includes config, mitm, workflow, scrape, batch-scrape, crawl, map, search, parse, print-pdf, monitor, qr, find-paths, sheet-write, sg-scan, sg-rewrite, extract, submit, storage, select-option, pick, locale, man, and DevTools-parity tools (**71** total, includes `image`, `video`, `audio`; e2e 53 tools with lighthouse mock SKIP)
-- Note: `select-option` and `pick` are in the **71** agent inventory (`commands --json`) and are used via `run` / `exec` / `schema`; they are **not** clap standalone subcommands (clap product surface is **69** names excluding `help`)
+- Note: `select-option` and `pick` are in the **71** agent inventory (`commands --json`) and are used via `run` / `exec` / `schema`; they are not clap standalone subcommands (clap product surface is **69** names excluding `help`)
 - Use `schema <name> --json` or `schema --cmd <name> --json` before generating argv for unfamiliar commands
 - Prefer flags for one-off control
 - Use `config init|set|get|path|show|list-keys` for durable XDG defaults
 - Discover live config keys via `config list-keys --json` (do not hard-code a fixed count; includes `dialog_settle_ms` and more)
 - Resolve paths with `config path --json`
-- For multi-step work that needs shared `@eN` refs, use one `run --script` process (NDJSON **or** JSON array of steps)
-- `run --script -` reads NDJSON steps from **stdin**, one step per line, against a single live session
+- For multi-step work that needs shared `@eN` refs, use one `run --script` process (NDJSON or JSON array of steps)
+- `run --script -` reads NDJSON steps from stdin, one step per line, against a single live session
 - Prefer stdin over shell process substitution: `run --script <(printf ...)` is rejected, because the path lands in `/proc/<pid>/fd/<n>` and the file jail refuses reads outside the allowed roots
 - Final `run --json` envelope includes `ok` and full `steps[].data`
 - Stream per-step NDJSON with global `--json-steps` (`step`, `cmd`, `ok`, `result`)
 - Wait with OR text: `wait --text A --text B`
-- Wait multi-selector CSS OR and run fields `url` / `url_contains` / `navigation: true` (boolean) and public **`wait_timeout_ms`**; may return `matched_selector`
-- After real `dialog accept|dismiss`, read **`dialog_settled`** (boolean). When true, do **not** insert an artificial wait before the next page step
+- Wait multi-selector CSS OR and run fields `url` / `url_contains` / `navigation: true` (boolean) and public `wait_timeout_ms`; may return `matched_selector`
+- After real `dialog accept|dismiss`, read `dialog_settled` (boolean)
+- When true, do not insert an artificial wait before the next page step
 - Configure dialog settle budget only with `config set dialog_settle_ms` (XDG; never a product env var)
 - Pick option menus: `{"cmd":"pick","target":"…","option":"…"}` or `select-option` (native `<select>` → `input`+`change`, `via: native_select`)
 - Submit form: `submit <target>` or `{"cmd":"submit","target":"…"}`
 - Storage portable auth: `storage export|import --path <file>` (cookies + localStorage + sessionStorage)
-- Grab encode formats: **png | jpeg | webp** only — never `avif`
+- Grab encode formats: png | jpeg | webp only — never `avif`
 - Scroll aliases in NDJSON: `{"cmd":"scroll","dy":1500}`
 - Assert aliases: `{"cmd":"assert","url_contains":"example.com"}` / `text_contains`
 - Assert console: `{"cmd":"assert","kind":"console_empty"}` or `console_no_match` + `pattern` (needs `--capture-console`)
@@ -117,7 +123,7 @@
 - LLM extract fails closed without XDG `openrouter_api_key`
 - Localize human suggestions with `--lang pt-BR` or `config set lang pt-BR` (flags + XDG only)
 - Inspect resolved locale with `locale --json`; generate man page with `man`
-- After browser work, expect residual-zero disk when alone: doctor check `residual_disk` not `fail` and top-level `residual` zeros for `orphan_marker_dirs`, `ghost_marker_processes`, and (after DIE alone) `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes` is informational concurrency; do **not** require zero `live_cli_marker_processes`
+- After browser work, expect residual-zero disk when alone: doctor check `residual_disk` not `fail` and top-level `residual` zeros for `orphan_marker_dirs`, `ghost_marker_processes`, and (after DIE alone) `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes` is informational concurrency; do not require zero `live_cli_marker_processes`
 - Clap usage errors emit JSON when `--json` is already on argv (GAP-002)
 - Soft dialog path: `dialog accept --if-present` / `dialog dismiss --if-present`
 - Beforeunload (GAP-003): `goto`/`reload --handle-before-unload accept|dismiss`; run field `handle_before_unload`
@@ -195,6 +201,7 @@ fn main() {
 - Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Discover argv with `schema <name> --json` for any name above
 
+
 ## Lifecycle
 - Slogan (English): BORN EXECUTE FINALIZE DIE
 - One process owns one Chrome session from launch through FINALIZE
@@ -202,11 +209,13 @@ fn main() {
 - FINALIZE is idempotent (Browser.close, wait, kill fallback) and dual-scavenges invocation-window + stale Singleton orphans
 - Residual contract for agents: after DIE alone expect zero `orphan_marker_dirs`, zero `ghost_marker_processes`, zero CLI marker dirs, zero owned Singleton-only Chromium tmp litter; `sibling_live_processes>0` is healthy concurrency; do not require zero `live_cli_marker_processes`
 - Host Flatpak Chrome is never killed or wiped by product residual GC
+- A failed Chrome launch kills Chrome's whole process group, so a descendant left in that group does not outlive the CLI
+- A descendant that calls `setsid` leaves the group and stays out of that kill
 - Do not expect session or `@eN` refs to survive process exit
 - Verify with `doctor --offline --quick --json` → `residual` / check `residual_disk`
 
 
-## Technical Contract (v0.1.9)
+## Technical Contract (v0.2.0)
 ### REQUIRED
 - Pass `--json` for programmatic consumption
 - Treat one process as one Chrome lifecycle (BORN EXECUTE FINALIZE DIE)
@@ -303,7 +312,13 @@ browser-automation-cli -q --json doctor --offline --quick
 - It differs from the requested mode exactly under `auto`, which is the case the caller cannot see any other way
 - `browser_mode_source` names the precedence step that won, and takes `default`, `xdg` or `flag`
 - Read `browser_mode_source` first when behaviour diverges from expectation, because it answers which configuration layer decided this run
-- `display_backend` is the surface the browser draws onto, and takes `headless`, `xvfb` or `host`
+- `display_backend` is the surface the browser drew onto, and takes `headless`, `xvfb` or `host`
+- After a launch it reports the display that launch really used, not the display the flags asked for
+- `xvfb` means the private virtual display started, and `host` means a headed Chrome reached the current display
+- A headed Linux launch whose Xvfb cannot start still runs on the current display, and the field then says `host`
+- A headed launch outside Linux always says `host`, because no private display exists there
+- Before any launch in the process the field reports the intent, because no outcome exists yet
+- Read `display_backend` whenever a window on the operator screen is unacceptable
 - `display_backend` is NOT deduced from `browser_mode` alone, because headed on a private virtual display is not the operator's screen
 - `runtime_enable_used` states whether this launch issued `Runtime.enable`
 - Compare two runs and the domain appears the moment `--capture-console` is passed, which turns "the default path does not enable Runtime" into a checkable claim instead of prose
@@ -349,6 +364,7 @@ browser-automation-cli -q --json doctor --offline --quick
 - `--fields PATHS` projects dotted paths (CSV) and keeps the documented nesting
 - `--filter-rows EXPR` keeps rows matching `key=value`, `key!=value` or `key~substring`; repeatable and ANDed
 - `--limit-rows N` caps rows after filter, dedupe and sort
+- `--max-items N` is an accepted alias of `--limit-rows`, and it limits what is EMITTED while a command's local `--limit` limits what is FETCHED
 - `--sort-rows PATH` orders rows; numbers compare numerically, not as text
 - `--dedupe-by PATH` drops repeats, keeping the first
 - `--count-only` returns `{"count": N}` instead of the rows
@@ -375,6 +391,7 @@ browser-automation-cli -q --json doctor --offline --quick
 - `--expect EXPR` states what the emitted payload must contain, using the `--filter-rows` grammar
 - Repeatable and ANDed, so several assertions can hold at once
 - Evaluated LAST, over the payload you actually receive, so projection or truncation cannot hide a failure
+- It runs after `--fields` and `--filter-rows`, and its key is a path relative to `data`
 - An expectation holds when at least ONE row satisfies it: `--expect status=200` asks "is there a 200 here?"
 - Filter first when you need every row to match — `--filter-rows` narrows, `--expect` then asserts
 - Unmet expectations arrive in `agent_ops.expectation_unmet`, echoed exactly as you typed them
@@ -426,6 +443,18 @@ browser-automation-cli -q --json doctor --offline --quick
 - `--headless` REQUIRES a headless run and overrides any persisted mode, so "I require headless" and "I said nothing" stop being the same argv
 - `--headed` renders a real window; on Linux it goes into a private virtual display when `Xvfb` is available
 - `--no-xvfb` keeps a headed launch on the operator's own display instead
+- On Linux a headed launch stays inside the private Xvfb even under a Wayland session
+- Chrome there receives `--ozone-platform=x11`, because Chromium picks Wayland from the session type and would draw on the real compositor
+- The pin is added only when the private display really started, and never over a platform switch already present in the Chrome argv
+- The private Xvfb requires a `MIT-MAGIC-COOKIE-1`, kept in a mode 0600 file that teardown removes
+- The next launch removes a cookie file left by a CLI killed with `SIGKILL`
+- Two concurrent headed launches get two different display numbers
+- The self-spawned Chrome opens no DevTools TCP port and runs with `--remote-debugging-pipe`
+- A loopback WebSocket bridge relays exactly one client, on a path holding 122 random bits, and answers any other path with 403
+- The bridge caps one DevTools message at 256 MiB and waits at most two seconds for its pipe threads at teardown
+- The Lightpanda engine and the legacy launch chosen by `config set chrome_legacy_oxide_launch true` keep their previous transport
+- The pipe and the X11 pin were validated live on Fedora 44 under Wayland only
+- The Windows pipe path was never compiled or tested, and macOS, KDE and Sway were not validated
 - `doctor` reports `xvfb` with the install command for the detected distribution; the CLI never installs anything
 - `--no-stealth` turns the disguise off; `--stealth-profile` picks `auto`, `chrome-linux`, `chrome-win` or `chrome-mac`
 - `auto` follows the host platform, and a headless launch still gets a User-Agent override so it does not announce `HeadlessChrome`
@@ -446,10 +475,30 @@ browser-automation-cli -q --json doctor --offline --quick
 - The envelope reports `profile_contradicts_host: true` when the stealth profile claims another platform
 - Read that field before blaming a block: TLS and HTTP/2 carry the real stack whatever the User-Agent says
 - The `doctor --fingerprint` envelope carries `planned_version_source`, and the field takes THREE values: `null`, `chrome_binary` and `crate_table`
-- It is `null` under stealth, which is the default, because there the crate table IS the projected identity and nothing is probed, so there is no source to declare
-- It is `chrome_binary` under `--no-stealth` when the planned major was read from the Chrome/Chromium binary THIS host would launch
-- It is `crate_table` under `--no-stealth` when the binary could NOT be probed and the plan fell back to the dependency's table
+- It is `null` when the plan overrides the User-Agent, which is every headless launch and every profile that claims another platform, because there the identity crate's table IS the projected identity
+- It is `chrome_binary` when no override applies and the planned major was read from the Chrome/Chromium binary THIS host would launch, under stealth and under `--no-stealth` alike
+- On Linux with Xvfb on PATH `auto` resolves to headed, so the default stealth run reports `chrome_binary` there and not `null`
+- It is `crate_table` when no override applies and the binary could NOT be probed, so the plan fell back to the dependency's table
 - Read `crate_table` as a guess rather than a measurement, or you will treat a plan derived from a table as a reading of the binary
+- With stealth on, `planned.ua_data_platform` is ALWAYS `null`, because the patch never emulates `navigator.userAgentData` and the `about:blank` probe page is not a secure context, where Chrome exposes no such object
+- The live probe publishes `ua_data_brands`, and the mismatch `ua_data_brands_vs_user_agent` compares only the Chrome major in those brands with the major in the User-Agent
+- The stealth patch NEVER emulates `navigator.userAgentData`, in any mode, and the object exists only in a secure context, exactly as in a real Chrome
+- Headed on the host profile, with no override, the page exposes Chrome's native object, which agrees with the real `sec-ch-ua`, and the page User-Agent is the installed Chrome's
+- Headless or on a profile that claims another platform, the override sends a complete `userAgentMetadata` over CDP, and Chrome builds the page object from it
+- That metadata carries `brands` and `fullVersionList` from the same source, a `fullVersion` that the identity crate associates with the User-Agent major, `platformVersion` (empty on Linux, `10.0` on Windows), `bitness` `64` and `wow64` false
+- So JavaScript, `getHighEntropyValues` and the headers `sec-ch-ua`, `sec-ch-ua-full-version`, `sec-ch-ua-full-version-list`, `sec-ch-ua-platform-version`, `sec-ch-ua-bitness` and `sec-ch-ua-wow64` all tell the same version
+- Every `scrape` envelope carries `user_agent_major_source` on both engines, and the key is always present
+- `projected` means the User-Agent is overridden and the major came from the identity crate's table
+- `host_binary` means the major came from this host's Chrome: the launch reply to `Browser.getVersion`, `--version` in `doctor`, or the major a seeded earlier launch stored
+- `host_unprobed` means no major was known and nothing was probed, so the crate table stood in
+- It is `null` under `--no-stealth`, and on `--engine browser` it is also `null` before a launch
+- Without a seed the HTTP engine builds `user-agent` and `sec-ch-ua` from the crate table and never looks for Chrome
+- With a seed it sends the major the last launch stored; the first run after a Chrome upgrade that sends HTTP before launching the browser in the same process can still announce the old major
+- The HTTP client shares only the MAJOR with the browser: its `sec-ch-ua` is always the fixed list Chromium, Google Chrome and a GREASE brand, whatever `user_agent_major_source` says
+- That list may not match the native list of a browser without an override, such as a Chromium that carries no Google Chrome brand or orders the GREASE brand first, and `user_agent_major_source` describes only where the major came from
+- The stored major lives in `state_dir/stealth/host-major-<hash>.txt`, read and written ONLY with stealth on AND `--stealth-seed` or XDG `stealth_seed`
+- Without a seed nothing about the major goes to disk, and under `--no-stealth` never, so the residual-zero promise of a run without a seed still holds
+- The seeded script cache key is `{profile}-{major}` for `host_binary` and `{profile}-native` for `host_unprobed` and `projected`, so a script stored by an earlier version is redrawn once
 - Anti-detection defaults, all set with `config set` and never with an environment variable
 - `stealth` is `true`, `stealth_profile` is `auto`, `browser_mode` is `auto`
 - `stealth_seed` has no default; set it only when a stable identity is required
@@ -502,13 +551,18 @@ browser-automation-cli -q --json doctor --offline --quick
 ## Exit Codes
 - `0` success
 - `2` usage
-- `6` blocked — the origin served a bot check instead of content. Transport succeeded (HTTP 200, valid HTML), so `status_code` and `http_error` report success while the body carries a challenge. Read `error.suggestion`; retrying the same request escalates toward a ban
+- `6` blocked — the origin served a bot check instead of content
+- Under `6` the transport succeeded with HTTP 200 and valid HTML, so `status_code` and `http_error` report success while the body carries a challenge
+- Read `error.suggestion` under `6`, because retrying the same request escalates toward a ban
+- `64` capability disabled — argv is correct and a category or experimental gate flag is missing
 - `65` data
 - `66` no input
 - `69` unavailable
 - `70` software, browser, protocol
 - `74` I/O
+- `75` precondition — the page or session does not satisfy the command, so navigate first or answer the open dialog
 - `78` config
 - `124` timeout
+- A failed Chrome launch still tearing down when `--timeout` expires also ends with `124`, not `69`
 - `130` cancelled
 - `141` broken pipe

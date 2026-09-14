@@ -12,11 +12,13 @@
 //!
 //! # What the browser engine does NOT get
 //!
-//! Under the default `auto` profile the browser keeps Chrome's OWN User-Agent.
-//! Overriding it would buy nothing and risk everything: the real UA already
-//! matches the real engine, the real Canvas hash and the real TLS fingerprint,
-//! and any string we substitute can only introduce a contradiction. The
-//! automation markers were always the problem, not the UA.
+//! Under the default `auto` profile a HEADED browser keeps Chrome's OWN
+//! User-Agent. Overriding it would buy nothing and risk everything: the real UA
+//! already matches the real engine, the real Canvas hash and the real TLS
+//! fingerprint, and any string we substitute can only introduce a
+//! contradiction. A HEADLESS browser is overridden, because its UA carries the
+//! `HeadlessChrome` token; the override keeps the host platform and replaces
+//! only that token — see [`Identity::overrides_browser_user_agent`].
 //!
 //! An explicit `chrome-win` or `chrome-mac` profile does override it, and the
 //! caller is accepting a known mismatch: this product impersonates neither TLS
@@ -59,6 +61,14 @@ const fn platform_tokens(os: AgentOs) -> (&'static str, &'static str, &'static s
     }
 }
 
+/// `sec-ch-ua` brand list for a Chrome major.
+fn brands_for_major(major: &str) -> String {
+    format!(
+        "\"Chromium\";v=\"{major}\", \"Google Chrome\";v=\"{major}\", \
+         \"Not?A_Brand\";v=\"24\""
+    )
+}
+
 impl Identity {
     /// Build the identity for a resolved profile.
     ///
@@ -84,10 +94,7 @@ impl Identity {
             "Mozilla/5.0 ({platform_token}) AppleWebKit/537.36 (KHTML, like Gecko) \
              Chrome/{major}.0.0.0 Safari/537.36"
         );
-        let brands = format!(
-            "\"Chromium\";v=\"{major}\", \"Google Chrome\";v=\"{major}\", \
-             \"Not?A_Brand\";v=\"24\""
-        );
+        let brands = brands_for_major(major);
 
         Self {
             user_agent,
@@ -115,6 +122,67 @@ impl Identity {
             "Mozilla/5.0 ({platform_token}) AppleWebKit/537.36 (KHTML, like Gecko) \
              Chrome/{major}.0.0.0 Safari/537.36"
         )
+    }
+
+    /// This identity re-centred on a different Chrome major, User-Agent and
+    /// `sec-ch-ua` brands together.
+    ///
+    /// Used where Chrome keeps its OWN User-Agent (host profile, headed): the
+    /// page then shows the host binary's major, and a patch script built from
+    /// the crate table would publish `userAgentData.brands` with another one.
+    /// Measured before this existed: headed page `Chrome/152.0.0.0` next to
+    /// brands `v="153"`.
+    #[must_use]
+    pub fn with_major(&self, major: &str) -> Self {
+        Self {
+            user_agent: self.user_agent_with_major(major),
+            brands: brands_for_major(major),
+            ..self.clone()
+        }
+    }
+
+    /// Full Chrome version that goes with this identity's major, for the
+    /// `fullVersion` / `fullVersionList` Client Hints of an override.
+    ///
+    /// Taken from the crate's own table rather than invented or drawn: its
+    /// `latest` entry when that shares the major (the same source
+    /// [`Identity::for_profile`] reads the major from), else the newest build it
+    /// lists for the major, else the reduced `<major>.0.0.0` the User-Agent
+    /// already shows. The crate's `smart_spoof_chrome_full_version` was NOT used
+    /// because it draws a random build per call — measured `153.0.7983.0` and
+    /// `153.0.6832.5` in two processes — which a seeded identity cannot pin.
+    #[must_use]
+    pub fn full_version(&self) -> String {
+        let major = crate::native::stealth::ua_chrome_major(&self.user_agent).unwrap_or_default();
+        let latest = spider_fingerprint::spoof_user_agent::get_default_version();
+        if latest.split('.').next() == Some(major.as_str()) {
+            return latest.to_string();
+        }
+        spider_fingerprint::CHROME_VERSIONS_BY_MAJOR
+            .get(major.as_str())
+            .and_then(|builds| builds.last())
+            .map_or_else(|| format!("{major}.0.0.0"), |b| (*b).to_string())
+    }
+
+    /// `platformVersion` Client Hint for this identity.
+    ///
+    /// Linux is the empty string because that is what a real Chrome sends there:
+    /// measured on this host, headed Chromium without stealth answered
+    /// `platformVersion: ""` in `getHighEntropyValues` AND
+    /// `sec-ch-ua-platform-version: ""` on the wire. Windows and macOS take the
+    /// value the crate already emits for that User-Agent (`10.0` for
+    /// `Windows NT 10.0`), since this host cannot measure a foreign system.
+    #[must_use]
+    pub fn platform_version(&self) -> String {
+        match self.agent_os {
+            AgentOs::Windows | AgentOs::Mac => {
+                spider_fingerprint::spoof_user_agent::build_high_entropy_data(&Some(
+                    self.user_agent.as_str(),
+                ))
+                .platform_version
+            }
+            _ => String::new(),
+        }
     }
 
     /// Whether the browser engine should override Chrome's own User-Agent.
@@ -190,6 +258,22 @@ impl Identity {
             ("accept-language", "en-US,en;q=0.9".to_string()),
         ]
     }
+}
+
+/// Chrome major from the `product` field of `Browser.getVersion`.
+///
+/// That reply is the one the DevTools pipe bridge already receives as its
+/// readiness probe, so reading the major from it costs no process and no extra
+/// CDP command. Measured on this host: `Chrome/152.0.7977.82` headed; headless
+/// builds spell the token `HeadlessChrome/`. Anything else returns `None`
+/// rather than a guessed major.
+#[must_use]
+pub fn chrome_major_from_product(product: &str) -> Option<String> {
+    let version = product
+        .strip_prefix("HeadlessChrome/")
+        .or_else(|| product.strip_prefix("Chrome/"))?;
+    let major: String = version.chars().take_while(char::is_ascii_digit).collect();
+    (!major.is_empty()).then_some(major)
 }
 
 /// Chrome major version from a `--version` line, or `None` when it names none.
@@ -272,6 +356,39 @@ mod tests {
             let (token, _, _) = platform_tokens(id.agent_os);
             assert!(rebuilt.contains(token), "{rebuilt} lost {token}");
         }
+    }
+
+    #[test]
+    fn product_major_survives_headed_and_headless_tokens() {
+        for (product, want) in [
+            ("Chrome/152.0.7977.82", Some("152")),
+            ("HeadlessChrome/153.0.8369.12", Some("153")),
+            ("Chrome/", None),
+            ("Firefox/140.0", None),
+            ("", None),
+        ] {
+            assert_eq!(
+                chrome_major_from_product(product).as_deref(),
+                want,
+                "product: {product:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn with_major_moves_user_agent_and_brands_together() {
+        let id = Identity::for_profile(StealthProfile::ChromeLinux).with_major("151");
+        assert!(
+            id.user_agent.contains("Chrome/151.0.0.0"),
+            "{}",
+            id.user_agent
+        );
+        assert!(
+            id.brands.contains("\"Google Chrome\";v=\"151\""),
+            "{}",
+            id.brands
+        );
+        assert_eq!(id.agent_os, AgentOs::Linux);
     }
 
     #[test]

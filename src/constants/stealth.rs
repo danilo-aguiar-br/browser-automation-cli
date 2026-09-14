@@ -226,6 +226,13 @@ pub const XVFB_DISPLAY_SEARCH_SPAN: u32 = 32;
 /// Poll interval while waiting for a spawned Xvfb to create its socket.
 pub const XVFB_READY_POLL_MS: u64 = 50;
 
+/// Grace, in milliseconds, between `SIGTERM` and `SIGKILL` for the private Xvfb.
+///
+/// `SIGTERM` lets the server remove its own lock and socket; measured on
+/// 2026-09-13, both were gone once it exited. `SIGKILL` leaves them behind, so
+/// the kill is the fallback and never the first signal.
+pub const XVFB_TERM_GRACE_MS: u64 = 2000;
+
 // Compile-time invariants, following the pattern in `constants/mod.rs`.
 //
 // These belong here rather than in a `#[test]`: the comparisons are known at
@@ -246,6 +253,7 @@ const _: () = assert!(DEFAULT_XVFB_STARTUP_TIMEOUT_SECS > 0);
 const _: () = assert!(XVFB_DISPLAY_SEARCH_START >= 10);
 const _: () = assert!(XVFB_DISPLAY_SEARCH_SPAN >= 8);
 const _: () = assert!(XVFB_READY_POLL_MS > 0);
+const _: () = assert!(XVFB_TERM_GRACE_MS > XVFB_READY_POLL_MS);
 // The poll must fit inside the deadline it is polling against, or the first
 // sleep would already exceed the whole budget.
 const _: () = assert!(XVFB_READY_POLL_MS < DEFAULT_XVFB_STARTUP_TIMEOUT_SECS * 1000);

@@ -35,6 +35,5 @@ pub use ready::{reserve_loopback_port, wait_for_cdp_ready, ReadinessBudget};
 
 pub(crate) use logs::start_log_drainers;
 
-/// Test-only re-export for the Lightpanda error-shape assertions.
-#[cfg(test)]
+/// Launch-failure message shape, shared by the Chrome pipe launcher and tests.
 pub(crate) use logs::launch_error;

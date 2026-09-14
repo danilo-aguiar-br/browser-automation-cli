@@ -30,15 +30,17 @@ fn host_cannot_run_chrome() -> bool {
 
 const GATE: &str = "v019_identity_gate";
 
+/// Compared against the manifest, not a literal: a version spelled here was
+/// true for exactly one release and failed the next one on a correct binary.
 #[test]
-fn version_reports_0_1_9() {
+fn version_reports_the_manifest_version() {
     let (code, payload, _) = run_json(&["--json", "version"]);
     assert_eq!(code, 0, "{payload}");
     let ver = payload["data"]["version"]
         .as_str()
         .or_else(|| payload["version"].as_str())
         .expect("version field");
-    assert_eq!(ver, "0.1.9", "{payload}");
+    assert_eq!(ver, env!("CARGO_PKG_VERSION"), "{payload}");
 }
 
 #[test]
@@ -291,11 +293,14 @@ fn live_chrome_reproductions_or_honest_skip() {
     }
 }
 
+/// Pinned to `--headless`: `HeadlessChrome` is a property of the launch mode,
+/// and `auto` resolves headed on a host with Xvfb.
 #[test]
 fn doctor_quick_no_stealth_does_not_copy_stealth_ua() {
     let (code, payload, _) = run_json(&[
         "--json",
         "--no-stealth",
+        "--headless",
         "doctor",
         "--fingerprint",
         "--quick",
@@ -316,6 +321,33 @@ fn doctor_quick_no_stealth_does_not_copy_stealth_ua() {
     assert_eq!(data["identity"]["webdriver_value"], false, "{data}");
     assert_eq!(data["planned"]["webdriver_value"], false, "{data}");
     assert_eq!(data["probe_page"], "about:blank", "{data}");
+}
+
+/// Headed Chrome sends the plain `Chrome/` token, so the plan must not add
+/// `HeadlessChrome` there.
+#[test]
+fn doctor_quick_no_stealth_headed_plans_plain_chrome_token() {
+    let (code, payload, _) = run_json(&[
+        "--json",
+        "--no-stealth",
+        "--headed",
+        "doctor",
+        "--fingerprint",
+        "--quick",
+    ]);
+    assert_eq!(code, 0, "{payload}");
+    let data = payload.get("data").unwrap_or(&payload);
+    assert_eq!(data["stealth"], false, "{data}");
+    let planned_ua = data["planned"]["user_agent"].as_str().unwrap_or("");
+    let identity_ua = data["identity"]["user_agent"].as_str().unwrap_or("");
+    assert_eq!(
+        identity_ua, planned_ua,
+        "identity must project planned UA: {data}"
+    );
+    assert!(
+        identity_ua.contains("Chrome/") && !identity_ua.contains("HeadlessChrome"),
+        "headed plan must carry the plain Chrome token: {data}"
+    );
 }
 
 #[test]
@@ -431,20 +463,28 @@ fn emulate_screen_only_applies_device_metrics() {
         .cloned()
         .unwrap_or_else(|| last.clone());
     let obj = result.get("result").cloned().unwrap_or(result);
-    assert_eq!(obj.get("sw").and_then(|v| v.as_i64()), Some(2560), "{obj}");
-    assert_eq!(obj.get("sh").and_then(|v| v.as_i64()), Some(1440), "{obj}");
+    // The page must answer the pair the envelope published, not the request:
+    // under `floor` the two differ by design. Measured 2026-09-14 with
+    // `--stealth-seed floor-probe-10`: `screen_source: "floor"`, envelope
+    // height 1466, page `screen.height` 1466 — and the old literal 1440 failed.
+    assert_eq!(obj.get("sw").and_then(|v| v.as_i64()), Some(sw), "{obj}");
+    assert_eq!(obj.get("sh").and_then(|v| v.as_i64()), Some(sh), "{obj}");
     assert_eq!(obj.get("iw").and_then(|v| v.as_i64()), Some(1920), "{obj}");
     assert_eq!(obj.get("ih").and_then(|v| v.as_i64()), Some(1080), "{obj}");
 }
 
 /// Live `chrome-mac` identity on this host. Does not score WebGL/Canvas —
 /// those stay host-GPU and would contradict a Mac UA on Linux.
+///
+/// Reads a secure page, not `about:blank`: `navigator.userAgentData` is
+/// exposed only in a secure context once the patch stops emulating it, and the
+/// override's `userAgentMetadata` is what must answer `macOS` there.
 #[test]
 fn live_chrome_mac_identity_or_honest_skip() {
     if host_cannot_run_chrome() {
         return;
     }
-    let script = r#"{"cmd":"goto","url":"about:blank"}
+    let script = r#"{"cmd":"goto","url":"https://example.com/"}
 {"cmd":"eval","expression":"({inNav:('webdriver' in navigator),inProto:('webdriver' in Navigator.prototype),value:String(navigator.webdriver),platform:navigator.platform,ua:navigator.userAgent,uaData:(navigator.userAgentData&&navigator.userAgentData.platform)||null})"}"#;
     let scratch = tempfile::Builder::new()
         .prefix("bac-v013-mac-")
@@ -521,6 +561,135 @@ fn live_chrome_mac_identity_or_honest_skip() {
         Some("macOS"),
         "{obj}"
     );
+}
+
+/// `navigator.userAgent`, `userAgentData.brands` and the full-version hints of
+/// a secure page under `mode_args`, or `None` after an honest skip.
+fn live_ua_data(mode_args: &[&str]) -> Option<serde_json::Value> {
+    let script = r#"{"cmd":"goto","url":"https://example.com/"}
+{"cmd":"eval","expression":"(async () => { const u = navigator.userAgentData; if (!u) return {ua: navigator.userAgent, brands: null}; const h = await u.getHighEntropyValues(['fullVersionList', 'uaFullVersion']); return {ua: navigator.userAgent, brands: u.brands, fullVersionList: h.fullVersionList, uaFullVersion: h.uaFullVersion}; })()"}"#;
+    let scratch = tempfile::Builder::new()
+        .prefix("bac-v02-uadata-")
+        .tempdir()
+        .expect("script scratch dir");
+    let path = scratch.path().join("script.ndjson");
+    std::fs::write(&path, script).expect("write userAgentData script");
+    let out = common::cmd()
+        .args(["--json", "-q", "--timeout", "60"])
+        .args(mode_args)
+        .args(["run", "--script"])
+        .arg(&path)
+        .output()
+        .expect("spawn userAgentData run");
+    let code = out.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if code != 0 {
+        skip_with_reason(
+            GATE,
+            &format!(
+                "user_agent_data_tells_the_same_major_everywhere {mode_args:?}: the run exited \
+                 {code}, so the userAgentData assertions never ran.\nstdout={stdout}"
+            ),
+        );
+        return None;
+    }
+    let payload: serde_json::Value = serde_json::from_str(&stdout).expect("json envelope");
+    let last = payload
+        .pointer("/data/steps")
+        .and_then(|v| v.as_array())
+        .and_then(|s| s.last().cloned())
+        .expect("eval step");
+    let result = last
+        .pointer("/data/result")
+        .cloned()
+        .unwrap_or_else(|| last.clone());
+    Some(result.get("result").cloned().unwrap_or(result))
+}
+
+/// Major named by a `<major>.<...>` version string.
+fn version_major(v: &serde_json::Value) -> String {
+    v.as_str()
+        .unwrap_or("")
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
+/// C3/C11 regression guard that can actually fire.
+///
+/// `doctor --fingerprint` probes `about:blank`, where `userAgentData` is null
+/// in every mode, so its brands check stays silent. This reads a secure page.
+/// Measured before the fixes: headed brands `Google Chrome/152, Not-A.Brand/8`
+/// on a Chromium whose own list has no `Google Chrome`, and headless
+/// `uaFullVersion` drawn at random or leaking the host's 152 under a UA of 153.
+#[test]
+fn user_agent_data_tells_the_same_major_everywhere() {
+    if host_cannot_run_chrome() {
+        return;
+    }
+    let Some(native) = live_ua_data(&["--no-stealth", "--headed"]) else {
+        return;
+    };
+    let native_has_google_chrome = native["brands"]
+        .as_array()
+        .is_some_and(|b| b.iter().any(|e| e["brand"] == "Google Chrome"));
+
+    for mode in ["--headed", "--headless"] {
+        let Some(page) = live_ua_data(&[mode]) else {
+            return;
+        };
+        let ua = page["ua"].as_str().unwrap_or("");
+        let ua_major = ua
+            .split("Chrome/")
+            .nth(1)
+            .and_then(|s| s.split('.').next())
+            .unwrap_or("")
+            .to_string();
+        assert!(
+            !ua_major.is_empty(),
+            "{mode}: no Chrome major in UA: {page}"
+        );
+        let brands = page["brands"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{mode}: secure page exposed no userAgentData: {page}"));
+        let is_browser_brand =
+            |e: &serde_json::Value| e["brand"] == "Chromium" || e["brand"] == "Google Chrome";
+        for entry in brands.iter().filter(|e| is_browser_brand(e)) {
+            assert_eq!(
+                version_major(&entry["version"]),
+                ua_major,
+                "{mode}: brand major differs from UA: {page}"
+            );
+        }
+        assert_eq!(
+            version_major(&page["uaFullVersion"]),
+            ua_major,
+            "{mode}: uaFullVersion major differs from UA: {page}"
+        );
+        let full = page["fullVersionList"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            full.iter().any(is_browser_brand),
+            "{mode}: fullVersionList names no browser brand: {page}"
+        );
+        for entry in full.iter().filter(|e| is_browser_brand(e)) {
+            assert_eq!(
+                version_major(&entry["version"]),
+                ua_major,
+                "{mode}: fullVersionList major differs from UA: {page}"
+            );
+        }
+        if mode == "--headed" && !native_has_google_chrome {
+            assert!(
+                !brands.iter().any(|e| e["brand"] == "Google Chrome"),
+                "headed host profile invents a Google Chrome brand the native browser lacks: \
+                 native={native} page={page}"
+            );
+        }
+    }
 }
 
 /// Force the CDP "inspected target navigated" path, or record that Chrome
@@ -601,27 +770,35 @@ fn no_stealth_plan_takes_its_major_from_the_host_binary() {
         "planned_version_source must name its origin, got {source:?}: {data}"
     );
 
-    let (dcode, dpayload, _) = run_json(&["--json", "doctor", "--offline", "--quick"]);
-    assert_eq!(dcode, 0, "{dpayload}");
-    let ddata = dpayload.get("data").unwrap_or(&dpayload);
-    let host_version = ddata["checks"]
-        .as_array()
-        .and_then(|c| c.iter().find(|c| c["id"] == "chrome"))
-        .and_then(|c| c["version"].as_str())
-        .unwrap_or("");
-
     if source == "chrome_binary" {
-        let major = host_version
-            .split_whitespace()
-            .find_map(|t| t.split_once('.').map(|(m, _)| m.to_string()))
-            .unwrap_or_default();
-        assert!(!major.is_empty(), "doctor reported no version: {ddata}");
+        let major = host_chrome_major();
         let planned_ua = data["planned"]["user_agent"].as_str().unwrap_or("");
         assert!(
             planned_ua.contains(&format!("Chrome/{major}.")),
             "plan must carry the host major {major}, got {planned_ua:?}: {data}"
         );
     }
+}
+
+/// Chrome major the host `doctor` reports, read from the binary rather than
+/// spelled here.
+fn host_chrome_major() -> String {
+    host_chrome_major_reported().expect("doctor reported no Chrome version")
+}
+
+/// Same reading, `None` when `doctor` names no Chrome version on this host.
+fn host_chrome_major_reported() -> Option<String> {
+    let (dcode, dpayload, _) = run_json(&["--json", "doctor", "--offline", "--quick"]);
+    assert_eq!(dcode, 0, "{dpayload}");
+    let ddata = dpayload.get("data").unwrap_or(&dpayload);
+    ddata["checks"]
+        .as_array()
+        .and_then(|c| c.iter().find(|c| c["id"] == "chrome"))
+        .and_then(|c| c["version"].as_str())
+        .unwrap_or("")
+        .split_whitespace()
+        .find_map(|t| t.split_once('.').map(|(m, _)| m.to_string()))
+        .filter(|m| !m.is_empty())
 }
 
 /// NC-01, other half: an unpatched Chromium exposes no `userAgentData`, so the
@@ -644,11 +821,13 @@ fn no_stealth_plan_does_not_promise_user_agent_data() {
     );
 }
 
-/// Under stealth the crate table IS the projected identity, so nothing is
-/// probed and the field says so instead of naming a fallback.
+/// Headless stealth overrides the User-Agent, so the crate table IS the
+/// projected identity: nothing is probed and the field says so instead of
+/// naming a fallback.
 #[test]
 fn stealth_plan_reports_no_version_probe() {
-    let (code, payload, _) = run_json(&["--json", "doctor", "--fingerprint", "--quick"]);
+    let (code, payload, _) =
+        run_json(&["--json", "--headless", "doctor", "--fingerprint", "--quick"]);
     assert_eq!(code, 0, "{payload}");
     let data = payload.get("data").unwrap_or(&payload);
     assert_eq!(data["stealth"], true, "{data}");
@@ -656,6 +835,38 @@ fn stealth_plan_reports_no_version_probe() {
         data["planned_version_source"].is_null(),
         "stealth must not claim a version probe it never ran: {data}"
     );
+}
+
+/// Headed stealth on the host profile does NOT override the User-Agent, so the
+/// page shows the host Chrome's own major and the plan must say the same.
+#[test]
+fn stealth_headed_plan_takes_its_major_from_the_host_binary() {
+    let (code, payload, _) =
+        run_json(&["--json", "--headed", "doctor", "--fingerprint", "--quick"]);
+    assert_eq!(code, 0, "{payload}");
+    let data = payload.get("data").unwrap_or(&payload);
+    assert_eq!(data["stealth"], true, "{data}");
+    let source = data["planned_version_source"].as_str().unwrap_or("");
+    let planned_ua = data["planned"]["user_agent"].as_str().unwrap_or("");
+    assert!(
+        !planned_ua.contains("HeadlessChrome"),
+        "headed plan must carry the plain Chrome token: {data}"
+    );
+    // `crate_table` is a fallback for a probe that FAILED, so it is accepted
+    // only where `doctor` itself names no Chrome version.
+    match host_chrome_major_reported() {
+        Some(major) => {
+            assert_eq!(
+                source, "chrome_binary",
+                "host reports Chrome {major}, so the plan must not fall back: {data}"
+            );
+            assert!(
+                planned_ua.contains(&format!("Chrome/{major}.")),
+                "plan must carry the host major {major}, got {planned_ua:?}: {data}"
+            );
+        }
+        None => assert_eq!(source, "crate_table", "{data}"),
+    }
 }
 
 /// NC-01: the live probe must be compared against the plan on every field the

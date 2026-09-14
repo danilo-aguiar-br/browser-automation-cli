@@ -223,10 +223,46 @@ pub(super) fn virtual_display_check() -> serde_json::Value {
     json!({
         "id": "virtual_display",
         "status": "info",
-        "message": "`browser_mode = auto` resolves to headless; a private display \
-                    is started only for an explicit headed launch on Linux",
+        "message": virtual_display_message(auto_resolves),
         "host_has_display": crate::native::cdp::xvfb::host_has_display(),
         "browser_mode_auto_resolves": auto_resolves,
         "private_display_supported": cfg!(target_os = "linux"),
     })
+}
+
+/// The `virtual_display` sentence, built from the resolved value.
+///
+/// It was a fixed "resolves to headless" and contradicted the check's own
+/// `browser_mode_auto_resolves` field on a Linux host with Xvfb, which is the
+/// exact drift this check exists to prevent.
+fn virtual_display_message(auto_resolves: &str) -> String {
+    format!(
+        "`browser_mode = auto` resolves to {auto_resolves} on this host; it is headed \
+         inside a private display only on Linux with Xvfb on PATH and without --no-xvfb"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sentence must name what `auto` became, never a fixed answer.
+    ///
+    /// Measured defect: the fixed sentence said "headless" on a Linux host with
+    /// Xvfb where this very check reported `browser_mode_auto_resolves` as
+    /// headed. `auto` is resolved against this host first, as dispatch does, so
+    /// such a host exercises the answer the fixed sentence contradicted.
+    #[test]
+    fn the_message_names_the_same_resolution_as_the_field() {
+        crate::browser_policy::set_auto_headed(crate::browser_policy::no_xvfb());
+        let live = virtual_display_check();
+        let resolved = live["browser_mode_auto_resolves"]
+            .as_str()
+            .expect("field is a string");
+        let message = live["message"].as_str().expect("message is a string");
+        assert!(
+            message.contains(&format!("resolves to {resolved}")),
+            "field says {resolved}, message says: {message}"
+        );
+    }
 }

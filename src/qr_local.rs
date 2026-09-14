@@ -128,3 +128,28 @@ fn resolve_out_path(path: Option<&Path>, default_name: &str) -> Result<PathBuf, 
     fs::create_dir_all(&dir).ok();
     Ok(dir.join(default_name))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Guards the `rqrr` API `decode` depends on across dependency bumps.
+    ///
+    /// `rqrr` is pre-1.0 and was bumped twice for RustSec advisories; nothing
+    /// else in the suite decoded a QR, so a bump that changed `prepare`,
+    /// `detect_grids` or `Grid::decode` behaviour would have shipped unnoticed.
+    #[test]
+    fn rqrr_decodes_what_qrcode_encodes() {
+        let text = "rqrr-roundtrip çã";
+        let img = QrCode::new(text.as_bytes())
+            .expect("encode")
+            .render::<Luma<u8>>()
+            .quiet_zone(true)
+            .build();
+        let mut prepared = rqrr::PreparedImage::prepare(img);
+        let grids = prepared.detect_grids();
+        assert_eq!(grids.len(), 1, "one grid expected");
+        let (_meta, content) = grids[0].decode().expect("decode");
+        assert_eq!(content, text);
+    }
+}

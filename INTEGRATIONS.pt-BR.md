@@ -16,17 +16,17 @@
 - Evite inventar aliases como `click` ou `screenshot` em prompts de agente (use `grab` para screenshots; scrape pode aceitar token de format `screenshot`)
 - Use `grab --path <file>` (não path posicional bare)
 - Use `wait --text` repetível para semântica OR entre várias strings
-- Use `scrape --format` / `scrape --engine` para formatos de scrape local
+- Use `scrape --format` / `scrape --engine` para formatos de scrape local (multi-formato por CSV ou repetível)
 - Scrape browser aplica `--format` via outerHTML; 15 formatos vivos: `text`, `markdown`, `html`, `rawHtml`, `links`, `metadata`, `screenshot`, `summary`, `product`, `branding`, `images`, `jsonld`, `json`, `feed`, `attributes` (`raw-html` continua alias aceito de `rawHtml`)
 - `0.1.0` entrega a superfície de paridade DevTools default-on mais gates de categoria
 - `0.1.1` adiciona `config` XDG, MITM local, journal de workflow e superfície local scrape/crawl/map/search/parse (`batch-scrape`, `crawl`, `map`, `search`, `parse`, `scrape` expandido)
 - `0.1.2` fecha gaps agent-first e adiciona `print-pdf`, `monitor`, `qr`, `find-paths`, tipos de documento no parse, extract LLM e chaves de config expandidas
 - `0.1.3` fecha residual-zero e contratos de agente: `run` NDJSON|array JSON, reload/beforeunload/init_script CDP, honestidade Redis/Lighthouse, `sheet-write`/`sg-scan`/`sg-rewrite`, `find-paths --glob` (59 comandos de topo; 53 tools DevTools e2e)
-- `0.1.4` fecha gaps agent-first: `--json-steps`, `wait` url/navigation/multi-seletor, `select-option`/`pick` (run/schema), assert `console_*`, `schema <cmd>` posicional, MITM `capture-url` + `--mitm*`, scrape multi-formato, batch/crawl `--engine browser`, `print-pdf` no `run`
+- `0.1.4` fecha GAP-001…025: `--json-steps`, `wait` multi-seletor/url, comandos de run `select-option`/`pick`, tipos de assert de console, `schema <cmd>` posicional, MITM `capture-url` + `--mitm*` globais, scrape multi-formato, batch/crawl `--engine browser`, erros de uso do clap em JSON
 - `0.1.5` fecha residual-zero de disco (RES-01…12): BORN auto-GC de dirs Chromium Singleton-only em `/tmp` (piso de idade 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + campo de topo `residual` (`ResidualDiskReport`), nunca mata Chrome Flatpak do host; honestidade de inventário com `locale`/`man`
 - `0.1.6` fecha confiança agent-first de diálogo/select/scrape/wait: booleano `dialog_settled` + XDG `dialog_settle_ms`, isolamento multi-aba de diálogo por `session_id` com gate e2e, select nativo `input`+`change`, `wait_timeout_ms` em `run`, scrape `format`/`formats` em `run`, grab só `png|jpeg|webp` (encode AVIF removido); inventário tip 0.1.8 era 69 via `commands --json` (0.1.6: `submit`/`storage` → 65; 0.1.7: `image`+`video`+`audio` → 68 depois `record` → 69; também `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (mock lighthouse SKIP honesto)
 - `0.1.8` fecha anti-detecção e controle de saída: família stealth (`--no-stealth`, `--stealth-profile`, `--stealth-seed`), modo de janela pela chave XDG `browser_mode` mais `--no-xvfb`, proxy de saída (`--proxy`, `--proxy-bypass`) valendo para o Chrome e para o motor HTTP, chaves de fingerprint HTTP/2 constante, cinemática humana de input (`--input-profile`, `--input-seed`), warmup de sessão (`--warmup`, `--warmup-url`), asserções sobre o payload (`--expect`, `--expect-exit-code`) e `config unset <KEY>`; a superfície de configuração cresce de 176 para **204** chaves enquanto o inventário tip da 0.1.8 permanecia 69 via `commands --json`
-- Superfície viva (v0.1.9): **217** chaves XDG via `config list-keys --json` (o 204 fica no parágrafo da 0.1.8 acima); `doctor --fingerprint` acrescenta `measurement_scope` / `unmeasured_os` (não são chaves XDG); `emulate`/`resize` `screen` aplica CDP; o plano `--no-stealth` do fingerprint casa com a página
+- Superfície viva (v0.2.0): **217** chaves XDG via `config list-keys --json` (o 204 fica no parágrafo da 0.1.8 acima); `doctor --fingerprint` acrescenta `measurement_scope` / `unmeasured_os` (não são chaves XDG); `emulate`/`resize` `screen` aplica CDP; o plano `--no-stealth` do fingerprint casa com a página
 - Ferramentas experimentais exigem `--experimental-vision` ou `--experimental-screencast`
 
 ## Tabela Resumo
@@ -79,6 +79,17 @@ echo "$out" | jaq -e '.ok == true'
 ## Continue e Cline
 - Use modo JSON quieto para manter transcripts do editor limpos
 - Não espere stickiness de sessão entre launches de processos separados
+```bash
+browser-automation-cli --timeout 60 -q --json scrape https://example.com --format text --engine http
+```
+
+## Shells
+- `completions` imprime um script de completação para `bash`, `zsh`, `fish`, `elvish` ou `powershell` sem lançar o Chrome
+- O Nushell não é dialeto de `completions` e sai com 2
+```bash
+browser-automation-cli completions bash
+browser-automation-cli completions powershell
+```
 
 ## Novas Flags por Versão
 - `0.1.0`: gates de categoria, vision e screencast experimentais, flags de capture, schema discovery
@@ -109,6 +120,7 @@ echo "$out" | jaq -e '.ok == true'
   - Inventário de comandos com 59 nomes de topo (`commands --json`), incluindo `sheet-write`, `sg-scan`, `sg-rewrite`
 - `0.1.4`:
   - Global `--json-steps`: stream NDJSON por passo (`step`, `cmd`, `ok`, `result`) durante `run`
+  - O envelope final de `run --json` inclui `ok` + `steps[].data` completos
   - `wait` multi-seletor CSS OR (`#a, #b`), arrays `selectors`, `url` / `url_contains` / `navigation`
   - Multi-passo `select-option` / `pick` (badge/popover / `role=option`; descobertos via `schema` e inventário run)
   - Assert `console_empty` / `console_no_match` (CLI `assert console-empty` / `assert console-no-match --pattern`)
@@ -118,7 +130,9 @@ echo "$out" | jaq -e '.ok == true'
   - MITM subcomandos: `status|list|get|har|export|domains|apis|init-ca|start|capture-url|graphql|ws|block|allow|redact`
   - Scrape multi-formato (`--format` repetível/CSV); `batch-scrape` e `crawl` aceitam `--engine browser` (default http)
   - `view --allow-empty`; `print-pdf` no multi-passo `run`; diálogo soft com `--if-present` (GAP-006)
-  - Inventário de comandos com 61 nomes de topo (`commands --json`), incluindo `select-option` e `pick`
+  - Erros de uso do clap emitem JSON quando `--json` está no argv; `console dump` sempre devolve array JSON válido
+  - Inventário: 61 nomes de agente via `commands --json` (inclui `select-option` e `pick`); o topo do clap tem 59, sem os dois como verbos autônomos
+  - Gates de contrato: `tests/parity_run_inventory.rs`, `tests/clap_command_debug_assert.rs`
 - `0.1.5`:
   - Higiene residual-zero de disco (product law: residual-zero de processo + disco)
   - BORN auto-GC: `scavenge_stale_singleton_orphans` de dirs `/tmp` `org.chromium.Chromium.*` Singleton-only com mais de 60s
@@ -139,7 +153,7 @@ echo "$out" | jaq -e '.ok == true'
   - Residual intencional: GAP-022 ~53 multi-versões de dependência; GAP-023/024 wishlist PRD sem paridade completa
 - `0.1.8`:
   - Anti-detecção: `--no-stealth`, `--stealth-profile auto|chrome-linux|chrome-win|chrome-mac`, `--stealth-seed <SEED>`; XDG `stealth` (padrão true), `stealth_profile`, `stealth_seed`
-  - Modo de janela: XDG `browser_mode` (`auto|headed|headless`; `auto` resolve para headless e o `doctor` reporta o modo efetivo); `--no-xvfb` pula o display virtual privado no Linux
+  - Modo de janela: XDG `browser_mode` (`auto|headed|headless`; `auto` resolve para headed dentro de um display virtual privado no Linux com Xvfb no PATH e sem `--no-xvfb`, e para headless em qualquer outro caso; o `doctor` reporta o modo efetivo); `--no-xvfb` pula o display virtual privado no Linux
   - Proxy de saída: `--proxy <URL>` (`http`, `https`, `socks5`) e `--proxy-bypass <HOSTS>` valem para o Chrome **e** para o motor HTTP; XDG `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `cdp_proxy_bypass_loopback` (padrão true)
   - Fingerprint HTTP/2: XDG `http2_enabled` (padrão true), `http2_initial_stream_window_size` (6291456), `http2_initial_connection_window_size` (15663105), `http2_max_header_list_size` (262144), `http2_max_frame_size` (16384), `http2_adaptive_window` (padrão false, porque desligado mantém o fingerprint constante)
   - Cinemática humana de input: `--input-profile human|direct` (padrão `human`) e `--input-seed <SEED>`; XDG `input_profile`, `input_move_steps` (24), `input_move_gap_ms` (12), `input_click_dwell_ms` (65), `input_key_dwell_ms` (45), `input_type_delay_ms` (95), `input_scroll_tick_px` (100), `input_scroll_max_ticks` (40), `input_target_jitter_px` (3), `input_scroll_settle_rounds` (3)
@@ -166,3 +180,12 @@ echo "$out" | jaq -e '.ok == true'
   - Chaves XDG novas `screen` (`WxH`), `platform_child_poll_ms`, `extension_attach_poll_iters`, `user_data_dir` (perfil persistente do Chrome, opt-in, ausente por padrão, e deixá-la ausente é o que mantém o residual-zero verdadeiro), `input_typo_permille` (`0`) e `capture_preserved_rings` (`3`); dezoito chaves que eram aceitas e ignoradas em runtime estão ligadas
   - Superfície de configuração: **217** chaves via `config list-keys --json` (o número 204 pertence ao parágrafo da 0.1.8 acima)
   - A ponta do inventário é **71** nomes de agente via `commands --json`; a superfície de topo do clap é 69, porque `select-option` e `pick` seguem sendo nomes de multi-step sem verbo autônomo
+- `0.2.0`:
+  - Um lançamento headed no Linux que sobe o Xvfb privado fixa `--ozone-platform=x11`, então o Chromium não desenha mais a janela num desktop Wayland; o pino segue o display que realmente subiu, e como nenhuma flag nem chave XDG passa switch de plataforma ao Chrome, `--no-xvfb` é o jeito de manter o seu display
+  - Lançamentos headed simultâneos não dividem mais um display privado: a prontidão exige que o lock nomeie o pid do Xvfb deste lançamento, um display cujo lock nomeia pid morto é reaproveitado, e o Xvfb para com `SIGTERM` e um prazo antes do `SIGKILL`
+  - O Xvfb privado exige um `MIT-MAGIC-COOKIE-1`, guardado num arquivo com modo 0600 que é removido no encerramento
+  - O Chrome lançado pelo próprio produto não abre porta TCP de DevTools: ele roda com `--remote-debugging-pipe` atrás de uma ponte WebSocket em loopback que repassa um cliente num caminho aleatório e não serve `/json/version`; o motor Lightpanda e `chrome_legacy_oxide_launch` não mudaram
+  - `display_backend` informa o display que o lançamento realmente usou (`headless`, `xvfb` ou `host`), e o caminho de lançamento com extensão também sobe o display privado
+  - Um lançamento do Chrome que falha mata o grupo de processos inteiro do Chrome, e o `--timeout` durante esse encerramento sai com 124 em vez de 69
+  - O `doctor` nomeia na mensagem `virtual_display` o valor para o qual `auto` resolve no host
+  - Nenhum comando e nenhuma chave XDG foram acrescentados: a superfície de configuração continua em **217** chaves e a ponta do inventário continua em **71** nomes de agente via `commands --json`

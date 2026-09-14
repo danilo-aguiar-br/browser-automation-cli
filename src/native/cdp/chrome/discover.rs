@@ -6,7 +6,6 @@
 //! `std::env::var_os` for `ProgramFiles` / `LOCALAPPDATA` is **OS platform
 //! path resolution**, not product configuration. Product knobs use XDG
 //! `config set chrome_path` only.
-use std::io::Write;
 use std::path::PathBuf;
 
 /// Locate a usable Chrome or Chromium on the host.
@@ -35,11 +34,14 @@ pub fn find_chrome() -> Option<PathBuf> {
             .map(|it| it.filter_map(Result::ok).next().is_some())
             .unwrap_or(false);
         if has_entries {
-            let _ = writeln!(
-                std::io::stderr(),
-                "Warning: Chrome cache directory exists ({}) but no Chrome binary found inside. \
-                 Falling back to system Chrome (product browsers cache empty).",
-                cache_dir.display()
+            // Through tracing, like the branch below: a raw `writeln!` to stderr
+            // ignored `-q` and printed on every call, including HTTP-only paths
+            // that only needed to know where Chrome lives.
+            tracing::warn!(
+                target: "browser_automation_cli::native::cdp::chrome",
+                path = %cache_dir.display(),
+                "Chrome cache directory exists but no Chrome binary found inside; \
+                 falling back to system Chrome"
             );
         } else {
             tracing::debug!(

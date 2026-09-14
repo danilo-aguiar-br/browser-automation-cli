@@ -30,7 +30,7 @@
 //! `--stealth-seed` or XDG `stealth_seed` to happen at all.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
@@ -122,6 +122,89 @@ pub(super) fn store(seed: &str, profile: &str, script: &str) {
     }
 }
 
+/// File holding the last Chrome major a real launch of `chrome` reported.
+///
+/// Keyed by the hashed canonical path, so two installed browsers never share a
+/// major and an upgrade in place is caught by the next launch rather than by a
+/// stale key.
+fn host_major_file(dir: &Path, chrome: &Path) -> PathBuf {
+    let canonical = fs::canonicalize(chrome).unwrap_or_else(|_| chrome.to_path_buf());
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(canonical.to_string_lossy().as_bytes())
+    );
+    dir.join(format!("host-major-{}.txt", &digest[..16]))
+}
+
+/// Directory the host-major files live in, shared with the seeded scripts.
+pub(super) fn host_major_dir() -> Option<PathBuf> {
+    cache_root().ok()
+}
+
+/// A Chrome major is a handful of digits; anything larger is not one.
+const HOST_MAJOR_MAX_BYTES: u64 = 16;
+
+/// The major the last real launch of `chrome` reported, if one was stored.
+///
+/// # Same opt-in as the seeded scripts
+///
+/// Callers reach this only when a seed is in force and stealth is on (see
+/// `host_major_disk_allowed` in the parent module). The module contract above
+/// holds for this file too: without `--stealth-seed` nothing is read from or
+/// written to disk, and the HTTP client announces the crate table instead.
+pub(super) fn load_host_major(dir: &Path, chrome: &Path) -> Option<String> {
+    let file = fs::File::open(host_major_file(dir, chrome)).ok()?;
+    let mut body = String::new();
+    // One byte past the ceiling, so an oversized file is recognisable rather
+    // than silently truncated into a plausible-looking prefix.
+    std::io::Read::read_to_string(
+        &mut std::io::Read::take(file, HOST_MAJOR_MAX_BYTES + 1),
+        &mut body,
+    )
+    .ok()?;
+    if body.len() as u64 > HOST_MAJOR_MAX_BYTES {
+        return None;
+    }
+    let major = body.trim();
+    (!major.is_empty() && major.bytes().all(|b| b.is_ascii_digit())).then(|| major.to_string())
+}
+
+/// Temporary name for one write, unique to this process and this call.
+///
+/// A fixed `.tmp` name let two concurrent processes truncate each other's
+/// write before the rename; the pid plus the clock keeps each writer on its own
+/// file, and the rename still makes the final replace atomic.
+fn host_major_tmp(path: &Path) -> PathBuf {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    path.with_extension(format!("txt.{}.{nanos}.{n}.tmp", std::process::id()))
+}
+
+/// Remember the major a real launch of `chrome` reported, only when it changed.
+pub(super) fn store_host_major(dir: &Path, chrome: &Path, major: &str) {
+    if load_host_major(dir, chrome).as_deref() == Some(major) {
+        return;
+    }
+    let path = host_major_file(dir, chrome);
+    if crate::xdg::ensure_dir(dir).is_err() {
+        return;
+    }
+    let tmp = host_major_tmp(&path);
+    let Ok(mut handle) = crate::platform::create_private_file(&tmp) else {
+        return;
+    };
+    if std::io::Write::write_all(&mut handle, major.as_bytes()).is_err() {
+        return;
+    }
+    drop(handle);
+    if fs::rename(&tmp, &path).is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+}
+
 // No `clear()` here on purpose. Rotating the identity is what changing the
 // seed already does, and shipping a second way to do it would mean shipping a
 // public function with no caller — the exact defect this whole round exists to
@@ -155,6 +238,27 @@ mod tests {
             "the cache key stopped including the product version, so a pinned \
              identity would keep injecting the script it was first drawn with"
         );
+    }
+
+    #[test]
+    fn host_major_round_trips_and_rejects_an_oversized_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let chrome = dir.path().join("chrome");
+        store_host_major(dir.path(), &chrome, "152");
+        assert_eq!(load_host_major(dir.path(), &chrome).as_deref(), Some("152"));
+        // Digits only, but far past any major: the read is capped, not trusted.
+        let huge = "1".repeat(1 << 20);
+        std::fs::write(host_major_file(dir.path(), &chrome), huge).expect("write");
+        assert_eq!(load_host_major(dir.path(), &chrome), None);
+    }
+
+    #[test]
+    fn host_major_temp_name_is_unique_per_write() {
+        let path = Path::new("/x/host-major-abc.txt");
+        let (a, b) = (host_major_tmp(path), host_major_tmp(path));
+        assert_ne!(a, b, "two writers would race on one temp file");
+        let name = a.to_string_lossy();
+        assert!(name.contains(&std::process::id().to_string()), "{name}");
     }
 
     #[test]

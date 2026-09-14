@@ -2,7 +2,9 @@
 
 # Cookbook — browser-automation-cli
 
-> Practical recipes with copy-ready commands for one-shot browser work. Lifecycle: BORN EXECUTE FINALIZE DIE.
+
+- Practical recipes with copy-ready commands for one-shot browser work
+- Lifecycle: BORN EXECUTE FINALIZE DIE
 
 
 ## Latency Note
@@ -102,7 +104,8 @@ browser-automation-cli --json print-pdf --url about:blank --path /tmp/browser-au
 browser-automation-cli doctor --offline --quick --json | jaq '.residual'
 ```
 - Top-level `residual` fields: `scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legacy), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
-- Check id `residual_disk`: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; `warn` when marker dirs or Singleton orphans remain; else `pass`. A live sibling invocation is healthy and never fails.
+- Check id `residual_disk`: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; `warn` when marker dirs or Singleton orphans remain; else `pass`
+- A live sibling invocation is healthy and never fails
 - Residual-zero means zero live CLI marker processes, zero `browser-automation-cli-chrome-*` dirs, zero owned Singleton-only Chromium tmp litter after DIE
 - Age floor for cross-run stale GC is 60s; host Flatpak Chrome temp is never wiped
 - Maintainers (optional local gates, local maintainer scripts only):
@@ -198,28 +201,35 @@ browser-automation-cli --json config set stealth_profile chrome-linux
 - `--stealth-profile` accepts `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`, and `auto` follows the host
 - List the tokens from the binary: `browser-automation-cli --json --stealth-profile list version` or `commands --json`
 - Without `--stealth-seed` every run draws a fresh identity, so a 50-URL crawl presents 50 different machines
-- `--stealth-seed` pins `hardwareConcurrency`, `deviceMemory`, GPU vendor/renderer, `history.length` and the Chrome build. It does not vary User-Agent, `navigator.platform`, languages, timezone, screen or `plugins.length`
-- Launch applies 1920×1080 device metrics so `screen` is not the headless 800×600 default. `resize` / `emulate --viewport` also set `screen`; pass `--screen 1920x1080` or a `run` step `"screen":"2560x1440"` or `config set screen 2560x1440`
+- `--stealth-seed` pins `hardwareConcurrency`, `deviceMemory`, GPU vendor/renderer and `history.length`
+- The Chrome build does not depend on the seed: with a User-Agent override it is the full version the identity crate associates with the major, and without one it is the installed Chrome's own
+- `--stealth-seed` does not vary User-Agent, `navigator.platform`, languages, timezone, screen or `plugins.length`
+- Launch applies 1920×1080 device metrics so `screen` is not the headless 800×600 default
+- `resize` / `emulate --viewport` also set `screen`; pass `--screen 1920x1080` or a `run` step `"screen":"2560x1440"` or `config set screen 2560x1440`
 - The envelope answers `screen_source` next to `screen`, and the tokens are `argv`, `step`, `xdg`, `derived` and `floor`
 - `floor` means an explicit override existed and the viewport floor was larger, so the number returned is the floor and not the one you asked for
 - Read `screen_source` before trusting `screen`: a caller reading only the number cannot tell a request that survived from one the floor overrode
-- `doctor --fingerprint` (no `--quick`) scores the live page and fails if it contradicts the plan. `--quick` scores only the planned identity
+- `doctor --fingerprint` (no `--quick`) scores the live page and fails if it contradicts the plan
+- `--quick` scores only the planned identity
 - XDG keys are `stealth` (`true`), `stealth_profile` (`auto`), `stealth_seed` (no default)
-- `browser_mode` (`auto`) is `auto|headed|headless`; `auto` resolves to headless and `doctor` reports the effective mode
+- `browser_mode` (`auto`) is `auto|headed|headless`; `auto` resolves to headed inside a private virtual display on Linux with Xvfb on PATH and without `--no-xvfb`, and to headless in every other case; `doctor` reports the effective mode
 - Turn the patches off for one run with `--no-stealth` when you are testing your own front end
 
-## How To Write a `run --script` File Agents Can Parse
 
-Each step is one complete JSON object on one physical line. A `printf` with single quotes smashes the JavaScript quotes inside `eval` and the page reports `SyntaxError: Invalid regular expression flags`. Breaking the expression across lines is invalid NDJSON (`EOF while parsing a string`).
+## How To Write a `run --script` File Agents Can Parse
+- Each step is one complete JSON object on one physical line
+- A `printf` with single quotes smashes the JavaScript quotes inside `eval`, and the page reports `SyntaxError: Invalid regular expression flags`
+- Breaking the expression across lines is invalid NDJSON (`EOF while parsing a string`)
+- Feed the steps to `run --script -` through a quoted heredoc, so the shell keeps every quote intact and no temporary file or variable exists
+- Stdin mode validates each line as it arrives and still runs one BORN and one DIE
 
 ```bash
-SCRIPT="$(mktemp)"
-cat > "$SCRIPT" <<'EOF'
-{"cmd":"goto","url":"about:blank"}
-{"cmd":"eval","expression":"(/hello/i).test(\"hello\")"}
+timeout 120 -- browser-automation-cli -q --json run --script - <<'EOF'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"eval","expression":"(/example/i).test(document.title)"}
 EOF
-browser-automation-cli --json -q run --script "$SCRIPT"
 ```
+- Measured on 2026-09-13 with 0.2.0: exit `0`, `ok: true`, `validation: "per-line"`, and the `eval` step returned `result: true`
 
 
 ## How To Route Through an Egress Proxy
@@ -281,6 +291,31 @@ browser-automation-cli --timeout 60 --json --headed --no-xvfb goto https://examp
 - `--no-xvfb` is only meaningful headed on Linux
 
 
+## How To Run Headed on a Wayland Desktop Without a Window
+```bash
+# Confirm this Linux host can start the private virtual display
+browser-automation-cli --json --fields checks --filter-rows 'id=virtual_display' doctor --offline --quick
+
+# Headed launch drawn into the private Xvfb, not onto the Wayland compositor
+browser-automation-cli --timeout 60 --json --headed \
+  --fields browser_mode_requested,browser_mode_effective,browser_mode_source,display_backend \
+  goto https://example.com
+```
+- Expected `data` of the second command when the private display started
+```json
+{"browser_mode_requested":"headed","browser_mode_effective":"headed","browser_mode_source":"flag","display_backend":"xvfb"}
+```
+- `browser_mode_auto_resolves` equal to `headed` in the `virtual_display` check means this is Linux with Xvfb on PATH, while `private_display_supported` is `true` on every Linux build
+- Headed on Linux starts the private display when Xvfb is on PATH and `--no-xvfb` is absent
+- When the private display starts, the launch pins `--ozone-platform=x11`, so Chromium does not pick Wayland from the desktop session
+- No flag or XDG key passes a platform switch to Chrome, so `--no-xvfb` is the way to keep your own display
+- `display_backend` names the display the launch really used: `headless`, `xvfb` or `host`
+- `host` means Chrome drew on your own display, as with `--no-xvfb` or when Xvfb could not start
+- Treat `display_backend` equal to `xvfb` as the proof, never the `--headed` flag you passed
+- Measured on Linux under Wayland only; macOS, KDE and Sway were not validated live
+- The missing window was proven by argv, environment and sockets, not by looking at the screen
+
+
 ## How To Keep the HTTP/2 Fingerprint Constant
 ```bash
 browser-automation-cli --json config set http2_enabled true
@@ -298,12 +333,15 @@ browser-automation-cli --json config set http2_adaptive_window false
 ## How To Assert on the Emitted Payload
 ```bash
 # Reported only: exit stays 0 and agent_ops.expectation_unmet lists the misses
-browser-automation-cli --json --expect 'ok=true' doctor --offline --quick
+browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' --expect 'status=pass' doctor --offline --quick
 
 # Opt in to failing the run
-browser-automation-cli --json --expect 'ok=true' --expect-exit-code doctor --offline --quick
+browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' --expect 'status=pass' --expect-exit-code doctor --offline --quick
 ```
 - `--expect` accepts `key=value`, `key!=value`, and `key~substring`, repeats, and ANDs every expression
+- Paths are relative to `data`, so `ok=true` looks for a field inside `data` rather than the envelope `ok`, and `data.title~Example` never holds
+- When the payload carries a row list, each expression is checked against the rows, and it holds when one row matches
+- Narrow with `--fields` and `--filter-rows` first, because `--expect` reads the payload after that reduction
 - `--expect-exit-code` exits `65` when an expectation is unmet
 - It stays off by default because changing an exit code on data content would silently break callers that already branch on it
 
@@ -489,7 +527,7 @@ JSON
 browser-automation-cli --json config set dialog_settle_ms 2000
 ```
 - After a real accept/dismiss, the data envelope includes boolean `dialog_settled` (GAP-054)
-- Happy path is `true` when `Page.javascriptDialogClosed` was observed — do **not** invent a wait before the next page step
+- Happy path is `true` when `Page.javascriptDialogClosed` was observed — do not invent a wait before the next page step
 - Soft path: `dialog accept --if-present` when the dialog may be absent
 
 
@@ -771,7 +809,7 @@ browser-automation-cli --json scrape https://example.com --engine http \
 - Formats: `text`, `markdown`, `html`, `links`, `metadata`, `summary`, `product`, `branding`, `raw-html`, `screenshot`, `images`
 - Engine `http` uses reqwest and skips Chrome (prefer `http` when static HTML is enough)
 - `--select` projects fields in the binary; `--max-text-chars` caps text/markdown/html (XDG `scrape_max_text_chars` default)
-- Local one-shot scraping-oriented surface — **not** a hosted scraping SaaS (no CAPTCHA/proxy SaaS)
+- Local one-shot scraping-oriented surface — not a hosted scraping SaaS (no CAPTCHA/proxy SaaS)
 
 ## How To Map With Sitemap and Path Filters
 ```bash
@@ -1189,7 +1227,7 @@ cat > /tmp/demo.array.json <<'JSON'
 JSON
 browser-automation-cli --timeout 60 --json run --script /tmp/demo.array.json
 ```
-- `run --script` accepts NDJSON **or** a top-level JSON array of step objects
+- `run --script` accepts NDJSON or a top-level JSON array of step objects
 - Same process lifecycle: BORN EXECUTE FINALIZE DIE
 - Fail-fast errors may still include partial `data.steps`
 - Final envelope includes full `steps[].data` when `--json` is set

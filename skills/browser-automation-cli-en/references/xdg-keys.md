@@ -1,323 +1,321 @@
-# XDG Configuration Keys
+# browser-automation-cli XDG Keys
 
 
 ## Configuration Contract
-- MUST treat this file as the complete inventory of the product XDG configuration surface
-- MUST configure this product ONLY through CLI flags and `config init|path|show|get|set|unset|list-keys`
-- NEVER treat any environment variable as product configuration; the product reads none
-- MUST apply precedence CLI flag first, then the XDG config file, then the built-in default
-- MUST discover the live key set with `browser-automation-cli --json config list-keys`
-- MUST resolve the config file location with `browser-automation-cli --json config path`
-- MUST inspect current values with `browser-automation-cli --json config show` and `config get <KEY>`
-- MUST write a value with `browser-automation-cli config set <KEY> <VALUE>`
-- MUST restore one key to its built-in default with `browser-automation-cli --json config unset <KEY>`
-- MUST know unsetting an already absent key succeeds, so a script never has to know the prior state
-- MUST read `Default: none` as a key with no built-in default; behaviour then falls back to the per-command logic
-- NEVER invent a key absent from this list or from `config list-keys`
+- MUST configure the product ONLY through CLI flags and `config`, and NEVER through an environment variable, `export` or `.env`
+- MUST apply precedence CLI flag, then value stored in XDG, then built-in default, because the flag ALWAYS beats XDG
+- MUST run `browser-automation-cli --json config init` to create the XDG layout and the default `config.toml`
+- MUST run `browser-automation-cli --json config path` to resolve the config file and every XDG directory, and NEVER invent a path
+- MUST run `browser-automation-cli --json config list-keys` to discover every live key with default and description
+- MUST run `browser-automation-cli --json config show` to read the stored values
+- MUST run `browser-automation-cli --json config get <KEY>` to read the STORED value of one key, and omit the key to dump them all
+- MUST know that `config get` on an unwritten key returns `null`, and NEVER treat that `null` as the value in force
+- MUST read the value in force of an unwritten key from the `default` that `config list-keys` reports
+- MUST run `browser-automation-cli --json config set <KEY> <VALUE>`, which the binary validates per key before persisting
+- MUST run `browser-automation-cli --json config unset <KEY>` to restore the built-in default, which also succeeds when the key is already absent
+- NEVER treat `config set <KEY> ""` as a restore, except in `user_data_dir`, where the empty string clears the opt-in
+- MUST store proxy credentials ONLY with `config set proxy_username` and `config set proxy_password`, and NEVER pass them in argv
+- MUST store secrets with `config set encryption_key` and `config set openrouter_api_key`, and NEVER log the value
+- MUST read an `unset` default as a key with no built-in value, where the command logic decides the behavior
+- NEVER invent a key outside `config list-keys`, and NEVER refuse a key from this list from memory
 
 
 ## Core and Identity
-- `lang` — Message locale override (en|pt-BR; bare pt rejected). Default: none
-- `timeout` — Global timeout seconds. Default: `0`
-- `artifacts_dir` — Artifacts output directory. Default: none
-- `ignore_robots` — Default robots ignore (flags still required). Default: `false`
-- `namespace` — Isolated state namespace. Default: none
-- `encryption_key` — Session encryption key material. Default: none
-- `color` — ANSI colors on human stderr. Default: none
+- `lang` default `unset` — MUST pin the message locale to `en` or `pt-BR`, and NEVER store bare `pt`, which the binary rejects
+- `timeout` default `0` — MUST pin the global timeout in seconds
+- `artifacts_dir` default `unset` — MUST point the default artifact output directory
+- `ignore_robots` default `false` — NEVER treat it as a robots bypass, because BOTH robots flags stay REQUIRED
+- `namespace` default `unset` — MUST isolate local state under its own namespace
+- `encryption_key` default `unset` — MUST keep the session encryption key material ONLY in XDG, and NEVER log the value
+- `color` default `unset` — MUST turn ANSI colors on human stderr on or off
 
 
-## Anti-Detection and Identity
-- `stealth` — Anti-detection patches before first navigation (--no-stealth opts out). Default: `true`
-- `stealth_profile` — Impersonated identity: auto|chrome-linux|chrome-win|chrome-mac. Default: `auto`
-- `stealth_seed` — Pin the stealth identity across processes (absent = redrawn per process). Default: none
-- `screen` — Default screen `WxH` for device metrics (absent = mirror the viewport). Default: none
-- `browser_mode` — Window mode: auto|headed|headless (auto resolves to headless; doctor reports it). Default: `auto`
+## Anti-Detection and Window
+- `stealth` default `true` — MUST stay on to mask automation markers, and ALWAYS use `--no-stealth` to turn it off for one run only
+- `stealth_profile` default `auto` — MUST pick `auto`, `chrome-linux`, `chrome-win` or `chrome-mac`, and NEVER declare a platform other than the host
+- `stealth_seed` default `unset` — MUST pin the stealth identity across processes, because when unset it is redrawn per process
+- `screen` default `unset` — MUST pin the default `WxH` screen for device metrics, because when unset it mirrors the viewport
+- `browser_mode` default `auto` — MUST be `auto`, `headed` or `headless`, knowing `auto` resolves to headed inside the private Xvfb ONLY on Linux with `Xvfb` on PATH and without `--no-xvfb`, and to headless everywhere else
+- `input_profile` default `human` — MUST be `human` to pace pointer and keyboard, or `direct` for unshaped input
 
 
 ## Local Logging
-- `log_level` — Tracing EnvFilter when argv flags quiet (no RUST_LOG). Default: `error`
-- `log_to_file` — Rotated local JSON logs under XDG state (never remote). Default: `false`
-- `max_log_files` — Retained rotated log files (1..=90). Default: `14`
-- `log_rotation` — Rolling policy: daily|hourly|never. Default: `daily`
+- `log_level` default `error` — MUST pin the tracing level used when no verbosity flag is passed
+- `log_to_file` default `false` — MUST turn on rotated local JSON logs under XDG state, which NEVER leave the machine
+- `max_log_files` default `14` — MUST cap retained log files between 1 and 90
+- `log_rotation` default `daily` — MUST pick `daily`, `hourly` or `never` rotation
 
 
 ## External Binaries
-- `chrome_path` — Absolute Chrome/Chromium path. Default: none
-- `lighthouse_path` — Absolute lighthouse CLI path. Default: none
-- `ffmpeg_path` — Absolute ffmpeg path (optional screencast encode + video convert/to-mp3). Default: none
-- `lighthouse_timeout_secs` — Wall-clock lighthouse CLI timeout (seconds, 1..=3600). Default: `300`
-- `ffmpeg_timeout_secs` — Wall-clock ffmpeg encode timeout (seconds, 1..=3600). Default: `120`
-- `chrome_search_paths` — Ordered Chrome/Chromium discovery paths (platform-separated); empty uses the built-in per-OS layout. Default: none
+- `chrome_path` default `unset` — MUST point the absolute path of the system Chrome or Chromium
+- `chrome_search_paths` default `unset` — MUST list Chrome discovery paths in order with the platform separator, and when unset the built-in per-OS layout applies
+- `lighthouse_path` default `unset` — MUST point the absolute path of the lighthouse CLI
+- `lighthouse_timeout_secs` default `300` — MUST cap the lighthouse CLI wall clock between 1 and 3600 seconds
+- `ffmpeg_path` default `unset` — MUST point the absolute ffmpeg path used by screencast, video convert and `to-mp3`
+- `ffmpeg_timeout_secs` default `120` — MUST cap the ffmpeg encode wall clock between 1 and 3600 seconds
 
 
 ## LLM
-- `openrouter_api_key` — LLM API key (stored 0600). Default: none
-- `llm_base_url` — OpenAI-compatible base URL. Default: none
-- `llm_model` — Default LLM model id. Default: none
-- `llm_http_timeout_secs` — LLM/webhook blocking HTTP timeout (seconds). Default: `60`
+- `openrouter_api_key` default `unset` — MUST keep the LLM API key ONLY in XDG, stored with mode 0600, and NEVER log the value
+- `llm_base_url` default `unset` — MUST point the OpenAI-compatible base URL
+- `llm_model` default `unset` — MUST pin the default LLM model id
+- `llm_http_timeout_secs` default `60` — MUST cap the blocking LLM and webhook HTTP call in seconds
 
 
 ## Cache and Redis
-- `cache_backend` — sqlite|memory|redis. Default: `sqlite`
-- `cache_redis_url` — Redis URL when backend=redis. Default: none
-- `redis_allow_remote` — Allow non-loopback Redis hosts (default false). Default: `false`
-- `redis_connect_timeout_secs` — Redis TCP connect timeout (seconds). Default: `2`
-- `redis_io_timeout_secs` — Redis/RESP stream I/O timeout (seconds). Default: `3`
-- `cache_max_resp_bulk_bytes` — Redis RESP bulk string size ceiling (bytes). Default: `16777216`
-- `cache_max_resp_line_bytes` — Redis RESP line size ceiling (bytes). Default: `16777216`
-- `scrape_http_cache_ttl_secs` — HTTP scrape response L2 cache TTL (seconds). Default: `3600`
-- `file_parse_cache_ttl_secs` — Local file-parse L2 cache TTL (seconds). Default: `86400`
+- `cache_backend` default `sqlite` — MUST pick `sqlite`, `memory` or `redis`, and NEVER pick `redis` without `cache_redis_url`
+- `cache_redis_url` default `unset` — MUST point the `redis://` URL when the backend is `redis`, and NEVER use `rediss://`
+- `redis_allow_remote` default `false` — NEVER turn it on without an explicit decision, because it allows Redis hosts outside loopback
+- `redis_connect_timeout_secs` default `2` — MUST cap the Redis TCP connect in seconds
+- `redis_io_timeout_secs` default `3` — MUST cap Redis stream I/O in seconds
+- `cache_max_resp_bulk_bytes` default `16777216` — MUST cap the Redis RESP bulk string in bytes
+- `cache_max_resp_line_bytes` default `16777216` — MUST cap the Redis RESP line in bytes
+- `scrape_http_cache_ttl_secs` default `3600` — MUST pin in seconds the lifetime of the HTTP scrape response cache
+- `file_parse_cache_ttl_secs` default `86400` — MUST pin in seconds the lifetime of the local file-parse cache
 
 
-## Web Search
-- `search_base_url` — HTML search endpoint base (?q= appended). Default: `https://html.duckduckgo.com/html/`
-- `user_data_dir` — persistent Chrome profile dir, opt-in; unset keeps residual-zero. Mode 0700 on Unix; `--profile` wins. Default: unset
+## Search Endpoint
+- `search_base_url` default `https://html.duckduckgo.com/html/` — MUST point the HTML search endpoint base, to which the binary appends `?q=`
 
 
 ## Payload Limits and Roots
-- `max_json_file_bytes` — Max bytes for JSON/NDJSON script or manifest files. Default: `33554432`
-- `max_ndjson_line_bytes` — Max bytes for one NDJSON line (run scripts / traces). Default: `1048576`
-- `max_cli_json_payload_bytes` — Max bytes for CLI flag JSON payloads. Default: `4194304`
-- `max_sg_file_bytes` — Max bytes for one source file read by sg scan/rewrite. Default: `16777216`
-- `max_urls_file_bytes` — Max bytes for the batch-scrape --urls-file list. Default: `8388608`
-- `run_max_include_depth` — Max nesting depth for run --script include chains. Default: `16`
-- `allowed_roots` — Extra allowed roots for local reads and artifact writes (platform-separated); defaults cover cwd, XDG dirs and temp. Default: none
+- `max_json_file_bytes` default `33554432` — MUST cap in bytes the JSON or NDJSON script and manifest file
+- `max_ndjson_line_bytes` default `1048576` — MUST cap in bytes one NDJSON line of a `run` script or trace
+- `max_cli_json_payload_bytes` default `4194304` — MUST cap in bytes the JSON payload passed in a flag
+- `max_sg_file_bytes` default `16777216` — MUST cap in bytes the source file read by `sg-scan` and `sg-rewrite`
+- `max_urls_file_bytes` default `8388608` — MUST cap in bytes the `batch-scrape` `--urls-file` list
+- `run_max_include_depth` default `16` — MUST cap include nesting depth in `run --script`
+- `allowed_roots` default `unset` — MUST add allowed read and write roots with the platform separator, and ALWAYS prefer this key to `--allow-outside-roots`
 
 
 ## Visual Capture and Screencast
-- `default_jpeg_quality` — JPEG quality 1..=100 when grab omits --quality. Default: `80`
-- `screencast_jpeg_quality` — Screencast CDP JPEG quality 1..=100. Default: `60`
-- `screencast_ffmpeg_framerate` — Screencast ffmpeg input framerate (frames per second). Default: `10`
-- `screencast_start_pump_iters` — Screencast start: immediate pump iterations after Page.startScreencast. Default: `15`
-- `screencast_stop_pump_iters` — Screencast stop: drain pump iterations before Page.stopScreencast. Default: `40`
+- `default_jpeg_quality` default `80` — MUST pin JPEG quality between 1 and 100 when `grab` omits `--quality`
+- `screencast_jpeg_quality` default `60` — MUST pin screencast JPEG quality between 1 and 100
+- `screencast_ffmpeg_framerate` default `10` — MUST pin in frames per second the screencast ffmpeg input
+- `screencast_start_pump_iters` default `15` — MUST pin the pump iterations right after screencast start
+- `screencast_stop_pump_iters` default `40` — MUST pin the drain iterations before screencast stop
 
 
 ## Interaction and Waiting
-- `event_pump_slice_ms` — Wait/eval event pump slice (milliseconds). Default: `50`
-- `interact_settle_ms` — UI settle delay after click/type/extension (ms). Default: `200`
-- `dialog_settle_ms` — Max wait after JS dialog answer for javascriptDialogClosed (ms). Default: `2000`
-- `network_idle_window_ms` — Quiet window for wait --network-idle (milliseconds). Default: `500`
-- `dom_stable_window_ms` — Quiet window for wait --dom-stable-ms (milliseconds). Default: `500`
-- `drag_move_steps` — Intermediate mouse positions synthesized for one HTML5 drag. Default: `6`
-- `drag_move_gap_ms` — Delay between synthesized drag positions (milliseconds). Default: `16`
-- `eval_drain_slice_ms` — Eval drain slice while waiting for Runtime.evaluate results (milliseconds). Default: `40`
-- `support_settle_ms` — Support-thread settle for sync helpers (milliseconds). Default: `80`
-- `nav_micro_settle_ms` — Navigation micro-settle after page transitions (milliseconds). Default: `100`
+- `event_pump_slice_ms` default `50` — MUST pin in milliseconds the event pump slice in `wait` and `eval`
+- `interact_settle_ms` default `200` — MUST pin in milliseconds the page settle after click, typing or extension
+- `dialog_settle_ms` default `2000` — MUST pin in milliseconds the max wait for the answered JS dialog to close, and NEVER add an artificial wait
+- `network_idle_window_ms` default `500` — MUST pin in milliseconds the quiet window of `wait --network-idle`
+- `dom_stable_window_ms` default `500` — MUST pin in milliseconds the quiet window of `wait --dom-stable-ms`
+- `drag_move_steps` default `6` — MUST pin the intermediate mouse positions in one HTML5 drag
+- `drag_move_gap_ms` default `16` — MUST pin in milliseconds the gap between drag positions
+- `eval_drain_slice_ms` default `40` — MUST pin in milliseconds the drain slice while `eval` waits for its result
+- `support_settle_ms` default `80` — MUST pin in milliseconds the settle of synchronous helpers
+- `nav_micro_settle_ms` default `100` — MUST pin in milliseconds the micro-settle after a page transition
 
 
 ## Input Kinematics
-- `input_profile` — Default input shaping: human|direct. Default: `human`
-- `input_move_steps` — Intermediate pointer positions synthesized for one move (human profile). Default: `24`
-- `input_move_gap_ms` — Delay between synthesized pointer positions (milliseconds). Default: `12`
-- `input_click_dwell_ms` — Hold time between mousePressed and mouseReleased (milliseconds). Default: `65`
-- `input_key_dwell_ms` — Hold time between keyDown and keyUp (milliseconds). Default: `45`
-- `input_type_delay_ms` — Delay between characters while typing (milliseconds). Default: `95`
-- `input_scroll_tick_px` — Scroll distance carried by one synthesized wheel tick (CSS pixels). Default: `100`
-- `input_scroll_max_ticks` — Ceiling on wheel ticks per scroll gesture (one CDP round trip each). Default: `40`
-- `input_target_jitter_px` — Radius of the random offset applied to a click target (CSS pixels). Default: `3`
-- `input_scroll_settle_rounds` — Extra rounds allowed to deliver a wheel delta the renderer dropped. Default: `3`
-- `input_timing_distribution` — Shape of the dispersion around input delays: lognormal|normal|uniform; governs the fast rhythm only, and the long-pause tail is `input_word_pause_permille`. Default: `lognormal`
-- `input_move_steps_stddev` — Standard deviation of the per-gesture pointer sample budget. Default: `6`
-- `input_move_gap_stddev_ms` — Standard deviation of the delay between pointer positions (milliseconds). Default: `5`
-- `input_click_dwell_stddev_ms` — Standard deviation of the press-to-release hold (milliseconds). Default: `26`
-- `input_key_dwell_stddev_ms` — Standard deviation of the keyDown-to-keyUp hold (milliseconds). Default: `18`
-- `input_type_delay_stddev_ms` — Standard deviation of the delay between characters (milliseconds). Default: `40`
-- `input_scroll_tick_stddev_px` — Standard deviation of the distance one wheel tick carries (CSS pixels). Default: `25`
-- `input_word_pause_ms` — Mean of the extra pause taken at a word or sentence boundary (milliseconds). Default: `320`
-- `input_word_pause_permille` — Chance in a thousand that a word boundary earns a long pause. Default: `120`
-- `input_typo_permille` — Chance in a thousand that a character is mistyped, erased with `Backspace` and retyped; the field still ends up holding the requested text. `0` by default because this one changes the CHARACTER STREAM the page reads, not just the timing. Default: `0`
+- `input_timing_distribution` default `lognormal` — MUST pick `lognormal`, `normal` or `uniform` for the fast rhythm, knowing the long-pause tail is `input_word_pause_permille`
+- `input_move_steps` default `24` — MUST pin the intermediate pointer positions per move in the `human` profile
+- `input_move_gap_ms` default `12` — MUST pin in milliseconds the gap between pointer positions
+- `input_click_dwell_ms` default `65` — MUST pin in milliseconds the hold between button press and release
+- `input_key_dwell_ms` default `45` — MUST pin in milliseconds the hold between key down and key up
+- `input_type_delay_ms` default `95` — MUST pin in milliseconds the delay between typed characters
+- `input_scroll_tick_px` default `100` — MUST pin in CSS pixels the distance of one wheel tick
+- `input_scroll_max_ticks` default `40` — MUST cap wheel ticks per scroll gesture
+- `input_target_jitter_px` default `3` — MUST pin in CSS pixels the radius of the random click target offset
+- `input_scroll_settle_rounds` default `3` — MUST pin the extra rounds to deliver a dropped wheel delta
+- `input_move_steps_stddev` default `6` — MUST pin the standard deviation of pointer samples per gesture
+- `input_move_gap_stddev_ms` default `5` — MUST pin in milliseconds the standard deviation of the gap between pointer positions
+- `input_click_dwell_stddev_ms` default `26` — MUST pin in milliseconds the standard deviation of the click hold
+- `input_key_dwell_stddev_ms` default `18` — MUST pin in milliseconds the standard deviation of the key hold
+- `input_type_delay_stddev_ms` default `40` — MUST pin in milliseconds the standard deviation of the delay between characters
+- `input_scroll_tick_stddev_px` default `25` — MUST pin in CSS pixels the standard deviation of the wheel tick distance
+- `input_word_pause_ms` default `320` — MUST pin in milliseconds the mean extra pause at a word or sentence boundary
+- `input_word_pause_permille` default `120` — MUST pin the per-thousand chance that a word boundary gets a long pause
+- `input_typo_permille` default `0` — NEVER turn it on without an explicit decision, because the typo corrected with `Backspace` changes the character stream the page reads
 
 
 ## CDP and Chrome Session
-- `cdp_connection_probe_timeout_secs` — CDP Browser.getVersion liveness probe timeout (seconds). Default: `3`
-- `cdp_discovery_max_body_bytes` — Max CDP discovery HTTP body bytes (/json/version, /json/list). Default: `1048576`
-- `cdp_event_broadcast_capacity` — Process-local CDP event broadcast channel capacity. Default: `4096`
-- `cdp_event_drain_poll_ms` — CDP event drain poll slice during navigation wait (milliseconds). Default: `100`
-- `cdp_network_idle_settle_ms` — CDP network-idle settle window (milliseconds). Default: `500`
-- `cdp_target_event_wait_ms` — CDP target event short wait (milliseconds). Default: `600`
-- `cdp_discovery_timeout_secs` — CDP HTTP discovery timeout for /json/version probes (seconds). Default: `2`
-- `event_tracker_max_entries` — In-memory console/network tracker ring size per page session. Default: `1000`
-- `capture_preserved_rings` — Navigation boundaries kept for console/net --include-preserved. Default: `3`
-- `chrome_default_timeout_ms` — Default per-operation timeout for the Chrome engine (milliseconds). Default: `25000`
-- `extension_attach_poll_ms` — Extension attach poll slice (milliseconds). Default: `150`
-- `extension_attach_poll_iters` — Extension attach poll iterations; slice x iterations is the total wait. Default: `20`
+- `cdp_connection_probe_timeout_secs` default `3` — MUST cap in seconds the CDP liveness probe
+- `cdp_discovery_max_body_bytes` default `1048576` — MUST cap in bytes the CDP discovery body, knowing only Lightpanda readiness reads this key
+- `cdp_discovery_timeout_secs` default `2` — NEVER expect an effect on Chrome launch, which speaks CDP over a pipe, and Lightpanda uses `lightpanda_discovery_timeout_ms`
+- `cdp_event_broadcast_capacity` default `4096` — MUST pin the capacity of the local CDP event channel
+- `cdp_event_drain_poll_ms` default `100` — MUST pin in milliseconds the event drain slice during navigation wait
+- `cdp_network_idle_settle_ms` default `500` — MUST pin in milliseconds the CDP network-idle settle
+- `cdp_target_event_wait_ms` default `600` — MUST pin in milliseconds the short wait for a target event
+- `event_tracker_max_entries` default `1000` — MUST move the console and network buffer ceiling ONLY through this key, and ALWAYS read `dropped_oldest`
+- `capture_preserved_rings` default `3` — MUST pin how many navigation boundaries `--include-preserved` keeps for console and network
+- `chrome_default_timeout_ms` default `25000` — MUST pin in milliseconds the default per-operation Chrome timeout
+- `extension_attach_poll_ms` default `150` — MUST pin in milliseconds the extension attach poll slice
+- `extension_attach_poll_iters` default `20` — MUST pin the extension attach iterations, knowing slice times iterations is the total wait
 
 
 ## HTTP and Network Security
-- `http_ssrf_mode` — HTTP SSRF policy: strict|allow_loopback|off. Default: `strict`
-- `http_timeout_secs` — Shared HTTP client total timeout (seconds). Default: `30`
-- `http_connect_timeout_secs` — HTTP connect-phase timeout (seconds). Default: `10`
-- `http_redirect_max` — Max HTTP redirects followed by product clients. Default: `10`
-- `http_pool_max_idle_per_host` — reqwest pool max idle connections per host. Default: `4`
+- `http_ssrf_mode` default `strict` — MUST keep `strict`, use `allow_loopback` only for a local target, and NEVER store `off` without an explicit decision
+- `http_timeout_secs` default `30` — MUST cap in seconds the total HTTP client time
+- `http_connect_timeout_secs` default `10` — MUST cap in seconds the HTTP connect phase
+- `http_redirect_max` default `10` — MUST cap the HTTP redirects followed
+- `http_pool_max_idle_per_host` default `4` — MUST cap idle HTTP connections per host
 
 
 ## Egress Proxy
-- `proxy_url` — Egress proxy for Chrome and the HTTP engine. Default: none
-- `proxy_bypass` — Hosts bypassing the proxy (Chrome bypass-list syntax). Default: none
-- `proxy_username` — Proxy username (XDG only; argv is visible in the process table). Default: none
-- `proxy_password` — Proxy password (XDG only; argv is visible in the process table). Default: none
-- `cdp_proxy_bypass_loopback` — Always bypass loopback under --proxy so the CDP control channel survives. Default: `true`
+- `proxy_url` default `unset` — MUST point the `http`, `https` or `socks5` egress proxy for Chrome and the HTTP engine
+- `proxy_bypass` default `unset` — MUST list the hosts that skip the proxy in Chrome bypass-list syntax
+- `proxy_username` default `unset` — MUST keep the proxy username ONLY in XDG, and NEVER in argv, which the process table exposes
+- `proxy_password` default `unset` — MUST keep the proxy password ONLY in XDG, NEVER in argv, and NEVER log the value
+- `cdp_proxy_bypass_loopback` default `true` — MUST stay on so the loopback CDP control channel survives under `--proxy`
 
 
 ## HTTP/2 Fingerprint
-- `http2_enabled` — Negotiate HTTP/2 on the shared HTTP client (Chrome always offers h2). Default: `true`
-- `http2_initial_stream_window_size` — HTTP/2 SETTINGS_INITIAL_WINDOW_SIZE advertised to the peer. Default: `6291456`
-- `http2_initial_connection_window_size` — HTTP/2 connection-level flow-control window. Default: `15663105`
-- `http2_max_header_list_size` — HTTP/2 SETTINGS_MAX_HEADER_LIST_SIZE. Default: `262144`
-- `http2_max_frame_size` — HTTP/2 SETTINGS_MAX_FRAME_SIZE (16384..=16777215). Default: `16384`
-- `http2_adaptive_window` — Allow the HTTP/2 window to resize at runtime (off keeps the fingerprint constant). Default: `false`
+- `http2_enabled` default `true` — MUST stay on so the HTTP engine negotiates HTTP/2 like Chrome
+- `http2_initial_stream_window_size` default `6291456` — MUST pin the `SETTINGS_INITIAL_WINDOW_SIZE` advertised to the peer
+- `http2_initial_connection_window_size` default `15663105` — MUST pin the HTTP/2 connection flow-control window
+- `http2_max_header_list_size` default `262144` — MUST pin the HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE`
+- `http2_max_frame_size` default `16384` — MUST pin `SETTINGS_MAX_FRAME_SIZE` between 16384 and 16777215
+- `http2_adaptive_window` default `false` — MUST stay off so the HTTP/2 fingerprint stays constant
 
 
 ## Robots
-- `robots_loopback_exempt` — Loopback hosts skip robots.txt (set false to enforce against localhost). Default: `true`
-- `robots_user_agent` — User-agent token robots.txt rules are matched against. Default: none
-- `robots_probe_timeout_secs` — robots.txt request timeout (seconds). Default: `5`
-- `robots_max_body_bytes` — Max robots.txt body bytes (anti-OOM). Default: `524288`
+- `robots_loopback_exempt` default `true` — MUST store `false` to enforce robots.txt against localhost too
+- `robots_user_agent` default `unset` — MUST pin the user-agent token matched against robots.txt rules
+- `robots_probe_timeout_secs` default `5` — MUST cap in seconds the robots.txt request
+- `robots_max_body_bytes` default `524288` — MUST cap in bytes the robots.txt body
 
 
 ## Image and SVG
-- `image_max_input_bytes` — Max bytes for local image decode/convert/resize input. Default: `32000000`
-- `image_max_pixels` — Max width*height for image decode (anti-bomb). Default: `64000000`
-- `image_default_format` — Default image convert format: png|jpeg|webp|gif. Default: `png`
-- `image_default_quality` — Default lossy quality 1..=100 for image convert/resize. Default: `85`
-- `image_download_max_bytes` — Max HTTP body bytes for image download. Default: `32000000`
-- `image_avif_speed` — AVIF encoder speed 1..=10 (1 slowest/best); needs the image-avif feature. Default: `6`
-- `svg_max_bytes` — Max SVG source bytes accepted before rasterisation. Default: `4000000`
-- `svg_max_depth` — Max XML nesting depth accepted in an SVG source. Default: `128`
-- `svg_max_entities` — Max <!ENTITY> declarations tolerated in an SVG DTD (0 = reject any). Default: `0`
-- `gif_max_frames` — Max animation frames decoded from a GIF. Default: `2000`
+- `image_max_input_bytes` default `32000000` — MUST cap in bytes the local image to decode, convert or resize
+- `image_max_pixels` default `64000000` — MUST cap width times height on decode against image bombs
+- `image_default_format` default `png` — MUST pick `png`, `jpeg`, `webp` or `gif` as the default convert format
+- `image_default_quality` default `85` — MUST pin lossy quality between 1 and 100 for convert and resize
+- `image_download_max_bytes` default `32000000` — MUST cap in bytes the HTTP body of `image download`
+- `image_avif_speed` default `6` — NEVER expect an effect without AVIF encoding in the binary, and NEVER request AVIF output
+- `svg_max_bytes` default `4000000` — MUST cap in bytes the accepted SVG source
+- `svg_max_depth` default `128` — MUST cap the XML nesting depth of an SVG source
+- `svg_max_entities` default `0` — MUST keep `0` to reject every `<!ENTITY>` declaration in SVG
+- `gif_max_frames` default `2000` — MUST cap the frames decoded from a GIF
 
 
 ## Video and Manifests
-- `video_max_input_bytes` — Max bytes for video stdin materialization / path pre-check. Default: `512000000`
-- `video_download_max_bytes` — Max HTTP body bytes for video download. Default: `512000000`
-- `video_default_container` — Default video convert container: mp4|webm|mkv|mov|avi|m4v. Default: `mp4`
-- `video_default_crf` — Default CRF 1..=51 for lossy video re-encode. Default: `23`
-- `video_default_audio_bitrate` — Default bitrate for video to-mp3 (e.g. 192k). Default: `192k`
-- `manifest_max_bytes` — Max bytes accepted for an HLS or DASH manifest body. Default: `8000000`
-- `manifest_max_variants` — Max variant/representation entries emitted per manifest envelope. Default: `500`
+- `video_max_input_bytes` default `512000000` — MUST cap in bytes the video read from stdin or path
+- `video_download_max_bytes` default `512000000` — MUST cap in bytes the HTTP body of `video download`
+- `video_default_container` default `mp4` — MUST pick `mp4`, `webm`, `mkv`, `mov`, `avi` or `m4v` as the default container
+- `video_default_crf` default `23` — MUST pin CRF between 1 and 51 for lossy re-encode
+- `video_default_audio_bitrate` default `192k` — MUST pin the default `video to-mp3` bitrate
+- `manifest_max_bytes` default `8000000` — MUST cap in bytes the HLS or DASH manifest body
+- `manifest_max_variants` default `500` — MUST cap the variants emitted per `video manifest` envelope
 
 
 ## Audio
-- `audio_max_input_bytes` — Max bytes for audio stdin materialization / path pre-check. Default: `256000000`
-- `audio_download_max_bytes` — Max HTTP body bytes for audio download. Default: `256000000`
-- `audio_default_format` — Default audio convert format: mp3|m4a|ogg|opus|flac|wav|aac. Default: `mp3`
-- `audio_default_bitrate` — Default bitrate for lossy audio encode (e.g. 192k). Default: `192k`
+- `audio_max_input_bytes` default `256000000` — MUST cap in bytes the audio read from stdin or path
+- `audio_download_max_bytes` default `256000000` — MUST cap in bytes the HTTP body of `audio download`
+- `audio_default_format` default `mp3` — MUST pick `mp3`, `m4a`, `ogg`, `opus`, `flac`, `wav` or `aac` as the default format
+- `audio_default_bitrate` default `192k` — MUST pin the default lossy audio encode bitrate
 
 
 ## Scrape Crawl and Map
-- `scrape_max_body_bytes` — Max HTTP scrape body bytes. Default: `5000000`
-- `browser_scrape_max_body_bytes` — Max body bytes for browser-engine scrape helpers. Default: `2000000`
-- `scrape_max_text_chars` — Max text/markdown chars in scrape envelopes (0=no cap). Default: `32768`
-- `scrape_min_delay_ms` — Floor delay between same-origin GETs (ms). Default: `0`
-- `scrape_honor_meta_robots` — Honor meta robots / X-Robots-Tag noindex. Default: `true`
-- `scrape_honor_nofollow` — Skip rel=nofollow links in crawl discovery. Default: `true`
-- `scrape_use_sitemap` — Prefer sitemap.xml when mapping a site. Default: `true`
-- `scrape_default_engine` — Default scrape engine when CLI omits --engine (http|browser). Default: `http`
-- `scrape_delay_jitter_ratio` — Politeness delay jitter ratio 0.0..=1.0 (0=off). Default: `0.2`
-- `scrape_summary_chars` — Max chars for scrape format summary. Default: `400`
-- `scrape_feed_max_entries` — Max entries kept by scrape format feed (RSS/Atom/JSON Feed). Default: `50`
-- `scrape_follow_rel_next` — Follow rel=next pagination links during crawl. Default: `false`
-- `scrape_dedup_similar` — Collapse near-duplicate pages by content similarity in crawl/batch-scrape. Default: `false`
-- `scrape_dedup_similar_distance` — SimHash Hamming distance (0..=64) under which pages are near-duplicates. Default: `3`
-- `scrape_sitemap_max_bytes` — Max sitemap body bytes. Default: `2000000`
-- `scrape_charset_peek_bytes` — Charset sniffing peek window (bytes). Default: `4096`
-- `scrape_crawl_limit_max` — Max crawl page budget (anti-DoS clamp for --limit). Default: `500`
-- `scrape_crawl_max_depth` — Max BFS depth for crawl/map. Default: `10`
-- `scrape_search_limit_max` — Max search result budget (anti-DoS clamp). Default: `50`
-- `scrape_max_parse_bytes` — Max local file parse size before reject (bytes). Default: `50000000`
-- `scrape_no_cache` — Ignore the response cache on read and always fetch from origin. Default: `false`
-- `monitor_diff_max_bytes` — Byte ceiling for the `monitor check --diff-mode` payload. Default: `65536`
+- `scrape_default_engine` default `http` — MUST keep `http` as the cheap engine, and ALWAYS pass `--engine browser` only for a page that depends on JavaScript
+- `scrape_max_body_bytes` default `5000000` — MUST cap in bytes the HTTP scrape body
+- `browser_scrape_max_body_bytes` default `2000000` — MUST cap in bytes the body of browser-engine scrape helpers
+- `scrape_max_text_chars` default `32768` — MUST cap text and markdown characters in the envelope, knowing `0` removes the ceiling
+- `scrape_min_delay_ms` default `0` — MUST pin in milliseconds the politeness floor between same-origin GETs
+- `scrape_delay_jitter_ratio` default `0.2` — MUST pin between 0.0 and 1.0 the politeness delay jitter, knowing `0` turns it off
+- `scrape_honor_meta_robots` default `true` — MUST stay on to honor meta robots and `X-Robots-Tag` noindex
+- `scrape_honor_nofollow` default `true` — MUST stay on to skip `rel=nofollow` links in crawl discovery
+- `scrape_use_sitemap` default `true` — MUST stay on to prefer sitemap.xml when mapping a site
+- `scrape_follow_rel_next` default `false` — MUST turn on so crawl follows `rel=next` pagination
+- `scrape_dedup_similar` default `false` — MUST turn on to collapse near-duplicate pages in `crawl` and `batch-scrape`
+- `scrape_dedup_similar_distance` default `3` — MUST pin between 0 and 64 the SimHash distance under which a page is a near-duplicate
+- `scrape_summary_chars` default `400` — MUST cap the characters of the `summary` format
+- `scrape_feed_max_entries` default `50` — MUST cap the entries of the RSS, Atom and JSON Feed `feed` format
+- `scrape_sitemap_max_bytes` default `2000000` — MUST cap in bytes the sitemap body
+- `scrape_charset_peek_bytes` default `4096` — MUST pin in bytes the charset detection window
+- `scrape_crawl_limit_max` default `500` — MUST cap the page budget that crawl `--limit` accepts
+- `scrape_crawl_max_depth` default `10` — MUST cap the depth of `crawl` and `map`
+- `scrape_search_limit_max` default `50` — MUST cap the `search` result budget
+- `scrape_max_parse_bytes` default `50000000` — MUST cap in bytes the local file accepted by `parse`
+- `scrape_no_cache` default `false` — MUST turn on to skip the cache on read and ALWAYS fetch from origin
+- `monitor_diff_max_bytes` default `65536` — MUST cap in bytes the `monitor check --diff-mode` payload
 
 
 ## Operator Webhook
-- `webhook_post_timeout_secs` — Operator webhook POST timeout (seconds). Default: `15`
-- `webhook_retry_base_delay_ms` — Webhook retry base delay (milliseconds; doubles each attempt). Default: `50`
-- `webhook_max_attempts` — Webhook max attempts (inclusive of first try). Default: `3`
+- `webhook_post_timeout_secs` default `15` — MUST cap in seconds the operator webhook POST
+- `webhook_retry_base_delay_ms` default `50` — MUST pin in milliseconds the retry base delay, which doubles per attempt
+- `webhook_max_attempts` default `3` — MUST cap webhook attempts including the first
 
 
 ## Heap
-- `heap_snapshot_max_bytes` — Offline heap snapshot file size ceiling (bytes). Default: `536870912`
-- `heap_max_retainers` — Heap node-op max retainers returned. Default: `200`
-- `heap_max_edges` — Heap node-op max edges returned. Default: `200`
-- `heap_max_paths` — Heap paths enumeration max paths. Default: `32`
-- `heap_max_path_depth` — Heap paths max depth. Default: `8`
-- `heap_max_class_nodes` — Heap class_nodes list cap. Default: `500`
-- `heap_dominator_max_states` — Dominator visited-state ceiling (anti-pathological graphs). Default: `50000`
-- `heap_outer_iters` — Heap snapshot outer poll max iterations. Default: `200`
-- `heap_inner_iters` — Heap snapshot inner drain iterations after finished. Default: `10`
-- `heap_final_iters` — Heap snapshot final drain iterations. Default: `20`
+- `heap_snapshot_max_bytes` default `536870912` — MUST cap in bytes the heap snapshot file read offline
+- `heap_max_retainers` default `200` — MUST cap the retainers returned per node operation
+- `heap_max_edges` default `200` — MUST cap the edges returned per node operation
+- `heap_max_paths` default `32` — MUST cap the paths enumerated by `heap paths`
+- `heap_max_path_depth` default `8` — MUST cap the depth of `heap paths`
+- `heap_max_class_nodes` default `500` — MUST cap the per-class node list
+- `heap_dominator_max_states` default `50000` — MUST cap the states visited in the dominator computation
+- `heap_outer_iters` default `200` — MUST cap the outer snapshot poll iterations
+- `heap_inner_iters` default `10` — MUST pin the inner drain iterations after the snapshot finishes
+- `heap_final_iters` default `20` — MUST pin the final snapshot drain iterations
 
 
 ## Lifecycle and Residual
-- `browser_close_wait_secs` — Browser.close / process wait budget during FINALIZE (seconds). Default: `5`
-- `chrome_startup_timeout_secs` — Chrome self-spawn CDP readiness wait (seconds). Default: `20`
-- `residual_orphan_min_age_secs` — Age floor before a dead-owner marker profile is collectable (seconds). Default: `60`
-- `platform_child_wait_secs` — Platform child wait deadline (seconds). Default: `5`
-- `platform_child_poll_ms` — Child-process exit poll interval during FINALIZE (milliseconds). Default: `50`
-- `shutdown_deadline_secs` — Shutdown hard deadline waiting for browser exit (seconds). Default: `30`
-- `chrome_legacy_oxide_launch` — Launch Chrome via chromiumoxide instead of the self-spawn path (stabilization fallback; loses the residual kill target). Default: `false`
-- `default_viewport_width` — Default headless Chrome window width (`--window-size`) when launch options omit viewport. Default: `1920`
-- `default_viewport_height` — Default headless Chrome window height (`--window-size`) when launch options omit viewport. Default: `1080`
+- `user_data_dir` default `unset` — MUST treat it as an EXPLICIT waiver of residual-zero, because the profile is created 0700 on Unix and survives DIE, and ALWAYS revert with `config unset user_data_dir`
+- `chrome_legacy_oxide_launch` default `false` — NEVER turn it on, because it reopens an unauthenticated DevTools port, does not start Xvfb and draws a headed window on the operator display
+- `chrome_startup_timeout_secs` default `20` — MUST cap in seconds the readiness wait of the Chrome the CLI launches
+- `browser_close_wait_secs` default `5` — MUST cap in seconds the browser close wait during FINALIZE
+- `shutdown_deadline_secs` default `30` — MUST pin in seconds the hard browser exit deadline
+- `platform_child_wait_secs` default `5` — MUST pin in seconds the child process wait deadline
+- `platform_child_poll_ms` default `50` — MUST pin in milliseconds the child exit poll during FINALIZE
+- `residual_orphan_min_age_secs` default `60` — MUST pin in seconds the minimum age to collect a dead-owner marker profile
+- `default_viewport_width` default `1920` — MUST pin the default window width when launch omits a viewport
+- `default_viewport_height` default `1080` — MUST pin the default window height when launch omits a viewport
 
 
 ## Lightpanda
-- `lightpanda_startup_timeout_secs` — Lightpanda process startup wait (seconds). Default: `10`
-- `lightpanda_session_timeout_secs` — Lightpanda --timeout session max (seconds, 1..=604800). Default: `604800`
-- `lightpanda_poll_interval_ms` — Lightpanda CDP readiness poll interval (milliseconds). Default: `100`
-- `lightpanda_discovery_timeout_ms` — Per-probe CDP discovery timeout while waiting for Lightpanda (milliseconds). Default: `500`
-- `lightpanda_max_log_lines` — Bounded Lightpanda launch log ring (lines per stream). Default: `40`
-- `lightpanda_ready_slice_ms` — Drain slice after Lightpanda child exit before snapshotting logs (milliseconds). Default: `25`
-- `lightpanda_cdp_connect_timeout_secs` — Lightpanda CDP connect attempt timeout (seconds). Default: `5`
-- `lightpanda_target_init_timeout_secs` — Lightpanda target init wait after connect (seconds). Default: `10`
+- `lightpanda_startup_timeout_secs` default `10` — MUST cap in seconds the Lightpanda process startup
+- `lightpanda_session_timeout_secs` default `604800` — MUST cap the Lightpanda session between 1 and 604800 seconds
+- `lightpanda_poll_interval_ms` default `100` — MUST pin in milliseconds the Lightpanda CDP readiness poll
+- `lightpanda_discovery_timeout_ms` default `500` — MUST cap in milliseconds each Lightpanda CDP discovery probe
+- `lightpanda_max_log_lines` default `40` — MUST cap Lightpanda launch log lines per stream
+- `lightpanda_ready_slice_ms` default `25` — MUST pin in milliseconds the drain after the Lightpanda child exits
+- `lightpanda_cdp_connect_timeout_secs` default `5` — MUST cap in seconds the Lightpanda CDP connect
+- `lightpanda_target_init_timeout_secs` default `10` — MUST cap in seconds the Lightpanda target init
 
 
 ## MITM
-- `mitm_list_limit_max` — MITM list/query max items clamp. Default: `10000`
-- `mitm_proxy_seconds_max` — MITM proxy one-shot max window (seconds). Default: `600`
-- `mitm_chrome_settle_ms` — MITM Chrome launch settle before navigation (milliseconds). Default: `150`
-- `mitm_capture_wait_min_ms` — MITM capture wait floor after navigate (milliseconds). Default: `800`
-- `mitm_capture_wait_max_ms` — MITM capture wait ceiling after navigate (milliseconds). Default: `8000`
-- `mitm_ws_frames_cap` — Cap on in-memory WebSocket frames per capture process. Default: `500`
-- `mitm_ws_preview_chars` — WebSocket text preview truncation (Unicode chars). Default: `256`
-- `mitm_ca_cache_size` — MITM dynamic certificate cache size (hosts). Default: `1000`
-- `mitm_rebind_attempts` — MITM proxy bind retries when the port is transiently in use. Default: `3`
+- `mitm_list_limit_max` default `10000` — MUST cap MITM list and query items
+- `mitm_proxy_seconds_max` default `600` — MUST cap in seconds the MITM proxy window
+- `mitm_chrome_settle_ms` default `150` — MUST pin in milliseconds the Chrome settle before navigating under MITM
+- `mitm_capture_wait_min_ms` default `800` — MUST pin in milliseconds the capture wait floor after navigating
+- `mitm_capture_wait_max_ms` default `8000` — MUST pin in milliseconds the capture wait ceiling after navigating
+- `mitm_ws_frames_cap` default `500` — MUST cap in-memory WebSocket frames per capture
+- `mitm_ws_preview_chars` default `256` — MUST cap the characters of the WebSocket text preview
+- `mitm_ca_cache_size` default `1000` — MUST pin in hosts the dynamic certificate cache
+- `mitm_rebind_attempts` default `3` — MUST pin the rebind attempts when the port is busy
 
 
 ## Perf
-- `perf_autostop_settle_ms` — Perf auto-stop settle after load/reload (milliseconds). Default: `500`
-- `perf_trace_inner_slice_ms` — Perf trace poll inner slice (milliseconds). Default: `20`
-- `perf_trace_outer_slice_ms` — Perf trace outer poll interval (milliseconds). Default: `50`
-- `perf_trace_outer_iters` — Perf trace outer poll max iterations. Default: `100`
-- `perf_trace_inner_iters` — Perf trace inner drain iterations after complete. Default: `5`
+- `perf_autostop_settle_ms` default `500` — MUST pin in milliseconds the perf auto-stop settle after load
+- `perf_trace_inner_slice_ms` default `20` — MUST pin in milliseconds the inner trace poll slice
+- `perf_trace_outer_slice_ms` default `50` — MUST pin in milliseconds the outer trace poll interval
+- `perf_trace_outer_iters` default `100` — MUST cap the outer trace poll iterations
+- `perf_trace_inner_iters` default `5` — MUST pin the inner drain iterations after the trace completes
 
 
 ## Storage State
-- `state_collect_deadline_secs` — CDP storage collect outer deadline (seconds). Default: `5`
-- `state_event_recv_secs` — CDP storage event recv slice (seconds). Default: `2`
-- `state_load_settle_ms` — Settle delay after load_state navigation (milliseconds). Default: `500`
+- `state_collect_deadline_secs` default `5` — MUST cap in seconds the storage collection
+- `state_event_recv_secs` default `2` — MUST pin in seconds the storage event receive slice
+- `state_load_settle_ms` default `500` — MUST pin in milliseconds the settle after the state import navigation
 
 
 ## Retry
-- `retry_default_max_attempts` — Default retry max attempts (inclusive of first try). Default: `3`
-- `retry_base_delay_ms` — Default retry base delay (milliseconds). Default: `50`
-- `retry_max_delay_secs` — Default retry max delay (seconds). Default: `2`
-- `retry_budget_secs` — Default retry wall budget (seconds). Default: `10`
-- `retry_cdp_max_attempts` — CDP retry max attempts. Default: `4`
-- `retry_cdp_base_delay_ms` — CDP retry base delay (milliseconds). Default: `100`
-- `retry_cdp_max_delay_secs` — CDP retry max delay (seconds). Default: `3`
-- `retry_cdp_budget_secs` — CDP retry wall budget (seconds). Default: `15`
-- `retry_http_max_attempts` — HTTP scrape retry max attempts. Default: `3`
-- `retry_http_base_delay_ms` — HTTP scrape retry base delay (milliseconds). Default: `75`
-- `retry_http_max_delay_secs` — HTTP scrape retry max delay (seconds). Default: `2`
-- `retry_http_budget_secs` — HTTP scrape retry wall budget (seconds). Default: `12`
-- `retry_llm_max_attempts` — LLM HTTP retry max attempts. Default: `2`
-- `retry_llm_base_delay_ms` — LLM HTTP retry base delay (milliseconds). Default: `200`
-- `retry_llm_max_delay_secs` — LLM HTTP retry max delay (seconds). Default: `4`
-- `retry_llm_budget_secs` — LLM HTTP retry wall budget (seconds). Default: `20`
-
-
-## Canonical Reference
-- MUST treat `docs/CONFIGURATION.md` in the repository as the canonical product reference for these keys
-- MUST use this file as the operational index of the skill and the canonical document for normative detail
-- MUST re-check `docs/CONFIGURATION.md` and `config list-keys --json` when a key here disagrees with the live binary
+- `retry_default_max_attempts` default `3` — MUST cap default retry attempts including the first
+- `retry_base_delay_ms` default `50` — MUST pin in milliseconds the default retry base delay
+- `retry_max_delay_secs` default `2` — MUST cap in seconds the default retry delay
+- `retry_budget_secs` default `10` — MUST cap in seconds the total default retry budget
+- `retry_cdp_max_attempts` default `4` — MUST cap CDP retry attempts
+- `retry_cdp_base_delay_ms` default `100` — MUST pin in milliseconds the CDP retry base delay
+- `retry_cdp_max_delay_secs` default `3` — MUST cap in seconds the CDP retry delay
+- `retry_cdp_budget_secs` default `15` — MUST cap in seconds the total CDP retry budget
+- `retry_http_max_attempts` default `3` — MUST cap HTTP scrape retry attempts
+- `retry_http_base_delay_ms` default `75` — MUST pin in milliseconds the HTTP scrape retry base delay
+- `retry_http_max_delay_secs` default `2` — MUST cap in seconds the HTTP scrape retry delay
+- `retry_http_budget_secs` default `12` — MUST cap in seconds the total HTTP scrape retry budget
+- `retry_llm_max_attempts` default `2` — MUST cap LLM HTTP retry attempts
+- `retry_llm_base_delay_ms` default `200` — MUST pin in milliseconds the LLM HTTP retry base delay
+- `retry_llm_max_delay_secs` default `4` — MUST cap in seconds the LLM HTTP retry delay
+- `retry_llm_budget_secs` default `20` — MUST cap in seconds the total LLM HTTP retry budget

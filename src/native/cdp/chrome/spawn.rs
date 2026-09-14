@@ -29,10 +29,8 @@ use chromiumoxide::Handler as OxideHandler;
 use super::args::{materialize_profile_dir, profile_postmortem, reassert_profile_dir};
 use super::process::ChromeProcess;
 use super::{build_chrome_args, find_chrome, LaunchOptions};
-use crate::native::cdp::spawn::{
-    reserve_loopback_port, spawn_guarded, start_log_drainers, wait_for_cdp_ready, ReadinessBudget,
-    SpawnRequest,
-};
+use crate::native::cdp::pipe::PipeBridge;
+use crate::native::cdp::spawn::{launch_error, spawn_guarded, start_log_drainers, SpawnRequest};
 
 /// A self-spawned Chrome plus the CDP handles bound to it.
 pub struct ChromeLaunch {
@@ -82,21 +80,16 @@ fn handler_config(options: &LaunchOptions) -> HandlerConfig {
     }
 }
 
-/// Replace the wildcard debugging port with the one reserved for this launch.
+/// Tear a failed launch down on a blocking thread, not on the runtime thread.
 ///
-/// `build_chrome_args` emits `--remote-debugging-port=0` so Chrome picks a port
-/// and announces it on stderr. That announcement is the only channel
-/// `Browser::launch` had; a self-spawn does better by choosing the port up front
-/// and proving it with a CDP probe.
-fn pin_debugging_port(args: &mut Vec<String>, port: u16) {
-    args.retain(|a| !a.starts_with("--remote-debugging-port="));
-    args.push(format!("--remote-debugging-port={port}"));
-    // Bind loopback only: the port is an unauthenticated full-control CDP socket.
-    args.retain(|a| !a.starts_with("--remote-debugging-address="));
-    args.push(format!(
-        "--remote-debugging-address={}",
-        crate::constants::LOOPBACK_HOST
-    ));
+/// The teardown blocks for up to two bounded graces (bridge threads, then log
+/// drainers). Run inline, it held the thread the `--timeout` select runs on, so
+/// a `--timeout 6` launch was measured ending at 9.1 s with exit 69 instead of
+/// 124. Awaiting a blocking task leaves that select free to fire; the task
+/// still runs to completion, because the runtime waits for blocking tasks
+/// before it shuts down.
+async fn kill_off_the_runtime(mut process: ChromeProcess) {
+    let _ = tokio::task::spawn_blocking(move || process.kill()).await;
 }
 
 /// BORN: fork Chrome, wait for CDP, and attach.
@@ -118,6 +111,39 @@ fn pin_debugging_port(args: &mut Vec<String>, port: u16) {
 /// Every failure after the fork reaps the child before returning, so a failed
 /// launch leaves no residual Chrome.
 pub async fn launch_self_spawned(options: &LaunchOptions) -> Result<ChromeLaunch, String> {
+    // A headed Chrome on Linux draws into a private X server when one can be
+    // started, so the window is genuinely rendered and genuinely invisible.
+    // Failure here degrades to a plain headed window rather than failing the
+    // launch: the display sharpens the disguise, it is not what makes the
+    // browser work, and a missing optional package must not become an outage.
+    //
+    // Started BEFORE the argv is built, so the X11 pin in `build_chrome_args`
+    // follows whether the server actually came up. Deciding the pin first was
+    // measured forcing X11 onto a launch with no X server at all.
+    let xvfb = if crate::native::cdp::xvfb::should_use_private_display(
+        options.headless,
+        options.no_xvfb,
+    ) {
+        match crate::native::cdp::xvfb::start_private_display() {
+            Ok(guard) => Some(guard),
+            Err(reason) => {
+                tracing::warn!(
+                    target: "browser_automation_cli::xvfb",
+                    reason = %reason,
+                    "private display unavailable; launching headed on the current display"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    crate::browser_policy::record_display_outcome(options.headless, xvfb.is_some());
+    let options = &LaunchOptions {
+        private_display: xvfb.is_some(),
+        ..options.clone()
+    };
+
     let mut chrome_args = build_chrome_args(options)?;
 
     materialize_profile_dir(&chrome_args).await?;
@@ -138,33 +164,33 @@ pub async fn launch_self_spawned(options: &LaunchOptions) -> Result<ChromeLaunch
         ));
     }
 
-    let port = reserve_loopback_port()?;
-    pin_debugging_port(&mut chrome_args.args, port);
+    // DevTools over a pipe: no TCP listener for other local processes to find.
+    // See `native::cdp::pipe` for the unauthenticated port this replaces.
+    let (pipe_child, pipe_parent) = crate::native::cdp::pipe::create()
+        .map_err(|e| format!("DevTools pipe could not be created: {e}"))?;
+    crate::native::cdp::pipe::use_pipe_transport(&mut chrome_args.args, &pipe_child);
+    crate::native::cdp::chrome::publish_launch_args(&chrome_args.args);
 
-    // A headed Chrome on Linux draws into a private X server when one can be
-    // started, so the window is genuinely rendered and genuinely invisible.
-    // Failure here degrades to a plain headed window rather than failing the
-    // launch: the display sharpens the disguise, it is not what makes the
-    // browser work, and a missing optional package must not become an outage.
-    let xvfb = if crate::native::cdp::xvfb::should_use_private_display() {
-        match crate::native::cdp::xvfb::start_private_display() {
-            Ok(guard) => Some(guard),
-            Err(reason) => {
-                tracing::warn!(
-                    target: "browser_automation_cli::xvfb",
-                    reason = %reason,
-                    "private display unavailable; launching headed on the current display"
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
+    // `XAUTHORITY` carries the cookie the private server now demands.
     let envs = xvfb
         .as_ref()
-        .map(|g| vec![("DISPLAY".to_string(), g.display_value())])
+        .map(|g| {
+            vec![
+                ("DISPLAY".to_string(), g.display_value()),
+                ("XAUTHORITY".to_string(), g.xauthority_value()),
+            ]
+        })
         .unwrap_or_default();
+    // `--ozone-platform=x11` is what keeps the window inside Xvfb; see
+    // `pin_x11_for_private_display`. The variable is dropped as well so the
+    // child sees no Wayland session the switch contradicts. Only when the
+    // private display actually started, so the degraded path still reaches a
+    // real screen.
+    let env_remove = if xvfb.is_some() {
+        vec!["WAYLAND_DISPLAY".to_string()]
+    } else {
+        Vec::new()
+    };
 
     // Re-establish the precondition immediately before the fork.
     //
@@ -180,63 +206,78 @@ pub async fn launch_self_spawned(options: &LaunchOptions) -> Result<ChromeLaunch
     reassert_profile_dir(&chrome_args)?;
 
     let request = SpawnRequest {
-        program: executable,
-        args: chrome_args.args.clone(),
         envs,
+        env_remove,
+        debug_pipe: Some(pipe_child),
+        ..SpawnRequest::new(executable, chrome_args.args.clone())
     };
     // The fork itself blocks; keep it off the Tokio worker (the guard thread is
     // what actually owns the child, so `spawn_blocking` only carries the wait).
-    let guarded = tokio::task::spawn_blocking(move || spawn_guarded(request))
-        .await
-        .map_err(|e| format!("Chrome spawn task failed: {e}"))??;
-    let mut child = guarded.child;
-    let pgid = guarded.pgid;
-
-    let (logs, drainers) = match start_log_drainers(&mut child) {
-        Ok(v) => v,
-        Err(e) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(e);
+    //
+    // The owner is built INSIDE the blocking task. A `std::process::Child`
+    // does not kill on drop, so a launch cancelled while this future was
+    // suspended used to leave a live Chrome with no owner until the process
+    // exited; a `ChromeProcess` dropped with the task's output kills it.
+    let (process, logs) = tokio::task::spawn_blocking(move || {
+        let guarded = spawn_guarded(request)?;
+        let mut child = guarded.child;
+        match start_log_drainers(&mut child) {
+            Ok((logs, drainers)) => Ok((ChromeProcess::new(child, guarded.pgid, drainers), logs)),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(e)
+            }
         }
-    };
-
-    let ws_url = match wait_for_cdp_ready(
-        "Chrome",
-        &mut child,
-        port,
-        &logs,
-        ReadinessBudget {
-            startup: startup_timeout(),
-            // Poll cadence is engine-independent: these name a readiness slice,
-            // not a Lightpanda policy, and the Chrome budget above is what
-            // actually differs between the two engines.
-            ready_slice: Duration::from_millis(crate::xdg::policy::policy_u64(
-                crate::xdg::policy::key::LIGHTPANDA_READY_SLICE_MS,
-            )),
-            poll_interval: Duration::from_millis(crate::constants::LIGHTPANDA_POLL_INTERVAL_MS),
-            discovery_timeout: Duration::from_millis(crate::xdg::policy::policy_u64(
-                crate::xdg::policy::key::LIGHTPANDA_DISCOVERY_TIMEOUT_MS,
-            )),
-        },
-    )
+    })
     .await
-    {
-        Ok(url) => url,
-        Err(e) => {
-            // Reap through the owner so the drainers are joined exactly once.
-            ChromeProcess::new(child, pgid, drainers).kill();
-            return Err(format!("{e}{}", profile_postmortem(&chrome_args)));
-        }
-    };
-
+    .map_err(|e| format!("Chrome spawn task failed: {e}"))??;
     // The display is handed to the process that renders into it, so teardown
     // order is fixed by ownership rather than by call-site discipline: Chrome
     // is reaped first, the server afterwards.
-    let process = ChromeProcess::new(child, pgid, drainers).with_private_display(xvfb);
-    let (browser, handler) = Browser::connect_with_config(&ws_url, handler_config(options))
-        .await
-        .map_err(|e| format!("chromiumoxide Browser::connect_with_config: {e}"))?;
+    let process = process.with_private_display(xvfb);
+
+    // The accept clock starts here, while readiness gets its own full budget
+    // below; twice the budget leaves the client at least one whole budget to
+    // connect even when Chrome answers at the last moment.
+    let bridge = match PipeBridge::start(pipe_parent, startup_timeout().saturating_mul(2)).await {
+        Ok(bridge) => bridge,
+        Err(e) => {
+            kill_off_the_runtime(process).await;
+            return Err(e);
+        }
+    };
+    // Owned by the process before the first wait on it, so every exit path —
+    // failure, cancellation, FINALIZE — tears it down after Chrome is reaped.
+    let mut process = process.with_transport(bridge);
+    let ready = match process.transport_mut() {
+        Some(bridge) => bridge
+            .wait_ready(startup_timeout())
+            .await
+            .map(|()| bridge.ws_url().to_string()),
+        None => Err("DevTools pipe bridge vanished before readiness".to_string()),
+    };
+    let ws_url = match ready {
+        Ok(url) => url,
+        Err(e) => {
+            // Reap through the owner so the drainers are joined exactly once.
+            kill_off_the_runtime(process).await;
+            return Err(format!(
+                "{}{}",
+                launch_error("Chrome", &e, &logs, None),
+                profile_postmortem(&chrome_args)
+            ));
+        }
+    };
+
+    let (browser, handler) =
+        match Browser::connect_with_config(&ws_url, handler_config(options)).await {
+            Ok(pair) => pair,
+            Err(e) => {
+                kill_off_the_runtime(process).await;
+                return Err(format!("chromiumoxide Browser::connect_with_config: {e}"));
+            }
+        };
 
     Ok(ChromeLaunch {
         browser,
@@ -250,34 +291,6 @@ pub async fn launch_self_spawned(options: &LaunchOptions) -> Result<ChromeLaunch
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn pin_debugging_port_replaces_the_wildcard() {
-        let mut args = vec![
-            "--remote-debugging-port=0".to_string(),
-            "--no-first-run".to_string(),
-        ];
-        pin_debugging_port(&mut args, 45_123);
-        assert!(args.iter().any(|a| a == "--remote-debugging-port=45123"));
-        assert!(
-            !args.iter().any(|a| a == "--remote-debugging-port=0"),
-            "the wildcard port must not survive: Chrome honors the last switch \
-             but leaving both makes the argv ambiguous"
-        );
-        assert!(args.iter().any(|a| a == "--no-first-run"));
-    }
-
-    #[test]
-    fn pin_debugging_port_forces_loopback_bind() {
-        let mut args = vec!["--remote-debugging-address=0.0.0.0".to_string()];
-        pin_debugging_port(&mut args, 1);
-        assert!(!args.iter().any(|a| a.ends_with("0.0.0.0")));
-        assert!(args.iter().any(|a| a
-            == &format!(
-                "--remote-debugging-address={}",
-                crate::constants::LOOPBACK_HOST
-            )));
-    }
 
     #[test]
     fn handler_config_keeps_a_viewport() {

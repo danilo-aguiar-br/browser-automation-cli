@@ -3,11 +3,12 @@
 # Security Policy
 
 ## Supported Versions
-- `0.1.x` is the current supported line
+- `0.2.x` is the current supported line
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | yes       |
+| 0.2.x   | yes       |
+| 0.1.x   | no        |
 
 ## Reporting a Vulnerability
 - Do not open a public GitHub issue for security-sensitive problems
@@ -36,12 +37,28 @@
 
 ## Security Update Policy
 - Security fixes ship in patch releases when possible
-- CHANGELOG entries mark security fixes under Fixed
+- CHANGELOG entries mark security fixes under Security
 - Users should upgrade to the latest supported patch promptly
 
 ## Hall of Fame
 - No public security reports have been credited yet
 - Legitimate reporters may be listed here after coordinated disclosure
+
+## Local Attack Surface Closed in 0.2.0
+- A self-spawned Chrome no longer opens a DevTools TCP port and runs with `--remote-debugging-pipe`
+- On POSIX hosts Chrome reads DevTools commands from descriptor 3 and writes replies to descriptor 4
+- A WebSocket bridge on `127.0.0.1` relays exactly one valid client between that pipe and `chromiumoxide`
+- The bridge path holds the 122 random bits of a v4 UUID
+- The bridge answers every other path with 403 and exposes no `/json/version` endpoint
+- The bridge closes its listener once that client completes the handshake
+- The bridge caps each DevTools message at 256 MiB and waits at most 2 seconds for its pipe threads at teardown
+- The private Xvfb of a headed Linux launch requires a `MIT-MAGIC-COOKIE-1`
+- The cookie lives in a mode 0600 file passed to Xvfb with `-auth` and to Chrome through `XAUTHORITY`
+- That file is removed at teardown, and the next launch removes a file whose creator pid no longer exists
+- Unchanged in 0.2.0: the Lightpanda engine and the legacy launch path enabled by `config set chrome_legacy_oxide_launch true` still use a DevTools TCP port on loopback
+- Not validated in 0.2.0: the Windows pipe path through `--remote-debugging-io-pipes` was neither compiled nor tested
+- Not validated in 0.2.0: macOS was not tested live for the pipe transport
+- A Chrome descendant that calls `setsid` leaves the process group and is out of reach of the group kill of a failed launch
 
 ## Best Practices for Users
 - Keep Chrome or Chromium updated on the host

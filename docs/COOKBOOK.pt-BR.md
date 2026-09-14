@@ -2,7 +2,9 @@
 
 # Cookbook — browser-automation-cli
 
-> Receitas práticas com comandos prontos para copiar em trabalho browser one-shot. Ciclo de vida: BORN EXECUTE FINALIZE DIE.
+
+- Receitas práticas com comandos prontos para copiar em trabalho browser one-shot
+- Ciclo de vida: BORN EXECUTE FINALIZE DIE
 
 
 ## Nota de Latência
@@ -102,7 +104,8 @@ browser-automation-cli --json print-pdf --url about:blank --path /tmp/browser-au
 browser-automation-cli doctor --offline --quick --json | jaq '.residual'
 ```
 - Campos de topo `residual`: `scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legado), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
-- Check id `residual_disk`: `fail` em `orphan_marker_dirs` ou `ghost_marker_processes`; `warn` quando restam dirs marker ou orphans Singleton; senão `pass`. Uma invocação irmã viva é saudável e nunca reprova.
+- Check id `residual_disk`: `fail` em `orphan_marker_dirs` ou `ghost_marker_processes`; `warn` quando restam dirs marker ou orphans Singleton; senão `pass`
+- Uma invocação irmã viva é saudável e nunca reprova
 - Residual-zero significa zero processos marker CLI vivos, zero dirs `browser-automation-cli-chrome-*`, zero lixo Singleton-only de Chromium tmp owned após DIE
 - Age floor do GC cross-run stale é 60s; temp de Chrome Flatpak do host nunca é apagado
 - Mantenedores (gates locais opcionais, só scripts locais do mantenedor):
@@ -198,28 +201,35 @@ browser-automation-cli --json config set stealth_profile chrome-linux
 - `--stealth-profile` aceita `auto`, `chrome-linux`, `chrome-win`, `chrome-mac`, e `auto` segue o host
 - Liste os tokens pelo binário: `browser-automation-cli --json --stealth-profile list version` ou `commands --json`
 - Sem `--stealth-seed` cada execução sorteia identidade nova, então um crawl de 50 URLs se apresenta como 50 máquinas
-- `--stealth-seed` fixa `hardwareConcurrency`, `deviceMemory`, vendor/renderer da GPU, `history.length` e o build do Chrome. Não varia User-Agent, `navigator.platform`, idiomas, fuso, tela nem `plugins.length`
-- O launch aplica métricas 1920×1080 para `screen` não ficar no padrão headless 800×600. `resize` / `emulate --viewport` também definem `screen`; passe `--screen 1920x1080`, um passo de `run` `"screen":"2560x1440"` ou `config set screen 2560x1440`
+- `--stealth-seed` fixa `hardwareConcurrency`, `deviceMemory`, vendor/renderer da GPU e `history.length`
+- O build do Chrome não depende da semente: com override de User-Agent ele é a versão completa que a crate de identidade associa ao major, e sem override é o do próprio Chrome instalado
+- `--stealth-seed` não varia User-Agent, `navigator.platform`, idiomas, fuso, tela nem `plugins.length`
+- O launch aplica métricas 1920×1080 para `screen` não ficar no padrão headless 800×600
+- `resize` / `emulate --viewport` também definem `screen`; passe `--screen 1920x1080`, um passo de `run` `"screen":"2560x1440"` ou `config set screen 2560x1440`
 - O envelope responde `screen_source` ao lado de `screen`, e os tokens são `argv`, `step`, `xdg`, `derived` e `floor`
 - `floor` significa que existia um override explícito e o piso do viewport era maior, então o número devolvido é o piso e não o que você pediu
 - Leia `screen_source` antes de confiar em `screen`: quem lê só o número não distingue um pedido que sobreviveu de um que o piso sobrepôs
-- `doctor --fingerprint` (sem `--quick`) pontua a página ao vivo e falha se ela contradisser o plano. `--quick` pontua só a identidade planejada
+- `doctor --fingerprint` (sem `--quick`) pontua a página ao vivo e falha se ela contradisser o plano
+- `--quick` pontua só a identidade planejada
 - As chaves XDG são `stealth` (`true`), `stealth_profile` (`auto`), `stealth_seed` (sem padrão)
-- `browser_mode` (`auto`) é `auto|headed|headless`; `auto` resolve para headless e o `doctor` reporta o modo efetivo
+- `browser_mode` (`auto`) é `auto|headed|headless`; `auto` resolve para headed dentro de um display virtual privado no Linux com Xvfb no PATH e sem `--no-xvfb`, e para headless em qualquer outro caso; o `doctor` reporta o modo efetivo
 - Desligue os patches nesta execução com `--no-stealth` quando estiver testando seu próprio front end
 
-## Como Escrever um Arquivo `run --script` que o Agente Consiga Parsear
 
-Cada passo é um objeto JSON completo em uma única linha física. Um `printf` com aspas simples esmaga as aspas do JavaScript dentro de `eval` e a página reporta `SyntaxError: Invalid regular expression flags`. Quebrar a expressão em várias linhas é NDJSON inválido (`EOF while parsing a string`).
+## Como Escrever um Arquivo `run --script` que o Agente Consiga Parsear
+- Cada passo é um objeto JSON completo em uma única linha física
+- Um `printf` com aspas simples esmaga as aspas do JavaScript dentro de `eval`, e a página reporta `SyntaxError: Invalid regular expression flags`
+- Quebrar a expressão em várias linhas é NDJSON inválido (`EOF while parsing a string`)
+- Entregue os passos a `run --script -` por um heredoc com delimitador entre aspas, para o shell preservar cada aspa sem arquivo temporário nem variável
+- O modo stdin valida cada linha ao chegar e continua rodando um BORN e um DIE
 
 ```bash
-SCRIPT="$(mktemp)"
-cat > "$SCRIPT" <<'EOF'
-{"cmd":"goto","url":"about:blank"}
-{"cmd":"eval","expression":"(/hello/i).test(\"hello\")"}
+timeout 120 -- browser-automation-cli -q --json run --script - <<'EOF'
+{"cmd":"goto","url":"https://example.com"}
+{"cmd":"eval","expression":"(/example/i).test(document.title)"}
 EOF
-browser-automation-cli --json -q run --script "$SCRIPT"
 ```
+- Medido em 2026-09-13 com a 0.2.0: exit `0`, `ok: true`, `validation: "per-line"`, e o passo `eval` devolveu `result: true`
 
 
 ## Como Sair por um Proxy de Saída
@@ -281,6 +291,31 @@ browser-automation-cli --timeout 60 --json --headed --no-xvfb goto https://examp
 - `--no-xvfb` só faz sentido em modo headed no Linux
 
 
+## Como Rodar Headed num Desktop Wayland Sem Abrir Janela
+```bash
+# Confirme que este host Linux consegue subir o display virtual privado
+browser-automation-cli --json --fields checks --filter-rows 'id=virtual_display' doctor --offline --quick
+
+# Lançamento headed desenhado no Xvfb privado, e não no compositor Wayland
+browser-automation-cli --timeout 60 --json --headed \
+  --fields browser_mode_requested,browser_mode_effective,browser_mode_source,display_backend \
+  goto https://example.com
+```
+- `data` esperado do segundo comando quando o display privado subiu
+```json
+{"browser_mode_requested":"headed","browser_mode_effective":"headed","browser_mode_source":"flag","display_backend":"xvfb"}
+```
+- `browser_mode_auto_resolves` igual a `headed` no check `virtual_display` significa Linux com Xvfb no PATH, enquanto `private_display_supported` vale `true` em todo build Linux
+- Headed no Linux sobe o display privado quando há Xvfb no PATH e `--no-xvfb` está ausente
+- Quando o display privado sobe, o lançamento fixa `--ozone-platform=x11`, então o Chromium não escolhe Wayland pela sessão do desktop
+- Nenhuma flag nem chave XDG passa switch de plataforma ao Chrome, então `--no-xvfb` é o jeito de manter o seu display
+- `display_backend` nomeia o display que o lançamento realmente usou: `headless`, `xvfb` ou `host`
+- `host` significa que o Chrome desenhou no seu próprio display, como com `--no-xvfb` ou quando o Xvfb não conseguiu subir
+- Trate `display_backend` igual a `xvfb` como a prova, e nunca a flag `--headed` que você passou
+- Medido só no Linux sob Wayland; macOS, KDE e Sway não foram validados ao vivo
+- A ausência de janela foi provada por argv, ambiente e sockets, e não olhando a tela
+
+
 ## Como Manter o Fingerprint HTTP/2 Constante
 ```bash
 browser-automation-cli --json config set http2_enabled true
@@ -298,12 +333,15 @@ browser-automation-cli --json config set http2_adaptive_window false
 ## Como Afirmar Sobre o Payload Emitido
 ```bash
 # Só reporta: o exit continua 0 e agent_ops.expectation_unmet lista as falhas
-browser-automation-cli --json --expect 'ok=true' doctor --offline --quick
+browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' --expect 'status=pass' doctor --offline --quick
 
 # Opte por reprovar a execução
-browser-automation-cli --json --expect 'ok=true' --expect-exit-code doctor --offline --quick
+browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' --expect 'status=pass' --expect-exit-code doctor --offline --quick
 ```
 - `--expect` aceita `key=value`, `key!=value` e `key~substring`, é repetível e conjuga tudo por AND
+- Os caminhos partem de `data`, então `ok=true` procura um campo dentro de `data` e não o `ok` do envelope, e `data.title~Example` nunca é atendido
+- Quando o payload traz uma lista de linhas, cada expressão é conferida contra as linhas e vale quando uma linha casa
+- Estreite antes com `--fields` e `--filter-rows`, porque o `--expect` lê o payload depois dessa redução
 - `--expect-exit-code` sai com `65` quando alguma expectativa falha
 - Ela fica desligada por padrão porque mudar exit code por conteúdo de dado quebraria em silêncio os chamadores que já ramificam nele
 
@@ -489,7 +527,7 @@ JSON
 browser-automation-cli --json config set dialog_settle_ms 2000
 ```
 - Após accept/dismiss real, o envelope de dados inclui o booleano `dialog_settled` (GAP-054)
-- Happy path é `true` quando `Page.javascriptDialogClosed` foi observado — **não** invente wait antes do próximo passo de página
+- Happy path é `true` quando `Page.javascriptDialogClosed` foi observado — não invente wait antes do próximo passo de página
 - Caminho soft: `dialog accept --if-present` quando o diálogo pode estar ausente
 
 
@@ -771,7 +809,7 @@ browser-automation-cli --json scrape https://example.com --engine http \
 - Formatos: `text`, `markdown`, `html`, `links`, `metadata`, `summary`, `product`, `branding`, `raw-html`, `screenshot`, `images`
 - Engine `http` usa reqwest e pula o Chrome (prefira `http` quando HTML estático bastar)
 - `--select` projeta campos no binário; `--max-text-chars` limita text/markdown/html (XDG `scrape_max_text_chars` como padrão)
-- Superfície local one-shot scraping-oriented — **não** é a hosted scraping SaaS (sem SaaS de CAPTCHA nem de proxy)
+- Superfície local one-shot scraping-oriented — não é a hosted scraping SaaS (sem SaaS de CAPTCHA nem de proxy)
 
 ## Como Mapear com Sitemap e Filtros de Path
 ```bash
@@ -1061,7 +1099,7 @@ browser-automation-cli --json mitm ws
 - Bind apenas em 127.0.0.1 com porta efêmera
 - Material de CA fica sob XDG data (`mitm/ca`)
 - `start` mantém o proxy one-shot vivo por `--seconds` e então sai
-- Exporte HAR com `--out` **obrigatório**
+- Exporte HAR com `--out` obrigatório
 
 
 ## Como MITM capture-url One-shot
@@ -1189,7 +1227,7 @@ cat > /tmp/demo.array.json <<'JSON'
 JSON
 browser-automation-cli --timeout 60 --json run --script /tmp/demo.array.json
 ```
-- `run --script` aceita NDJSON **ou** um array JSON de objetos de passo
+- `run --script` aceita NDJSON ou um array JSON de objetos de passo
 - Mesmo ciclo de vida: BORN EXECUTE FINALIZE DIE
 - Erros fail-fast ainda podem incluir `data.steps` parcial
 - Envelope final inclui `steps[].data` completo quando `--json` está set

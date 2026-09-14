@@ -166,8 +166,9 @@ pub struct GlobalOpts {
 
     /// Show the browser window on your own display (debugging)
     ///
-    /// The default `browser_mode = auto` currently launches headless. Stealth
-    /// does not depend on that: the anti-detection patches, the launch switches
+    /// The default `browser_mode = auto` launches headed inside a private Xvfb
+    /// display on Linux when `Xvfb` is available and `--no-xvfb` is absent, and
+    /// headless everywhere else. Stealth does not depend on that: the anti-detection patches, the launch switches
     /// and the identity all apply either way, and `navigator.webdriver` is
     /// present and `false` in both. What headless still costs is the window itself —
     /// `window.outerHeight` and `outerWidth` read 0 on a raw headless Chrome,

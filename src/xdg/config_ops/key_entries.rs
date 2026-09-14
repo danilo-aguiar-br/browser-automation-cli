@@ -69,7 +69,7 @@ pub(super) fn base_key_entries() -> Vec<Value> {
             {"key": "log_level", "default": crate::constants::DEFAULT_LOG_LEVEL, "description": "Tracing EnvFilter when argv flags quiet (no RUST_LOG)"},
             {"key": "input_profile", "default": "human", "description": "Default input shaping: human|direct"},
             {"key": "input_timing_distribution", "default": crate::constants::DEFAULT_INPUT_TIMING_DISTRIBUTION, "description": "Shape of the dispersion around input delays: lognormal|normal|uniform (governs the fast rhythm only; the long-pause tail is input_word_pause_permille)"},
-            {"key": "browser_mode", "default": crate::constants::DEFAULT_BROWSER_MODE, "description": "Window mode: auto|headed|headless (auto resolves to headless; doctor reports it)"},
+            {"key": "browser_mode", "default": crate::constants::DEFAULT_BROWSER_MODE, "description": "Window mode: auto|headed|headless (auto resolves to headed inside a private virtual display on Linux with Xvfb on PATH and without --no-xvfb, otherwise headless; doctor reports it)"},
             {"key": "stealth", "default": true, "description": "Anti-detection patches before first navigation (--no-stealth opts out)"},
             {"key": "stealth_profile", "default": crate::constants::DEFAULT_STEALTH_PROFILE, "description": "Impersonated identity: auto|chrome-linux|chrome-win|chrome-mac"},
             {"key": "proxy_url", "default": null, "description": "Egress proxy for Chrome and the HTTP engine"},
@@ -139,7 +139,7 @@ pub(super) fn base_key_entries() -> Vec<Value> {
     out.push(json!({
         "key": "chrome_legacy_oxide_launch",
         "default": false,
-        "description": "Launch Chrome via chromiumoxide instead of the self-spawn path (stabilization fallback; loses the residual kill target)"
+        "description": "Launch Chrome via chromiumoxide instead of the self-spawn path (stabilization fallback; loses the residual kill target; reopens an unauthenticated loopback DevTools port and never starts the private Xvfb)"
     }));
     out.push(json!({
         "key": "audio_max_input_bytes",

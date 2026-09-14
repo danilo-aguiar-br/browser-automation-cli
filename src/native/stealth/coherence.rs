@@ -14,7 +14,7 @@ use super::Identity;
 mod drift;
 mod signals;
 
-pub use drift::{planned_vs_live, ua_chrome_major};
+pub use drift::{brands_vs_user_agent, planned_vs_live, ua_chrome_major};
 pub use signals::{
     bug01_deleted_webdriver, bug02_windows_ua_linux_platform, planned_stealth_signals,
     signals_from_live,

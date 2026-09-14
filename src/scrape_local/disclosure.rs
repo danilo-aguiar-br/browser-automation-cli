@@ -77,6 +77,14 @@ pub(super) fn insert_disguise_disclosure(map: &mut Map<String, Value>, engine: S
             // `HeaderMap` whose iteration order comes from its hash state
             // rather than from insertion.
             map.insert("header_order_controlled".into(), json!(false));
+            // Where the Chrome major in `user-agent` and `sec-ch-ua` came from:
+            // `host_binary` (this or a seeded earlier launch), `projected` (the
+            // override), or `host_unprobed` (crate table, nothing known without a
+            // probe). `null` with stealth off, where no identity is sent.
+            map.insert(
+                "user_agent_major_source".into(),
+                json!(crate::native::stealth::wire_major_source().map(|s| s.as_str())),
+            );
         }
         ScrapeEngine::Browser => {
             // Chrome negotiates its own ALPN and its own SETTINGS frame. There
@@ -95,6 +103,12 @@ pub(super) fn insert_disguise_disclosure(map: &mut Map<String, Value>, engine: S
             // engine name the envelope already carries.
             map.insert("transport_fingerprint".into(), json!("chrome-boringssl"));
             map.insert("header_order_controlled".into(), json!(true));
+            // The major the page itself shows, read from the launch that built
+            // the patch script. `null` before a launch or with stealth off.
+            map.insert(
+                "user_agent_major_source".into(),
+                json!(crate::native::stealth::page_major_source().map(|s| s.as_str())),
+            );
         }
     }
 }
@@ -220,6 +234,7 @@ mod tests {
                 "http2_profile",
                 "tls_impersonation",
                 "header_order_controlled",
+                "user_agent_major_source",
             ] {
                 assert!(
                     map.contains_key(key),

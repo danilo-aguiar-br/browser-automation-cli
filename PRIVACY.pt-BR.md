@@ -12,7 +12,9 @@ Esta CLI é **local-first** e **agent-first**. Ela **não** implementa telemetri
 |------|----------------|
 | Sessões de navegador | Processo Chrome local + perfil temporário sob o diretório temporário do sistema; recolhido no FINALIZE |
 | Diretórios temporários residuais | Apenas locais: diretórios com marcador da CLI (`browser-automation-cli-chrome-`) e diretórios Chromium órfãos com apenas Singleton sob `/tmp`, varridos por BORN/FINALIZE; o `residual_disk` do `doctor` os inspeciona localmente — **nunca enviados** |
-| Configuração | Apenas o diretório XDG de configuração, via `config` (`path`, `init`, `show`, `set`, `get`, `list-keys`) |
+| Cookie de autoridade X (0.2.0, Linux headed com o Xvfb privado) | Apenas local: dezesseis bytes aleatórios de `MIT-MAGIC-COOKIE-1` num arquivo com permissão 0600 chamado `browser-automation-cli-xauth-<pid>-<uuid>` sob o diretório de runtime do usuário, ou sob o diretório temporário do sistema quando o host não tem esse diretório; removido no teardown, e o arquivo cujo pid criador não existe mais é removido pelo launch seguinte — nunca enviado |
+| Ponte DevTools (0.2.0) | Apenas local: um listener WebSocket em `127.0.0.1` que aceita um cliente e fecha após o handshake; o tráfego DevTools entre a CLI e o próprio Chrome nunca sai da máquina |
+| Configuração | Apenas o diretório XDG de configuração, via `config` (`path`, `init`, `show`, `set`, `get`, `unset`, `list-keys`) |
 | Preferência de idioma da interface | Definida com `--lang pt-BR` ou `config set lang pt-BR` (XDG). Resolvida uma única vez no boot, apenas para as mensagens humanas de `suggestion`; o JSON de máquina permanece em inglês. **Nunca enviada.** |
 | Logs opcionais | Arquivo local sob o diretório XDG de estado quando `log_to_file` está habilitado |
 | Cache | SQLite local ou URL Redis opcional que você configura via `config set` |

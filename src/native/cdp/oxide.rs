@@ -51,6 +51,12 @@ pub struct OxideLaunch {
 /// the lifecycle ledger cannot reap.
 pub async fn launch_with_oxide(options: &LaunchOptions) -> Result<OxideLaunch, String> {
     let chrome_args = build_chrome_args(options)?;
+    // Legacy path: chromiumoxide still appends its DEFAULT_ARGS on top of this
+    // argv (see the parity table in `chrome/args.rs`), so the witness here
+    // reports the product switches only, as it always did on this path.
+    crate::native::cdp::chrome::publish_launch_args(&chrome_args.args);
+    // This path never starts a private display.
+    crate::browser_policy::record_display_outcome(options.headless, false);
     // PAR-92: materialize the profile off the async worker (docsrs spawn_blocking).
     crate::native::cdp::chrome::materialize_profile_dir(&chrome_args).await?;
 

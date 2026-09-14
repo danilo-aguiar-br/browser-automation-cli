@@ -1,412 +1,407 @@
 ---
 name: browser-automation-cli
-description: This skill MUST be used when operating browser-automation-cli for Chrome CDP automation, local scraping, local media and page diagnostics. MUST activate for navigate, click, type, form submit, fill-form, storage export and import, accessibility snapshots with @eN refs, screenshots, PDF, LLM extract, multi-format scrape with rawHtml, batch-scrape, crawl, map, search, parse PDF DOCX XLSX ODS, monitor, QR, sheet-write, sg-scan, sg-rewrite, find-paths, console, network, loopback MITM, traffic capture with HAR, REST and GraphQL endpoint discovery, emulate, perf, lighthouse, screencast, heap, extensions, webmcp, workflow, multi-step run, record of replayable interactions, image info convert resize exif download, video info convert trim thumbnail manifest, audio info convert trim download. Delivers argv formulas, eight payload-reduction flags, JSON envelope, exit codes, 217 XDG keys with no environment variables, robots and residual-zero on disk.
+description: This skill MUST be used when a task requires opening, reading, operating, collecting from or diagnosing web pages, and it MUST activate proactively even when the user never names browser-automation-cli. It covers navigating, clicking, typing and filling forms, accessibility snapshots, screenshots and PDF, scrape, crawl, site maps, sitemap and feed, LLM extraction, parsing PDF, DOCX and spreadsheets, console, network, HAR and MITM, REST and GraphQL API discovery, device emulation, Lighthouse, performance traces, heap, extensions, recording and replaying interactions, QR, XLSX spreadsheets, local image, video and audio, an invisible headed window for Cloudflare Turnstile and residual-zero audits. It takes URLs, selectors, local files and multi-step scripts, and delivers a JSON envelope with a branchable exit code, artifacts on disk, a reduced payload and proof of the window mode. It ALWAYS configures through flags and XDG config and NEVER through environment variables.
 ---
-
 # browser-automation-cli
 
-## Zero Rule
-### REQUIRED
-- MUST ALWAYS invoke full binary `browser-automation-cli`
-- MUST pass `--json` on EVERY programmatic call
-- MUST parse ONLY stdout; pass `-q` or `--quiet` to silence stderr in pipelines
-- MUST check exit code BEFORE trusting stdout
-- MUST require `.ok == true` before `.data`; parse with `jaq`, NEVER `jq`
-### FORBIDDEN
-- NEVER invent alias `bac` or shortened binary names
-- NEVER invent product environment variables or use `.env` for runtime config
-- NEVER mask exit codes with `|| true`; NEVER parse stderr as JSON
 
-## Mandatory Discovery
+## Mission and Activation
 ### REQUIRED
-- MUST resolve live surface by discovery, NEVER memorized counts
-- MUST run `--json commands`, `--json schema <cmd>` or `schema --cmd <cmd>`, `--json config list-keys`, `--json config path`
-- MUST run `<cmd> --help` when schema is insufficient; `doctor --offline --quick` when host looks wrong
-- MUST consult `references/formulas.md` for exhaustive argv
+- MUST activate this skill for every task that opens, reads, operates, collects from or measures a web page, even when the user never names the CLI
+- MUST activate this skill for local media, document parsing, QR and spreadsheets too, which run without Chrome
+- MUST ALWAYS invoke the binary `browser-automation-cli` by its full name
+- MUST pass `--json` on EVERY programmatic call and parse ONLY stdout with `jaq`
+- MUST read the exit code BEFORE stdout and require `ok` true BEFORE reading `data`
+- MUST pass an explicit `--timeout` on every call that opens a browser
 ### FORBIDDEN
-- NEVER invent flags absent from schema/help; NEVER invent PRD wishlist flags; NEVER invent XDG paths
-
-## Identity and Lifecycle
-### REQUIRED
-- MUST treat every process as BORN → EXECUTE → FINALIZE → DIE; Chrome lives only inside that process
-- MUST keep multi-step work needing surviving `@eN` refs inside ONE `run --script`
-- MUST use system Chrome via discovery or `config set chrome_path`
-- MUST map DevTools→CLI - click→`press`, fill→`write`, take_screenshot→`grab`, take_snapshot→`view`, type_text→`type`, press_key→`keys`, navigate_page→`goto`|`back`|`forward`|`reload`, evaluate_script→`eval`, list_network_requests→`net list`, list_console_messages→`console list`
-- MUST treat `exec` as single-step only
-### FORBIDDEN
-- NEVER reuse `@eN` across processes; NEVER assume daemon/sticky/remote session/telemetry; NEVER call DevTools names as subcommands
-
-## Payload Reduction (all 71 commands)
-### REQUIRED
-- MUST reduce with the binary's own flags, NEVER by piping stdout through `jaq`
-- MUST use `--fields PATHS` to project dotted paths (CSV)
-- MUST use `--filter-rows EXPR` with `key=value`, `key!=value` or `key~substring` (repeatable, ANDed)
-- MUST use `--limit-rows N`, `--sort-rows PATH`, `--dedupe-by PATH`, `--count-only` on list payloads
-- MUST use `--truncate-content CHARS` and `--max-output-bytes BYTES` to cap size
-- MUST read `agent_ops.truncated` — it is the only signal separating a short payload from a cut one
-- MUST treat a zero-match filter as an empty list with `ok: true`, never as an error
-- MUST narrow with `--fields <key>` first when the error says data holds more than one list
-- MUST know a missing field never matches, including under `!=`
-- Measured: `doctor --offline --quick` is 26_277 bytes; `--fields residual.ghost_marker_processes` is 80
-- MUST treat a reduction flag as NECESSARY but NOT SUFFICIENT for `agent_ops`, which is omitted when the flags produced nothing to report
-- Measured: `--fields commands commands` returns only `data`, `ok`, `schema_version`, while adding `--limit-rows 3` adds `agent_ops` with `total`, `matched`, `truncated`
-- MUST pass ONE single CSV to `--fields`; the flag is NOT repeatable
-- Measured: `--fields residual --fields checks` returns `ok:false`, `error.kind` usage, exit 2
-- MUST root `--fields` paths at `data`; write `residual`, NEVER `data.residual`
-- Measured: `--fields data.residual` returns empty `data` with exit 0 — a SILENT wrong answer
-- MUST read `agent_ops.unresolved_paths` to catch every path that resolved to nothing
-- Measured: `--count-only commands` alone exits 2 with data holds more than one list
-- MUST know the eight GLOBAL flags are `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`
-- MUST treat `--select`, `--filter`, `--limit` and `--sort` as LOCAL per-command flags
-- Measured: `image info --help` and `scrape --help` expose the local `--select` beside the global `--fields`, `--filter-rows` and `--limit-rows`
-### FORBIDDEN
-- NEVER pipe through `jaq`/`jq` to shrink a payload — that work belongs in the binary
-- NEVER confuse the local `--select` family with the eight global reduction flags
-- NEVER assume `agent_ops` exists just because you passed a reduction flag
-### Correct Pattern
-- MUST execute `browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' doctor --offline --quick`
-- MUST execute `browser-automation-cli --json --fields checks --count-only doctor --offline --quick`
+- NEVER use an alias or a shortened binary name
+- NEVER parse stderr as JSON
+- NEVER mask an exit code with `|| true`
+- NEVER invent a flag, value, key or subcommand the binary lacks
+- NEVER use this skill for official library documentation, Rust crates, SSH or databases
 
 
-## Global Flags
+## Live Surface Discovery
 ### REQUIRED
-- MUST accept global flags before or after subcommand
-- MUST pass `--json`; pass `--json-steps` for one NDJSON object per `run` step
-- MUST pass `--timeout <secs>` whole-process; `--step-timeout <secs>` per `run` step
-- MUST pass `--max-concurrency <N>` to bound batch/crawl/CDP fan-out
-- MUST pass `--artifacts-dir`, `--correlation-id`, `--plain`, `--headed` only when those controls are required
-- MUST pass `--capture-console` in SAME process as `console`/console asserts; `--capture-network` with `net`
-- MUST pass `--lang en` or `--lang pt-BR`; `--verbose` or `--debug` for tracing (or `config set log_level`)
-- MUST pass category gates only when required - `--category-memory` (heap), `--category-extensions` (extension), `--category-third-party` (devtools3p), `--category-webmcp` (webmcp)
-- MUST pass `--experimental-vision` for `click-at`; `--experimental-screencast` for `screencast`
-- MUST pass `--mitm` for interception; combine with `--mitm-har|--mitm-hosts|--mitm-ca-dir|--mitm-ws|--mitm-max-body-bytes|--mitm-no-media-bodies|--mitm-redact-secrets|--mitm-no-redact-secrets` only when required
-- MUST know MITM secret redaction is ON by default, so `--mitm-redact-secrets` restates it and changes nothing
-- MUST pass `--mitm-no-redact-secrets` to unmask for THIS run, and `mitm redact --secrets false` to write the persistent policy that stops masking
-- MUST know that asking to mask and to unmask in the same run resolves to MASKING, because the safe reading of a contradiction about secrets is to mask
-- MUST know the default is ON because a capture lands on disk for an agent to read, so forgetting the flag costs a missing header while the opposite default would cost a leaked session cookie
-- MUST pass `--dump-on-failure` with `--artifacts-dir` and with `--capture-console` or `--capture-network` to write console and network evidence on failure
-- MUST keep those capture flags in the SAME process, because capture dies with the process
-- MUST know `--allow-outside-roots` permits local reads and artifact writes OUTSIDE the allowed roots, and is explicit risk acceptance to pass only with declared intent
-- MUST treat the XDG key `allowed_roots` as the normal surface for widening those roots
-- MUST know stealth is ON by default and masks the automation markers a real Chrome never exposes
-- MUST pass `--no-stealth` to turn the anti-detection patches off for this run
-- MUST pass `--stealth-profile auto|chrome-linux|chrome-win|chrome-mac` and PREFER `auto`, which follows the host and is almost always right
-- MUST pass `--stealth-seed <SEED>` to pin one identity across processes (`hardwareConcurrency`, `deviceMemory`, GPU, `history.length`, Chrome build — not UA/platform/screen)
-- MUST run `browser-automation-cli --json doctor --fingerprint` to audit identity coherence
-- MUST list profiles with `--stealth-profile list` or `commands --json`
-- MUST know that without a seed a 50-URL crawl over 50 one-shot processes presents 50 distinct machines
-- MUST pass `--proxy <URL>` (`http`, `https`, `socks5`) as the egress proxy for BOTH Chrome and the HTTP engine
-- MUST pass `--proxy-bypass <HOSTS>` for hosts that skip the proxy, in Chrome bypass-list syntax
-- MUST pass `--min-delay-ms <MS>` to raise the same-origin courtesy floor for this invocation only
-- MUST know the effective wait is the MAXIMUM of the flag, XDG `scrape_min_delay_ms` and `Crawl-delay`
-- MUST store proxy credentials with `config set proxy_username` and `config set proxy_password` in XDG, NEVER in argv, because the process table shows argv
-- MUST know part of the anti-detection surface has NO flag at all and is reachable ONLY through XDG
-- MUST know the `http2_*` family drives the HTTP/2 fingerprint of the `--engine http` transport and is XDG-only
-- MUST tune that fingerprint with `config set http2_enabled`, `config set http2_adaptive_window`, `config set http2_initial_stream_window_size`, `config set http2_initial_connection_window_size`, `config set http2_max_header_list_size` and `config set http2_max_frame_size`
-- MUST know a mismatched HTTP/2 fingerprint identifies the client as automated even when the headers look real
-- MUST execute `config set stealth false` as the persistent equivalent of `--no-stealth`
-- MUST execute `config set stealth_profile <PROFILE>` and `config set stealth_seed <SEED>` to persist what those flags do per process
-- MUST discover the live surface with `config list-keys --json` instead of trusting any static list
-- MUST pass `--input-profile human|direct`; `human` is the default
-- MUST know `human` interpolates pointer trajectories, dwells between press and release and paces typing
-- MUST pass `--input-seed <SEED>` so a `human` run reproduces exactly; without it the jitter comes from the OS and two runs differ
-- MUST pass `--warmup` to visit the origin root before the target URL so the session already carries cookies and a referrer chain
-- MUST pass `--warmup-url <URL>` to warm that URL instead of the target origin root
-- MUST pass `--browser-mode auto|headless|headed` as the canonical window mode for THIS run; `--headless` and `--headed` are shorthands for two of its values, all three beat the XDG `browser_mode`, and `config set browser_mode <MODE>` writes the persistent default the flag overrides
-- MUST pass `--no-xvfb` only in headed mode on Linux, to skip the private virtual display and use the current one
-- MUST pass `--expect <EXPR>` with `key=value`, `key!=value` or `key~substring` to assert the emitted payload (repeatable, ANDed)
-- MUST pass `--expect-exit-code` to exit 65 when any `--expect` is unmet, instead of only reporting it
-- MUST know `--expect-exit-code` is off by default because changing an exit code on data content would silently break callers
-### FORBIDDEN
-- NEVER expect capture to survive process end; NEVER enable category/experimental gates by default; NEVER omit `--json` in agent pipelines
-- NEVER pass proxy credentials in argv; NEVER claim a foreign platform in `--stealth-profile` when the host says otherwise
+- MUST discover the surface from the binary and NEVER from memory
+- MUST run `commands` for the inventory and `schema <cmd>` for one command contract
+- MUST run `<cmd> --help` to see the local and global flags of that command
+- MUST run `doctor --offline --quick` when the host looks wrong, because it does NOT launch Chrome
+- MUST confirm every step key against `schema <cmd>` BEFORE serializing a new step
+### Ready Formulas
+- RUN `browser-automation-cli --json commands --detail`
+- RUN `browser-automation-cli --json schema --cmd scrape`
+- RUN `browser-automation-cli scrape --help`
+- RUN `browser-automation-cli --json version` and `browser-automation-cli --json locale`
+- RUN `browser-automation-cli --json doctor --offline --quick --fix`
+- RUN `browser-automation-cli completions bash` and `browser-automation-cli man --out /tmp/b.1`
 
-## XDG Config
-### REQUIRED
-- MUST configure ONLY via CLI flags and `config init|path|show|get|set|unset|list-keys`
-- MUST discover keys with `config list-keys --json` before set; resolve paths with `config path --json`
-- MUST treat CLI flags as overrides of stored values
-- MUST know `config unset` is the inverse of `set`, while `config set <key> ""` is NOT
-- MUST set secrets `encryption_key` and `openrouter_api_key`
-- MUST set binaries `chrome_path`, `lighthouse_path`, `ffmpeg_path`
-- MUST set `cache_backend` sqlite|memory|redis; Redis only plain `cache_redis_url redis://...`
-- MUST set `dialog_settle_ms` for dialog settle budget; logging via `config set log_level` or `--verbose`/`--debug`
-- MUST read `references/xdg-keys.md` for every XDG key with its default and description before setting any key not named here
-### FORBIDDEN
-- NEVER invent product env for any key; NEVER log secrets/cookies; NEVER use `rediss://`; NEVER set redis backend without URL
 
-## Argv Contract and Surface
+## One-Shot Lifecycle
 ### REQUIRED
-- MUST pass `grab --path <file>` and `grab --format png|jpeg|webp` only; pass `--quality`/`--element` only when required
-- MUST pass `print-pdf --path <file>` ALWAYS; one-shot MUST also pass `--url` (blank page refused)
-- MUST pass `view --detailed` for full a11y tree (argv is `--detailed`, NOT `--verbose`); run JSON accepts `verbose` or `detailed`
-- MUST pass `view --allow-empty` only when blank snapshot is intentional
-- MUST pass `type <TEXT>` with `--target` OR `--focus-only`
-- MUST pass `fill-form --fields-json '[{"target":"@eN","value":"x"}]'`; `cookie set --cookies-json '[...]'` (NEVER payload via `--json`)
-- MUST pass `submit <TARGET>` (form or field owning form); `--timeout-ms` only when non-default wait required
-- MUST pass `storage export|import --path <FILE>` ALWAYS; `--url` when origin must load in-process
-- MUST pass `mitm block --host`; `mitm allow --host` (host required); `mitm ws list|get`
-- MUST pass `reload --ignore-cache` only on reload (NEVER goto); `goto --handle-before-unload accept|dismiss` explicit
-- MUST pass `sheet-write <in> -o <out.xlsx>`; `emulate` via UA/viewport/network flags (NEVER `--device`)
-- MUST pass `assert url <v> --contains` for substring; `workflow run --manifest <json>`; `--journal` only when explicit path required
-- MUST pass `eval --file-path <FILE>` to write the result to a file and `--service-worker-id` to target a service worker
-- MUST discover `pick`/`select-option` via commands/schema; invoke via run/exec
-- MUST read the key `html` after `scrape --format html` and `rawHtml` after `--format rawHtml`
-- Measured with `--engine http`: they are DISTINCT keys carrying DISTINCT payloads
+- MUST treat every process as BORN, EXECUTE, FINALIZE and DIE, with Chrome born and killed inside it
+- MUST know there is NO daemon, NO persistent session and NO state between processes
+- MUST treat an `@eN` ref as valid ONLY inside the process that produced it
+- MUST put all multi-step work into one single `run --script`
+- MUST treat `exec` as one inline step, with the same surface as `run` steps
+- MUST know the Chrome launched by the CLI opens NO DevTools TCP port and speaks CDP over a pipe through a single-client loopback bridge
+- MUST carry authenticated state between processes ONLY with `storage export` and `storage import`
+- MUST carry traffic captures between processes ONLY with `mitm capture-url` and `--capture-path`
+- MUST use the system Chrome or point to the binary with `config set chrome_path`
 ### FORBIDDEN
-- NEVER treat `rawHtml` as an alias of `html`; reading the wrong key returns nothing
-- NEVER bare positional path on grab/print-pdf; NEVER one-shot print-pdf without `--url`; NEVER avif
-- NEVER put `mitm`, `storage`, or `extension install|uninstall` inside `run`
-- NEVER use `view --verbose`
+- NEVER reuse `@eN` in a second process
+- NEVER attach an external tool, debugger or second CDP client to that Chrome
+- NEVER expect a console or network capture to survive DIE
+
+
+## Window Mode and Private Display
+### REQUIRED
+- MUST know `browser_mode` is `auto`, `headed` or `headless`
+- MUST know `auto` resolves to headed inside a private Xvfb ONLY on Linux with `Xvfb` on PATH and without `--no-xvfb`
+- MUST know `auto` resolves to headless everywhere else, and that `--no-xvfb` with `auto` stays headless
+- MUST treat `--headed` and `--headless` as shorthands of `--browser-mode`, and the flag ALWAYS beats `config set browser_mode`
+- MUST know `--headed` on Linux with Xvfb draws the window inside the private Xvfb, off the operator screen, even on a Wayland desktop
+- MUST know that isolation comes from the `--ozone-platform=x11` pin, applied ONLY when the private Xvfb started
+- MUST pass `--headed --no-xvfb` as the ONLY route to put the window on the current display on purpose
+- MUST use headed as REQUIRED against a Cloudflare Turnstile challenge, because headless does NOT emit the token
+- MUST know concurrent headed runs receive distinct private displays, so headed parallelism is safe
+- MUST know the private Xvfb requires an authentication cookie and is torn down at DIE with no action from you
+- MUST read `display_backend`, which is `headless`, `xvfb` or `host` and states the display ACTUALLY used after launch
+- MUST know `display_backend` reports only the intent before any launch, and that ONLY `host` paints on the operator screen
+- MUST prove the mode with `browser_mode_requested`, `browser_mode_effective` and `browser_mode_source`, which is `default`, `xdg` or `flag`
+- MUST read that `run` witness ONCE at the top of the envelope
+- MUST read `browser_mode_auto_resolves` in the `doctor` check `virtual_display` to learn what `auto` does on this host
+- MUST read `launch_args` from `doctor --fingerprint` to see the real argv handed to Chrome, which is `null` before any launch
+### FORBIDDEN
+- NEVER infer the window mode from the flag you passed
+- NEVER treat `browser_mode_source` equal to `default` as a proven requirement
+- NEVER parse the `message` text of the `virtual_display` check
+- NEVER run `config set chrome_legacy_oxide_launch true`, because that path reopens an unauthenticated DevTools port, never starts Xvfb and draws a headed window on the operator display
+### Ready Formulas
+- RUN `browser-automation-cli --json --fields checks --filter-rows 'id=virtual_display' doctor --offline --quick`
+- RUN `browser-automation-cli --timeout 90 --json --headed scrape https://example.com --engine browser --format markdown` for Turnstile with no window on the desktop
+- RUN `browser-automation-cli --timeout 120 --json --headed --no-xvfb goto https://example.com` ONLY when the operator demands to see the window
+- RUN `browser-automation-cli --json config set browser_mode headless` to write the persistent host default
+- RUN `browser-automation-cli --timeout 60 --json doctor --fingerprint` and read `launch_args`
+
 
 ## JSON Envelope and Exit Codes
 ### REQUIRED
-- MUST expect success `schema_version`+`ok` true+`data`; failure `ok` false+`error`
-- MUST expect invalid argv with `--json` as `error.kind`=`usage` exit 2
-- MUST read partial `data.steps` on run failure; `matched_selector` on multi-selector wait
-- MUST read lighthouse `data.binary_source` real|mock; NEVER treat mock as LHR parser validation
-- MUST read `.data.dialog_settled` after real dialog accept|dismiss; when true DO NOT insert artificial wait
-- MUST read the browser witness on every browser envelope: `browser_mode_requested`, `browser_mode_effective`, `browser_mode_source`, `display_backend` and `runtime_enable_used`
-- MUST read `browser_mode_requested` as the mode argv or XDG asked for, before resolution
-- MUST read `browser_mode_effective` as `headless` or `headed`, which is what the launch actually did
-- MUST read `browser_mode_source` as `default`, `xdg` or `flag`, the precedence step that decided the mode
-- MUST treat `browser_mode_source` `default` as headless by luck and NEVER as a proven requirement
-- MUST read `display_backend` as `headless`, `xvfb` or `host`; only `host` can paint on the operator screen
-- MUST read `runtime_enable_used` as the boolean stating whether this launch enabled the CDP Runtime domain
-- MUST expect `runtime_enable_used` true the moment `--capture-console` is passed
-- MUST read `serp_endpoint` on every `search` envelope as `known` or `unknown`
-- MUST treat `serp_endpoint` `unknown` as a `search_base_url` that does not understand the dimension parameters
-- MUST treat a `search` that found no organic result as a DECLARED failure with `ok` false and `error.kind` `data`, and NEVER as success carrying an empty list
-- MUST read `serp_endpoint` and `search_base_url` under `data` on the FAILURE envelope too, because that pair is what separates an unknown endpoint from an empty web
-- MUST branch exits - 0 ok, 2 usage, 65 data, 66 no-input, 69 unavailable, 70 software, 74 io, 78 config, 124 timeout, 130 cancel, 141 broken-pipe
-- MUST retry only transient host/launch failures
-### FORBIDDEN
-- NEVER retry usage without fixing argv; NEVER treat human prose as contract
+- MUST expect success as `schema_version`, `ok` true and `data`
+- MUST expect failure as `ok` false and `error` carrying `kind`, `message` and `exit_code`
+- MUST read partial `data.steps` when a `run` fails
+- MUST read `runtime_enable_used`, the boolean stating whether the CDP Runtime domain was enabled in this run
+- MUST read `serp_endpoint` on the `search` envelope, and treat `unknown` as an endpoint that does NOT guarantee limit, region or time window
+- MUST treat a `search` with no organic result as a failure with `error.kind` equal to `data`, reading `serp_endpoint` and `search_base_url` inside `data`
+- MUST read `data.binary_source` from `lighthouse` and NEVER treat `mock` as a real audit
+- MUST read `data.dialog_settled` after `dialog accept` or `dialog dismiss`, and NEVER insert an artificial wait when it is true
+- MUST retry ONLY a transient launch or network failure
+### Exit Codes
+- MUST treat `0` as success and `2` as usage, fixing the argv BEFORE retrying
+- MUST treat `6` as blocked and `64` as capability-disabled, including a path outside the allowed roots
+- MUST treat `65` as data, including an unmet `--expect` under `--expect-exit-code`
+- MUST treat `66` as no-input, `69` as unavailable and `70` as software, browser or protocol
+- MUST treat `74` as io, `75` as precondition and `78` as config
+- MUST treat `124` as timeout, including when a failed Chrome launch is torn down under `--timeout`
+- MUST treat `130` as cancelled, including by a termination signal, and `141` as broken-pipe
 
-## Multi-step run Scripts
-### REQUIRED
-- MUST use `run --script <file>` (NDJSON lines or JSON array); every step has `cmd`
-- MUST use `run --script -` to read NDJSON steps from stdin, one step per line, against one live session
-- MUST treat stdin mode as still one-shot: one BORN, one DIE, EOF triggers FINALIZE
-- MUST expect stdin mode to validate each line on arrival and report `validation: "per-line"`
-- MUST prefer stdin over shell process substitution: `run --script <(printf ...)` is rejected by the file jail
-- MUST set `--timeout` for whole script; serialize grab/print-pdf with `path`; print-pdf needs `url` or prior goto
-- MUST serialize wait with `selector` CSV or `selectors` array; public key `wait_timeout_ms`
-- MUST serialize scrape with `url` + `format`|`formats` (text MUST NOT dump huge html)
-- MUST serialize submit with `target`; dialog with `if_present` when may be absent; scroll with `dy`/`dx`
-- MUST serialize a blank view with `allow_empty`, and a detailed view in run with `verbose` or `detailed`
-- MUST serialize assert `kind` in url|text|console|console_empty|console_no_match; isolated tab via `isolated_context`
-- MUST keep OUT of run - meta, config, mitm, storage, workflow, crawl, map, batch-scrape, search, parse, qr, find-paths, sg-scan, sg-rewrite, sheet-write, monitor, extension install/uninstall, nested run/exec
-### FORBIDDEN
-- NEVER split `@eN` steps across processes; NEVER ignore partial `data.steps`
-### Critical step one-liners
-- `{"cmd":"goto","url":"https://example.com","handle_before_unload":"accept","navigation_timeout_ms":15000}`
-- `{"cmd":"wait","selector":"h1, main, #content","wait_timeout_ms":10000}`
-- `{"cmd":"view","verbose":true}` · `{"cmd":"write","target":"@e1","value":"hello"}`
-- `{"cmd":"submit","target":"#user","timeout_ms":8000}` · `{"cmd":"scrape","url":"https://example.com","format":"text"}`
-- `{"cmd":"pick","target":"@e1","option":"Anomaly"}` · `{"cmd":"select-option","target":"@e2","option":"High"}`
-- `{"cmd":"dialog","action":"accept","if_present":true}`
-- `{"cmd":"grab","path":"/tmp/p.png","format":"png"}` · `{"cmd":"print-pdf","path":"/tmp/p.pdf","url":"https://example.com"}`
-- MUST confirm every key against `schema <cmd> --json` before adapting any step
 
-## Agent-First Laws
+## Payload Reduction
 ### REQUIRED
-- MUST key multi-tab dialogs by `session_id`; tab switch under open dialog is best-effort domain enable
-- MUST expect native `select-option`/`pick` to dispatch input then change and report `via: native_select`
-- MUST use `submit` for real form submit plus nav/request wait; `storage export` writes mode 0600 and stays OUT of run
-- MUST discover surface with commands/schema; NEVER invent flags
+- MUST shrink the payload with the binary flags, and NEVER by piping stdout through `jaq`
+- MUST pass `--fields` with ONE single CSV of paths relative to `data`, such as `residual` and NEVER `data.residual`
+- MUST pass `--filter-rows` with `key=value`, `key!=value` or `key~substring`, repeatable and combined with AND
+- MUST pass `--limit-rows`, `--sort-rows` and `--dedupe-by` on list payloads
+- MUST pass `--count-only` to receive only `count`, narrowing first with `--fields` when `data` holds more than one list
+- MUST pass `--truncate-content` to cut every string and `--max-output-bytes` as a hard byte ceiling
+- MUST read `agent_ops.truncated` as the ONLY cut signal and `agent_ops.unresolved_paths` as the paths that did not resolve
+- MUST treat a filter with no match as an empty list with `ok` true, knowing a missing field NEVER matches
+- MUST treat `--select`, `--filter`, `--limit` and `--sort` as LOCAL flags written AFTER the subcommand
 ### FORBIDDEN
-- NEVER invent product env for dialog settle, logging, or robots bypass
+- NEVER repeat `--fields`, because the repetition exits 2
+- NEVER assume `agent_ops` exists just because you passed a reduction flag
+### Ready Formulas
+- RUN `browser-automation-cli --json --fields checks --count-only doctor --offline --quick`
+- RUN `browser-automation-cli --json --limit-rows 5 --fields commands commands`
+- RUN `browser-automation-cli --json --fields keys --filter-rows 'key~proxy' config list-keys`
+- RUN `browser-automation-cli --json --truncate-content 2000 --max-output-bytes 60000 scrape https://example.com --format markdown`
+
+
+## Global Flags
+### Output and Time
+- MUST pass `--json` for the envelope and `--json-steps` for one NDJSON object per `run` step
+- MUST pass `-q` or `--quiet` to silence human logs on stderr
+- MUST pass `-v` or `--verbose` for info tracing and `--debug` for maximum detail
+- MUST pass `--plain` for stderr without ANSI colors
+- MUST pass `--lang en` or `--lang pt-BR` to force the message language
+- MUST pass `--correlation-id <ID>` to echo a join key on envelopes and steps
+- MUST pass `--timeout <SECS>` as the whole-process ceiling and `--step-timeout <SECS>` as the ceiling of each `run` step
+- MUST pass `--max-concurrency <N>` to bound batch, crawl and CDP fan-out
+- MUST pass `--artifacts-dir <DIR>` for screenshots, PDFs and evidence
+- MUST pass `--allow-outside-roots` ONLY as explicit risk acceptance, and ALWAYS prefer `config set allowed_roots`
+- MUST use `--fields`, `--filter-rows`, `--limit-rows`, `--sort-rows`, `--dedupe-by`, `--count-only`, `--truncate-content` and `--max-output-bytes` as the section `Payload Reduction` states
+### Browser and Identity
+- MUST pass `--browser-mode`, `--headed`, `--headless` and `--no-xvfb` as the section `Window Mode and Private Display` states
+- MUST pass `--capture-console` in the SAME process as `console` and `--capture-network` in the SAME process as `net`
+- MUST pass `--dump-on-failure` with `--artifacts-dir` and a capture flag to write evidence on failure
+- MUST keep stealth ON and pass `--no-stealth` ONLY to turn the patches off for this run
+- MUST pass `--stealth-profile auto`, which follows the host, and use `chrome-linux`, `chrome-win`, `chrome-mac` or `list` ONLY when it matches the host or to list profiles
+- MUST pass `--stealth-seed <SEED>` to pin the same identity across the processes of a crawl
+- MUST know a seed also stores the launched Chrome major in `state_dir/stealth/host-major-<hash>.txt`, while without a seed or under `--no-stealth` nothing about it touches the disk
+- MUST read `user_agent_major_source` in every `scrape` envelope, where `projected` means an overridden User-Agent, `host_binary` a major read from this host's Chrome and `host_unprobed` the crate table with nothing probed
+- MUST treat `user_agent_major_source` equal to `null` as stealth off, or on `--engine browser` as no launch yet
+- MUST know the patch NEVER emulates `navigator.userAgentData`, which exists only in a secure context, and that headed on the host profile keeps Chrome's native object and User-Agent
+- MUST know headless or a foreign profile sends a complete `userAgentMetadata` in the override, so JavaScript, `getHighEntropyValues` and every `sec-ch-ua-*` header tell the same version
+- MUST read `planned_version_source` from `doctor --fingerprint` as `null` with an override, `chrome_binary` with no override and a probed binary, and `crate_table` when the probe failed
+- MUST read the mismatch `ua_data_brands_vs_user_agent` as a major disagreement between `ua_data_brands` and the User-Agent
+- MUST pass `--input-profile human` for human pacing or `direct` for one event per action
+- MUST pass `--input-seed <SEED>` to reproduce a `human` run exactly
+- MUST pass `--warmup` to visit the origin root before the target, or `--warmup-url <URL>` to warm another URL
+### Network Proxy and Robots
+- MUST pass `--proxy <URL>` with `http`, `https` or `socks5` as the egress proxy of Chrome and the HTTP engine
+- MUST pass `--proxy-bypass <HOSTS>` in Chrome bypass-list syntax
+- MUST store proxy credentials ONLY with `config set proxy_username` and `config set proxy_password`, and NEVER in argv
+- MUST pass `--min-delay-ms <MS>` to raise the courtesy floor, knowing the MAXIMUM of the flag, `scrape_min_delay_ms` and `Crawl-delay` wins
+- MUST pass `--ignore-robots` and `--i-accept-robots-risk` TOGETHER, as the section `Residual-Zero and Robots` states
+### Category Gates
+- MUST pass `--category-memory` for `heap` and `--category-extensions` for `extension`
+- MUST pass `--category-third-party` for `devtools3p` and `--category-webmcp` for `webmcp`
+- MUST pass `--experimental-vision` for `click-at` and `--experimental-screencast` for `screencast`
+- NEVER enable a gate without the family that requires it
+### MITM
+- MUST pass `--mitm` to route the Chrome of this process through a local MITM proxy
+- MUST pass `--mitm-har <FILE>` to write HAR at FINALIZE and `--mitm-hosts <HOSTS>` to decrypt only those hosts
+- MUST pass `--mitm-ca-dir <DIR>` ONLY to move the CA directory
+- MUST pass `--mitm-max-body-bytes <BYTES>` to bound retained bodies and `--mitm-no-media-bodies` to drop media
+- MUST know `--mitm-ws` and `--mitm-redact-secrets` only restate the default and change NOTHING
+- MUST pass `--mitm-no-redact-secrets` to keep `Authorization` and `Cookie` readable, knowing that asking for both resolves by MASKING
+### Assertion
+- MUST pass `--expect <EXPR>` with `key=value`, `key!=value` or `key~substring`, repeatable and ANDed
+- MUST read `agent_ops.expectation_unmet` to see every unmet expectation
+- MUST pass `--expect-exit-code` to exit 65, because without it the exit stays 0
+- RUN `browser-automation-cli --json --fields offline --expect 'offline=true' --expect-exit-code doctor --offline --quick`
+
+
+## XDG Configuration
+### REQUIRED
+- MUST configure ONLY through flags and `config init`, `config path`, `config show`, `config get`, `config set`, `config unset` and `config list-keys`
+- MUST know the flag ALWAYS beats the stored XDG key
+- MUST use `config unset <key>` to restore the built-in default
+- MUST store secrets such as `openrouter_api_key` and `encryption_key` ONLY through `config set`
+- MUST store binaries with `chrome_path`, `lighthouse_path` and `ffmpeg_path`
+- MUST use `cache_backend` equal to `redis` ONLY with `cache_redis_url` in `redis://`
+- MUST move the ceiling of the `net` and `console` buffers ONLY with `config set event_tracker_max_entries`
+- MUST tune the HTTP/2 fingerprint of the http engine ONLY through the `http2_*` keys, which have NO flag
+- MUST read `references/xdg-keys.md` for the default and description of every key
+### FORBIDDEN
+- FORBIDDEN to use environment variables, `.env` or `export` as product configuration
+- NEVER write a secret, cookie or token to a log
+### Ready Formulas
+- RUN `browser-automation-cli --json config init` and `browser-automation-cli --json config path`
+- RUN `browser-automation-cli --json config show` and `browser-automation-cli --json config get timeout`
+- RUN `browser-automation-cli --json config set dialog_settle_ms 2000`
+- RUN `browser-automation-cli --json config unset dialog_settle_ms`
+
+
+## Command Inventory
+### REQUIRED
+- MUST recognize all 71 - doctor, commands, schema, version, locale, goto, view, press, click-at, write, keys, type, wait, hover, drag, submit, fill-form, select-option, pick, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, record, extract, text, scroll, cookie, storage, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, sitemap, feed, search, parse, qr, image, video, audio, find-paths, sg-scan, sg-rewrite, sheet-write, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions, man
+- MUST know `pick` and `select-option` exit 2 as top-level subcommands and MUST go through `exec` or `run`
+- MUST know `console list`, `console get`, `net list` and `net get` exit 2 at top level and exist ONLY as `run` steps
+- MUST know `console clear` and `console dump` work at top level
+### Local Families Without Chrome
+- MUST use `image`, `video` and `audio` for local media
+- MUST use `parse` to extract text from HTML, Markdown, TXT, PDF, DOCX, XLSX and ODS
+- MUST use `qr`, `sheet-write`, `find-paths`, `sg-scan` and `sg-rewrite` as local tools
+- MUST use `workflow run`, `workflow resume` and `workflow status` for a journaled DAG
+- MUST use `sitemap`, `feed`, `map` and `search` through the HTTP engine
+- MUST know `sg-rewrite` is a dry run by default and writes only with `--apply`
+- RUN `browser-automation-cli --json find-paths --glob '**/*.rs' --limit 200 .`
+- RUN `browser-automation-cli --json sg-scan . --limit 100` and `browser-automation-cli --json sg-rewrite . --apply` only after reviewing the dry run
+- RUN `browser-automation-cli --json sheet-write /tmp/rows.csv -o /tmp/out.xlsx --sheet Data --force`
+- RUN `browser-automation-cli --json workflow resume --manifest /tmp/wf.json --journal /tmp/wf.journal`
+
+
+## Navigation and Interaction
+### REQUIRED
+- MUST pass `goto <URL>` with `--navigation-timeout-ms` and `--handle-before-unload accept` or `dismiss`
+- MUST pass `reload --ignore-cache` for a hard reload, and NEVER that flag on `goto`
+- MUST pass `view --detailed` for the full accessibility tree, and NEVER `--verbose`
+- MUST pass `view --allow-empty` ONLY when a blank snapshot is intentional
+- MUST pass `type <TEXT>` with `--target` or with `--focus-only`
+- MUST pass `fill-form --fields-json` and `cookie set --cookies-json`, and NEVER a payload through `--json`
+- MUST pass `submit <TARGET>` to submit the form and wait for navigation or a request
+- MUST pass `grab --path` and `print-pdf --path`, and NEVER a positional path
+- MUST pass `print-pdf --url` in one-shot, because a blank page is refused
+- MUST pass `--include-snapshot` on the action to receive fresh refs in the same process
+- MUST read `matched_selector` after a `wait` with several selectors
+- MUST know native `select-option` and `pick` report `via` equal to `native_select`
+- MUST know `storage export` writes with mode 0600
+- MUST drive `emulate` through flags and NEVER invent `--device`
+### Ready Formulas
+- RUN `browser-automation-cli --timeout 60 --json goto https://example.com --init-script 'window.__ready=1' --handle-before-unload accept --navigation-timeout-ms 15000`
+- RUN `browser-automation-cli --timeout 60 --json exec select-option --target '#priority' --option High`
+- RUN `browser-automation-cli --timeout 60 --json grab --path /tmp/p.webp --format webp --quality 80 --full-page`
+- RUN `browser-automation-cli --timeout 60 --json print-pdf --path /tmp/p.pdf --url https://example.com`
+- RUN `browser-automation-cli --timeout 60 --json --experimental-vision click-at --x 10 --y 20 --include-snapshot`
+- RUN `browser-automation-cli --timeout 60 --json storage export --path /tmp/auth.json --url https://example.com`
+- RUN `browser-automation-cli --timeout 60 --json storage import --path /tmp/auth.json --url https://example.com`
+- RUN `browser-automation-cli --timeout 60 --json cookie set --cookies-json '[{"name":"a","value":"b","url":"https://example.com"}]'`
+- RUN `browser-automation-cli --timeout 60 --json emulate --viewport '390x844x3,mobile,touch' --network-conditions 'Slow 3G'`
+
+
+## Multi-step Scripts
+### REQUIRED
+- MUST use `run --script <file>` with NDJSON of one step per line or a JSON array, every line carrying the `cmd` key
+- MUST know `--timeout` covers the whole script and `--step-timeout` covers each step
+- MUST use `run --script -` to read NDJSON from stdin into one live session, with one BORN, one DIE and per-line validation
+- MUST know an unknown key in a `run` step is REFUSED with exit 2 BEFORE the browser launches
+- MUST serialize `console` and `net` as steps with `action` equal to `list` or `get`
+- MUST take a fresh `view` after every `eval` step, because it emits `refs_invalidated` true and kills the refs
+- MUST replay a `record` output with `run --script` over the recorded file
+### FORBIDDEN
+- NEVER use `run --script <(...)`, because the file jail refuses process substitution
+- NEVER split `@eN` steps across processes
+- NEVER put `mitm`, `storage`, `config`, `workflow`, `crawl`, `map`, `batch-scrape`, `search`, `parse`, `qr`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `monitor`, `extension install` or `extension uninstall` inside `run`
+### Ready Steps
+- RUN `browser-automation-cli --timeout 90 --json --json-steps --capture-network --capture-console run --script /tmp/steps.jsonl`
+- RUN `printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"view"}' | browser-automation-cli --timeout 60 --json run --script -`
+- RUN `browser-automation-cli --timeout 60 --json record --url https://example.com --path /tmp/rec.jsonl --seconds 30 --max-events 200`
+- RUN the step `{"cmd":"wait","selectors":["h1","main"],"wait_timeout_ms":10000}`
+- RUN the step `{"cmd":"view","verbose":true}`
+- RUN the step `{"cmd":"write","target":"@e1","value":"hello"}`
+- RUN the step `{"cmd":"submit","target":"#user","timeout_ms":8000}`
+- RUN the step `{"cmd":"pick","target":"@e2","option":"High"}`
+- RUN the step `{"cmd":"dialog","action":"accept","if_present":true}`
+- RUN the step `{"cmd":"net","action":"list","resource_types":"Document,XHR,Fetch","page_size":50}`
+- RUN the step `{"cmd":"console","action":"list","types":"error,warning","include_preserved":true}`
+
+
+## Scraping and Collection
+### REQUIRED
+- MUST start with `--engine http`, which does NOT launch a browser
+- MUST switch to `--engine browser` ONLY when the page depends on JavaScript or Turnstile
+- MUST request formats with `--format` as CSV or by repeating the flag, checking the 15 values in `scrape --help`
+- MUST know `attributes`, `html` and `rawHtml` are distinct keys in `data`
+- MUST read `unsupported_format` and `content_kind` BEFORE the key of the requested format, and read the body from `text` when `unsupported_format` is set
+- MUST pass `--only-main-content` to trim the page before parsing
+- MUST use `batch-scrape` for a closed list, `crawl` to follow links and `map` to only enumerate URLs
+- MUST use `monitor check` with a baseline to detect page changes
+- MUST use `extract --llm` or `scrape --format json` ONLY with `openrouter_api_key` stored
+### FORBIDDEN
+- NEVER treat `rawHtml` as an alias of `html`
+- NEVER conclude an empty body from a missing key
+- NEVER use `--engine browser` by habit, because it costs a whole Chrome
+- NEVER call `crawl` when `map` already answers
+### Ready Formulas
+- RUN `browser-automation-cli --json scrape https://example.com --format markdown,links,metadata --engine http --only-main-content`
+- RUN `browser-automation-cli --json scrape https://example.com --format attributes --attribute-selector a --attribute-name href`
+- RUN `browser-automation-cli --timeout 120 --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 4 --output-mode ndjson`
+- RUN `browser-automation-cli --timeout 300 --json crawl https://example.com --limit 20 --max-depth 2 --exclude-path /login`
+- RUN `browser-automation-cli --timeout 60 --json map https://example.com --limit 200 --use-sitemap true`
+- RUN `browser-automation-cli --timeout 60 --json sitemap https://example.com --limit 100`
+- RUN `browser-automation-cli --timeout 60 --json feed https://example.com/feed.xml`
+- RUN `browser-automation-cli --timeout 60 --json search 'example domain' --limit 10 --country br`
+- RUN `browser-automation-cli --json parse /tmp/doc.pdf --redact-pii`
+- RUN `browser-automation-cli --timeout 120 --json extract https://example.com --llm --question 'What is the title' --schema-json /tmp/s.json`
+- RUN `browser-automation-cli --timeout 60 --json monitor check --url https://example.com --baseline /tmp/b.txt --write-baseline --diff-mode json`
+- RUN `browser-automation-cli --json qr encode --text https://example.com --format png --path /tmp/qr.png` and `browser-automation-cli --json qr decode --path /tmp/qr.png`
+
+
+## Network Console and MITM
+### REQUIRED
+- MUST use `net` for traffic of the process ITSELF and `mitm` for a file capture read back by another process
+- MUST pass `resource_types` as ONE CSV list matched exactly against the CDP vocabulary, such as `Document`, `XHR`, `Fetch`, `WebSocket` and `Other`
+- MUST expect exit 2 for an unknown type, BEFORE any launch
+- MUST read `dropped_oldest` on `net` and `console` and rebuild the total as `total` plus `dropped_oldest`
+- MUST pass `include_preserved` on `list` and on `get` so one index addresses the SAME record
+- MUST read `data.capture_path` after `mitm capture-url` and feed that file back with `--capture-path`
+- MUST use `--capture-path` on `mitm status`, `mitm list`, `mitm get`, `mitm har`, `mitm export`, `mitm domains`, `mitm apis`, `mitm graphql`, `mitm ws list` and `mitm ws get`
+- MUST narrow decryption with `--hosts` and the record with `--capture-hosts`, because Chrome produces background traffic
+- MUST treat zero endpoints from `mitm apis` on a static page as an honest answer
+- MUST use `mitm redact --secrets false` ONLY to write the persistent unmasked policy
+### Ready Formulas
+- RUN `browser-automation-cli --json mitm init-ca`
+- RUN `browser-automation-cli --timeout 60 --json mitm capture-url https://example.com --seconds 30 --har /tmp/c.har --hosts example.com --capture-hosts example.com`
+- RUN `browser-automation-cli --json mitm domains --capture-path /tmp/capture.json`
+- RUN `browser-automation-cli --json mitm export --format ndjson --out /tmp/c.ndjson --capture-path /tmp/capture.json`
+- RUN `browser-automation-cli --json mitm block --host example.com --path /ads`
+- RUN `browser-automation-cli --timeout 60 --json --mitm --mitm-har /tmp/run.har --mitm-no-media-bodies goto https://example.com`
+- RUN `browser-automation-cli --timeout 60 --json --capture-console assert console-no-match --pattern TypeError`
+
+
+## APIs Through the Page
+### REQUIRED
+- MUST remember `eval` executes in the origin context of the PAGE
+- MUST navigate to the target origin BEFORE the `fetch`, otherwise it returns `Failed to fetch`
+- MUST chain `goto` and `eval` in one single `run --script` with `typed` true to read `data.value` and `data.value_type`
+- MUST wrap every `fetch` in try/catch and return the error message
+- MUST treat a null value with exit 0 from a rejected promise as a silent failure
+- MUST know a promise resolves automatically, with no await key
+- MUST use `mitm apis` and `mitm graphql` to discover REST and GraphQL endpoints BEFORE calling them
+- MUST pass `eval --file-path` for a large result and `--service-worker-id` to run inside a service worker
+### Ready Formulas
+- RUN `printf '%s\n' '{"cmd":"goto","url":"https://example.com"}' '{"cmd":"eval","expression":"(async()=>{try{const r=await fetch(\"/api\");return r.status}catch(e){return String(e)}})()","typed":true}' | browser-automation-cli --timeout 90 --json run --script -`
+- RUN `browser-automation-cli --json mitm apis --kind rest --capture-path /tmp/capture.json`
+- RUN `browser-automation-cli --json mitm graphql --limit 20 --capture-path /tmp/capture.json`
+
+
+## Local Media
+### REQUIRED
+- MUST use `image info`, `image convert`, `image resize`, `image download` and `image exif`
+- MUST use `video info`, `video download`, `video convert`, `video to-mp3`, `video trim`, `video thumbnail` and `video manifest`
+- MUST use `audio info`, `audio download`, `audio convert` and `audio trim`
+- MUST point to ffmpeg with `config set ffmpeg_path` when it is not on PATH
+- MUST project media with `--select` and process batches with `--paths-file`
+- MUST treat local webp as lossless, with `quality_applied` false
+- MUST treat `--keep-exif` as intent, with `keep_exif_honored` false
+- MUST read image text as an agent, because the CLI has NO OCR
+- NEVER request pixel base64, raw frames or PCM on stdout, except an intentional `grab --include-base64`
+- NEVER run ffmpeg by hand when `video convert` or `audio convert` does the job
+- NEVER use AVIF or HEIC as output format
+### Ready Formulas
+- RUN `browser-automation-cli --json image convert --path /tmp/a.png --format jpeg --quality 85 -o /tmp/a.jpg`
+- RUN `browser-automation-cli --json image resize --path /tmp/a.png --width 800 --keep-aspect -o /tmp/b.png`
+- RUN `browser-automation-cli --json image info --path /tmp/a.png --select format,width,height,sha256`
+- RUN `browser-automation-cli --json image exif --path /tmp/a.jpg --select tags`
+- RUN `browser-automation-cli --json video info --path /tmp/v.mp4 --select container,duration_secs,streams`
+- RUN `browser-automation-cli --timeout 300 --json video convert --path /tmp/v.mov --format mp4 --video-codec h264 -o /tmp/v.mp4`
+- RUN `browser-automation-cli --timeout 120 --json video trim --path /tmp/v.mp4 --start 10 --duration 5 -o /tmp/c.mp4`
+- RUN `browser-automation-cli --json video manifest --path /tmp/m.m3u8 --base-url https://example.com/m.m3u8`
+- RUN `browser-automation-cli --timeout 120 --json audio convert --path /tmp/a.wav --format opus --bitrate 96k -o /tmp/a.opus`
+
+
+## Diagnostics Perf and Extensions
+### REQUIRED
+- MUST point to Lighthouse with `--lighthouse-path` or `config set lighthouse_path`
+- MUST use `perf start --reload --auto-stop --path` for a load trace in one process, and `perf insight --path` to analyze offline
+- MUST pass `heap take --url`, because without a URL the target is `about:blank`
+- MUST analyze the snapshot with `heap summary`, `heap details`, `heap class-nodes`, `heap compare`, `heap dominators`, `heap dup-strings`, `heap edges`, `heap retainers`, `heap paths`, `heap object-details` and `heap close`
+- MUST use `screencast start` with a directory and `screencast stop` with a `.webm` or `.mp4` file
+- MUST use `extension install`, `extension list`, `extension reload`, `extension trigger` and `extension uninstall`
+- MUST pass `--url` on `devtools3p list`, `devtools3p exec`, `webmcp list` and `webmcp exec`, because a one-shot has NO open page
+- MUST use `page info`, `page list`, `page new`, `page select`, `page close` and `page tab-id` for the tabs of the process itself
+### Ready Formulas
+- RUN `browser-automation-cli --timeout 180 --json lighthouse https://example.com --out-dir /tmp/lh --device mobile`
+- RUN `browser-automation-cli --timeout 90 --json perf start --reload --auto-stop --path /tmp/trace.json`
+- RUN `browser-automation-cli --json perf insight --path /tmp/trace.json --name LCPBreakdown`
+- RUN `browser-automation-cli --timeout 90 --json --category-memory heap take --path /tmp/s.heapsnapshot --url https://example.com`
+- RUN `browser-automation-cli --json --category-memory heap retainers --path /tmp/s.heapsnapshot --node 42 --page-size 20`
+- RUN `browser-automation-cli --timeout 60 --json --experimental-screencast screencast stop --path /tmp/cast.webm`
+- RUN `browser-automation-cli --timeout 60 --json --category-extensions extension install /tmp/ext`
+- RUN `browser-automation-cli --timeout 60 --json --category-webmcp webmcp list --url https://example.com`
+
 
 ## Residual-Zero and Robots
 ### REQUIRED
-- MUST treat residual-zero disk as success for every browser one-shot that is the only concurrent invocation, validated by `doctor --offline --quick --json`
-- MUST require `residual_disk` not `fail`; zero `orphan_marker_dirs`; zero `ghost_marker_processes`
-- After DIE alone MUST expect zero `cli_marker_dirs` and zero `chromium_tmp_singleton_orphans` (`residual_disk` `pass`)
-- MUST treat `sibling_live_processes > 0` as healthy concurrency (`warn`, never fail)
-- MUST NOT require zero `live_cli_marker_processes` (legacy Chrome-child process count; prefer `sibling_live_processes`)
-- MUST treat `config set user_data_dir <PATH>` as the explicit decision to GIVE UP residual-zero, because the profile becomes the operator's
-- MUST know the key ships ABSENT, and that absence is what buys the throwaway profile a one-shot leaves nothing behind
-- MUST know the sweep judges ONLY `browser-automation-cli-chrome-*` marker dirs under the scanned roots, so an operator profile is never counted and never collected
-- MUST restore the default with `browser-automation-cli config unset user_data_dir`; `config set user_data_dir ""` also clears the opt-in, because whitespace-only reads as absent for THIS key
-- MUST know that directory is created 0700 on Unix because it holds cookies and tokens
-- MUST respect robots by default; bypass ONLY with BOTH `--ignore-robots` and `--i-accept-robots-risk`
+- MUST treat residual-zero as part of the success of every browser one-shot
+- MUST validate with `doctor --offline --quick`, reading `data.residual` and the `residual_disk` check
+- MUST require `residual_disk` different from `fail`, with zero `orphan_marker_dirs` and zero `ghost_marker_processes`
+- MUST treat `sibling_live_processes` above zero as healthy concurrency with `warn`
+- MUST know `config set user_data_dir` gives up residual-zero, and `config unset user_data_dir` restores it
+- MUST respect robots by default and bypass it ONLY with BOTH `--ignore-robots` and `--i-accept-robots-risk`
+- RUN `browser-automation-cli --json --fields residual,checks --filter-rows 'id=residual_disk' doctor --offline --quick`
 ### FORBIDDEN
-- NEVER declare residual-zero without reading residual fields; NEVER mass-delete host temps; NEVER kill user/Flatpak Chrome
-- NEVER fail a host solely because `live_cli_marker_processes > 0` while orphans/ghosts are zero
-- NEVER bypass robots with one flag; NEVER invent robots bypass env
-
-## Full Command Inventory
-### REQUIRED
-- MUST recognize all 71 - doctor, commands, schema, version, locale, goto, view, press, click-at, write, keys, type, wait, hover, drag, submit, fill-form, select-option, pick, upload, back, forward, reload, eval, grab, print-pdf, monitor, run, exec, extract, text, scroll, cookie, storage, attr, assert, console, net, page, dialog, scrape, batch-scrape, crawl, map, search, parse, qr, record, image, video, audio, find-paths, sg-scan, sg-rewrite, sheet-write, sitemap, feed, mitm, workflow, config, emulate, resize, perf, lighthouse, screencast, heap, extension, devtools3p, webmcp, completions, man
-- MUST use local image pipeline for download/convert/resize/EXIF (no Chrome): `image info|convert|resize|download|exif`
-- MUST keep agent-native media stdout for image, video and audio: paths, hashes, dims, codecs, duration and flags only; NEVER pixel base64 unless `grab --include-base64`, NEVER raw media frames, NEVER PCM
-- MUST project with `image info --select format,width,height,sha256` to save tokens
-- MUST use local video pipeline (no Chrome): `video info|download|convert|to-mp3|trim|thumbnail|manifest` with optional OS ffmpeg/ffprobe (XDG `ffmpeg_path`)
-- MUST use `video manifest` to summarize an HLS/DASH manifest without downloading media
-- MUST project with `video info --select container,duration_secs,streams,sha256` and convert `--select path_out,auto_reencoded,video_codec`
-- MUST use local audio pipeline (no Chrome): `audio info|download|convert|trim` with optional OS ffmpeg/ffprobe (XDG `ffmpeg_path`)
-- MUST project with `audio info --select format,codec,duration,bytes,sha256` and convert `--select path_out,lossy_transcode,suggestion`
-- MUST NOT shell out to ffmpeg manually when `video convert` or `audio convert` can remux/re-encode (smart copy / auto re-encode); prefer `upload` for CDP file upload
-- MUST set audio caps via XDG only: `audio_max_input_bytes` `audio_download_max_bytes` `audio_default_format` `audio_default_bitrate`
-- MUST treat local webp encode as lossless (`quality_applied` false); jpeg honours quality
-- MUST treat `--keep-exif` as intent-only (re-encode cannot re-attach EXIF; `keep_exif_honored` false)
-- MUST configure image limits only via XDG `config set` (`image_*`) — never product env vars
-- MUST read image text natively as an agent; the CLI ships no text-recognition action and no external C binary
-- MUST treat EXIF as the only metadata surface (no IPTC/XMP); `image exif --select tags` aliases to `exif`
-- MUST reject AVIF/HEIC encode; SVG has no resvg — use `--allow-non-image` only for intentional raw bytes
-- MUST NOT confuse `image download` (single image URL) with a whole-site tree download
-- MUST re-discover live inventory with `commands --json`
-
-
-## How To Scrape
-### Mandatory Sequence
-- MUST choose the engine BEFORE writing any argv and start with `--engine http`, which launches no browser
-- MUST switch to `--engine browser` only when the page needs JavaScript
-- MUST name every wanted format in ONE `--format` CSV or repeated flags
-- MUST read the `html` key after `--format html` and the `rawHtml` key after `--format rawHtml`
-- MUST add `--only-main-content` to trim boilerplate before parsing
-- MUST execute `browser-automation-cli --json scrape https://example.com --format markdown,links --engine http --only-main-content`
-- MUST shrink the envelope with the eight global reduction flags
-### Scaling Up
-- MUST use `batch-scrape --urls-file` with `--concurrency` for a known URL list
-- MUST use `crawl` with `--limit` and `--max-depth` when links must be followed
-- MUST use `map` when only the URL inventory is wanted
-- NEVER call `crawl` when `map` already answers the question
-### Measured Traps
-- MUST respect robots by default on every scrape family command and bypass ONLY with BOTH `--ignore-robots` and `--i-accept-robots-risk`
+- NEVER declare residual-zero without reading `data.residual`
+- NEVER delete generic host temp files nor kill the user Chrome
 - NEVER bypass robots with a single flag
-
-
-## How To Monitor Network Traffic
-### Mandatory Sequence
-- MUST decide first whether the traffic lives in this process or another
-- MUST pass `--capture-network` in the SAME process that runs `net list`, which sees nothing without it
-- MUST NOT call `net list` as a top-level subcommand: it refuses with exit 2, because the capture buffer dies with the process that filled it
-- MUST narrow with `--page-idx`, `--page-size`, `--resource-types`, `--include-preserved`
-- MUST serialize the step `{"cmd":"net","action":"list","resource_types":"Document"}` inside `run`
-### The Resource-Type Filter
-- MUST pass `--resource-types` as ONE comma-separated list, matched EXACTLY and case-insensitively
-- MUST draw every token from the CDP vocabulary — Document, Stylesheet, Image, Media, Font, Script, TextTrack, XHR, Fetch, Prefetch, EventSource, WebSocket, Manifest, SignedExchange, Ping, CSPViolationReport, Preflight, FedCM, Other
-- MUST expect an unknown token to be REFUSED with exit 2 and `error.kind` usage, naming the offending token
-- MUST know the refusal lands BEFORE any Chrome launch, so a typo costs a parse and never a browser
-- MUST read `resourceType` on every captured record; a request whose type CDP omitted is stored as `Other` and NEVER without the key
-- MUST treat an empty result as proof the page had no such resource, because a typo can no longer reach that branch
-### Buffer Ceiling and Declared Truncation
-- MUST read `dropped_oldest` in the `net` and `console` envelopes; it counts records discarded to hold the buffer under its cap
-- MUST reconstruct what the page really produced as `total` plus `dropped_oldest`
-- MUST move that cap ONLY with `config set event_tracker_max_entries <N>`; no flag exposes it
-- MUST pass `--include-preserved` on `net get` and `console get`, not only on the `list` forms, so one index addresses the SAME record on both
-### Crossing Processes With MITM
-- MUST run `mitm capture-url <URL>` to write a capture file
-- MUST read the written location from `data.capture_path`
-- MUST feed that path back with `--capture-path <FILE>` on later calls
-- MUST know `--capture-path` serves `mitm list|get|domains|apis|graphql|ws`
-- MUST treat `--capture-path` as the ONLY bridge between one-shot processes
-- MUST execute `browser-automation-cli --timeout 60 --json mitm capture-url https://example.com --har /tmp/c.har`
-- MUST then execute `browser-automation-cli --json mitm domains --capture-path <FILE>`
-### Measured Traps
-- Measured on example.com: `capture_count` 37 across 9 distinct hosts
-- Measured: `mitm domains --capture-path` returned accounts.google.com and play.google.com
-- MUST treat those hosts as Chrome background noise, never as page traffic
-- MUST narrow with `--hosts` at capture time to remove that noise
-- MUST treat zero endpoints as an honest answer, NEVER as a failure
-
-
-## How To Interact With APIs
-### Mandatory Sequence
-- MUST run `goto` on the target origin BEFORE calling its API, because `eval` executes in the PAGE origin context
-- MUST wrap every `fetch` in try/catch and return the error message
-- MUST pass `--typed` to read `data.value` plus `data.value_type`
-- Measured: `eval '({a:1,b:"x"})' --typed` returns the object with `value_type` object
-- MUST execute `browser-automation-cli --json goto https://example.com` then `eval '...' --typed`
-- MUST expect a returned promise to be awaited automatically
-- NEVER add an await key to an `eval` step; no such key exists
-- MUST take a fresh `view` after any `eval` to obtain new refs
-### Carrying Authentication
-- MUST use `storage export --path <FILE>` to capture authenticated state
-- MUST use `storage import --path <FILE>` to restore it in the next process
-- MUST keep both commands OUT of `run`
-### Measured Traps
-- Measured A/B: `fetch` without a prior `goto` returns `Failed to fetch`
-- Measured A/B: the same `fetch` after `goto` returns `ok:200`
-- Measured: a rejected promise without try/catch returns null with exit 0
-- MUST treat that null as a SILENT failure, never as an empty result
-- MUST know an `eval` step emits `refs_invalidated` true and kills every `@eN`
-- MUST confirm every step key against `schema <cmd> --json` before serializing
-
-
-## Execution Playbooks
-### REQUIRED
-- MUST execute formulas literally; validate envelope after each call; see `references/formulas.md` for full surface
-### FORBIDDEN
-- NEVER adapt by assumption without `schema <cmd> --json`
-
-### A. Diagnostics
-- `browser-automation-cli --json doctor --offline --quick` · `version` · `locale` · `commands` · `schema run` · `config list-keys` · `config unset <key>` · `man --out /tmp/browser-automation-cli.1` · `completions bash`
-
-### B. Navigate and inspect
-- `browser-automation-cli --timeout 60 --json goto https://example.com --init-script 'window.__ready=true' --handle-before-unload accept --navigation-timeout-ms 15000`
-- `browser-automation-cli --json view --detailed` · `text @e1` · `attr @e1 href` · `eval 'document.title'` · `reload --ignore-cache` · `back` · `forward`
-
-### C. Interact
-- `browser-automation-cli --json press @e1 --include-snapshot` · `write @e2 "text"` · `type "hello" --target @e2 --clear --submit Enter`
-- `browser-automation-cli --json submit "#user" --timeout-ms 8000` · `keys Enter` · `hover @e1` · `drag --from @e1 --to @e2` · `upload @e4 /tmp/file.txt`
-- `browser-automation-cli --json wait --selector "h1, main, #content" --wait-timeout-ms 10000` · `scroll --delta-y 400` · `fill-form --fields-json '[{"target":"@e3","value":"x"}]'`
-- `browser-automation-cli --json exec pick --target @e1 --option Anomaly` · `exec select-option --target @e2 --option High`
-- `browser-automation-cli --experimental-vision --json click-at --x 10 --y 20`
-
-### D. Artifacts
-- `browser-automation-cli --json grab --path /tmp/p.png --format png --full-page`
-- `browser-automation-cli --timeout 60 --json print-pdf --path /tmp/p.pdf --url https://example.com`
-- `browser-automation-cli --json monitor check --url https://example.com --baseline /tmp/b.baseline --write-baseline --engine http`
-- `browser-automation-cli --json qr encode --text "https://example.com" --format png --path /tmp/qr.png` · `qr decode --path /tmp/qr.png`
-
-### E. Scrape and extract
-- `browser-automation-cli --json scrape https://example.com --format markdown,links,metadata --engine http --only-main-content`
-- `browser-automation-cli --json scrape https://example.com --format summary --format product --format branding --engine browser`
-- `browser-automation-cli --timeout 120 --json batch-scrape --urls-file /tmp/urls.txt --format text --concurrency 2 --engine browser`
-- `browser-automation-cli --json crawl https://example.com --limit 20 --max-depth 2 --format text` · `map https://example.com --limit 50` · `search "example domain" --limit 10`
-- `browser-automation-cli --json parse /tmp/doc.pdf` · `parse /tmp/sheet.ods --redact-pii`
-- `browser-automation-cli --timeout 120 --json extract --llm --question "What is the title?" --schema-json /tmp/s.json https://example.com`
-
-### F. Console and network
-- `browser-automation-cli --capture-console --json console dump --path /tmp/console.json` · `assert console-empty` · `assert console-no-match --pattern TypeError`
-- `console list`, `console get`, `net list` and `net get` are `run --script` steps only; the top-level forms refuse with exit 2
-
-### G. Tabs, cookies, storage, dialogs
-- `browser-automation-cli --json page new --isolated-context session-a --url https://example.com` · `page list` · `page select 0 --bring-to-front`
-- `browser-automation-cli --json cookie set --cookies-json '[{"name":"a","value":"b","url":"https://example.com"}]'` · `cookie list`
-- `browser-automation-cli --json storage export --path /tmp/auth.json --url https://example.com` · `storage import --path /tmp/auth.json --url https://example.com`
-- `browser-automation-cli --json dialog accept --if-present` then read `.data.dialog_settled`
-
-### H. MITM
-- `browser-automation-cli --json mitm init-ca` · `mitm capture-url https://example.com --har /tmp/c.har` · `mitm block --host example.com --path /ads` · `mitm allow --host example.com` · `mitm ws list` · `mitm apis` · `mitm graphql` · `mitm har --out /tmp/c2.har`
-
-### I. Perf and memory
-- `browser-automation-cli --json emulate --user-agent "Mozilla/5.0" --viewport "390x844x3,mobile,touch" --network-conditions "Slow 3G"` · `resize --width 1280 --height 720`
-- `browser-automation-cli --json perf start` · `perf stop --path /tmp/trace.json`
-- `browser-automation-cli --timeout 180 --json lighthouse https://example.com --out-dir /tmp/lh --device desktop` then read `data.binary_source`
-- `browser-automation-cli --category-memory --json heap take --path /tmp/s.heapsnapshot` · `heap summary --path /tmp/s.heapsnapshot` · `heap retainers --path /tmp/s.heapsnapshot --node 42`
-- `browser-automation-cli --experimental-screencast --json screencast start --path /tmp/cast`
-
-### J. Local tools
-- `browser-automation-cli --json find-paths --glob '**/*.rs' .` · `sheet-write /tmp/rows.csv -o /tmp/out.xlsx --sheet Data` · `sg-scan . --limit 100` · `sg-rewrite .` then `--apply` only after dry-run review
-
-### K. Extensions and third-party
-- `browser-automation-cli --category-extensions --json extension list` · `extension install /tmp/ext` · `extension reload <ext-id>`
-- `browser-automation-cli --category-third-party --json devtools3p list` · `--category-webmcp --json webmcp list`
-
-### L. Workflow and multi-step
-- `browser-automation-cli --json workflow run --manifest /tmp/wf.json --journal /tmp/wf.journal` · `workflow resume --manifest /tmp/wf.json` · `workflow status --name demo`
-- `browser-automation-cli --timeout 90 --json --json-steps --capture-console run --script /tmp/steps.jsonl` · `exec goto https://example.com`
-
-### M. Record and replay
-- `browser-automation-cli --json record --url https://example.com --path /tmp/rec.jsonl --seconds 30 --max-events 200`
-- MUST pass `record --url` and `record --path`, both REQUIRED; `--seconds` defaults to 30 wall-clock, `--max-events` defaults to 200 steps, and the FIRST ceiling reached stops the recording
-- MUST replay the recorded NDJSON directly with `run --script /tmp/rec.jsonl`
-
-## Absolute Prohibitions
-### FORBIDDEN
-- NEVER invent an alias, a product environment variable, a missing flag or a third-party product brand
-- NEVER skip residual-zero after a browser one-shot

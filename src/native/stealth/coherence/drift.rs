@@ -37,6 +37,36 @@ pub fn ua_chrome_major(ua: &str) -> Option<String> {
     }
 }
 
+/// A `navigator.userAgentData.brands` entry naming another Chrome major than
+/// `navigator.userAgent` does.
+///
+/// Only the `Chromium` and `Google Chrome` brands carry the browser major; the
+/// GREASE brand (`Not?A_Brand`, `Not-A.Brand`) carries a deliberately random
+/// version and is skipped. Measured headed before the fix this guards: UA
+/// `Chrome/152` next to brands `Chromium/153, Google Chrome/153`, with `ok:
+/// true`, because nothing read the brands at all. A page with no
+/// `userAgentData`, or a UA with no major, is silence rather than agreement.
+#[must_use]
+pub fn brands_vs_user_agent(
+    user_agent: &str,
+    brands: &serde_json::Value,
+) -> Option<CoherenceMismatch> {
+    let ua_major = ua_chrome_major(user_agent)?;
+    let drifted = brands.as_array()?.iter().find_map(|entry| {
+        let brand = entry.get("brand")?.as_str()?;
+        let version = entry.get("version")?.as_str()?;
+        (matches!(brand, "Chromium" | "Google Chrome") && version != ua_major)
+            .then(|| format!("{brand}/{version}"))
+    })?;
+    Some(CoherenceMismatch {
+        id: "ua_data_brands_vs_user_agent",
+        message: format!(
+            "navigator.userAgentData.brands names {drifted} while navigator.userAgent \
+             carries major {ua_major}"
+        ),
+    })
+}
+
 /// Contradictions between the identity this process PLANNED and the one the
 /// page actually emitted.
 ///
@@ -161,6 +191,31 @@ mod tests {
     use super::super::planned_stealth_signals;
     use super::*;
     use crate::browser_policy::StealthProfile;
+
+    #[test]
+    fn brands_naming_another_major_than_the_user_agent_are_flagged() {
+        let ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
+                  Chrome/152.0.0.0 Safari/537.36";
+        // The defect this guards, measured headed before the fix: page UA 152,
+        // brands from the crate table 153.
+        let drifted = serde_json::json!([
+            {"brand": "Chromium", "version": "153"},
+            {"brand": "Google Chrome", "version": "153"},
+            {"brand": "Not-A.Brand", "version": "8"}
+        ]);
+        assert_eq!(
+            brands_vs_user_agent(ua, &drifted).map(|m| m.id),
+            Some("ua_data_brands_vs_user_agent")
+        );
+        // The real headed Chromium on this host: GREASE brand first, no Chrome.
+        let native = serde_json::json!([
+            {"brand": "Not?A_Brand", "version": "24"},
+            {"brand": "Chromium", "version": "152"}
+        ]);
+        assert!(brands_vs_user_agent(ua, &native).is_none());
+        // No `userAgentData` on the page is silence, not a contradiction.
+        assert!(brands_vs_user_agent(ua, &serde_json::Value::Null).is_none());
+    }
 
     fn ids(v: Vec<CoherenceMismatch>) -> Vec<&'static str> {
         v.into_iter().map(|m| m.id).collect()

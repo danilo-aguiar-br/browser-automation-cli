@@ -61,9 +61,10 @@ impl LightpandaProcess {
     }
 
     fn join_log_drainers(&mut self) {
-        for handle in std::mem::take(&mut self.log_drainers) {
-            let _ = handle.join();
-        }
+        crate::native::cdp::spawn::logs::join_drainers_within(
+            std::mem::take(&mut self.log_drainers),
+            std::time::Duration::from_millis(crate::constants::LOG_DRAINER_JOIN_GRACE_MS),
+        );
     }
 
     /// Non-blocking exit probe (`try_wait`). `true` when already reaped or exited.

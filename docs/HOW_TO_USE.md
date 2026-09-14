@@ -2,7 +2,9 @@
 
 # How to Use — browser-automation-cli
 
-> Install once, launch Chrome once per process, finish the task, exit clean. Lifecycle: BORN EXECUTE FINALIZE DIE.
+
+- Install once, launch Chrome once per process, finish the task and exit clean
+- Lifecycle: BORN EXECUTE FINALIZE DIE
 
 
 ## Prerequisites
@@ -32,7 +34,7 @@ browser-automation-cli --json view
 - Click with `press` using a CSS selector or an `@eN` ref
 - Fill inputs with `write` and multi-field forms with `fill-form`
 - Wait with `wait --ms`, repeatable `--text` (OR), `--selector` (CSS multi-selector OR), and optional `--state`
-- Capture a screenshot with `grab --path /tmp/page.png` (flag, not a positional path; encode **png|jpeg|webp** only — **AVIF removed** in v0.1.6)
+- Capture a screenshot with `grab --path /tmp/page.png` (flag, not a positional path; encode png|jpeg|webp only — AVIF removed in v0.1.6)
 - Submit a form with `submit <target>` (form or any field inside it; waits for navigation/request outcome)
 - Export/import portable auth state with `storage export|import --path <file>` (cookies + localStorage + sessionStorage)
 - Clear the whole cookie jar with `cookie clear --all`, where the flag is REQUIRED and a bare `cookie clear` is a usage error with exit 2 before anything launches
@@ -74,8 +76,8 @@ browser-automation-cli --json schema run
 - One process is one lifecycle: BORN EXECUTE FINALIZE DIE
 - There is no product daemon mode
 - On fail-fast error, the error envelope may include partial `data.steps` for recovery
-- Script body accepts **NDJSON** (one JSON object per line) **or** a top-level **JSON array** of step objects
-- `run --script -` reads NDJSON steps from **stdin**, one step per line, against a single live session
+- Script body accepts NDJSON (one JSON object per line) or a top-level JSON array of step objects
+- `run --script -` reads NDJSON steps from stdin, one step per line, against a single live session
 - Stdin mode is still one-shot: one BORN, one DIE, no daemon; EOF on stdin triggers FINALIZE
 - Stdin mode validates each line as it arrives and reports `validation: "per-line"`
 - File mode instead pre-flights the whole script before BORN, so a typo never launches Chrome
@@ -119,14 +121,16 @@ printf '%s\n' \
 - NDJSON lines and array elements use a `cmd` field matching a real subcommand or run inventory name
 - Scroll accepts `dy`/`dx` as aliases for `delta_y`/`delta_x`
 - Assert accepts `url_contains` / `text_contains` aliases and console kinds
-- Wait accepts multi-selector OR and run fields `url` / `url_contains` / `navigation: true` (boolean) and public **`wait_timeout_ms`** deadline (GAP-053); multi-selector success may include `matched_selector`
+- Wait accepts multi-selector OR and run fields `url` / `url_contains` / `navigation: true` (boolean) and public `wait_timeout_ms` deadline (GAP-053); multi-selector success may include `matched_selector`
 - Scrape in run honors `format` / `formats` (GAP-057): `{"cmd":"scrape","format":"text"}` must not dump a large `html` field when only text was requested
 - Fill multi-field forms in run: `{"cmd":"fill-form","fields":[{"target":"…","value":"…"}]}`
 - Submit form in run: `{"cmd":"submit","target":"form"}` (or a field inside the form)
 - Beforeunload in run: `handle_before_unload` on `goto` / `reload`; isolated page: `{"cmd":"page","action":"new","isolated_context":true}`
-- Dialog accept/dismiss data envelope includes **`dialog_settled`** (boolean). On happy path `true` after `Page.javascriptDialogClosed`; **do not invent an artificial wait** before the next page step when settled is true (GAP-054)
+- Dialog accept/dismiss data envelope includes `dialog_settled` (boolean)
+- On the happy path it is `true` after `Page.javascriptDialogClosed`
+- Do not invent an artificial wait before the next page step when settled is true (GAP-054)
 - `view --allow-empty` / `allow_empty:true` only when an empty about:blank is intentional
-- Note: `pick` / `select-option` are **not** standalone clap subcommands
+- Note: `pick` / `select-option` are not standalone clap subcommands
 - Global flags such as `--timeout` and `--step-timeout` apply to the whole script
 - Prefer HTTP scrape paths when you only need content and not live refs
 
@@ -196,9 +200,21 @@ printf '%s\n' \
 - `--stealth-seed <SEED>` pins that identity across processes
 - Without a seed every run draws a fresh identity, so a 50-URL crawl of 50 one-shot processes presents 50 different machines
 - `doctor --fingerprint` reports `planned_version_source` with three values: `null`, `chrome_binary` and `crate_table`
-- It is `null` under stealth, the default, because there the crate table IS the projected identity and nothing is probed
-- It is `chrome_binary` under `--no-stealth` when the planned major was read from the Chrome/Chromium binary this host would launch
-- It is `crate_table` under `--no-stealth` when the binary could not be probed, so the plan is a guess and not a measurement
+- It is `null` when the plan overrides the User-Agent, which is every headless launch and every profile that claims another platform
+- It is `chrome_binary` when no override applies and the planned major was read from the Chrome/Chromium binary this host would launch, with or without stealth
+- On Linux with Xvfb on PATH `auto` resolves to headed, so the default stealth run reports `chrome_binary` there and not `null`
+- It is `crate_table` when no override applies and the binary could not be probed, so the plan is a guess and not a measurement
+- With stealth on `planned.ua_data_platform` is always `null`, because the patch never emulates `navigator.userAgentData` and the `about:blank` probe page is not a secure context
+- The live probe publishes `ua_data_brands`, and the mismatch `ua_data_brands_vs_user_agent` compares only the major in those brands with the major in the User-Agent
+- The stealth patch never emulates `navigator.userAgentData`; the object exists only in a secure context, as in a real Chrome
+- Headed on the host profile the page User-Agent and `navigator.userAgentData` are the installed Chrome's own
+- Headless or on a foreign profile the override sends a complete `userAgentMetadata` over CDP (`brands`, `fullVersionList`, `fullVersion`, `platformVersion`, `bitness`, `wow64`), so JavaScript, `getHighEntropyValues` and every `sec-ch-ua-*` header tell the same version
+- Every `scrape` envelope carries `user_agent_major_source`: `projected` (User-Agent overridden), `host_binary` (major read from this host's Chrome) or `host_unprobed` (crate table, nothing probed)
+- It is `null` under `--no-stealth`, and on `--engine browser` also before a launch
+- Without a seed the HTTP engine takes the Chrome major of `user-agent` and `sec-ch-ua` from the crate table and never looks for Chrome
+- The HTTP client shares only the MAJOR with the browser: its `sec-ch-ua` is always the fixed list Chromium, Google Chrome and a GREASE brand, which may not match the native list of a browser without an override, such as a Chromium that carries no Google Chrome brand
+- `user_agent_major_source` describes only where that major came from, never the brand list
+- With a seed the major of the last launch is stored in `state_dir/stealth/host-major-<hash>.txt`; without a seed, or under `--no-stealth`, nothing about it touches the disk
 - `--proxy <URL>` sets the egress proxy for Chrome and for the HTTP engine, accepting `http`, `https`, and `socks5`
 - `--proxy-bypass <HOSTS>` lists the hosts that skip the proxy, in Chrome's bypass-list syntax
 - `--input-profile <PROFILE>` is `human` (default) or `direct`
@@ -211,13 +227,23 @@ printf '%s\n' \
 - `--warmup` visits the origin root before the target URL, so the session already carries cookies and a referrer chain
 - `--warmup-url <URL>` warms that URL instead of the target's origin root
 - `--no-xvfb` skips the private virtual display on Linux and uses the current one; it is only meaningful headed on Linux
+- On Linux a headed launch goes into a private Xvfb, and it stays there even under a Wayland session
+- Chrome inside that display receives `--ozone-platform=x11`, so Chromium does not pick Wayland and draw on the real compositor
+- The private Xvfb requires a `MIT-MAGIC-COOKIE-1` held in a mode 0600 file that teardown removes
+- A headed Linux launch whose Xvfb cannot start still runs on the current display, and `display_backend` then says `host`
+- A self-spawned Chrome opens no DevTools TCP port and runs with `--remote-debugging-pipe`
+- A loopback WebSocket bridge relays exactly one client between that pipe and the CDP client, on a path holding 122 random bits
+- The Lightpanda engine and the legacy launch chosen by `config set chrome_legacy_oxide_launch true` keep their previous transport
 - Every browser envelope publishes a witness group of five keys, and four of them are documented here while `runtime_enable_used` lives in `docs/STEALTH_PARITY.md`
 - `browser_mode_requested` is the mode that was asked for, exactly as `mode().as_str()` spells it
 - `browser_mode_effective` is what the launch will really do, either `headless` or `headed`, and it differs from `browser_mode_requested` exactly under `auto`, the case the caller cannot see any other way
 - `browser_mode_source` is the precedence step that won, either `default`, `xdg` or `flag`
 - `display_backend` is the surface the browser draws on, either `headless`, `xvfb` or `host`, and it is not derived from the browser mode alone, because headed on a private virtual display is not the operator screen
-- `host` is the only backend that reaches the operator compositor, and it requires headed with the virtual display refused
+- `host` is the only backend that reaches the operator compositor
+- It appears when a headed launch passes `--no-xvfb`, when a headed Linux launch cannot start Xvfb, and on every headed launch outside Linux
+- After a launch the field reports the display that launch really used, so read it instead of inferring it from the flags
 - `--expect <EXPR>` asserts the emitted payload matches `key=value`, `key!=value`, or `key~substring`; it repeats and every expression is ANDed
+- `--expect` runs after `--fields` and `--filter-rows`, its key is a path relative to `data`, and on a list one matching row is enough
 - `--expect-exit-code` exits `65` when an expectation is unmet, instead of only reporting it
 - It stays off by default because changing an exit code on data content would silently break callers that already branch on it
 
@@ -239,15 +265,18 @@ browser-automation-cli --timeout 60 --json --warmup-url https://example.com/logi
 # Your own front end, browser untouched
 browser-automation-cli --timeout 60 --json --no-stealth goto http://127.0.0.1:8080
 
+# Which display a headed run really used: xvfb, host or headless
+browser-automation-cli --timeout 60 --json --headed --fields display_backend goto https://example.com
+
 # Assert on the payload the caller actually receives
-browser-automation-cli --json --expect 'ok=true' --expect-exit-code doctor --offline --quick
+browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' --expect 'status=pass' --expect-exit-code doctor --offline --quick
 ```
 
 - Make the choice durable with XDG keys instead of repeating flags
 - `stealth` (`true`) applies the anti-detection patches before the first navigation
 - `stealth_profile` (`auto`) is the impersonated identity
 - `stealth_seed` (no default) pins the identity across processes
-- `browser_mode` (`auto`) is the window mode `auto|headed|headless`; `auto` resolves to headless and `doctor` reports the effective mode
+- `browser_mode` (`auto`) is the window mode `auto|headed|headless`; `auto` resolves to headed inside a private virtual display on Linux with Xvfb on PATH and without `--no-xvfb`, and to headless in every other case; `doctor` reports the effective mode
 - `input_profile` (`human`) is the input shaping model `human|direct`
 - `proxy_url` (no default) is the egress proxy for Chrome and the HTTP engine
 - `proxy_bypass` (no default) lists the hosts that skip the proxy
@@ -297,7 +326,8 @@ browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' \
 ```
 
 - JSON top-level `residual` fields: `scanned_roots`, `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legacy), `sibling_live_processes`, `orphan_marker_dirs`, `foreign_root_orphans`, `ghost_marker_processes`, `process_table_unavailable`
-- Check id `residual_disk`: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; `warn` when marker dirs or Singleton orphans remain; else `pass`. A live sibling invocation is healthy and never fails.
+- Check id `residual_disk`: `fail` on `orphan_marker_dirs` or `ghost_marker_processes`; `warn` when marker dirs or Singleton orphans remain; else `pass`
+- A live sibling invocation is healthy and never fails
 - Maintainers may also run local gates: `bash scripts/residual-check.sh` and `bash scripts/residual-stress.sh` (local maintainer scripts only)
 
 
@@ -337,6 +367,9 @@ browser-automation-cli --json --fields checks --filter-rows 'id=residual_disk' \
 ### --limit-rows
 - Emit at most N rows from the selected list
 - The cut runs after filter, dedupe and sort
+- `--max-items N` is an accepted alias of `--limit-rows` with the same meaning
+- It limits what is EMITTED, while a command's local `--limit` limits what is FETCHED
+- Measured: `--fields checks --max-items 2 doctor --offline --quick` emits 2 of 15 rows and sets `agent_ops.truncated`
 
 ```bash
 browser-automation-cli --json --fields checks --limit-rows 3 doctor --offline --quick
@@ -420,10 +453,49 @@ browser-automation-cli --json --count-only map https://example.com --limit 5
 ```
 
 
+## Other Global Flags
+- Every flag below is global and is accepted before or after the subcommand
+- `--plain` forces plain stderr with no ANSI colors
+- `--correlation-id <ID>` echoes an id on JSON envelopes and NDJSON steps, so a caller can join runs across tools
+- `--artifacts-dir <DIR>` chooses the directory for screenshots, PDFs and other one-shot artifacts
+- `--dump-on-failure` writes captured console and network evidence to the artifacts dir when the command fails
+- Pair `--dump-on-failure` with `--capture-console` or `--capture-network` in the same process, because the capture dies with the process
+- `--max-concurrency <N>` caps concurrent I/O tasks for batch, crawl and CDP fan-out, and `0` means auto
+- `--browser-mode <auto|headless|headed>` is the canonical window mode, and it wins over XDG `browser_mode`
+- `--headed` and `--headless` are shorthands for two values of `--browser-mode`
+- `--headless` requires a headless run and overrides any persisted mode
+- `--min-delay-ms <MS>` raises the same-origin courtesy floor for this invocation only
+- The effective wait is the maximum of that flag, XDG `scrape_min_delay_ms` and the site's `Crawl-delay`
+- `--allow-outside-roots` permits local reads and artifact writes outside the allowed roots, as an explicit risk acceptance
+- `--category-third-party` enables the `devtools3p` surface
+- `--category-webmcp` enables the `webmcp` surface
+- `--experimental-screencast` enables `screencast`, which may need ffmpeg for file export
+
+
+## Exit Codes
+- `0` success
+- `2` usage
+- `6` blocked, because the origin served a bot check instead of content
+- Under `6` the transport succeeded with HTTP 200 and valid HTML, so `status_code` and `http_error` report success while the body carries a challenge
+- Read `error.suggestion` under `6`, because retrying the same request escalates toward a ban
+- `64` capability disabled, because argv is correct and a category or experimental gate flag is missing
+- `65` data
+- `66` no input
+- `69` unavailable
+- `70` software, browser, protocol
+- `74` I/O
+- `75` precondition, because the page or session does not satisfy the command
+- `78` config
+- `124` timeout
+- A failed Chrome launch still tearing down when `--timeout` expires also ends with `124`, not `69`
+- `130` cancelled
+- `141` broken pipe
+
+
 ## Configuration (XDG)
 - Prefer flags for one-off agent calls
 - Prefer XDG config via the `config` command for durable defaults
-- Product settings are flags and XDG CLI only: `config init`, `config path`, `config show`, `config set`, `config get`, `config unset`, `config list-keys`
+- Product settings are flags and XDG CLI only: `config init`, `config path`, `config show`, `config set`, `config get`, `config unset`, `config list-keys` — never product environment variables
 - Resolve live config/data/state paths with `config path --json`
 - Product logging is controlled by `--verbose` / `--debug` / `-q` and XDG `log_level`
 - Language for human suggestions: `--lang` or XDG `lang` only (no product env catalogs)
@@ -603,6 +675,7 @@ browser-automation-cli --json workflow status --name demo
 - Symptom: exit `124`, envelope kind `timeout`
 - Cause: navigation or step exceeded `--timeout` / wait budget
 - Fix: raise `--timeout`, use targeted `wait --text` / `--selector`, or prefer `--engine http` when CDP is unnecessary
+- Note: a failed Chrome launch still tearing down when `--timeout` expires also exits `124`, not `69`
 
 ### Robots dual-flag incomplete
 - Symptom: exit `2`, message `--ignore-robots requires --i-accept-robots-risk`
@@ -738,7 +811,7 @@ browser-automation-cli --timeout 60 --json run --script /tmp/grab-webp.run.json
 ## Integration With Shell Scripts
 - Always request machine-readable stdout with `--json`
 - Inspect `$?` (or `$LASTEXITCODE`) before trusting the payload
-- Pipe stdout into `jaq` / `jq` for field extraction
+- Pipe stdout into `jaq` for field extraction
 - Keep diagnostics on stderr with `--quiet` when you only want envelopes
 - On `run` errors, inspect partial `data.steps` when present
 - Use `--json-steps` when progressive step lines are easier to stream than a single final envelope
@@ -821,7 +894,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Full Command Inventory (71)
 - Live source of truth: `browser-automation-cli commands --json` (**71** agent-facing names)
 - Clap product surface is **69** names (excludes agent-only `select-option` / `pick`; those two are run/exec/schema inventory)
-- DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53; lighthouse mock = **SKIP**, not PASS)
+- DevTools tool-ref e2e covers **53** tools (`scripts/e2e_all_52_tools.sh` filename is legacy; suite runs 53; lighthouse mock = SKIP, not PASS)
 - Full agent command list (all **71** names):
   - Meta / discovery: `doctor`, `commands`, `schema`, `version`, `locale`, `completions`, `man`
   - Navigate: `goto`, `back`, `forward`, `reload`, `page`, `wait`, `dialog`
@@ -837,6 +910,80 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   - Category gates: `extension`, `devtools3p`, `webmcp`
 - Complete flat list: `doctor`, `commands`, `schema`, `version`, `locale`, `goto`, `view`, `press`, `click-at`, `write`, `keys`, `type`, `wait`, `hover`, `drag`, `submit`, `fill-form`, `select-option`, `pick`, `upload`, `back`, `forward`, `reload`, `eval`, `grab`, `print-pdf`, `monitor`, `run`, `exec`, `record`, `extract`, `text`, `scroll`, `cookie`, `storage`, `attr`, `assert`, `console`, `net`, `page`, `dialog`, `scrape`, `batch-scrape`, `crawl`, `map`, `sitemap`, `feed`, `search`, `parse`, `qr`, `image`, `video`, `audio`, `find-paths`, `sg-scan`, `sg-rewrite`, `sheet-write`, `mitm`, `workflow`, `config`, `emulate`, `resize`, `perf`, `lighthouse`, `screencast`, `heap`, `extension`, `devtools3p`, `webmcp`, `completions`, `man`
 - Discover argv with `schema <name> --json` for any name above
+
+### One Line per Command
+- `doctor` diagnoses Chrome install and one-shot readiness
+- `commands` lists the live command inventory
+- `schema` prints the JSON Schema fragment of a command, as `schema run` or `schema --cmd run`
+- `version` prints the CLI version
+- `locale` shows the resolved UI locale and its detection diagnostics
+- `goto` navigates to a URL
+- `view` prints an accessibility snapshot with `@eN` refs
+- `press` clicks an element by selector or `@eN`
+- `click-at` clicks at page CSS coordinates and requires `--experimental-vision`
+- `write` fills an input value, including select, checkbox and radio
+- `keys` presses a keyboard key
+- `type` types text into `--target` or the focused element with `--focus-only`
+- `wait` waits for milliseconds, text, selector or load state
+- `hover` hovers an element
+- `drag` drags from one target to another
+- `submit` submits a form, or the form owning a field, and waits for its outcome
+- `fill-form` fills several form fields from a JSON list
+- `select-option` picks an option by `target` and `option`, through `run`, `exec` or `schema` only
+- `pick` picks an option from a custom select, popover or `role=option`, through `run`, `exec` or `schema` only
+- `upload` uploads a file to a file input
+- `back` goes back in history
+- `forward` goes forward in history
+- `reload` reloads the current page
+- `eval` evaluates a JavaScript expression or function declaration
+- `grab` captures a screenshot
+- `print-pdf` prints the current page to PDF
+- `monitor` checks a page for change against a baseline file
+- `run` runs a multi-step script in one process
+- `exec` runs one inline step with the same surface as a `run` step
+- `record` records page interactions as a replayable `run --script` NDJSON file
+- `extract` extracts text or an attribute from a target, or answers with an LLM under `--llm`
+- `text` extracts visible text from a target
+- `scroll` scrolls the page or an element by delta pixels
+- `cookie` manages the cookie jar of the active page
+- `storage` exports or imports portable auth state
+- `attr` reads one attribute from a target
+- `assert` asserts on URL, text or console
+- `console` reads console messages captured under `--capture-console`
+- `net` reads network requests captured under `--capture-network`
+- `page` shows page info or manages tabs
+- `dialog` accepts or dismisses dialogs
+- `scrape` navigates and returns body text or the requested formats
+- `batch-scrape` scrapes many URLs from a file
+- `crawl` crawls from a seed URL
+- `map` maps site URLs from a seed over HTTP
+- `sitemap` lists the URLs a site's sitemap.xml declares
+- `feed` reads an RSS, Atom or JSON Feed document
+- `search` runs a local search over HTTP SERP links or a URL map
+- `parse` extracts text from a local html, md, txt, pdf, docx, xlsx or ods file
+- `qr` encodes or decodes QR codes without Chrome
+- `image` runs the local image pipeline without Chrome
+- `video` runs the local video pipeline without Chrome
+- `audio` runs the local audio pipeline without Chrome
+- `find-paths` discovers filesystem paths by pattern or glob
+- `sg-scan` runs a structural lint scan
+- `sg-rewrite` runs a structural rewrite, dry-run by default and written only with `--apply`
+- `sheet-write` writes an XLSX workbook from CSV or JSON
+- `mitm` captures traffic, manages the CA and exports HAR
+- `workflow` runs, resumes and reports a journaled workflow DAG
+- `config` manages XDG config and paths
+- `emulate` emulates device, network, user agent, geolocation or CPU
+- `resize` resizes the page viewport
+- `perf` records performance traces and metrics
+- `lighthouse` runs a Lighthouse audit with an external binary
+- `screencast` starts or stops a screencast and requires `--experimental-screencast`
+- `heap` works with heap snapshots and requires `--category-memory` for deep analysis
+- `extension` manages Chrome extensions and requires `--category-extensions`
+- `devtools3p` exposes the third-party developer tools surface and requires `--category-third-party`
+- `webmcp` exposes the web surface tools and requires `--category-webmcp`
+- `completions` generates shell completions without Chrome
+- `man` generates a roff man page without Chrome
+
 
 ## Next Steps
 - Recipes and longer flows: [docs/COOKBOOK.md](COOKBOOK.md)

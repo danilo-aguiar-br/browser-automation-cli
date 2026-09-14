@@ -26,7 +26,7 @@
 - `0.1.5` hard-closes residual-zero disk (RES-01…12): BORN auto-GC of stale Singleton-only Chromium `/tmp` dirs (age floor 60s), FINALIZE dual scavenge + re-scan, `doctor residual_disk` + top-level `residual` (`ResidualDiskReport`), never kills host Flatpak Chrome; inventory honesty with `locale`/`man`
 - `0.1.6` hard-closes agent dialog/select/scrape/wait confidence: `dialog_settled` bool + XDG `dialog_settle_ms`, multi-tab dialog `session_id` isolation with e2e gate, native select `input`+`change`, `wait_timeout_ms` in `run`, scrape `format`/`formats` in `run`, grab `png|jpeg|webp` only (AVIF encode removed); inventory tip 0.1.8 was 69 via `commands --json` (0.1.6: `submit`/`storage` → 65; 0.1.7: `image`+`video`+`audio` → 68 then `record` → 69; also `select-option`, `pick`); e2e TOTAL=53 PASS=52 SKIP=1 (lighthouse mock honest SKIP)
 - `0.1.8` hard-closes anti-detection and egress control: stealth family (`--no-stealth`, `--stealth-profile`, `--stealth-seed`), window mode via XDG `browser_mode` plus `--no-xvfb`, egress proxy (`--proxy`, `--proxy-bypass`) covering Chrome and the HTTP engine, constant HTTP/2 fingerprint keys, human input kinematics (`--input-profile`, `--input-seed`), session warmup (`--warmup`, `--warmup-url`), payload expectations (`--expect`, `--expect-exit-code`), and `config unset <KEY>`; config surface grows 176 → **204** keys while the 0.1.8 inventory tip stayed 69 via `commands --json`
-- Live surface (v0.1.9): **217** XDG keys via `config list-keys --json` (the 204 figure belongs to the 0.1.8 paragraph above); `doctor --fingerprint` adds `measurement_scope` / `unmeasured_os` (not XDG keys); `emulate`/`resize` `screen` applies CDP; `--no-stealth` fingerprint plan matches the page
+- Live surface (v0.2.0): **217** XDG keys via `config list-keys --json` (the 204 figure belongs to the 0.1.8 paragraph above); `doctor --fingerprint` adds `measurement_scope` / `unmeasured_os` (not XDG keys); `emulate`/`resize` `screen` applies CDP; `--no-stealth` fingerprint plan matches the page
 - Experimental tools require `--experimental-vision` or `--experimental-screencast`
 
 ## Summary Table
@@ -79,6 +79,17 @@ echo "$out" | jaq -e '.ok == true'
 ## Continue and Cline
 - Use quiet JSON mode to keep editor transcripts clean
 - Do not expect session stickiness between separate process launches
+```bash
+browser-automation-cli --timeout 60 -q --json scrape https://example.com --format text --engine http
+```
+
+## Shells
+- `completions` prints a completion script for `bash`, `zsh`, `fish`, `elvish` or `powershell` without launching Chrome
+- Nushell is not a dialect of `completions` and exits 2
+```bash
+browser-automation-cli completions bash
+browser-automation-cli completions powershell
+```
 
 ## New Flags by Version
 - `0.1.0`: category gates, experimental vision and screencast, capture flags, schema discovery
@@ -142,7 +153,7 @@ echo "$out" | jaq -e '.ok == true'
   - Intentional residual: GAP-022 ~53 dependency multi-versions; GAP-023/024 PRD wishlist flags/commands not full parity
 - `0.1.8`:
   - Anti-detection: `--no-stealth`, `--stealth-profile auto|chrome-linux|chrome-win|chrome-mac`, `--stealth-seed <SEED>`; XDG `stealth` (default true), `stealth_profile`, `stealth_seed`
-  - Window mode: XDG `browser_mode` (`auto|headed|headless`; `auto` resolves to headless and `doctor` reports the effective mode); `--no-xvfb` skips the private virtual display on Linux
+  - Window mode: XDG `browser_mode` (`auto|headed|headless`; `auto` resolves to headed inside a private virtual display on Linux with Xvfb on PATH and without `--no-xvfb`, and to headless in every other case; `doctor` reports the effective mode); `--no-xvfb` skips the private virtual display on Linux
   - Egress proxy: `--proxy <URL>` (`http`, `https`, `socks5`) and `--proxy-bypass <HOSTS>` apply to Chrome **and** to the HTTP engine; XDG `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `cdp_proxy_bypass_loopback` (default true)
   - HTTP/2 fingerprint: XDG `http2_enabled` (default true), `http2_initial_stream_window_size` (6291456), `http2_initial_connection_window_size` (15663105), `http2_max_header_list_size` (262144), `http2_max_frame_size` (16384), `http2_adaptive_window` (default false, because leaving it off keeps the fingerprint constant)
   - Human input kinematics: `--input-profile human|direct` (default `human`) and `--input-seed <SEED>`; XDG `input_profile`, `input_move_steps` (24), `input_move_gap_ms` (12), `input_click_dwell_ms` (65), `input_key_dwell_ms` (45), `input_type_delay_ms` (95), `input_scroll_tick_px` (100), `input_scroll_max_ticks` (40), `input_target_jitter_px` (3), `input_scroll_settle_rounds` (3)
@@ -169,3 +180,12 @@ echo "$out" | jaq -e '.ok == true'
   - New XDG keys `screen` (`WxH`), `platform_child_poll_ms`, `extension_attach_poll_iters`, `user_data_dir` (opt-in persistent Chrome profile, unset by default, and leaving it unset is what keeps residual-zero true), `input_typo_permille` (`0`) and `capture_preserved_rings` (`3`); eighteen keys that were accepted and ignored at runtime are now wired
   - Config surface: **217** keys via `config list-keys --json` (the 204 figure belongs to the 0.1.8 paragraph above)
   - Inventory tip is **71** agent names via `commands --json`; the clap top-level surface is 69, because `select-option` and `pick` remain multi-step names without a standalone verb
+- `0.2.0`:
+  - A headed Linux launch that starts the private Xvfb pins `--ozone-platform=x11`, so Chromium no longer draws the window on a Wayland desktop; the pin follows the display that actually started, and since no flag or XDG key passes a platform switch to Chrome, `--no-xvfb` is the way to keep your own display
+  - Concurrent headed launches no longer share one private display: readiness requires the lock to name the pid of this launch's Xvfb, a display whose lock names a dead pid is reused, and Xvfb stops with `SIGTERM` and a grace period before `SIGKILL`
+  - The private Xvfb requires a `MIT-MAGIC-COOKIE-1`, kept in a mode 0600 file that is removed at teardown
+  - The self-spawned Chrome opens no DevTools TCP port: it runs with `--remote-debugging-pipe` behind a loopback WebSocket bridge that relays one client on a random path and does not serve `/json/version`; the Lightpanda engine and `chrome_legacy_oxide_launch` are unchanged
+  - `display_backend` reports the display the launch really used (`headless`, `xvfb` or `host`), and the extension launch path starts the private display too
+  - A failed Chrome launch kills Chrome's whole process group, and `--timeout` during that teardown exits 124 instead of 69
+  - `doctor` names the value `auto` resolves to on the host in its `virtual_display` message
+  - No command and no XDG key was added: the config surface stays at **217** keys and the inventory tip stays **71** agent names via `commands --json`

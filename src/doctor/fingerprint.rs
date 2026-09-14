@@ -16,8 +16,9 @@ use crate::constants::{
 };
 use crate::envelope::print_success_json;
 use crate::native::stealth::{
-    assess_signals, planned_stealth_signals, planned_vs_live, signals_from_live, CoherenceMismatch,
-    FingerprintSignals, Identity,
+    assess_signals, brands_vs_user_agent, host_chrome_major, page_identity,
+    planned_stealth_signals, planned_vs_live, signals_from_live, CoherenceMismatch,
+    FingerprintSignals, Identity, PageMajorSource,
 };
 
 /// Run the fingerprint-coherence diagnosis and return a process exit code.
@@ -25,13 +26,30 @@ pub fn run_fingerprint(json: bool, live: bool) -> i32 {
     let token = browser_policy::stealth_profile_token();
     let profile = token.resolved();
     let stealth = browser_policy::stealth_enabled();
-    // Under stealth the crate's version IS the projected identity, so there is
-    // nothing to probe. `--no-stealth` claims to describe the real browser and
-    // therefore has to ask it.
+    let headless = browser_policy::mode().launches_headless();
+    // Under stealth the crate's version is the projected identity only when the
+    // User-Agent is overridden. Otherwise Chrome keeps its own UA and the plan
+    // has to ask the binary, exactly like `--no-stealth` does.
     let (mut planned, version_source) = if stealth {
-        (planned_stealth_signals(profile), None)
+        let mut signals = planned_stealth_signals(profile);
+        let (identity, source) = page_identity(profile, headless, host_chrome_major);
+        signals.user_agent = identity.user_agent;
+        // The patch no longer emulates `userAgentData` in any mode, and the
+        // native object is not exposed on the `about:blank` probe page — with
+        // or without an override. Measured headed, headless and `chrome-win`:
+        // `ua_data_platform: null`, and promising it fired
+        // `planned_vs_live_ua_data_platform`. The same rule the `--no-stealth`
+        // plan states in `unpatched_chrome_signals`. If emulation ever returns,
+        // the object reappears here and `brands_vs_user_agent` reads it.
+        signals.ua_data_platform = None;
+        let source = match source {
+            PageMajorSource::Projected => None,
+            PageMajorSource::HostBinary => Some(PlannedVersionSource::ChromeBinary),
+            PageMajorSource::HostUnprobed => Some(PlannedVersionSource::CrateTable),
+        };
+        (signals, source)
     } else {
-        let (signals, source) = unpatched_chrome_signals();
+        let (signals, source) = unpatched_chrome_signals(headless);
         (signals, Some(source))
     };
     // `planned_stealth_signals` fills the screen from the Xvfb constant, which
@@ -49,13 +67,22 @@ pub fn run_fingerprint(json: bool, live: bool) -> i32 {
     let static_mismatches = assess_signals(&planned, stealth);
     let (live_probe, live_mismatches) = if live {
         let mut probe = probe_live();
-        let extra = probe
+        let live = probe
             .get("result")
             .and_then(|r| r.get("result").or(Some(r)))
-            .and_then(signals_from_live)
-            .map(|s| {
+            .cloned();
+        let extra = live
+            .as_ref()
+            .and_then(|l| signals_from_live(l).map(|s| (l, s)))
+            .map(|(l, s)| {
                 let mut extra = assess_signals(&s, stealth);
                 extra.extend(planned_vs_live(&planned, &s));
+                // `userAgentData.brands` against the UA of the same page. The
+                // plan cannot state the brands of a browser that keeps its own,
+                // so this compares the page with itself: measured headed before
+                // the fix, UA 152 next to brands 153 passed with `ok: true`.
+                let brands = l.get("ua_data_brands").unwrap_or(&serde_json::Value::Null);
+                extra.extend(brands_vs_user_agent(&s.user_agent, brands));
                 extra
             })
             .unwrap_or_default();
@@ -154,8 +181,9 @@ pub fn run_fingerprint(json: bool, live: bool) -> i32 {
             "webdriver_present": planned.webdriver_in_navigator,
             "webdriver_value": planned.webdriver_value,
         },
-        // Where the planned major came from. `null` under stealth, where the
-        // crate table is the intended source rather than a fallback.
+        // Where the planned major came from. `null` when stealth overrides the
+        // User-Agent, where the crate table is the intended source rather than
+        // a fallback.
         "planned_version_source": version_source.map(PlannedVersionSource::as_str),
         "planned": planned_json(&planned),
         "mismatches": mismatches.iter().map(|m| json!({
@@ -214,7 +242,7 @@ fn planned_json(s: &FingerprintSignals) -> serde_json::Value {
     })
 }
 
-/// Where the major version in the `--no-stealth` plan came from.
+/// Where the major version in a plan that does not override the UA came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlannedVersionSource {
     /// Read from the Chrome/Chromium binary this host would actually launch.
@@ -241,27 +269,26 @@ impl PlannedVersionSource {
 ///
 /// `Identity::for_profile` takes its major from
 /// `spider_fingerprint::spoof_user_agent::get_default_version`, which is the
-/// right source for a SPOOF: under stealth the crate's version IS the identity
-/// being projected. It is the wrong source here. `--no-stealth` means "describe
-/// the browser without patches", and the crate table describes a build the host
-/// may not have. Measured: the plan announced major 152 while the host ran
+/// right source for a SPOOF: when stealth overrides the User-Agent the crate's
+/// version IS the identity being projected. It is the wrong source here.
+/// `--no-stealth` means "describe the browser without patches", and the crate
+/// table describes a build the host may not have. Measured: the plan announced major 152 while the host ran
 /// Chromium 151.0.7922.137, so the mode meant to report reality reported an
 /// invented version — and the plan-vs-live comparison then had a permanent
 /// false divergence baked into it.
 ///
 /// The probe is paid only on this path, and a failure falls back to the crate
 /// table rather than guessing. The envelope publishes which one answered.
-fn unpatched_chrome_signals() -> (FingerprintSignals, PlannedVersionSource) {
+fn unpatched_chrome_signals(headless: bool) -> (FingerprintSignals, PlannedVersionSource) {
     let host = StealthProfile::Auto.resolved();
     let id = Identity::for_profile(host);
-    let (base_ua, source) = match probe_host_chrome_major() {
+    let (base_ua, source) = match host_chrome_major() {
         Some(major) => (
             id.user_agent_with_major(&major),
             PlannedVersionSource::ChromeBinary,
         ),
         None => (id.user_agent.clone(), PlannedVersionSource::CrateTable),
     };
-    let headless = crate::browser_policy::mode().launches_headless();
     let user_agent = if headless {
         base_ua.replace("Chrome/", "HeadlessChrome/")
     } else {
@@ -284,13 +311,6 @@ fn unpatched_chrome_signals() -> (FingerprintSignals, PlannedVersionSource) {
         inner_height: crate::constants::DEFAULT_XVFB_HEIGHT as i32,
     };
     (signals, source)
-}
-
-/// Chrome major version of the binary this host would launch, if it answers.
-fn probe_host_chrome_major() -> Option<String> {
-    let path = crate::native::cdp::chrome::find_chrome()?;
-    let line = crate::platform::probe_binary_version(&path)?;
-    crate::native::stealth::chrome_major_from_version_line(&line)
 }
 
 fn probe_live() -> serde_json::Value {
@@ -338,6 +358,9 @@ fn probe_live() -> serde_json::Value {
             user_agent: String(navigator.userAgent),
             navigator_platform: String(navigator.platform),
             ua_data_platform: uad && uad.platform ? String(uad.platform) : null,
+            ua_data_brands: uad && uad.brands ? uad.brands.map(function (b) {
+              return { brand: String(b.brand), version: String(b.version) };
+            }) : null,
             screen_width: screen.width,
             screen_height: screen.height,
             inner_width: window.innerWidth,

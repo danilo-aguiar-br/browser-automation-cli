@@ -92,6 +92,39 @@ pub(crate) fn start_log_drainers(
     Ok((logs, vec![stdout_handle, stderr_handle]))
 }
 
+/// Join drainer threads, waiting at most `grace` for all of them together.
+///
+/// A drainer ends only when EVERY process holding the child's stdout or
+/// stderr closes it, and a descendant can inherit those: Fedora's
+/// `chromium-browser.sh` routes both through `cat` helpers. Measured: an
+/// unbounded join held a `--timeout 10` command for 30 seconds. A thread still
+/// running at the deadline is left detached; it blocks only on a pipe that
+/// dies with this one-shot process.
+pub(crate) fn join_drainers_within(
+    handles: Vec<std::thread::JoinHandle<()>>,
+    grace: std::time::Duration,
+) {
+    let deadline = std::time::Instant::now() + grace;
+    let poll = std::time::Duration::from_millis(crate::xdg::policy::policy_u64(
+        crate::xdg::policy::key::PLATFORM_CHILD_POLL_MS,
+    ));
+    while handles.iter().any(|h| !h.is_finished()) {
+        if std::time::Instant::now() >= deadline {
+            tracing::warn!(
+                target: "browser_automation_cli::spawn",
+                grace_ms = u64::try_from(grace.as_millis()).unwrap_or(u64::MAX),
+                "log drainers still blocked at teardown; left detached \
+                 (a descendant of the engine may still hold its output open)"
+            );
+            return;
+        }
+        std::thread::sleep(poll);
+    }
+    for handle in handles {
+        let _ = handle.join();
+    }
+}
+
 /// Read `reader` line by line until EOF or the first I/O error.
 pub(crate) fn drain_reader<R, F>(reader: R, mut push: F)
 where
@@ -141,5 +174,42 @@ pub(crate) fn launch_error(
         format!("{message} (no stdout/stderr output from {engine})")
     } else {
         format!("{}\n{}", message, details.join("\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Teardown returns on time while a child still holds the drained pipe.
+    ///
+    /// Reproduces the measured hang one layer out from the DevTools pipe: the
+    /// `sleep` keeps its stdout open, so the drainer never sees end-of-file and
+    /// an unbounded join would wait for as long as `sleep` lives.
+    #[test]
+    #[cfg(unix)]
+    fn drainers_are_left_detached_when_the_output_stays_open() {
+        let Some(program) = crate::platform::which_bin("sleep") else {
+            crate::test_utils::skip_unit_test("log_drainers", "sleep not found on this host.");
+            return;
+        };
+        let mut holder = std::process::Command::new(program)
+            .arg("30")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("sleep spawns");
+        let (_logs, drainers) = start_log_drainers(&mut holder).expect("drainers start");
+        let grace = std::time::Duration::from_millis(300);
+        let started = std::time::Instant::now();
+        join_drainers_within(drainers, grace);
+        let elapsed = started.elapsed();
+        let _ = holder.kill();
+        let _ = holder.wait();
+        assert!(
+            elapsed < grace + std::time::Duration::from_secs(2),
+            "the join blocked for {elapsed:?} while the output was still open"
+        );
     }
 }

@@ -14,6 +14,9 @@ cargo test --locked --manifest-path browser-automation-cli/Cargo.toml
 browser-automation-cli doctor --offline --quick --json
 ```
 
+## Código de Conduta
+- Leia e siga o [Código de Conduta](CODE_OF_CONDUCT.pt-BR.md) antes de participar
+
 ## Setup de Desenvolvimento
 - Instale Rust 1.88.0 ou mais novo
 - Instale Chrome ou Chromium para comandos de runtime
@@ -47,7 +50,7 @@ browser-automation-cli doctor --offline --quick --json
 - Rode format check com `cargo fmt --check`
 - Adicione cobertura de regressão para cada bugfix
 - Gates de contrato: `tests/parity_run_inventory.rs` (RUN_DISPATCHED_CMDS ∪ exclusões intencionais) e `tests/clap_command_debug_assert.rs` (`Cli::command().debug_assert()`)
-- Gates locais residual-zero: `scripts/residual-check.sh` e `scripts/residual-stress.sh` (somente local; não é requisito de CI de produto)
+- Gates locais residual-zero: `scripts/residual-check.sh` e `scripts/residual-stress.sh` (somente local)
 - Veja [docs/TESTING.pt-BR.md](docs/TESTING.pt-BR.md)
 
 ## Documentação
@@ -60,7 +63,7 @@ browser-automation-cli doctor --offline --quick --json
 - Ao adicionar comandos, atualize README Commands, INTEGRATIONS New Flags, llms.txt / llms-full Command Surface (EN+pt-BR), receitas COOKBOOK, skills, MIGRATION e contagens de inventário
 - Ao adicionar chave de configuração XDG ou flag global, não apenas comando, atualize também `docs/CONFIGURATION.md` e `docs/CONFIGURATION.pt-BR.md`, as duas skills embarcadas em `skills/` incluindo `references/xdg-keys.md`, e a entrada de CHANGELOG da versão
 - O `scripts/doc-coverage-check.sh` lê o binário vivo e reprova quando a prosa deriva da superfície entregue
-- Tip de inventário ao vivo (0.1.9): **71** nomes de agente via `commands --json` (0.1.6 acrescentou `submit`/`storage` → 65; 0.1.7 acrescenta `image`+`video`+`audio` → 68 e depois `record` → 69; também `select-option`, `pick`, `locale`, `man` — remeça sempre com `commands --json`); **53** tools e2e do DevTools com placar PASS=52 SKIP=1 quando o mock do lighthouse é o único skip
+- Tip de inventário ao vivo (0.2.0): **71** nomes de agente via `commands --json` (0.1.6 acrescentou `submit`/`storage` → 65; 0.1.7 acrescenta `image`+`video`+`audio` → 68 e depois `record` → 69; também `select-option`, `pick`, `locale`, `man` — remeça sempre com `commands --json`); **53** tools e2e do DevTools com placar PASS=52 SKIP=1 quando o mock do lighthouse é o único skip
 
 ## Reportar Bugs
 - Abra issue no GitHub com `browser-automation-cli --version`

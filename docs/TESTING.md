@@ -2,29 +2,29 @@
 
 # Testing — browser-automation-cli
 
-> Run the right suite for the risk, not every browser path by default.
+- Run the right suite for the risk, not every browser path by default
 
 
 ## Why Categorized Tests
 - Browser runtime tests are slower and host-dependent
 - Schema and inventory tests catch contract drift without Chrome
 - Keeping categories explicit protects local iteration speed
-- Prefer local validation with cargo and e2e scripts
+- Prefer local validation with `cargo test`, and use the e2e scripts only for paths no `cargo test` gate covers
 
 
 ## Test Categories
 - Unit and library tests in `src/` (`cargo test --lib`)
 - CLI smoke tests such as `tests/doctor_cli.rs` and `tests/goto_smoke.rs`
 - Envelope and schema gates such as `tests/envelope_schema.rs` and `tests/parity_toolref_schema.rs`
-- Parity inventory and matrix tests (`tests/parity_inventory.rs`, `tests/parity_matrix.rs`)
+- Parity matrix tests (`tests/parity_matrix.rs`)
 - Run inventory gate: `tests/parity_run_inventory.rs` enforces `RUN_DISPATCHED_CMDS` ∪ intentional exclude (includes `print-pdf`, `select-option`, `pick`)
 - Clap surface gate: `tests/clap_command_debug_assert.rs` runs `Cli::command().debug_assert()`
 - Robots and pipe behaviour tests (`tests/robots_http.rs`, `tests/pipe_broken.rs`)
 - Golden i18n and cold-start helpers (`tests/golden_i18n.rs`, `tests/cold_start.rs`)
 - Optional e2e CDP event coverage when Chrome is available (`tests/e2e_cdp_events.rs`)
-- Full **53-tool** DevTools e2e script (legacy filename): `scripts/e2e_all_52_tools.sh`
-- Live CLI inventory is **71 agent names** (`commands --json`) — broader than the 53 tool-ref e2e set; includes agent-inventory `select-option` and `pick` (run/exec/schema, not clap), meta `locale` and `man`, plus clap `submit` and `storage`
-- Product gates introduced in v0.1.7 and still shipped in 0.1.9 (local, Chrome serial when required):
+- Full 53-tool DevTools e2e script (legacy filename): `scripts/e2e_all_52_tools.sh`
+- Live CLI inventory is 71 agent names (`commands --json`) — broader than the 53 tool-ref e2e set; includes agent-inventory `select-option` and `pick` (run/exec/schema, not clap), meta `locale` and `man`, plus clap `submit` and `storage`
+- Product gates introduced in v0.1.7 and still shipped in 0.2.0 (local, Chrome serial when required):
   - `tests/dialog_multitab_gate.rs` — multi-tab dialog isolation + `dialog_settled` (GAP-054)
   - `tests/option_pick_gate.rs` — native select `input`+`change` (GAP-055)
   - `tests/wait_conditions_gate.rs` — `wait_timeout_ms` deadline honesty (GAP-053)
@@ -32,7 +32,6 @@
   - Lighthouse unit fixtures: `scripts/fixtures/lighthouse/minimal_lhr.json` + `chrome_captured_lhr.json` (real LHR-shaped scores_from_lhr parse; GAP-021 partial)
 - Residual integration suite: `tests/residual_one_shot.rs` (marker zero, Singleton non-growth, BORN fixture wipe, doctor residual fields)
 - Local residual gates: `scripts/residual-check.sh`, `scripts/residual-stress.sh` (local maintainer scripts only)
-- Vendored tool-ref fixture: `tests/fixtures/tool-reference.md`
 - The suite REQUIRES `--test-threads=1`; nothing in the code enforces it
 - Measured: concurrent Chrome launches produce `SingletonLock: No such file or directory`, `No chromiumoxide Page for session_id` and `Page.navigate: Request timed out`
 - Serial is also faster here: 101s serial against 148s parallel
@@ -49,7 +48,8 @@
 - That is the same distinction `strict-gates` draws: unreachable by construction is excused, a missing tool is not
 - A test that cannot run declines through `skip_with_reason` or `skip_with_remedy` (`tests/common/mod.rs`), never through a bare `eprintln!`
 - Under `--features strict-gates` those helpers `panic!` instead of returning, so a declined gate FAILS rather than reporting a pass
-- `scripts/ci-check.sh` runs with `--all-features`, which turns `strict-gates` on
+- The local runner `scripts/ci-check.sh` runs with `--all-features`, which turns `strict-gates` on
+- Its test step is `cargo test --tests --all-features --quiet -- --test-threads=1`, which you can run directly on any platform
 - Unit-side declines use `skip_unit_test` (`src/test_utils.rs`)
 - Because a decline is a failure there, `strict-gates` turns every host tool a test needs into a HARD PREREQUISITE
 - Required on PATH for a green `--all-features` run: a Chrome or Chromium build `find_chrome` can resolve, `ffmpeg`, `ffprobe`, `Xvfb` (Linux), `/bin/sh`, and `redis-server`
@@ -78,7 +78,8 @@ cargo fmt --check
 - Run a single file with `cargo test --test doctor_cli --locked`
 - Use `-- --nocapture` only while debugging
 - Prefer library and schema gates first when iterating on contracts
-- If `cargo test` aborts with a thread stack overflow while building the clap tree / schema, raise the test thread stack: `RUST_MIN_STACK=8388608 cargo test --locked` (8 MiB; default Rust test threads are often 2 MiB). Prefer this over skipping the suite
+- A thread stack overflow during `cargo test` has no measured remedy on this page
+- Re-run the failing target alone with `cargo test --test <name> --locked`, keep the test name and the error output, and report it as a defect instead of skipping the suite
 
 
 ## E2E 53 Tools
@@ -91,12 +92,14 @@ bash scripts/e2e_all_52_tools.sh
 - Writes a report under a temp workdir and prints PASS/FAIL/SKIP counts
 - Maintainer evidence for v0.1.4: 53 PASS / 0 FAIL on a local host with Chrome (residual A001 closed; GAP-001…025 hard-close)
 - Maintainer evidence for v0.1.5: residual-zero disk closed (RES-01…12); `cargo test --lib residual::` + `cargo test --test residual_one_shot` + local residual-check PASS
-- **Maintainer evidence for v0.1.6 (honest):** `TOTAL=53 PASS=52 FAIL=0 SKIP=1` — lighthouse mock path is **SKIP** (CONTRACT-ONLY). Never claim full e2e lighthouse parser PASS
+- Maintainer evidence for v0.1.6: `TOTAL=53 PASS=52 FAIL=0 SKIP=1`
+- The lighthouse mock path is SKIP (CONTRACT-ONLY)
+- Never claim a full e2e lighthouse parser PASS
 - Lighthouse parser confidence is unit-level: `scores_from_lhr` against `minimal_lhr.json` and real sanitized `chrome_captured_lhr.json` (Lighthouse 13.4.1 shape)
 - The 52-tool suite does not replace residual smokes for commands outside the tool-ref set
 
 
-## Residual-Zero Disk Gates (law of v0.1.5 — still current in 0.1.9)
+## Residual-Zero Disk Gates (law of v0.1.5 — still current in 0.2.0)
 ```bash
 cargo build --release --locked
 cargo test --lib residual:: --locked
@@ -111,7 +114,7 @@ bash scripts/residual-check.sh
 - Doctor check id under test: `residual_disk` (path-light residual disk hygiene)
 - Doctor top-level JSON field under test: `residual` (`ResidualDiskReport`)
 - Doctor residual fields under test: `cli_marker_dirs`, `chromium_tmp_singleton_orphans`, `scavenge_safe_candidates`, `live_cli_marker_processes` (legacy), `sibling_live_processes`, `orphan_marker_dirs`, `ghost_marker_processes`, `foreign_root_orphans`, `scanned_roots`
-- Residual-zero agent contract: `residual_disk` must not `fail` (zeros on `orphan_marker_dirs` + `ghost_marker_processes`); after DIE alone also zero `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes>0` is healthy concurrency; do **not** require zero `live_cli_marker_processes`
+- Residual-zero agent contract: `residual_disk` must not `fail` (zeros on `orphan_marker_dirs` + `ghost_marker_processes`); after DIE alone also zero `cli_marker_dirs` + `chromium_tmp_singleton_orphans`; `sibling_live_processes>0` is healthy concurrency; do NOT require zero `live_cli_marker_processes`
 - Age floor for production stale GC is 60s; tests may use zero-age library helpers for fixtures
 
 
@@ -131,13 +134,50 @@ bash scripts/residual-check.sh
 - `wait_conditions_gate`: deadline honors `wait_timeout_ms` (~2s, not silent default) (GAP-053)
 - `scrape_step_gate`: run scrape `format=text` without HTML dump (GAP-057)
 - Lighthouse e2e mock remains SKIP; unit fixtures are the honest parser gate (GAP-021 partial)
-- **`grab` encode:** png|jpeg|webp only; AVIF removed (breaking) — residual smokes must not pass `--format avif`
-- **GAP-024 intentional residual:** PRD wishlist divergences stay intentional (do not claim full PRD parity)
-- Do **not** treat remote orchestration dashboards as product surface; use local cargo and `scripts/*-check.sh` only
+- `grab` encode: png|jpeg|webp only; AVIF removed (breaking) — residual smokes must not pass `--format avif`
+- GAP-024 intentional residual: PRD wishlist divergences stay intentional (do not claim full PRD parity)
+- Do NOT treat remote orchestration dashboards as product surface; use local cargo and `scripts/*-check.sh` only
+
+
+## Gates Introduced in v0.2.0 (Private Display and DevTools Pipe)
+- These gates cover the defects `CHANGELOG.md` lists under `0.2.0`
+- None of them needs a real Chrome
+```bash
+timeout 900 cargo test --test cdp_pipe_sigpipe_gate --locked
+timeout 900 cargo test --test chrome_failed_launch_group_gate --locked
+timeout 900 cargo test --lib native::cdp::pipe --locked
+timeout 900 cargo test --lib native::cdp::xvfb --locked
+timeout 900 cargo test --lib native::cdp::chrome::args --locked
+```
+### Integration Gates of v0.2.0
+- `tests/cdp_pipe_sigpipe_gate.rs` proves a Chrome that exits at once never kills the CLI by `SIGPIPE`
+- It sets `chrome_path` to `/usr/bin/false` with `config set` inside its own temporary XDG tree
+- It launches `goto about:blank` 20 times and fails if any run dies by signal or leaves no JSON envelope
+- It runs on Unix only and skips loudly without the binary or `/usr/bin/false`
+- `tests/chrome_failed_launch_group_gate.rs` proves a failed launch leaves no member of Chrome's process group alive
+- Its fake browser starts `sleep 60` in its own group, writes that pid and exits before DevTools answers
+- It fails if that pid is still alive and not a zombie once the CLI returns
+- It runs on Linux only and skips loudly without the binary or `/bin/sh`
+### Unit Tests of the DevTools Pipe
+- `native::cdp::pipe::tests::the_port_switches_are_replaced_by_the_pipe` proves the port and address switches are removed and `--remote-debugging-pipe` appears exactly once
+- `native::cdp::pipe::bridge::tests::messages_are_split_on_the_zero_byte` proves messages from Chrome are split on the zero byte and the readiness probe reply is consumed
+- `native::cdp::pipe::bridge::tests::a_message_cut_by_end_of_file_is_not_forwarded` proves a truncated message is dropped
+- `native::cdp::pipe::bridge::tests::written_messages_carry_the_terminator` proves every message written to Chrome ends with the zero byte
+- `native::cdp::pipe::bridge::tests::the_bridge_refuses_a_wrong_path_and_serves_the_right_one` proves the WebSocket bridge refuses a path without the token and accepts the tokened path
+- `native::cdp::pipe::bridge::tests::shutdown_returns_within_its_grace_while_the_pipe_is_still_held` proves teardown returns within `CDP_PIPE_SHUTDOWN_GRACE_MS` plus one second while the pipe is still held open
+- A host where the pipes cannot be created declines through `skip_unit_test`, which fails under `strict-gates`
+### Unit Tests of the Private Display
+- `native::cdp::xvfb::auth::tests::the_entry_follows_the_xauthority_layout` proves the `MIT-MAGIC-COOKIE-1` entry has the 46-byte Xauthority layout
+- `native::cdp::xvfb::auth::tests::the_file_is_private_and_removed_with_its_owner` proves the cookie file has mode 0600 and is gone once its owner drops
+- `native::cdp::xvfb::auth::tests::orphaned_cookies_are_swept_and_live_ones_kept` proves a cookie of a dead pid is removed while a live one and an unrelated file stay
+- `native::cdp::xvfb::display::tests::a_lock_left_by_a_dead_server_does_not_retire_the_number` proves a lock naming a dead process frees the number, while a bare socket, a live server or an unreadable lock keep it taken
+- `native::cdp::xvfb::spawn::tests::a_server_that_exits_is_reported_at_once_not_at_the_deadline` proves a server that exits is reported before the startup deadline
+- `native::cdp::chrome::args::tests::the_x11_pin_follows_the_display_outcome` proves `--ozone-platform=x11` appears once when the private display started, never when it did not, and never over a platform switch already in the argument list, a defensive branch that no flag or XDG key reaches
+- The cookie file and sweep tests run on Unix only
 
 
 ## Gate Families Under tests/
-- `tests/` holds 67 integration gate files, each run with `cargo test --test <name> --locked`
+- `tests/` holds 94 integration gate files, each run with `cargo test --test <name> --locked`
 - Each family below closes one class of defect, never one command
 - Every gate is local and needs no runner beyond cargo
 - A gate that cannot run its precondition SKIPs loudly instead of passing silently
@@ -152,7 +192,7 @@ bash scripts/residual-check.sh
 - The `direct` profile is the negative control and emits no synthetic wheel or key event
 - `tests/xvfb_gate.rs` — the doctor claim about Xvfb must match what the host can do
 - A headed Linux run must leave no display lock behind
-- A host without Xvfb is a printed skip, never a red run
+- A host without Xvfb is a printed skip in a default build and a failure under `strict-gates`
 - `tests/compression_gate.rs` — every advertised content-coding must arrive decoded
 - No `content-encoding` may survive into the envelope, which is proof the body was decompressed
 
@@ -203,6 +243,10 @@ bash scripts/residual-check.sh
 - `tests/lifecycle_group_kill.rs` — one signal reaps a whole process group, with a pid-tree fallback
 - It refuses our own group, `init` and the zero group
 - `tests/lifecycle_hard_kill_gate.rs` — `SIGKILL` on the CLI leaves no browser process from its group
+- `tests/chrome_failed_launch_group_gate.rs` — a failed Chrome launch leaves no member of Chrome's process group alive
+- A fake browser forks a `sleep` that stays in its group and exits before DevTools answers, and that pid must be gone once the CLI returns
+- `tests/cdp_pipe_sigpipe_gate.rs` — a Chrome that exits at once must never kill the CLI by `SIGPIPE` through the DevTools pipe
+- It launches 20 times with `/usr/bin/false` as the browser and requires every run to end by exit code with a JSON envelope
 - `tests/signal_shutdown.rs` — SIGTERM and SIGINT against a live CLI child must not hang
 - `tests/residual_report_contract.rs` — pids are counted once and impostor processes are not counted
 - The report emits the roots it scanned and reports foreign-root orphans separately
@@ -229,17 +273,13 @@ bash scripts/residual-check.sh
 - `tests/video_site_extraction_rejected.rs` — a player page and a manifest get different actionable errors
 
 ### Parity, Properties and Local Logging
-- `tests/parity_semantics.rs` — the third parity layer: precondition and effect, not only name
-- It SKIPs loudly when the reference tree and `docs_prd/` are absent from the checkout
 - `tests/proptest_parsers.rs` — property tests for offline parsers, robots body and envelope round trip
 - `tests/tracing_local_log_schema.rs` — field names of rotated JSON log lines under `config set log_to_file`
 - The lines are local files only; this product has no remote telemetry
 
 
 ## Full agent inventory (71)
-
-Discover live: `browser-automation-cli commands --json`
-
+- Discover it live with `browser-automation-cli commands --json`
 ```
 assert attr back batch-scrape click-at commands completions config console cookie
 crawl devtools3p dialog doctor drag emulate eval exec extension extract feed fill-form
@@ -248,16 +288,18 @@ net page parse perf pick press print-pdf qr record reload resize run schema scra
 scroll search select-option sg-rewrite sg-scan sheet-write sitemap storage submit text type
 upload version view wait webmcp workflow write
 ```
+- `pick` and `select-option` are multi-step inventory names used in `run` scripts
+- The clap product subcommand count is therefore 69, which is 71 agent names minus 2 run-only names
+- After editing inventory or flat-list docs, run the local gate `bash scripts/inventory-flat-check.sh`
+- It expects live `commands --json` to return 71 names including `image`, `video`, `audio` and `record`
+- The old name `scripts/verify-inventory-flat.sh` stays as a thin shim that delegates to it
+- The local runner `scripts/ci-check.sh` discovers verifiers with the glob `scripts/*-check.sh`
+- The old filename never matched that glob, so the gate never ran in the bundle
+- The docs then drifted to a stale count of 67 while the runner reported green
 
-Note: `pick` and `select-option` are multi-step inventory names used in `run` scripts; clap product subcommand count is **69** (71 agent names − 2 run-only).
-
-Local inventory honesty gate (no GHA): after inventory or flat-list docs edits, run `bash scripts/inventory-flat-check.sh` (expects live `commands --json` length **71** with `image`+`video`+`audio`+`record`).
-
-The gate is now named `scripts/inventory-flat-check.sh`. The old name `scripts/verify-inventory-flat.sh` is kept as a thin shim that delegates to it. Reason: `scripts/ci-check.sh` auto-discovers verifiers with the glob `scripts/*-check.sh`, and the old filename never matched that glob, so the gate never ran in the bundle and docs drifted to a stale count of 67 while the runner reported green.
 
 ## Residual PRD Smokes (beyond 53 tools)
-Run after e2e when validating the full **71**-name inventory:
-
+- Run these after e2e when validating the full 71-name inventory
 ```bash
 # print-pdf artifact (one-shot + run)
 browser-automation-cli --json print-pdf --url https://example.com --path /tmp/page.pdf
@@ -413,7 +455,7 @@ browser-automation-cli --json lighthouse https://example.com \
 - Envelope reports `binary_source` as `real` or `mock`
 - The mock writes minimal HTML/JSON reports for smoke paths
 - Doctor reports lighthouse presence/source as informational when the binary is missing
-- **v0.1.6 honesty:** e2e suite **SKIPs** the lighthouse mock path — never report that as a full parser PASS
+- v0.1.6 honesty: the e2e suite SKIPs the lighthouse mock path — never report that as a full parser PASS
 - Parser confidence: unit tests on `scripts/fixtures/lighthouse/minimal_lhr.json` and `chrome_captured_lhr.json`
 
 
@@ -504,10 +546,10 @@ bash scripts/doc-coverage-check.sh
 
 
 ## Full Verifier Suite Scale
-- `scripts/` holds **44** top-level `.sh` files; `tests/` holds **92** `.rs` gate files
-- Measured 2026-09-01 with `fd -d 1 -e sh . scripts/` and `fd -d 1 -e rs . tests/`
+- `scripts/` holds **44** top-level `.sh` files; `tests/` holds **94** `.rs` gate files
+- Measured 2026-09-13 with `fd -d 1 -e sh . scripts/` and `fd -d 1 -e rs . tests/`
 - `tests/doc_measured_claims_gate.rs` re-measures both, because the 2026-08-28 pair read 42 and 73 and went stale unnoticed
-- `-d 1` is part of the measurement, not decoration: without it the `scripts/` count picks up subdirectories and reads 45
+- `-d 1` is part of the measurement, not decoration: without it the `scripts/` count picks up subdirectories and reads 47
 - `bash scripts/ci-check.sh` is the local runner for the bundle
 - It auto-discovers every executable `scripts/*-check.sh` through that glob
 - A script whose name does not end in `-check.sh` never enters the bundle and must be invoked by name
@@ -528,14 +570,14 @@ bash scripts/doc-coverage-check.sh
 - `scripts/tracing-check.sh` — logging and rotation rules; `--inventory-only` runs the static half alone
 - `scripts/multiplatform-check.sh` — rejects shelling out to `which` / `where`, which must go through `platform::which_bin`
 - `scripts/natives-check.sh` — native crate allowlist; forbids human CLIs under `src/` outside domain binaries (chrome, lightpanda, lighthouse, ffmpeg, redis-server in tests), and forbids `openssl` (TLS stays rustls-only) and `nasm-rs` in `Cargo.lock`
-- `scripts/filesize-check.sh` — 300 **code**-line ceiling per production file; rustdoc prose is not code, so counting physical lines would reward deleting documentation; declared exceptions carry an expiry version and fail like any other file past it
+- `scripts/filesize-check.sh` — 300 CODE-line ceiling per production file; rustdoc prose is not code, so counting physical lines would reward deleting documentation; declared exceptions carry an expiry version and fail like any other file past it
 - `scripts/orphan-module-check.sh` — every `src/**/*.rs` must be reachable from a crate root; a file no parent declares with `mod` is absent from the binary while build, clippy and the whole suite stay green
 - `scripts/reachability-check.sh` — `pub use` items with no call site under `src/`; the `dead_code` lint stops at the crate boundary, so a re-exported item nobody calls stays silent
 - `scripts/split-conservation-audit.sh` — takes `<original.rs> <new_dir>` pairs and asserts every significant line of a pre-split file still exists under the directory that replaced it; splitting `commands/ops/lighthouse.rs` silently dropped a `pub(crate)` doc comment while build, clippy, `cargo doc -D warnings` and the whole suite stayed green, because `missing_docs` fires on ABSENT documentation of a public item and is blind to documentation that was DELETED from an item it does not cover
 
 
 ## Surface and Schema Parity Verifiers
-- `scripts/clap-schema-parity-check.sh` — compares the clap **parser** against the published schema, the axis `schema-drift-check.sh` structurally cannot see because both of its sides derive from the same schema module; measured 29 flags accepted by clap and absent from `schema`, including the required `storage export --path`
+- `scripts/clap-schema-parity-check.sh` — compares the clap PARSER against the published schema, the axis `schema-drift-check.sh` structurally cannot see because both of its sides derive from the same schema module; measured 29 flags accepted by clap and absent from `schema`, including the required `storage export --path`
 - `scripts/schema-drift-check.sh` — thin adapter over the generator's `--check`; the runtime is the source of truth and `docs/schemas/*.json` is a derived artifact; the capability existed long before the wiring, and seven schemas had drifted while every audit reported green
 - `scripts/config-roundtrip-check.sh` — every `CONFIG_KEYS` literal must exist in the writer and in the reader (see v0.1.8 below)
 - `scripts/phantom-flag-gate.sh` — bash adapter over `tests/phantom_flag_gate.rs` (see v0.1.8 below)
@@ -566,11 +608,12 @@ bash scripts/doc-coverage-check.sh
 - `scripts/config-roundtrip-check.sh` — asserts every key literal in `CONFIG_KEYS` is present in the writer `src/xdg/config_write.rs` and in the reader `src/xdg/config_io.rs`; promoted policy keys are exempt because one macro table generates them
 - The class it closes: `config set` rebuilds the whole `config.toml` from a hand-written template, so a key missing from it is dropped rather than left alone, and the reader's hand-written `match` discards it on load
 - The failure was silent in the worst way: `config set` answered `ok: true` with exit `0` and the next process read back `null`
-- Measured 2026-08-09: seventeen keys missing from both halves. Measured 2026-08-10: **six more** still missing — `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `stealth_seed`, `robots_user_agent`
+- Measured 2026-08-09: seventeen keys missing from both halves
+- Measured 2026-08-10: six more still missing — `proxy_url`, `proxy_bypass`, `proxy_username`, `proxy_password`, `stealth_seed`, `robots_user_agent`
 - Two of those six are proxy credentials the documentation tells the operator to keep in configuration precisely because argv is visible in the process table; the safe channel discarded the value and left the leaky one as the only one that worked
 - Why not a Rust test: a round-trip test needs a validation-passing value per key and degenerates into a hardcoded sample, which is exactly how `tests/v018_parity_gate.rs` missed the six; the invariant is a static set comparison and belongs in a static check
 - `scripts/phantom-flag-gate.sh` — adapter that exposes one property of `tests/phantom_flag_gate.rs` to the controls runner, which drives every control with `bash $script`; it holds no assertion of its own and takes a libtest filter argument
-- It is deliberately **not** named `*-check.sh`: that glob would run the same properties a second time, and a second green adds no information while costing a full test-binary link
+- It is deliberately NOT named `*-check.sh`: that glob would run the same properties a second time, and a second green adds no information while costing a full test-binary link
 - The original scan was a 411-line Python script; it was ported to Rust and deleted, because the product is Rust end to end
 - `scripts/natives-check.sh` — pins the native crate allowlist and forbids `openssl` and `nasm-rs`; the first would break the rustls-only TLS law, the second would make a system NASM a build requirement
 - A new native dependency must be added to `SYS_ALLOWLIST` with a justification or removed
@@ -620,7 +663,7 @@ bash scripts/doc-coverage-check.sh
 - Schema gate failures: update both code and `docs/schemas/` in the same change
 - Command schema drift: re-run `bash scripts/generate_command_schemas.sh` after changing `meta.rs`
 - Bilingual fence drift: re-run `bash scripts/audit_bilingual_docs.sh` and align EN and `.pt-BR` command blocks
-- Inventory drift: refresh against `commands --json` (71) and `tests/fixtures/tool-reference.md` (53 tools)
+- Inventory drift: refresh against `commands --json` (71)
 - Residual disk leaks: re-run `cargo test --test residual_one_shot` and `bash scripts/residual-check.sh`; inspect doctor `residual`
 - Run inventory drift: refresh `RUN_DISPATCHED_CMDS` and re-run `cargo test --test parity_run_inventory`
 - Clap assert failures: fix `GlobalOpts` / subcommand definitions then re-run `cargo test --test clap_command_debug_assert`

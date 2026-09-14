@@ -323,12 +323,61 @@ const WITNESS_KEYS: &[&str] = &[
     "runtime_enable_used",
 ];
 
+/// What the launch in this process actually drew onto: 0 = no launch yet,
+/// 1 = headless, 2 = private Xvfb, 3 = the host's own display.
+static DISPLAY_OUTCOME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Record the surface a Chrome launch really used, for [`witness`].
+///
+/// # The defect this closes
+///
+/// `display_backend` used to be computed from the policy alone, so it read
+/// `xvfb` whenever a headed run had not refused the virtual display. Measured
+/// on 2026-09-13 with every display number in the search span taken: Xvfb could
+/// not start, Chrome went to the host display, and the envelope still said
+/// `xvfb`. That field exists for a caller whose requirement is "never paint a
+/// window on the user's screen", so the one case it must catch is the case it
+/// reported wrong.
+pub fn record_display_outcome(headless: bool, private_display: bool) {
+    DISPLAY_OUTCOME.store(
+        display_outcome_code(headless, private_display),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+/// Pure mapping behind [`record_display_outcome`], testable without the global.
+fn display_outcome_code(headless: bool, private_display: bool) -> u8 {
+    match (headless, private_display) {
+        (true, _) => 1,
+        (false, true) => 2,
+        (false, false) => 3,
+    }
+}
+
+/// Name of a recorded outcome, or `None` when no launch recorded one.
+fn display_outcome_name(code: u8) -> Option<&'static str> {
+    match code {
+        1 => Some("headless"),
+        2 => Some("xvfb"),
+        3 => Some("host"),
+        _ => None,
+    }
+}
+
 /// Which surface the browser draws onto, if any.
 ///
 /// Not derived from `browser_mode` alone: `--headed` with a private virtual
 /// display is NOT the user's screen, and conflating the two is what let the
 /// original report accuse this product of painting windows it never painted.
+///
+/// A launch in this process reports its OUTCOME; before any launch the answer
+/// is the intent, which is all that exists yet.
 fn display_backend() -> &'static str {
+    if let Some(name) =
+        display_outcome_name(DISPLAY_OUTCOME.load(std::sync::atomic::Ordering::Relaxed))
+    {
+        return name;
+    }
     if mode().launches_headless() {
         return "headless";
     }
@@ -342,7 +391,24 @@ fn display_backend() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_mode, BrowserMode, PolicySource};
+    use super::{
+        display_outcome_code, display_outcome_name, resolve_mode, BrowserMode, PolicySource,
+    };
+
+    /// A headed launch whose Xvfb failed must report the host display.
+    #[test]
+    fn the_display_witness_reports_the_outcome_not_the_intent() {
+        let name =
+            |headless, private| display_outcome_name(display_outcome_code(headless, private));
+        assert_eq!(name(false, false), Some("host"));
+        assert_eq!(name(false, true), Some("xvfb"));
+        assert_eq!(name(true, false), Some("headless"));
+        assert_eq!(
+            display_outcome_name(0),
+            None,
+            "no launch yet falls back to intent"
+        );
+    }
 
     /// The property `--headless` exists to provide.
     ///

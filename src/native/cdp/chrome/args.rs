@@ -479,33 +479,10 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
         args.push("--disable-dev-shm-usage".to_string());
     }
 
-    // Publish what this launch ACTUALLY passed, once per process.
-    //
-    // # The defect this closes
-    //
-    // An audit tried the experiment that decides whether a launch switch hurts
-    // fidelity — remove one, repeat the measurement — and could not run it,
-    // because the switches were invisible from the product's own surface. The
-    // CLI exposed the SYMPTOM, since the flags show up in `ps`, and hid the
-    // CONTROL. Reading argv out of `ps` is not a contract; this is.
-    //
-    // # Why publishing beats adding a knob per flag
-    //
-    // The refusal recorded above still holds: `--disable-quic` is a security
-    // decision whose ON position leaks traffic past the caller's proxy, and the
-    // four ANGLE switches are one correlated BUNDLE that a detector
-    // cross-checks. A knob that can only be set wrongly is not a knob. What the
-    // operator actually lacked was the ability to SEE the set and correlate it
-    // with the flags that already govern it — `--no-stealth` removes the QUIC
-    // decision, `--webgpu` gates the ANGLE bundle.
-    //
-    // `--ozone-override-screen-size`, the third switch that audit named, is
-    // absent from this tree entirely as of 2026-09-04.
-    //
-    // `set` and not `get_or_init`: a second call in one process would mean two
-    // launches with possibly different argv, and silently keeping the first is
-    // how a witness starts lying. The value is read by `doctor --fingerprint`.
-    let _ = LAUNCH_ARGS.set(args.clone());
+    // Follows the Xvfb OUTCOME carried in the options, not the intent: see
+    // `LaunchOptions::private_display` for the launch this used to kill.
+    pin_x11_for_private_display(&mut args, options.private_display);
+
     Ok(ChromeArgs {
         args,
         user_data_dir,
@@ -513,10 +490,66 @@ pub(crate) fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, S
     })
 }
 
+/// Pin Chrome to X11 when it will run inside the private Xvfb display.
+///
+/// # Why the switch, and not the environment, is the fix
+///
+/// Chromium's `ui/linux/display_server_utils.cc` picks Wayland from
+/// `XDG_SESSION_TYPE=wayland` whenever no `--ozone-platform` is given, and its
+/// `InspectWaylandDisplay` finds `$XDG_RUNTIME_DIR/wayland-0` on its own when
+/// `WAYLAND_DISPLAY` is missing. Measured on Fedora 44 with Chromium 152: with
+/// `WAYLAND_DISPLAY` removed and no switch, the renderers still received
+/// `--ozone-platform=wayland`; with this switch they received `x11`. An
+/// explicit `--ozone-platform` makes Chromium skip that detection entirely.
+///
+/// A platform switch already in `args` is kept. No flag or XDG key fills
+/// `LaunchOptions::args` today, so this is a defensive branch that only the
+/// unit test reaches; `--no-xvfb` is the operator's way to keep the host display.
+fn pin_x11_for_private_display(args: &mut Vec<String>, private_display: bool) {
+    if private_display && !args.iter().any(|a| a.starts_with("--ozone-platform=")) {
+        args.push("--ozone-platform=x11".to_string());
+    }
+}
+
 /// The argv this process handed Chrome, or `None` before any launch.
 static LAUNCH_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 
-/// What [`build_chrome_args`] produced for this process.
+/// Publish the argv Chrome ACTUALLY receives, once per process.
+///
+/// Called by the launcher after its last argv rewrite, and never by
+/// [`build_chrome_args`], because the self-spawn path still swaps the debugging
+/// transport afterwards and a witness published earlier would report switches
+/// the browser never received.
+///
+/// # The defect this closes
+///
+/// An audit tried the experiment that decides whether a launch switch hurts
+/// fidelity — remove one, repeat the measurement — and could not run it,
+/// because the switches were invisible from the product's own surface. The
+/// CLI exposed the SYMPTOM, since the flags show up in `ps`, and hid the
+/// CONTROL. Reading argv out of `ps` is not a contract; this is.
+///
+/// # Why publishing beats adding a knob per flag
+///
+/// The refusal recorded above still holds: `--disable-quic` is a security
+/// decision whose ON position leaks traffic past the caller's proxy, and the
+/// four ANGLE switches are one correlated BUNDLE that a detector
+/// cross-checks. A knob that can only be set wrongly is not a knob. What the
+/// operator actually lacked was the ability to SEE the set and correlate it
+/// with the flags that already govern it — `--no-stealth` removes the QUIC
+/// decision, `--webgpu` gates the ANGLE bundle.
+///
+/// `--ozone-override-screen-size`, the third switch that audit named, is
+/// absent from this tree entirely as of 2026-09-04.
+///
+/// `set` and not `get_or_init`: a second call in one process would mean two
+/// launches with possibly different argv, and silently keeping the first is
+/// how a witness starts lying. The value is read by `doctor --fingerprint`.
+pub(crate) fn publish_launch_args(args: &[String]) {
+    let _ = LAUNCH_ARGS.set(args.to_vec());
+}
+
+/// The argv the launcher published for this process.
 ///
 /// `None` means no launch has happened yet, which is a different answer from
 /// "launched with no flags" and must stay distinguishable.
@@ -559,4 +592,66 @@ pub(crate) fn should_disable_dev_shm(existing_args: &[String]) -> bool {
         }
     }
     crate::platform::HostEnvironment::detect().container
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn platform_switches(args: &[String]) -> Vec<&str> {
+        args.iter()
+            .map(String::as_str)
+            .filter(|a| a.starts_with("--ozone-platform="))
+            .collect()
+    }
+
+    fn build_and_clean(options: &LaunchOptions) -> Vec<String> {
+        let built = build_chrome_args(options).expect("chrome args must build");
+        if let Some(ref dir) = built.temp_user_data_dir {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        built.args
+    }
+
+    /// A build whose Xvfb started pins X11 exactly once, a build without one
+    /// never does, and an operator who already chose a platform keeps it.
+    ///
+    /// Driven by `LaunchOptions::private_display` rather than by the global
+    /// window mode, so the test mutates no process-wide state: the earlier
+    /// version called `set_mode`, which `xvfb::should_use_private_display`'s
+    /// own tests forbid because every other test in the binary reads that mode.
+    #[test]
+    fn the_x11_pin_follows_the_display_outcome() {
+        let with_display = build_and_clean(&LaunchOptions {
+            headless: false,
+            private_display: true,
+            ..Default::default()
+        });
+        let chosen = build_and_clean(&LaunchOptions {
+            headless: false,
+            private_display: true,
+            args: vec!["--ozone-platform=wayland".to_string()],
+            ..Default::default()
+        });
+        let without_display = build_and_clean(&LaunchOptions {
+            headless: false,
+            private_display: false,
+            ..Default::default()
+        });
+
+        assert_eq!(
+            platform_switches(&with_display),
+            ["--ozone-platform=x11"],
+            "{with_display:?}"
+        );
+        assert_eq!(
+            platform_switches(&chosen),
+            ["--ozone-platform=wayland"],
+            "{chosen:?}"
+        );
+        assert!(
+            platform_switches(&without_display).is_empty(),
+            "a launch whose Xvfb never started must not be forced onto X11: {without_display:?}"
+        );
+    }
 }

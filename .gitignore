@@ -111,6 +111,8 @@ graphrag.sqlite-wal
 **/.ingest-queue.sqlite-wal
 CLAUDE.md
 /CLAUDE.md
+.commit_hash
+**/.commit_hash
 # --- directories (prefix + contents) ---
 base_*/
 docs_rules*/

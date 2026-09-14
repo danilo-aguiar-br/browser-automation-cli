@@ -10,6 +10,56 @@ pub const CDP_DISCOVERY_MAX_BODY_BYTES: usize = 1024 * 1024;
 /// Lagged receivers drop oldest (tokio broadcast semantics).
 pub const CDP_EVENT_BROADCAST_CAPACITY: usize = 4096;
 
+/// CDP message id of the readiness probe sent down the DevTools pipe.
+///
+/// Far above any id `chromiumoxide` reaches in a one-shot run, which starts at
+/// zero and counts up, so the reader can recognise the probe reply without
+/// confusing it with a command the client issued.
+pub const CDP_PIPE_READY_PROBE_ID: u64 = 2_000_000_000;
+
+/// Capacity of each bounded channel between the DevTools pipe and the bridge.
+///
+/// Bounded so a stalled consumer applies backpressure to the pipe reader
+/// instead of growing memory without limit.
+pub const CDP_PIPE_CHANNEL_CAPACITY: usize = 1024;
+
+/// Milliseconds a client gets to finish the WebSocket handshake on the bridge.
+///
+/// A connection that opens and never speaks must not hold the only accept
+/// slot until the launch deadline.
+pub const CDP_PIPE_HANDSHAKE_TIMEOUT_MS: u64 = 2000;
+
+/// Milliseconds the bridge waits for its pipe threads at teardown.
+///
+/// The reader ends only when EVERY process holding Chrome's write end closes
+/// it, and a descendant can inherit that descriptor — Fedora's
+/// `chromium-browser.sh` forks `cat` helpers that do. Measured: an unbounded
+/// join held a `--timeout 10` command for 40 seconds. Past this grace the
+/// threads are left detached; they block only on descriptors that die with
+/// this one-shot process.
+pub const CDP_PIPE_SHUTDOWN_GRACE_MS: u64 = 2000;
+
+/// Milliseconds an engine owner waits for its stdout/stderr drainers at teardown.
+///
+/// Same failure as [`CDP_PIPE_SHUTDOWN_GRACE_MS`], one layer out: a descendant
+/// that inherited the engine's output keeps the drainer from reaching
+/// end-of-file.
+pub const LOG_DRAINER_JOIN_GRACE_MS: u64 = 2000;
+
+/// Milliseconds Chrome's leftover group members get between SIGTERM and SIGKILL.
+///
+/// Used only after the leader has exited cooperatively, so the wait ends as
+/// soon as the group is empty and costs nothing on the ordinary path.
+pub const CHROME_GROUP_STRAGGLER_GRACE_MS: u64 = 500;
+
+/// Largest single DevTools message, in bytes, either direction.
+///
+/// A ceiling rather than a tuning knob: without one, a reader waiting for a
+/// zero byte grows its buffer for as long as bytes keep arriving. Set far
+/// above a full-page screenshot, which is the largest message this product
+/// requests.
+pub const CDP_PIPE_MAX_MESSAGE_BYTES: usize = 256 * 1024 * 1024;
+
 /// CDP event drain poll slice (milliseconds) during navigation wait.
 pub const CDP_EVENT_DRAIN_POLL_MS: u64 = 100;
 

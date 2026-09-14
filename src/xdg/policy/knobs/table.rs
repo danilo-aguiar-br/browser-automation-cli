@@ -26,7 +26,7 @@ policy_knobs! {
 
     // ── cdp: discovery, event pump, attach ───────────────────────────────
     CDP_DISCOVERY_MAX_BODY_BYTES => cdp_discovery_max_body_bytes,
-        "Max CDP discovery HTTP body bytes (/json/version, /json/list)";
+        "Max CDP discovery HTTP body bytes (/json/version, /json/list); read only by Lightpanda readiness";
     CDP_EVENT_BROADCAST_CAPACITY => cdp_event_broadcast_capacity,
         "Process-local CDP event broadcast channel capacity";
     CDP_EVENT_DRAIN_POLL_MS => cdp_event_drain_poll_ms,
@@ -36,7 +36,7 @@ policy_knobs! {
     CDP_TARGET_EVENT_WAIT_MS => cdp_target_event_wait_ms,
         "CDP target event short wait (milliseconds)";
     DEFAULT_CDP_DISCOVERY_TIMEOUT_SECS => cdp_discovery_timeout_secs,
-        "CDP HTTP discovery timeout for /json/version probes (seconds)";
+        "CDP HTTP discovery timeout for /json/version probes (seconds); no launch path reads it since the DevTools pipe";
     EVENT_TRACKER_MAX_ENTRIES => event_tracker_max_entries,
         "In-memory console/network tracker ring size per page session";
     CAPTURE_PRESERVED_RINGS => capture_preserved_rings,

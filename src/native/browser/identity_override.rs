@@ -38,21 +38,10 @@ impl BrowserManager {
         identity: &crate::native::stealth::Identity,
     ) -> Result<(), String> {
         let session_id = self.active_session_id()?;
-        let major = identity
-            .user_agent
-            .split("Chrome/")
-            .nth(1)
-            .and_then(|s| s.split('.').next())
-            .unwrap_or("");
-        let brands = json!([
-            { "brand": "Chromium", "version": major },
-            { "brand": "Google Chrome", "version": major },
-            { "brand": "Not?A_Brand", "version": "24" },
-        ]);
         self.client
             .send_command(
                 "Emulation.setUserAgentOverride",
-                Some(user_agent_override_params(identity, &brands)),
+                Some(user_agent_override_params(identity)),
                 Some(session_id),
             )
             .await?;
@@ -65,20 +54,49 @@ impl BrowserManager {
 /// `platform` (not `userAgentMetadata.platform`) is what Chrome writes to
 /// `navigator.platform`. Omitting it is how a Windows UA kept reporting
 /// `Linux x86_64` on this host.
+///
+/// # Every high-entropy field is sent, not only the low-entropy ones
+///
+/// Chrome fills any `userAgentMetadata` field left out with the REAL binary's
+/// value. Measured headless before the fields below were added: under a
+/// User-Agent claiming 153, `sec-ch-ua-full-version` said `"152.0.7977.82"`
+/// and `sec-ch-ua-full-version-list` named `Chromium` 152 — the host build,
+/// leaking through the override. `fullVersionList` mirrors `brands` with the
+/// full version, so the GREASE entry is the same one `sec-ch-ua` carries.
 pub fn user_agent_override_params(
     identity: &crate::native::stealth::Identity,
-    brands: &serde_json::Value,
 ) -> serde_json::Value {
+    let major = crate::native::stealth::ua_chrome_major(&identity.user_agent).unwrap_or_default();
+    let full_version = identity.full_version();
+    // The same GREASE entry `Identity::brands` puts in `sec-ch-ua`, so the
+    // header, `navigator.userAgentData.brands` and the full list agree.
+    let brands = json!([
+        { "brand": "Chromium", "version": major },
+        { "brand": "Google Chrome", "version": major },
+        { "brand": "Not?A_Brand", "version": "24" },
+    ]);
+    let full_version_list = json!([
+        { "brand": "Chromium", "version": full_version },
+        { "brand": "Google Chrome", "version": full_version },
+        { "brand": "Not?A_Brand", "version": "24.0.0.0" },
+    ]);
     json!({
         "userAgent": identity.user_agent,
         "platform": identity.navigator_platform,
         "userAgentMetadata": {
             "brands": brands,
+            "fullVersionList": full_version_list,
+            "fullVersion": full_version,
             // Unquoted here: the quotes in `identity.platform` are
             // header syntax, and CDP takes the bare token.
             "platform": identity.platform.trim_matches('"'),
-            "platformVersion": "",
+            "platformVersion": identity.platform_version(),
             "architecture": "x86",
+            // Every template this identity emits is a 64-bit x86 build
+            // (`Win64; x64`, `Linux x86_64`, `Intel Mac OS X`), so the
+            // bitness is 64 and never WOW64.
+            "bitness": "64",
+            "wow64": false,
             "model": "",
             "mobile": identity.mobile == "?1",
         },
@@ -94,16 +112,48 @@ mod tests {
     #[test]
     fn chrome_win_override_drags_navigator_platform() {
         let identity = Identity::for_profile(StealthProfile::ChromeWindows);
-        let params = user_agent_override_params(&identity, &json!([]));
+        let params = user_agent_override_params(&identity);
         assert_eq!(params["platform"], "Win32");
         assert_eq!(params["userAgentMetadata"]["platform"], "Windows");
         assert!(params["userAgent"].as_str().unwrap().contains("Windows NT"));
     }
 
     #[test]
+    fn override_metadata_is_complete_and_matches_the_identity_major() {
+        // Measured headless before this: the override sent no fullVersionList,
+        // so Chrome filled `sec-ch-ua-full-version-list` and
+        // `sec-ch-ua-full-version` from the REAL binary (152.0.7977.82) under a
+        // User-Agent claiming 153.
+        for profile in [StealthProfile::ChromeLinux, StealthProfile::ChromeWindows] {
+            let identity = Identity::for_profile(profile);
+            let major = identity
+                .user_agent
+                .split("Chrome/")
+                .nth(1)
+                .and_then(|s| s.split('.').next())
+                .expect("major")
+                .to_string();
+            let params = user_agent_override_params(&identity);
+            let meta = &params["userAgentMetadata"];
+            let full = meta["fullVersion"].as_str().expect("fullVersion");
+            assert!(full.starts_with(&format!("{major}.")), "{meta}");
+            let list = meta["fullVersionList"].as_array().expect("fullVersionList");
+            for brand in ["Chromium", "Google Chrome"] {
+                assert!(
+                    list.iter()
+                        .any(|b| b["brand"] == brand && b["version"] == full),
+                    "{brand} missing from {meta}"
+                );
+            }
+            assert_eq!(meta["bitness"], "64", "{meta}");
+            assert_eq!(meta["wow64"], false, "{meta}");
+        }
+    }
+
+    #[test]
     fn chrome_mac_override_drags_navigator_platform() {
         let identity = Identity::for_profile(StealthProfile::ChromeMac);
-        let params = user_agent_override_params(&identity, &json!([]));
+        let params = user_agent_override_params(&identity);
         assert_eq!(params["platform"], "MacIntel");
         assert_eq!(params["userAgentMetadata"]["platform"], "macOS");
     }

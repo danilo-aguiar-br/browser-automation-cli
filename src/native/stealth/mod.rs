@@ -38,11 +38,11 @@ mod signal_source;
 mod webgl;
 
 pub use coherence::{
-    agent_os_from_ua, assess_signals, bug01_deleted_webdriver, bug02_windows_ua_linux_platform,
-    planned_stealth_signals, planned_vs_live, signals_from_live, ua_chrome_major,
-    ua_contradicts_profile, CoherenceMismatch, FingerprintSignals,
+    agent_os_from_ua, assess_signals, brands_vs_user_agent, bug01_deleted_webdriver,
+    bug02_windows_ua_linux_platform, planned_stealth_signals, planned_vs_live, signals_from_live,
+    ua_chrome_major, ua_contradicts_profile, CoherenceMismatch, FingerprintSignals,
 };
-pub use identity::{chrome_major_from_version_line, Identity};
+pub use identity::{chrome_major_from_product, chrome_major_from_version_line, Identity};
 pub use screen::{
     current_screen_override, current_screen_source, device_metrics_override, parse_screen_spec,
     resolve_screen, resolved_screen_source, set_screen_override, ScreenSource,
@@ -83,21 +83,46 @@ static SCRIPT: OnceLock<Option<String>> = OnceLock::new();
 pub fn script_for_process() -> Option<&'static str> {
     SCRIPT
         .get_or_init(|| {
-            if !browser_policy::stealth_enabled() {
-                return None;
-            }
+            // Built from THIS launch's `Browser.getVersion` reply rather than
+            // from the identity the HTTP client may already have pinned: the
+            // brands must match the User-Agent the page is about to show. See
+            // [`identity_for_process`] for the one run where the two can differ.
             let profile = browser_policy::stealth_profile();
+            let (identity, source) = &process_identity(
+                browser_policy::stealth_enabled(),
+                profile,
+                browser_policy::mode().launches_headless(),
+                || known_host_major(launched_chrome_major(), cached_host_major),
+            )?;
+            // After the stealth gate, and a no-op without a seed: the disk
+            // contract in `seed_cache` applies to the major as well.
+            persist_launched_major();
+            let _ = PAGE_MAJOR_SOURCE.set(*source);
             // With a seed, the identity is pinned ACROSS processes too. Without
             // one, N one-shot runs present N machines from one address, which
             // is a pattern no real user produces.
             let Some(seed) = browser_policy::stealth_seed() else {
-                return build_script(&Identity::for_profile(profile));
+                return build_script(identity);
             };
-            if let Some(cached) = seed_cache::load(seed, profile.as_str()) {
+            // A script re-centred on the host major carries that major, so it
+            // must not be served to a launch that projects the crate table (or a
+            // different host binary). The `-native` suffix retires every script
+            // cached under the bare profile, which still emulated `userAgentData`.
+            let cache_key = match source {
+                PageMajorSource::HostBinary => format!(
+                    "{}-{}",
+                    profile.as_str(),
+                    ua_chrome_major(&identity.user_agent).unwrap_or_default()
+                ),
+                PageMajorSource::HostUnprobed | PageMajorSource::Projected => {
+                    format!("{}-native", profile.as_str())
+                }
+            };
+            if let Some(cached) = seed_cache::load(seed, &cache_key) {
                 return Some(cached);
             }
-            let built = build_script(&Identity::for_profile(profile))?;
-            seed_cache::store(seed, profile.as_str(), &built);
+            let built = build_script(identity)?;
+            seed_cache::store(seed, &cache_key, &built);
             Some(built)
         })
         .as_deref()
@@ -107,14 +132,139 @@ pub fn script_for_process() -> Option<&'static str> {
 ///
 /// Cached for the same reason [`script_for_process`] is: a redrawn identity
 /// mid-process would contradict the script already injected into the page.
-fn identity_for_process() -> Option<&'static Identity> {
-    static IDENTITY: OnceLock<Option<Identity>> = OnceLock::new();
+///
+/// Derived from [`page_identity`], so the HTTP client announces the same major
+/// the page shows. Measured before this did: headed on the host profile, the
+/// page said `Chrome/152` while `user-agent` and `sec-ch-ua` on the wire said
+/// 153. The launch mode is read once here.
+///
+/// # No `--version` probe on this path
+///
+/// The host major comes from this process's launch reply when a browser already
+/// started, else from the major the last launch of the same binary stored, else
+/// the crate table stands in as [`PageMajorSource::HostUnprobed`]. Spawning
+/// `chrome --version` here cost 0.23 s on every HTTP-only command and broke the
+/// "never on the hot launch path" contract of `probe_binary_version`.
+///
+/// # The one run where page and wire can differ
+///
+/// A process that sends HTTP BEFORE launching Chrome pins this identity from
+/// the stored major. The first such run after a Chrome upgrade therefore sends
+/// the old major while the page shows the new one; the launch in that run
+/// stores the new major, so the next process agrees again.
+fn identity_for_process() -> Option<&'static (Identity, PageMajorSource)> {
+    static IDENTITY: OnceLock<Option<(Identity, PageMajorSource)>> = OnceLock::new();
     IDENTITY
         .get_or_init(|| {
-            browser_policy::stealth_enabled()
-                .then(|| Identity::for_profile(browser_policy::stealth_profile()))
+            process_identity(
+                browser_policy::stealth_enabled(),
+                browser_policy::stealth_profile(),
+                browser_policy::mode().launches_headless(),
+                || known_host_major(launched_chrome_major(), cached_host_major),
+            )
         })
         .as_ref()
+}
+
+/// Major reported by this process's own Chrome launch, once the bridge saw it.
+static LAUNCHED_MAJOR: OnceLock<String> = OnceLock::new();
+
+/// Record the major from the `Browser.getVersion` readiness reply.
+///
+/// Called by the DevTools pipe bridge, which already receives that reply; no
+/// process and no extra CDP command is spent to learn it. The first launch in a
+/// process wins, which is the binary every later launch in it also uses.
+pub fn record_launched_chrome_major(major: String) {
+    let _ = LAUNCHED_MAJOR.set(major);
+}
+
+fn launched_chrome_major() -> Option<&'static str> {
+    LAUNCHED_MAJOR.get().map(String::as_str)
+}
+
+/// Whether the host major may be read from or written to disk at all.
+///
+/// `seed_cache` states the product's disk contract: nothing is written unless
+/// `--stealth-seed` (or XDG `stealth_seed`) asks for cross-process stability,
+/// and the README promises a run leaves nothing behind. The major is part of
+/// that same stability, so it follows the same opt-in — and never under
+/// `--no-stealth`, where no identity is projected.
+fn host_major_disk_allowed(stealth: bool, seed: Option<&str>) -> bool {
+    stealth && seed.is_some()
+}
+
+/// Major the last launch of the binary this host would start stored on disk.
+fn cached_host_major() -> Option<String> {
+    cached_host_major_from(
+        host_major_disk_allowed(
+            browser_policy::stealth_enabled(),
+            browser_policy::stealth_seed(),
+        ),
+        seed_cache::host_major_dir(),
+        crate::native::cdp::chrome::find_chrome,
+    )
+}
+
+/// Testable half of [`cached_host_major`].
+///
+/// `find_chrome` runs only when disk is allowed: it walks config and known
+/// paths and can print a raw warning, which an HTTP-only command without a
+/// seed has no reason to trigger.
+fn cached_host_major_from(
+    allowed: bool,
+    dir: Option<std::path::PathBuf>,
+    find_chrome: impl FnOnce() -> Option<std::path::PathBuf>,
+) -> Option<String> {
+    if !allowed {
+        return None;
+    }
+    seed_cache::load_host_major(&dir?, &find_chrome()?)
+}
+
+/// Store this process's launch major for the next HTTP-only process.
+fn persist_launched_major() {
+    persist_major_to(
+        host_major_disk_allowed(
+            browser_policy::stealth_enabled(),
+            browser_policy::stealth_seed(),
+        ),
+        seed_cache::host_major_dir(),
+        launched_chrome_major(),
+        crate::native::cdp::chrome::find_chrome,
+    );
+}
+
+/// Testable half of [`persist_launched_major`].
+fn persist_major_to(
+    allowed: bool,
+    dir: Option<std::path::PathBuf>,
+    launched: Option<&str>,
+    find_chrome: impl FnOnce() -> Option<std::path::PathBuf>,
+) {
+    if !allowed {
+        return;
+    }
+    if let (Some(dir), Some(major), Some(chrome)) = (dir, launched, find_chrome()) {
+        seed_cache::store_host_major(&dir, &chrome, major);
+    }
+}
+
+/// Pure half of [`identity_for_process`]: `None` when stealth is off.
+fn process_identity(
+    stealth: bool,
+    profile: browser_policy::StealthProfile,
+    headless: bool,
+    host_major: impl FnOnce() -> Option<String>,
+) -> Option<(Identity, PageMajorSource)> {
+    stealth.then(|| page_identity(profile, headless, host_major))
+}
+
+/// Host major without spawning: this launch's reply first, the stored one next.
+fn known_host_major(
+    launched: Option<&str>,
+    load_cached: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    launched.map(str::to_string).or_else(load_cached)
 }
 
 /// The User-Agent stealth actually puts on the wire, or `None` when it is off.
@@ -124,7 +274,7 @@ fn identity_for_process() -> Option<&'static Identity> {
 /// identity string, which stealth does not send.
 #[must_use]
 pub fn wire_user_agent() -> Option<String> {
-    identity_for_process().map(|id| id.user_agent.clone())
+    identity_for_process().map(|(id, _)| id.user_agent.clone())
 }
 
 /// Chrome's request headers, in Chrome's order, or `None` when stealth is off.
@@ -145,7 +295,7 @@ pub fn wire_user_agent() -> Option<String> {
 /// which half it got instead of inferring a guarantee that does not exist.
 #[must_use]
 pub fn wire_headers() -> Option<Vec<(&'static str, String)>> {
-    identity_for_process().map(Identity::chrome_header_order)
+    identity_for_process().map(|(id, _)| id.chrome_header_order())
 }
 
 /// Build the patch script for a given identity.
@@ -200,7 +350,17 @@ pub(crate) fn build_script(identity: &Identity) -> Option<String> {
     config.dismiss_dialogs = false;
 
     config.hardware_concurrency = true;
-    config.user_agent_data = Some(true);
+    // Never emulated: the page's own `navigator.userAgentData` is the one that
+    // agrees with the `sec-ch-ua*` headers Chrome actually sends.
+    //
+    // Without an override that object is the browser's. Measured headed on the
+    // host profile, the emulated one said `Chromium/152, Google Chrome/152,
+    // Not-A.Brand/8` while the real header said `"Not?A_Brand";v="24",
+    // "Chromium";v="152"`. With an override Chrome builds it from the CDP
+    // `userAgentMetadata` (see `user_agent_override_params`); measured headless,
+    // the crate object on top swapped the header's GREASE for `Not-A.Brand/8`
+    // and drew a random build per process.
+    config.user_agent_data = Some(false);
 
     // Both default to OFF in the crate and are opt-in. `deviceMemory` is one of
     // the enumerated headless markers, and the CDP marker cleanup removes the
@@ -249,8 +409,8 @@ pub(crate) fn build_script(identity: &Identity) -> Option<String> {
 
 /// Whether the browser session should also override the User-Agent over CDP.
 ///
-/// Only true for an explicitly foreign profile. See
-/// [`Identity::overrides_browser_user_agent`].
+/// True for a foreign profile or a headless launch. See
+/// [`Identity::overrides_browser_user_agent`] and [`page_identity`].
 #[must_use]
 pub fn user_agent_override() -> Option<Identity> {
     if !browser_policy::stealth_enabled() {
@@ -266,6 +426,87 @@ pub fn user_agent_override() -> Option<Identity> {
     } else {
         None
     }
+}
+
+/// Where the Chrome major of [`page_identity`] came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageMajorSource {
+    /// The User-Agent is overridden, so the crate table IS the identity.
+    Projected,
+    /// Chrome keeps its own User-Agent and the host binary named its major:
+    /// its `--version` (doctor), this launch's `Browser.getVersion` reply, or
+    /// the reply a seeded earlier launch stored.
+    HostBinary,
+    /// Chrome keeps its own User-Agent but no major was known without a probe,
+    /// so the crate table stands in as a declared fallback.
+    HostUnprobed,
+}
+
+impl PageMajorSource {
+    /// Stable envelope token for `user_agent_major_source`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Projected => "projected",
+            Self::HostBinary => "host_binary",
+            Self::HostUnprobed => "host_unprobed",
+        }
+    }
+}
+
+/// Where the major the HTTP client announces came from, `None` without stealth.
+#[must_use]
+pub fn wire_major_source() -> Option<PageMajorSource> {
+    identity_for_process().map(|(_, source)| *source)
+}
+
+/// Where the major of the page script came from, `None` before a launch built
+/// it or without stealth.
+#[must_use]
+pub fn page_major_source() -> Option<PageMajorSource> {
+    PAGE_MAJOR_SOURCE.get().copied()
+}
+
+/// Recorded by [`script_for_process`] for [`page_major_source`].
+static PAGE_MAJOR_SOURCE: OnceLock<PageMajorSource> = OnceLock::new();
+
+/// The identity the PAGE presents under stealth for `profile` in this mode.
+///
+/// When [`Identity::overrides_browser_user_agent`] is false, Chrome keeps its
+/// own User-Agent and the page shows the HOST binary's major, not the crate
+/// table's. Measured headed on the host profile: `navigator.userAgent`
+/// `Chrome/152.0.0.0` while the plan said 153 and the patch script published
+/// brands `v="153"`. Both the plan and the script derive from this function so
+/// they cannot disagree with each other or with the page.
+///
+/// `host_major` is only called on the non-override path, so a launch that
+/// projects the crate table never pays for a `--version` probe.
+pub fn page_identity(
+    profile: browser_policy::StealthProfile,
+    headless: bool,
+    host_major: impl FnOnce() -> Option<String>,
+) -> (Identity, PageMajorSource) {
+    let identity = Identity::for_profile(profile);
+    if Identity::overrides_browser_user_agent(profile, headless) {
+        return (identity, PageMajorSource::Projected);
+    }
+    match host_major() {
+        Some(major) => (identity.with_major(&major), PageMajorSource::HostBinary),
+        None => (identity, PageMajorSource::HostUnprobed),
+    }
+}
+
+/// Chrome major version of the binary this host would launch, if it answers.
+///
+/// Spawns `chrome --version`, so it is for `doctor` only, which describes the
+/// truth and may pay for it. Hot paths use `known_host_major` instead — plain
+/// text rather than a link, because that helper is private and a rustdoc link
+/// from a public item to a private one fails `cargo doc -D warnings`.
+#[must_use]
+pub fn host_chrome_major() -> Option<String> {
+    let path = crate::native::cdp::chrome::find_chrome()?;
+    let line = crate::platform::probe_binary_version(&path)?;
+    chrome_major_from_version_line(&line)
 }
 
 /// Whether the stealth profile contradicts the host platform.
@@ -289,6 +530,162 @@ pub fn profile_contradicts_host() -> bool {
 mod tests {
     use super::*;
     use crate::browser_policy::StealthProfile;
+
+    #[test]
+    fn host_major_touches_disk_only_with_a_seed_and_stealth_on() {
+        assert!(host_major_disk_allowed(true, Some("s")));
+        assert!(!host_major_disk_allowed(true, None), "no seed, no disk");
+        assert!(
+            !host_major_disk_allowed(false, Some("s")),
+            "--no-stealth, no disk"
+        );
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let chrome = || Some(dir.path().join("chrome"));
+        let empty = |d: &std::path::Path| std::fs::read_dir(d).map_or(0, Iterator::count) == 0;
+
+        // Without a seed (or with stealth off) a real launch writes nothing,
+        // and the HTTP path does not even look for Chrome.
+        persist_major_to(
+            host_major_disk_allowed(true, None),
+            Some(dir.path().to_path_buf()),
+            Some("152"),
+            chrome,
+        );
+        persist_major_to(
+            host_major_disk_allowed(false, Some("s")),
+            Some(dir.path().to_path_buf()),
+            Some("152"),
+            chrome,
+        );
+        assert!(empty(dir.path()), "a launch without a seed wrote to disk");
+        assert_eq!(
+            cached_host_major_from(false, Some(dir.path().to_path_buf()), || {
+                panic!("find_chrome must not run without a seed")
+            }),
+            None
+        );
+
+        // With a seed the launch major survives to the next process.
+        persist_major_to(true, Some(dir.path().to_path_buf()), Some("152"), chrome);
+        assert_eq!(
+            cached_host_major_from(true, Some(dir.path().to_path_buf()), chrome).as_deref(),
+            Some("152")
+        );
+    }
+
+    #[test]
+    fn the_script_never_emulates_user_agent_data() {
+        // Without an override the browser's own object matches its headers;
+        // with one, the CDP `userAgentMetadata` builds it. Either way the crate
+        // object on top contradicted `sec-ch-ua` (measured headed and headless).
+        for profile in [
+            StealthProfile::ChromeLinux,
+            StealthProfile::ChromeWindows,
+            StealthProfile::ChromeMac,
+        ] {
+            let script = build_script(&Identity::for_profile(profile)).expect("emulation script");
+            assert!(
+                !script.contains("fullVersionList"),
+                "{profile:?}: the script still emulates userAgentData"
+            );
+        }
+    }
+
+    #[test]
+    fn http_headed_identity_never_spawns_a_version_probe() {
+        // No launch and no cache: the crate table stands in, declared as such.
+        // Before this, the wire path ran `chrome --version` (0.23 s measured)
+        // and answered the host major instead.
+        let host = StealthProfile::Auto.resolved();
+        assert_eq!(known_host_major(None, || None), None);
+        let (id, source) = process_identity(true, host, false, || known_host_major(None, || None))
+            .expect("stealth identity");
+        assert_eq!(source, PageMajorSource::HostUnprobed);
+        assert_eq!(id.user_agent, Identity::for_profile(host).user_agent);
+    }
+
+    #[test]
+    fn cached_host_major_is_the_one_sent_in_the_headers() {
+        let host = StealthProfile::Auto.resolved();
+        let (id, source) = process_identity(true, host, false, || {
+            known_host_major(None, || Some("151".to_string()))
+        })
+        .expect("stealth identity");
+        assert_eq!(source, PageMajorSource::HostBinary);
+        let headers = id.chrome_header_order();
+        assert!(
+            headers
+                .iter()
+                .any(|(n, v)| *n == "user-agent" && v.contains("Chrome/151.0.0.0")),
+            "{headers:?}"
+        );
+        assert!(
+            headers
+                .iter()
+                .any(|(n, v)| *n == "sec-ch-ua" && v.contains("v=\"151\"")),
+            "{headers:?}"
+        );
+        // A launch reply in this process outranks the file.
+        assert_eq!(
+            known_host_major(Some("150"), || panic!("cache must not be read")),
+            Some("150".to_string())
+        );
+    }
+
+    #[test]
+    fn wire_identity_carries_the_page_major_in_user_agent_and_sec_ch_ua() {
+        let host = StealthProfile::Auto.resolved();
+        assert!(process_identity(false, host, false, || panic!("no probe")).is_none());
+
+        // Headed host: the page shows the host binary, so must the HTTP client.
+        let (id, _) = process_identity(true, host, false, || Some("151".to_string()))
+            .expect("stealth identity");
+        let headers = id.chrome_header_order();
+        let header = |name: &str| {
+            headers
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        };
+        assert!(
+            header("user-agent").contains("Chrome/151.0.0.0"),
+            "{headers:?}"
+        );
+        assert!(header("sec-ch-ua").contains("v=\"151\""), "{headers:?}");
+
+        // Headless is overridden: the crate table stands and nothing is probed.
+        let (id, _) =
+            process_identity(true, host, true, || panic!("no probe")).expect("stealth identity");
+        assert_eq!(id.user_agent, Identity::for_profile(host).user_agent);
+    }
+
+    #[test]
+    fn page_identity_follows_the_host_major_only_without_override() {
+        let host = StealthProfile::Auto.resolved();
+        let table = Identity::for_profile(host);
+
+        // Headless overrides the UA: the crate table stands, nothing is probed.
+        let (id, source) = page_identity(host, true, || panic!("probe must not run"));
+        assert_eq!(source, PageMajorSource::Projected);
+        assert_eq!(id.user_agent, table.user_agent);
+
+        // Headed host keeps Chrome's own UA: plan and brands follow the binary.
+        let (id, source) = page_identity(host, false, || Some("151".to_string()));
+        assert_eq!(source, PageMajorSource::HostBinary);
+        assert!(
+            id.user_agent.contains("Chrome/151.0.0.0"),
+            "{}",
+            id.user_agent
+        );
+        assert!(id.brands.contains("v=\"151\""), "{}", id.brands);
+
+        // A silent binary falls back to the table and says so.
+        let (id, source) = page_identity(host, false, || None);
+        assert_eq!(source, PageMajorSource::HostUnprobed);
+        assert_eq!(id.user_agent, table.user_agent);
+    }
 
     #[test]
     fn the_script_covers_the_markers_js_owns() {

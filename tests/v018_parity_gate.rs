@@ -558,13 +558,27 @@ fn doctor_states_what_browser_mode_auto_resolves_to() {
     let v = run(&cfg, &["-q", "--json", "doctor", "--offline", "--quick"]);
     let c = check(&v, "virtual_display").unwrap_or_else(|| panic!("check missing in {v}"));
     // The documentation claimed `auto` ran headed inside a private display for
-    // three releases while the code resolved headless. A sentence goes stale;
-    // this reads the live policy, so it cannot.
-    assert_eq!(
-        c["browser_mode_auto_resolves"],
-        serde_json::json!("headless"),
-        "{c}"
-    );
+    // three releases while the code resolved headless. Since 2026-09-04 it does
+    // resolve headed on Linux with Xvfb on PATH, and this gate kept pinning
+    // "headless", so it failed on exactly that host.
+    //
+    // Three checks, because comparing the sentence with the field alone would
+    // accept both being wrong together: the field is a known token, the
+    // sentence names it, and it matches the host rule. The rule is read from
+    // the resolver the binary itself runs, never re-derived here; `false`
+    // mirrors the doctor invocation above, which passes no `--no-xvfb`.
+    let resolved = c["browser_mode_auto_resolves"].as_str().unwrap_or_default();
+    assert!(matches!(resolved, "headless" | "headed"), "{c}");
+    browser_automation_cli::browser_policy::set_auto_headed(false);
+    let expected = if browser_automation_cli::browser_policy::BrowserMode::Auto.launches_headless()
+    {
+        "headless"
+    } else {
+        "headed"
+    };
+    assert_eq!(resolved, expected, "{c}");
+    let message = c["message"].as_str().unwrap_or_default();
+    assert!(message.contains(&format!("resolves to {resolved}")), "{c}");
     assert!(c["host_has_display"].is_boolean(), "{c}");
 }
 
