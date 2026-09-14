@@ -128,10 +128,11 @@ impl Identity {
     /// `sec-ch-ua` brands together.
     ///
     /// Used where Chrome keeps its OWN User-Agent (host profile, headed): the
-    /// page then shows the host binary's major, and a patch script built from
-    /// the crate table would publish `userAgentData.brands` with another one.
-    /// Measured before this existed: headed page `Chrome/152.0.0.0` next to
-    /// brands `v="153"`.
+    /// page then shows the host binary's major, so the HTTP client's
+    /// `User-Agent` and `sec-ch-ua` and the doctor's plan must name that major
+    /// too, not the crate table's. Measured before this existed: headed page
+    /// `Chrome/152.0.0.0` next to brands `v="153"`. The patch script no longer
+    /// emulates `userAgentData`, so the page's brands are Chrome's own.
     #[must_use]
     pub fn with_major(&self, major: &str) -> Self {
         Self {

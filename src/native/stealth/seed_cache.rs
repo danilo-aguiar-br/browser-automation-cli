@@ -105,19 +105,25 @@ pub(super) fn store(seed: &str, profile: &str, script: &str) {
     if crate::xdg::ensure_dir(&dir).is_err() {
         return;
     }
-    let tmp = path.with_extension("js.tmp");
-    // Born `0600`. The file describes the identity a remote site will attribute
-    // to this host, so it is no more world-readable than a credential. Creating
-    // it private closes the window that `fs::write` plus a later chmod left
-    // open, and the mode survives the rename below.
+    replace_private(&path, "js", script.as_bytes());
+}
+
+/// Replace `path` with `bytes` through a private temp file and a rename.
+///
+/// Born `0600` on Unix; other platforms keep their default ACL. The file
+/// describes the identity a remote site will attribute to this host, so it is
+/// no more world-readable than a credential. Creating it private closes the
+/// window that `fs::write` plus a later chmod left open, and the mode survives
+/// the rename. A failed write or rename removes the temp file, so nothing is
+/// left behind for the next run to trip over.
+fn replace_private(path: &Path, ext: &str, bytes: &[u8]) {
+    let tmp = unique_tmp(path, ext);
     let Ok(mut handle) = crate::platform::create_private_file(&tmp) else {
         return;
     };
-    if std::io::Write::write_all(&mut handle, script.as_bytes()).is_err() {
-        return;
-    }
+    let written = std::io::Write::write_all(&mut handle, bytes).is_ok();
     drop(handle);
-    if fs::rename(&tmp, &path).is_err() {
+    if !written || fs::rename(&tmp, path).is_err() {
         let _ = fs::remove_file(&tmp);
     }
 }
@@ -174,13 +180,13 @@ pub(super) fn load_host_major(dir: &Path, chrome: &Path) -> Option<String> {
 /// A fixed `.tmp` name let two concurrent processes truncate each other's
 /// write before the rename; the pid plus the clock keeps each writer on its own
 /// file, and the rename still makes the final replace atomic.
-fn host_major_tmp(path: &Path) -> PathBuf {
+fn unique_tmp(path: &Path, ext: &str) -> PathBuf {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    path.with_extension(format!("txt.{}.{nanos}.{n}.tmp", std::process::id()))
+    path.with_extension(format!("{ext}.{}.{nanos}.{n}.tmp", std::process::id()))
 }
 
 /// Remember the major a real launch of `chrome` reported, only when it changed.
@@ -192,17 +198,7 @@ pub(super) fn store_host_major(dir: &Path, chrome: &Path, major: &str) {
     if crate::xdg::ensure_dir(dir).is_err() {
         return;
     }
-    let tmp = host_major_tmp(&path);
-    let Ok(mut handle) = crate::platform::create_private_file(&tmp) else {
-        return;
-    };
-    if std::io::Write::write_all(&mut handle, major.as_bytes()).is_err() {
-        return;
-    }
-    drop(handle);
-    if fs::rename(&tmp, &path).is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
+    replace_private(&path, "txt", major.as_bytes());
 }
 
 // No `clear()` here on purpose. Rotating the identity is what changing the
@@ -255,10 +251,26 @@ mod tests {
     #[test]
     fn host_major_temp_name_is_unique_per_write() {
         let path = Path::new("/x/host-major-abc.txt");
-        let (a, b) = (host_major_tmp(path), host_major_tmp(path));
+        let (a, b) = (unique_tmp(path, "txt"), unique_tmp(path, "txt"));
         assert_ne!(a, b, "two writers would race on one temp file");
         let name = a.to_string_lossy();
         assert!(name.contains(&std::process::id().to_string()), "{name}");
+    }
+
+    #[test]
+    fn a_failed_replace_leaves_no_temp_file_behind() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // A non-empty directory at the target makes the rename fail.
+        let target = dir.path().join("script.js");
+        std::fs::create_dir(&target).expect("dir");
+        std::fs::write(target.join("keep"), b"x").expect("write");
+        replace_private(&target, "js", b"body");
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .expect("read_dir")
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
     }
 
     #[test]

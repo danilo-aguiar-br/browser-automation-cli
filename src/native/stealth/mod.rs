@@ -68,7 +68,7 @@ static SCRIPT: OnceLock<Option<String>> = OnceLock::new();
 /// it produced a different GPU vendor (`Mesa`/`llvmpipe` against
 /// `NVIDIA Corporation`/`GeForce GTX 1050`), a different `hardwareConcurrency`
 /// (4 against 8), a different `deviceMemory` (4 against 8), a different
-/// `history.length` and even a different Chrome build number.
+/// `history.length`.
 ///
 /// Handing a different identity to each navigation is WORSE than an honest
 /// one. A page that reads the GPU on load and again after a click sees the
@@ -721,7 +721,7 @@ mod tests {
     #[test]
     fn build_script_is_deliberately_not_deterministic() {
         // Measured: two calls disagree on GPU vendor, hardwareConcurrency,
-        // deviceMemory and the Chrome build. That is fine for the BUILDER and
+        // deviceMemory and history.length. That is fine for the BUILDER and
         // fatal for the CALLER, which is precisely why `script_for_process`
         // caches. This test pins the hazard so the cache is never removed as
         // "an optimisation nobody needs".

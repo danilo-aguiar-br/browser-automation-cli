@@ -273,7 +273,7 @@ pub struct GlobalOpts {
     /// marker this product masks. With a seed the generated patch script is
     /// cached under XDG state and reused, so the N runs look like one browser.
     /// The seed varies `hardwareConcurrency`, `deviceMemory`, GPU vendor and
-    /// renderer, `history.length` and the Chrome build number. It does not
+    /// renderer and `history.length`. It does not
     /// vary User-Agent, `navigator.platform`, languages, timezone, screen or
     /// `plugins.length`. Persist it with `config set stealth_seed <value>`.
     #[arg(

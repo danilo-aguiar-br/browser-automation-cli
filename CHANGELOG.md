@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-09-13
+## [0.2.0] - 2026-09-14
 
 ### Added
 - `scrape` envelopes on both engines carry `user_agent_major_source`, always present. `projected` means the User-Agent is overridden and its major comes from the identity crate's table; `host_binary` means the major came from this host's Chrome, through the launch reply to `Browser.getVersion`, `--version` in `doctor`, or the major a seeded earlier launch stored; `host_unprobed` means the crate table stood in because no major was known and nothing was probed. It is `null` under `--no-stealth`, and on the browser engine also before a launch

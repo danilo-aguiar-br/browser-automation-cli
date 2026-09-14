@@ -239,7 +239,8 @@ pub fn write_config(cfg: &ProductConfig) -> Result<std::path::PathBuf, CliError>
     }
     let tmp = path.with_extension("toml.tmp");
     {
-        // Born `0600`: the temp file holds `proxy_password` while it is written,
+        // Born `0600` on Unix (other platforms keep their default ACL): the
+        // temp file holds `proxy_password` while it is written,
         // and `File::create` would honour the umask and expose it until the chmod
         // that used to follow the rename. Creating it private removes the window
         // entirely instead of shortening it.

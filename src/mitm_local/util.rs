@@ -40,7 +40,8 @@ pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
     }
     let tmp = path.with_extension("tmp");
     {
-        // Born `0600`. `File::create` honours the umask, so the tmp file — which
+        // Born `0600` on Unix (other platforms keep their default ACL).
+        // `File::create` honours the umask, so the tmp file — which
         // may hold the CA private key or a captured body — existed world-readable
         // from creation until the chmod after the rename. Creating it private
         // removes that window rather than shortening it.

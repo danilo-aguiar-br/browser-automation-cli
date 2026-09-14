@@ -9,7 +9,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-09-13
+## [0.2.0] - 2026-09-14
 
 ### Adicionado
 - Os envelopes de `scrape` nos dois motores carregam `user_agent_major_source`, sempre presente. `projected` significa que o User-Agent foi sobrescrito e o major vem da tabela da crate de identidade; `host_binary` significa que o major veio do Chrome deste host, pela resposta de `Browser.getVersion` no lançamento, pelo `--version` no `doctor`, ou pelo major que um lançamento anterior com semente guardou; `host_unprobed` significa que a tabela da crate entrou no lugar porque nenhum major era conhecido e nada foi sondado. Ele vale `null` sob `--no-stealth`, e no motor browser também antes de um lançamento

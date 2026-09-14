@@ -74,7 +74,6 @@ pub const STEALTH_SEED_FIELDS: &[&str] = &[
     "gpu.vendor",
     "gpu.renderer",
     "history.length",
-    "chrome.build",
 ];
 
 /// Fields `--stealth-seed` does **not** vary. They come from the profile or
